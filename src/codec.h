@@ -24,36 +24,36 @@ typedef struct {
 } net_string;
 
 mc_int
-read_varint(buffer_cursor * cursor);
+net_read_varint(buffer_cursor * cursor);
 
 void
-write_varint(buffer_cursor * cursor, mc_int val);
+net_write_varint(buffer_cursor * cursor, mc_int val);
 
 int
-varint_size(mc_int val);
+net_varint_size(mc_int val);
 
 mc_ushort
-read_ushort(buffer_cursor * cursor);
+net_read_ushort(buffer_cursor * cursor);
 
 mc_ulong
-read_ulong(buffer_cursor * cursor);
+net_read_ulong(buffer_cursor * cursor);
 
 void
-write_ulong(buffer_cursor * cursor, mc_ulong val);
+net_write_ulong(buffer_cursor * cursor, mc_ulong val);
 
 void
-write_uint(buffer_cursor * cursor, mc_uint val);
+net_write_uint(buffer_cursor * cursor, mc_uint val);
 
 mc_ubyte
-read_ubyte(buffer_cursor * cursor);
+net_read_ubyte(buffer_cursor * cursor);
 
 void
-write_ubyte(buffer_cursor * cursor, mc_ubyte val);
+net_write_ubyte(buffer_cursor * cursor, mc_ubyte val);
 
 net_string
-read_string(buffer_cursor * cursor, mc_int max_size);
+net_read_string(buffer_cursor * cursor, mc_int max_size);
 
 void
-write_string(buffer_cursor * cursor, net_string val);
+net_write_string(buffer_cursor * cursor, net_string val);
 
 #endif

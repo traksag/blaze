@@ -261,7 +261,7 @@ server_tick(void) {
             };
 
             for (;;) {
-                mc_int packet_size = read_varint(&rec_cursor);
+                mc_int packet_size = net_read_varint(&rec_cursor);
 
                 if (rec_cursor.error != 0) {
                     // packet size not fully received yet
@@ -279,7 +279,7 @@ server_tick(void) {
                 }
 
                 int packet_start = rec_cursor.index;
-                mc_int packet_id = read_varint(&rec_cursor);
+                mc_int packet_id = net_read_varint(&rec_cursor);
 
                 switch (init_con->protocol_state) {
                 case PROTOCOL_HANDSHAKE: {
@@ -287,10 +287,10 @@ server_tick(void) {
                         rec_cursor.error = 1;
                     }
 
-                    mc_int protocol_version = read_varint(&rec_cursor);
-                    net_string address = read_string(&rec_cursor, 255);
-                    mc_ushort port = read_ushort(&rec_cursor);
-                    mc_int next_state = read_varint(&rec_cursor);
+                    mc_int protocol_version = net_read_varint(&rec_cursor);
+                    net_string address = net_read_string(&rec_cursor, 255);
+                    mc_ushort port = net_read_ushort(&rec_cursor);
+                    mc_int next_state = net_read_varint(&rec_cursor);
 
                     if (next_state == 1) {
                         init_con->protocol_state = PROTOCOL_AWAIT_STATUS_REQUEST;
@@ -325,12 +325,12 @@ server_tick(void) {
                         .size = sizeof response - 1,
                         .ptr = response
                     };
-                    int out_size = varint_size(0)
-                            + varint_size(response_str.size)
+                    int out_size = net_varint_size(0)
+                            + net_varint_size(response_str.size)
                             + response_str.size;
-                    write_varint(&send_cursor, out_size);
-                    write_varint(&send_cursor, 0);
-                    write_string(&send_cursor, response_str);
+                    net_write_varint(&send_cursor, out_size);
+                    net_write_varint(&send_cursor, 0);
+                    net_write_string(&send_cursor, response_str);
 
                     init_con->protocol_state = PROTOCOL_AWAIT_PING_REQUEST;
                     break;
@@ -340,12 +340,12 @@ server_tick(void) {
                         rec_cursor.error = 1;
                     }
 
-                    mc_ulong payload = read_ulong(&rec_cursor);
+                    mc_ulong payload = net_read_ulong(&rec_cursor);
 
-                    int out_size = varint_size(1) + 8;
-                    write_varint(&send_cursor, out_size);
-                    write_varint(&send_cursor, 1);
-                    write_ulong(&send_cursor, payload);
+                    int out_size = net_varint_size(1) + 8;
+                    net_write_varint(&send_cursor, out_size);
+                    net_write_varint(&send_cursor, 1);
+                    net_write_ulong(&send_cursor, payload);
                     break;
                 }
                 case PROTOCOL_AWAIT_HELLO: {
@@ -353,7 +353,7 @@ server_tick(void) {
                         rec_cursor.error = 1;
                     }
 
-                    net_string username = read_string(&rec_cursor, 16);
+                    net_string username = net_read_string(&rec_cursor, 16);
                     // @TODO(traks) more username validation
                     if (username.size == 0) {
                         rec_cursor.error = 1;
@@ -457,31 +457,31 @@ server_tick(void) {
                 // send game profile packet
                 net_string username = {brain->username_size, brain->username};
                 net_string uuid_str = NET_STRING("01234567-89ab-cdef-0123-456789abcdef");
-                int out_size = varint_size(2)
-                        + varint_size(uuid_str.size) + uuid_str.size
-                        + varint_size(username.size) + username.size;
-                write_varint(&send_cursor, out_size);
-                write_varint(&send_cursor, 2);
-                write_string(&send_cursor, uuid_str);
-                write_string(&send_cursor, username);
+                int out_size = net_varint_size(2)
+                        + net_varint_size(uuid_str.size) + uuid_str.size
+                        + net_varint_size(username.size) + username.size;
+                net_write_varint(&send_cursor, out_size);
+                net_write_varint(&send_cursor, 2);
+                net_write_string(&send_cursor, uuid_str);
+                net_write_string(&send_cursor, username);
 
                 // send login packet
                 net_string level_type = NET_STRING("customized");
-                out_size = varint_size(38) + 4 + 1 + 4 + 8 + 1
-                        + varint_size(level_type.size) + level_type.size
-                        + varint_size(brain->new_chunk_cache_radius - 1) + 1 + 1;
-                write_varint(&send_cursor, out_size);
-                write_varint(&send_cursor, 38);
+                out_size = net_varint_size(38) + 4 + 1 + 4 + 8 + 1
+                        + net_varint_size(level_type.size) + level_type.size
+                        + net_varint_size(brain->new_chunk_cache_radius - 1) + 1 + 1;
+                net_write_varint(&send_cursor, out_size);
+                net_write_varint(&send_cursor, 38);
                 // @TODO(traks) implement entity IDs
-                write_uint(&send_cursor, 0);
-                write_ubyte(&send_cursor, GAMEMODE_CREATIVE);
-                write_uint(&send_cursor, 0); // environment
-                write_ulong(&send_cursor, 0); // seed
-                write_ubyte(&send_cursor, 0); // max players (ignored by client)
-                write_string(&send_cursor, level_type);
-                write_varint(&send_cursor, brain->new_chunk_cache_radius - 1);
-                write_ubyte(&send_cursor, 0); // reduced debug info
-                write_ubyte(&send_cursor, 1); // show death screen on death
+                net_write_uint(&send_cursor, 0);
+                net_write_ubyte(&send_cursor, GAMEMODE_CREATIVE);
+                net_write_uint(&send_cursor, 0); // environment
+                net_write_ulong(&send_cursor, 0); // seed
+                net_write_ubyte(&send_cursor, 0); // max players (ignored by client)
+                net_write_string(&send_cursor, level_type);
+                net_write_varint(&send_cursor, brain->new_chunk_cache_radius - 1);
+                net_write_ubyte(&send_cursor, 0); // reduced debug info
+                net_write_ubyte(&send_cursor, 1); // show death screen on death
 
                 // @TODO(traks) send player position packet (after chunks?)
 
@@ -531,7 +531,7 @@ server_tick(void) {
             };
 
             for (;;) {
-                mc_int packet_size = read_varint(&rec_cursor);
+                mc_int packet_size = net_read_varint(&rec_cursor);
 
                 if (rec_cursor.error != 0) {
                     // packet size not fully received yet
@@ -549,11 +549,11 @@ server_tick(void) {
                 }
 
                 int packet_start = rec_cursor.index;
-                mc_int packet_id = read_varint(&rec_cursor);
+                mc_int packet_id = net_read_varint(&rec_cursor);
 
                 switch (packet_id) {
                 case 0: { // accept teleport
-                    mc_int teleport_id = read_varint(&rec_cursor);
+                    mc_int teleport_id = net_read_varint(&rec_cursor);
 
                     if ((brain->flags & PLAYER_BRAIN_TELEPORTING)
                             && (brain->flags & PLAYER_BRAIN_SENT_TELEPORT)
@@ -564,35 +564,35 @@ server_tick(void) {
                 }
                 case 1: { // block entity tag query
                     log("Packet block entity tag query");
-                    mc_int id = read_varint(&rec_cursor);
-                    mc_ulong block_pos = read_ulong(&rec_cursor);
+                    mc_int id = net_read_varint(&rec_cursor);
+                    mc_ulong block_pos = net_read_ulong(&rec_cursor);
                     // @TODO(traks) handle packet
                     break;
                 }
                 case 2: { // change difficulty
                     log("Packet change difficulty");
-                    mc_ubyte difficulty = read_ubyte(&rec_cursor);
+                    mc_ubyte difficulty = net_read_ubyte(&rec_cursor);
                     // @TODO(traks) handle packet
                     break;
                 }
                 case 3: { // chat
                     log("Packet chat");
-                    net_string msg = read_string(&rec_cursor, 256);
+                    net_string msg = net_read_string(&rec_cursor, 256);
                     break;
                 }
                 case 4: { // client command
                     log("Packet client command");
-                    mc_int action = read_varint(&rec_cursor);
+                    mc_int action = net_read_varint(&rec_cursor);
                     break;
                 }
                 case 5: { // client information
                     log("Packet client information");
-                    net_string language = read_string(&rec_cursor, 16);
-                    mc_ubyte view_distance = read_ubyte(&rec_cursor);
-                    mc_int chat_visibility = read_varint(&rec_cursor);
-                    mc_ubyte sees_chat_colours = read_ubyte(&rec_cursor);
-                    mc_ubyte model_customisation = read_ubyte(&rec_cursor);
-                    mc_int main_hand = read_varint(&rec_cursor);
+                    net_string language = net_read_string(&rec_cursor, 16);
+                    mc_ubyte view_distance = net_read_ubyte(&rec_cursor);
+                    mc_int chat_visibility = net_read_varint(&rec_cursor);
+                    mc_ubyte sees_chat_colours = net_read_ubyte(&rec_cursor);
+                    mc_ubyte model_customisation = net_read_ubyte(&rec_cursor);
+                    mc_int main_hand = net_read_varint(&rec_cursor);
 
                     // View distance is without the extra border of chunks,
                     // while chunk cache radius is with the extra border of
@@ -609,41 +609,41 @@ server_tick(void) {
                 }
                 case 6: { // command suggestion
                     log("Packet command suggestion");
-                    mc_int id = read_varint(&rec_cursor);
-                    net_string command = read_string(&rec_cursor, 32500);
+                    mc_int id = net_read_varint(&rec_cursor);
+                    net_string command = net_read_string(&rec_cursor, 32500);
                     break;
                 }
                 case 7: { // container ack
                     log("Packet container ack");
-                    mc_ubyte container_id = read_ubyte(&rec_cursor);
-                    mc_ushort uid = read_ushort(&rec_cursor);
-                    mc_ubyte accepted = read_ubyte(&rec_cursor);
+                    mc_ubyte container_id = net_read_ubyte(&rec_cursor);
+                    mc_ushort uid = net_read_ushort(&rec_cursor);
+                    mc_ubyte accepted = net_read_ubyte(&rec_cursor);
                     break;
                 }
                 case 8: { // container button click
                     log("Packet container button click");
-                    mc_ubyte container_id = read_ubyte(&rec_cursor);
-                    mc_ubyte button_id = read_ubyte(&rec_cursor);
+                    mc_ubyte container_id = net_read_ubyte(&rec_cursor);
+                    mc_ubyte button_id = net_read_ubyte(&rec_cursor);
                     break;
                 }
                 case 9: { // container click
                     log("Packet container click");
-                    mc_ubyte container_id = read_ubyte(&rec_cursor);
-                    mc_ushort slot = read_ushort(&rec_cursor);
-                    mc_ubyte button = read_ubyte(&rec_cursor);
-                    mc_ushort uid = read_ushort(&rec_cursor);
-                    mc_int click_type = read_varint(&rec_cursor);
+                    mc_ubyte container_id = net_read_ubyte(&rec_cursor);
+                    mc_ushort slot = net_read_ushort(&rec_cursor);
+                    mc_ubyte button = net_read_ubyte(&rec_cursor);
+                    mc_ushort uid = net_read_ushort(&rec_cursor);
+                    mc_int click_type = net_read_varint(&rec_cursor);
                     // @TODO(traks) read item
                     break;
                 }
                 case 10: { // container close
                     log("Packet container close");
-                    mc_ubyte container_id = read_ubyte(&rec_cursor);
+                    mc_ubyte container_id = net_read_ubyte(&rec_cursor);
                     break;
                 }
                 case 11: { // custom payload
                     log("Packet custom payload");
-                    net_string id = read_string(&rec_cursor, 32767);
+                    net_string id = net_read_string(&rec_cursor, 32767);
                     unsigned char * payload = rec_cursor.buf + rec_cursor.index;
                     mc_int payload_size = packet_start + packet_size
                             - rec_cursor.index;
@@ -664,19 +664,19 @@ server_tick(void) {
                 }
                 case 13: { // entity tag query
                     log("Packet entity tag query");
-                    mc_int transaction_id = read_varint(&rec_cursor);
-                    mc_int entity_id = read_varint(&rec_cursor);
+                    mc_int transaction_id = net_read_varint(&rec_cursor);
+                    mc_int entity_id = net_read_varint(&rec_cursor);
                     break;
                 }
                 case 14: { // interact
                     log("Packet interact");
-                    mc_int entity_id = read_varint(&rec_cursor);
-                    mc_int action = read_varint(&rec_cursor);
+                    mc_int entity_id = net_read_varint(&rec_cursor);
+                    mc_int action = net_read_varint(&rec_cursor);
                     // @TODO further reading
                     break;
                 }
                 case 15: { // keep alive
-                    mc_ulong id = read_ulong(&rec_cursor);
+                    mc_ulong id = net_read_ulong(&rec_cursor);
                     if (brain->last_keep_alive_id == id) {
                         brain->flags |= PLAYER_BRAIN_GOT_ALIVE_RESPONSE;
                     }
@@ -684,7 +684,7 @@ server_tick(void) {
                 }
                 case 16: { // lock difficulty
                     log("Packet lock difficulty");
-                    mc_ubyte locked = read_ubyte(&rec_cursor);
+                    mc_ubyte locked = net_read_ubyte(&rec_cursor);
                     break;
                 }
                 case 17: { // move player pos
@@ -710,20 +710,20 @@ server_tick(void) {
                 }
                 case 22: { // paddle boat
                     log("Packet paddle boat");
-                    mc_ubyte left = read_ubyte(&rec_cursor);
-                    mc_ubyte right = read_ubyte(&rec_cursor);
+                    mc_ubyte left = net_read_ubyte(&rec_cursor);
+                    mc_ubyte right = net_read_ubyte(&rec_cursor);
                     break;
                 }
                 case 23: { // pick item
                     log("Packet pick item");
-                    mc_int slot = read_varint(&rec_cursor);
+                    mc_int slot = net_read_varint(&rec_cursor);
                     break;
                 }
                 case 24: { // place recipe
                     log("Packet place recipe");
-                    mc_ubyte container_id = read_ubyte(&rec_cursor);
+                    mc_ubyte container_id = net_read_ubyte(&rec_cursor);
                     // @TODO read recipe
-                    mc_ubyte shift_down = read_ubyte(&rec_cursor);
+                    mc_ubyte shift_down = net_read_ubyte(&rec_cursor);
                     break;
                 }
                 case 25: { // player abilities
@@ -732,9 +732,9 @@ server_tick(void) {
                     break;
                 }
                 case 26: { // player action
-                    mc_int action = read_varint(&rec_cursor);
-                    mc_ulong pos = read_ulong(&rec_cursor);
-                    mc_ubyte direction = read_ubyte(&rec_cursor);
+                    mc_int action = net_read_varint(&rec_cursor);
+                    mc_ulong pos = net_read_ulong(&rec_cursor);
+                    mc_ubyte direction = net_read_ubyte(&rec_cursor);
 
                     switch (action) {
                     case 0: { // start destroy block
@@ -775,9 +775,9 @@ server_tick(void) {
                     break;
                 }
                 case 27: { // player command
-                    mc_int id = read_varint(&rec_cursor);
-                    mc_int action = read_varint(&rec_cursor);
-                    mc_int data = read_varint(&rec_cursor);
+                    mc_int id = net_read_varint(&rec_cursor);
+                    mc_int action = net_read_varint(&rec_cursor);
+                    mc_int data = net_read_varint(&rec_cursor);
 
                     switch (action) {
                     case 0: // press shift key
@@ -824,42 +824,42 @@ server_tick(void) {
                 }
                 case 30: { // rename item
                     log("Packet rename item");
-                    net_string name = read_string(&rec_cursor, 32767);
+                    net_string name = net_read_string(&rec_cursor, 32767);
                     break;
                 }
                 case 31: { // resource pack
                     log("Packet resource pack");
-                    mc_int action = read_varint(&rec_cursor);
+                    mc_int action = net_read_varint(&rec_cursor);
                     break;
                 }
                 case 32: { // seen advancements
                     log("Packet seen advancements");
-                    mc_int action = read_varint(&rec_cursor);
+                    mc_int action = net_read_varint(&rec_cursor);
                     // @TODO(traks) further processing
                     break;
                 }
                 case 33: { // select trade
                     log("Packet select trade");
-                    mc_int item = read_varint(&rec_cursor);
+                    mc_int item = net_read_varint(&rec_cursor);
                     break;
                 }
                 case 34: { // set beacon
                     log("Packet set beacon");
-                    mc_int primary_effect = read_varint(&rec_cursor);
-                    mc_int secondary_effect = read_varint(&rec_cursor);
+                    mc_int primary_effect = net_read_varint(&rec_cursor);
+                    mc_int secondary_effect = net_read_varint(&rec_cursor);
                     break;
                 }
                 case 35: { // set carried item
-                    mc_ushort slot = read_ushort(&rec_cursor);
+                    mc_ushort slot = net_read_ushort(&rec_cursor);
                     // @TODO(traks) handle packet
                     break;
                 }
                 case 36: { // set command block
                     log("Packet set command block");
-                    mc_ulong block_pos = read_ulong(&rec_cursor);
-                    net_string command = read_string(&rec_cursor, 32767);
-                    mc_int mode = read_varint(&rec_cursor);
-                    mc_ubyte flags = read_ubyte(&rec_cursor);
+                    mc_ulong block_pos = net_read_ulong(&rec_cursor);
+                    net_string command = net_read_string(&rec_cursor, 32767);
+                    mc_int mode = net_read_varint(&rec_cursor);
+                    mc_ubyte flags = net_read_ubyte(&rec_cursor);
                     mc_ubyte track_output = (flags & 0x1);
                     mc_ubyte conditional = (flags & 0x2);
                     mc_ubyte automatic = (flags & 0x4);
@@ -867,74 +867,74 @@ server_tick(void) {
                 }
                 case 37: { // set command minecart
                     log("Packet set command minecart");
-                    mc_int entity_id = read_varint(&rec_cursor);
-                    net_string command = read_string(&rec_cursor, 32767);
-                    mc_ubyte track_output = read_ubyte(&rec_cursor);
+                    mc_int entity_id = net_read_varint(&rec_cursor);
+                    net_string command = net_read_string(&rec_cursor, 32767);
+                    mc_ubyte track_output = net_read_ubyte(&rec_cursor);
                     break;
                 }
                 case 38: { // set creative mode slot
                     log("Packet set creative mode slot");
-                    mc_ushort slot = read_ushort(&rec_cursor);
-                    mc_ubyte has_item = read_ubyte(&rec_cursor);
+                    mc_ushort slot = net_read_ushort(&rec_cursor);
+                    mc_ubyte has_item = net_read_ubyte(&rec_cursor);
                     // @TODO(traks) further reading and processing
                     break;
                 }
                 case 39: { // set jigsaw block
                     log("Packet set jigsaw block");
-                    mc_ulong block_pos = read_ulong(&rec_cursor);
+                    mc_ulong block_pos = net_read_ulong(&rec_cursor);
                     // @TODO(traks) further reading
                     break;
                 }
                 case 40: { // set structure block
                     log("Packet set structure block");
-                    mc_ulong block_pos = read_ulong(&rec_cursor);
-                    mc_int update_type = read_varint(&rec_cursor);
-                    mc_int mode = read_varint(&rec_cursor);
-                    net_string name = read_string(&rec_cursor, 32767);
+                    mc_ulong block_pos = net_read_ulong(&rec_cursor);
+                    mc_int update_type = net_read_varint(&rec_cursor);
+                    mc_int mode = net_read_varint(&rec_cursor);
+                    net_string name = net_read_string(&rec_cursor, 32767);
                     // @TODO(traks) read signed bytes instead
-                    mc_ubyte offset_x = read_ubyte(&rec_cursor);
-                    mc_ubyte offset_y = read_ubyte(&rec_cursor);
-                    mc_ubyte offset_z = read_ubyte(&rec_cursor);
-                    mc_ubyte size_x = read_ubyte(&rec_cursor);
-                    mc_ubyte size_y = read_ubyte(&rec_cursor);
-                    mc_ubyte size_z = read_ubyte(&rec_cursor);
-                    mc_int mirror = read_varint(&rec_cursor);
-                    mc_int rotation = read_varint(&rec_cursor);
-                    net_string data = read_string(&rec_cursor, 12);
+                    mc_ubyte offset_x = net_read_ubyte(&rec_cursor);
+                    mc_ubyte offset_y = net_read_ubyte(&rec_cursor);
+                    mc_ubyte offset_z = net_read_ubyte(&rec_cursor);
+                    mc_ubyte size_x = net_read_ubyte(&rec_cursor);
+                    mc_ubyte size_y = net_read_ubyte(&rec_cursor);
+                    mc_ubyte size_z = net_read_ubyte(&rec_cursor);
+                    mc_int mirror = net_read_varint(&rec_cursor);
+                    mc_int rotation = net_read_varint(&rec_cursor);
+                    net_string data = net_read_string(&rec_cursor, 12);
                     // @TODO(traks) further reading
                     break;
                 }
                 case 41: { // sign update
                     log("Packet sign update");
-                    mc_ulong block_pos = read_ulong(&rec_cursor);
+                    mc_ulong block_pos = net_read_ulong(&rec_cursor);
                     net_string lines[4];
                     for (int i = 0; i < ARRAY_SIZE(lines); i++) {
-                        lines[i] = read_string(&rec_cursor, 384);
+                        lines[i] = net_read_string(&rec_cursor, 384);
                     }
                     break;
                 }
                 case 42: { // swing
                     log("Packet swing");
-                    mc_int hand = read_varint(&rec_cursor);
+                    mc_int hand = net_read_varint(&rec_cursor);
                     break;
                 }
                 case 43: { // teleport to entity
                     log("Packet teleport to entity");
                     // @TODO(traks) read UUID instead
-                    mc_ulong uuid_high = read_ulong(&rec_cursor);
-                    mc_ulong uuid_low = read_ulong(&rec_cursor);
+                    mc_ulong uuid_high = net_read_ulong(&rec_cursor);
+                    mc_ulong uuid_low = net_read_ulong(&rec_cursor);
                     break;
                 }
                 case 44: { // use item on
-                    mc_int hand = read_varint(&rec_cursor);
-                    mc_ulong clicked_block_pos = read_ulong(&rec_cursor);
-                    mc_int clicked_face = read_varint(&rec_cursor);
+                    mc_int hand = net_read_varint(&rec_cursor);
+                    mc_ulong clicked_block_pos = net_read_ulong(&rec_cursor);
+                    mc_int clicked_face = net_read_varint(&rec_cursor);
                     // @TODO(traks) read further
                     break;
                 }
                 case 45: { // use item
                     log("Packet use item");
-                    mc_int hand = read_varint(&rec_cursor);
+                    mc_int hand = net_read_varint(&rec_cursor);
                     break;
                 }
                 default: {

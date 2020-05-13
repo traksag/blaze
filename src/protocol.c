@@ -6,7 +6,7 @@
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
 mc_int
-read_varint(buffer_cursor * cursor) {
+net_read_varint(buffer_cursor * cursor) {
     mc_uint in = 0;
     unsigned char * data = cursor->buf + cursor->index;
     int remaining = cursor->limit - cursor->index;
@@ -42,7 +42,7 @@ exit:
 }
 
 void
-write_varint(buffer_cursor * cursor, mc_int val) {
+net_write_varint(buffer_cursor * cursor, mc_int val) {
     mc_uint out;
     // convert to two's complement representation
     if (val >= 0) {
@@ -74,7 +74,7 @@ write_varint(buffer_cursor * cursor, mc_int val) {
 }
 
 int
-varint_size(mc_int val) {
+net_varint_size(mc_int val) {
     // @TODO(traks) The current implementation of this function can probably be
     // optimised quite a bit. Maybe use an instruction to get the highest set
     // bit, then divide by 7.
@@ -96,7 +96,7 @@ varint_size(mc_int val) {
 }
 
 mc_ushort
-read_ushort(buffer_cursor * cursor) {
+net_read_ushort(buffer_cursor * cursor) {
     if (cursor->limit - cursor->index < 2) {
         cursor->error = 1;
         return 0;
@@ -111,7 +111,7 @@ read_ushort(buffer_cursor * cursor) {
 }
 
 mc_ulong
-read_ulong(buffer_cursor * cursor) {
+net_read_ulong(buffer_cursor * cursor) {
     if (cursor->limit - cursor->index < 8) {
         cursor->error = 1;
         return 0;
@@ -132,7 +132,7 @@ read_ulong(buffer_cursor * cursor) {
 }
 
 void
-write_ulong(buffer_cursor * cursor, mc_ulong val) {
+net_write_ulong(buffer_cursor * cursor, mc_ulong val) {
     if (cursor->limit - cursor->index < 8) {
         cursor->error = 1;
         return;
@@ -151,7 +151,7 @@ write_ulong(buffer_cursor * cursor, mc_ulong val) {
 }
 
 void
-write_uint(buffer_cursor * cursor, mc_uint val) {
+net_write_uint(buffer_cursor * cursor, mc_uint val) {
     if (cursor->limit - cursor->index < 4) {
         cursor->error = 1;
         return;
@@ -166,7 +166,7 @@ write_uint(buffer_cursor * cursor, mc_uint val) {
 }
 
 mc_ubyte
-read_ubyte(buffer_cursor * cursor) {
+net_read_ubyte(buffer_cursor * cursor) {
     if (cursor->limit - cursor->index < 1) {
         cursor->error = 1;
         return 0;
@@ -179,7 +179,7 @@ read_ubyte(buffer_cursor * cursor) {
 }
 
 void
-write_ubyte(buffer_cursor * cursor, mc_ubyte val) {
+net_write_ubyte(buffer_cursor * cursor, mc_ubyte val) {
     if (cursor->limit - cursor->index < 1) {
         cursor->error = 1;
         return;
@@ -191,8 +191,8 @@ write_ubyte(buffer_cursor * cursor, mc_ubyte val) {
 }
 
 net_string
-read_string(buffer_cursor * cursor, mc_int max_size) {
-    mc_int size = read_varint(cursor);
+net_read_string(buffer_cursor * cursor, mc_int max_size) {
+    mc_int size = net_read_varint(cursor);
     net_string res = {0};
     if (size < 0 || size > cursor->limit - cursor->index || size > max_size) {
         cursor->error = 1;
@@ -206,8 +206,8 @@ read_string(buffer_cursor * cursor, mc_int max_size) {
 }
 
 void
-write_string(buffer_cursor * cursor, net_string val) {
-    write_varint(cursor, val.size);
+net_write_string(buffer_cursor * cursor, net_string val) {
+    net_write_varint(cursor, val.size);
     if (cursor->limit - cursor->index < val.size) {
         cursor->error = 1;
         return;
