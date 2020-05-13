@@ -5,9 +5,9 @@
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
-int32_t
+mc_int
 read_varint(buffer_cursor * cursor) {
-    uint32_t in = 0;
+    mc_uint in = 0;
     unsigned char * data = cursor->buf + cursor->index;
     int remaining = cursor->limit - cursor->index;
     // first decode the first 1-4 bytes
@@ -15,7 +15,7 @@ read_varint(buffer_cursor * cursor) {
     int i;
     for (i = 0; i < end; i++) {
         unsigned char b = data[i];
-        in |= (uint32_t) (b & 0x7f) << (i * 7);
+        in |= (mc_uint) (b & 0x7f) << (i * 7);
 
         if ((b & 0x80) == 0) {
             // final byte marker found
@@ -30,25 +30,25 @@ read_varint(buffer_cursor * cursor) {
         return 0;
     }
     unsigned char final = data[4];
-    in |= (uint_least32_t) (final & 0xf) << 28;
+    in |= (mc_uint) (final & 0xf) << 28;
 
 exit:
     cursor->index += i + 1;
     if (in <= 0x7fffffff) {
         return in;
     } else {
-        return (int32_t) (in - 0x80000000) + (-0x7fffffff - 1);
+        return (mc_int) (in - 0x80000000) + (-0x7fffffff - 1);
     }
 }
 
 void
-write_varint(buffer_cursor * cursor, int32_t val) {
-    uint32_t out;
+write_varint(buffer_cursor * cursor, mc_int val) {
+    mc_uint out;
     // convert to two's complement representation
     if (val >= 0) {
         out = val;
     } else {
-        out = (uint32_t) (val + 0x7fffffff + 1) + 0x80000000;
+        out = (mc_uint) (val + 0x7fffffff + 1) + 0x80000000;
     }
 
     int remaining = cursor->limit - cursor->index;
@@ -74,17 +74,17 @@ write_varint(buffer_cursor * cursor, int32_t val) {
 }
 
 int
-varint_size(int32_t val) {
+varint_size(mc_int val) {
     // @TODO(traks) The current implementation of this function can probably be
     // optimised quite a bit. Maybe use an instruction to get the highest set
     // bit, then divide by 7.
 
-    uint32_t x;
+    mc_uint x;
     // convert to two's complement representation
     if (val >= 0) {
         x = val;
     } else {
-        x = (uint32_t) (val + 0x7fffffff + 1) + 0x80000000;
+        x = (mc_uint) (val + 0x7fffffff + 1) + 0x80000000;
     }
 
     int res = 1;
@@ -95,7 +95,7 @@ varint_size(int32_t val) {
     return res;
 }
 
-uint16_t
+mc_ushort
 read_ushort(buffer_cursor * cursor) {
     if (cursor->limit - cursor->index < 2) {
         cursor->error = 1;
@@ -103,14 +103,14 @@ read_ushort(buffer_cursor * cursor) {
     }
 
     unsigned char * buf = cursor->buf + cursor->index;
-    uint16_t res = 0;
-    res |= (uint16_t) buf[0] << 8;
-    res |= (uint16_t) buf[1];
+    mc_ushort res = 0;
+    res |= (mc_ushort) buf[0] << 8;
+    res |= (mc_ushort) buf[1];
     cursor->index += 2;
     return res;
 }
 
-uint64_t
+mc_ulong
 read_ulong(buffer_cursor * cursor) {
     if (cursor->limit - cursor->index < 8) {
         cursor->error = 1;
@@ -118,21 +118,21 @@ read_ulong(buffer_cursor * cursor) {
     }
 
     unsigned char * buf = cursor->buf + cursor->index;
-    uint64_t res = 0;
-    res |= (uint64_t) buf[0] << 54;
-    res |= (uint64_t) buf[1] << 48;
-    res |= (uint64_t) buf[2] << 40;
-    res |= (uint64_t) buf[3] << 32;
-    res |= (uint64_t) buf[4] << 24;
-    res |= (uint64_t) buf[5] << 16;
-    res |= (uint64_t) buf[6] << 8;
-    res |= (uint64_t) buf[7];
+    mc_ulong res = 0;
+    res |= (mc_ulong) buf[0] << 54;
+    res |= (mc_ulong) buf[1] << 48;
+    res |= (mc_ulong) buf[2] << 40;
+    res |= (mc_ulong) buf[3] << 32;
+    res |= (mc_ulong) buf[4] << 24;
+    res |= (mc_ulong) buf[5] << 16;
+    res |= (mc_ulong) buf[6] << 8;
+    res |= (mc_ulong) buf[7];
     cursor->index += 8;
     return res;
 }
 
 void
-write_ulong(buffer_cursor * cursor, uint64_t val) {
+write_ulong(buffer_cursor * cursor, mc_ulong val) {
     if (cursor->limit - cursor->index < 8) {
         cursor->error = 1;
         return;
@@ -151,7 +151,7 @@ write_ulong(buffer_cursor * cursor, uint64_t val) {
 }
 
 void
-write_uint(buffer_cursor * cursor, uint32_t val) {
+write_uint(buffer_cursor * cursor, mc_uint val) {
     if (cursor->limit - cursor->index < 4) {
         cursor->error = 1;
         return;
@@ -165,7 +165,7 @@ write_uint(buffer_cursor * cursor, uint32_t val) {
     cursor->index += 4;
 }
 
-uint8_t
+mc_ubyte
 read_ubyte(buffer_cursor * cursor) {
     if (cursor->limit - cursor->index < 1) {
         cursor->error = 1;
@@ -173,13 +173,13 @@ read_ubyte(buffer_cursor * cursor) {
     }
 
     unsigned char * buf = cursor->buf + cursor->index;
-    uint8_t res = buf[0];
+    mc_ubyte res = buf[0];
     cursor->index += 1;
     return res;
 }
 
 void
-write_ubyte(buffer_cursor * cursor, uint8_t val) {
+write_ubyte(buffer_cursor * cursor, mc_ubyte val) {
     if (cursor->limit - cursor->index < 1) {
         cursor->error = 1;
         return;
@@ -191,8 +191,8 @@ write_ubyte(buffer_cursor * cursor, uint8_t val) {
 }
 
 net_string
-read_string(buffer_cursor * cursor, int32_t max_size) {
-    int32_t size = read_varint(cursor);
+read_string(buffer_cursor * cursor, mc_int max_size) {
+    mc_int size = read_varint(cursor);
     net_string res = {0};
     if (size < 0 || size > cursor->limit - cursor->index || size > max_size) {
         cursor->error = 1;

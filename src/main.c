@@ -28,7 +28,7 @@ enum gamemode {
     GAMEMODE_SPECTATOR,
 };
 
-static uint64_t current_tick;
+static unsigned long long current_tick;
 static int server_sock;
 static volatile sig_atomic_t got_sigint;
 
@@ -95,16 +95,16 @@ typedef struct {
     // for connected blocks and such.
     int chunk_cache_radius;
     int new_chunk_cache_radius;
-    int32_t current_teleport_id;
+    mc_int current_teleport_id;
 
     unsigned char language[16];
     int language_size;
-    int32_t chat_visibility;
-    uint8_t sees_chat_colours;
-    uint8_t model_customisation;
-    int32_t main_hand;
+    mc_int chat_visibility;
+    mc_ubyte sees_chat_colours;
+    mc_ubyte model_customisation;
+    mc_int main_hand;
 
-    uint64_t last_keep_alive_id;
+    mc_ulong last_keep_alive_id;
 } player_brain;
 
 static initial_connection initial_connections[32];
@@ -261,7 +261,7 @@ server_tick(void) {
             };
 
             for (;;) {
-                int32_t packet_size = read_varint(&rec_cursor);
+                mc_int packet_size = read_varint(&rec_cursor);
 
                 if (rec_cursor.error != 0) {
                     // packet size not fully received yet
@@ -279,7 +279,7 @@ server_tick(void) {
                 }
 
                 int packet_start = rec_cursor.index;
-                int32_t packet_id = read_varint(&rec_cursor);
+                mc_int packet_id = read_varint(&rec_cursor);
 
                 switch (init_con->protocol_state) {
                 case PROTOCOL_HANDSHAKE: {
@@ -287,10 +287,10 @@ server_tick(void) {
                         rec_cursor.error = 1;
                     }
 
-                    int32_t protocol_version = read_varint(&rec_cursor);
+                    mc_int protocol_version = read_varint(&rec_cursor);
                     net_string address = read_string(&rec_cursor, 255);
-                    uint16_t port = read_ushort(&rec_cursor);
-                    int32_t next_state = read_varint(&rec_cursor);
+                    mc_ushort port = read_ushort(&rec_cursor);
+                    mc_int next_state = read_varint(&rec_cursor);
 
                     if (next_state == 1) {
                         init_con->protocol_state = PROTOCOL_AWAIT_STATUS_REQUEST;
@@ -340,7 +340,7 @@ server_tick(void) {
                         rec_cursor.error = 1;
                     }
 
-                    uint64_t payload = read_ulong(&rec_cursor);
+                    mc_ulong payload = read_ulong(&rec_cursor);
 
                     int out_size = varint_size(1) + 8;
                     write_varint(&send_cursor, out_size);
@@ -531,7 +531,7 @@ server_tick(void) {
             };
 
             for (;;) {
-                int32_t packet_size = read_varint(&rec_cursor);
+                mc_int packet_size = read_varint(&rec_cursor);
 
                 if (rec_cursor.error != 0) {
                     // packet size not fully received yet
@@ -549,11 +549,11 @@ server_tick(void) {
                 }
 
                 int packet_start = rec_cursor.index;
-                int32_t packet_id = read_varint(&rec_cursor);
+                mc_int packet_id = read_varint(&rec_cursor);
 
                 switch (packet_id) {
                 case 0: { // accept teleport
-                    int32_t teleport_id = read_varint(&rec_cursor);
+                    mc_int teleport_id = read_varint(&rec_cursor);
 
                     if ((brain->flags & PLAYER_BRAIN_TELEPORTING)
                             && (brain->flags & PLAYER_BRAIN_SENT_TELEPORT)
@@ -564,14 +564,14 @@ server_tick(void) {
                 }
                 case 1: { // block entity tag query
                     log("Packet block entity tag query");
-                    int32_t id = read_varint(&rec_cursor);
-                    uint64_t block_pos = read_ulong(&rec_cursor);
+                    mc_int id = read_varint(&rec_cursor);
+                    mc_ulong block_pos = read_ulong(&rec_cursor);
                     // @TODO(traks) handle packet
                     break;
                 }
                 case 2: { // change difficulty
                     log("Packet change difficulty");
-                    uint8_t difficulty = read_ubyte(&rec_cursor);
+                    mc_ubyte difficulty = read_ubyte(&rec_cursor);
                     // @TODO(traks) handle packet
                     break;
                 }
@@ -582,17 +582,17 @@ server_tick(void) {
                 }
                 case 4: { // client command
                     log("Packet client command");
-                    int32_t action = read_varint(&rec_cursor);
+                    mc_int action = read_varint(&rec_cursor);
                     break;
                 }
                 case 5: { // client information
                     log("Packet client information");
                     net_string language = read_string(&rec_cursor, 16);
-                    uint8_t view_distance = read_ubyte(&rec_cursor);
-                    int32_t chat_visibility = read_varint(&rec_cursor);
-                    uint8_t sees_chat_colours = read_ubyte(&rec_cursor);
-                    uint8_t model_customisation = read_ubyte(&rec_cursor);
-                    int32_t main_hand = read_varint(&rec_cursor);
+                    mc_ubyte view_distance = read_ubyte(&rec_cursor);
+                    mc_int chat_visibility = read_varint(&rec_cursor);
+                    mc_ubyte sees_chat_colours = read_ubyte(&rec_cursor);
+                    mc_ubyte model_customisation = read_ubyte(&rec_cursor);
+                    mc_int main_hand = read_varint(&rec_cursor);
 
                     // View distance is without the extra border of chunks,
                     // while chunk cache radius is with the extra border of
@@ -609,43 +609,43 @@ server_tick(void) {
                 }
                 case 6: { // command suggestion
                     log("Packet command suggestion");
-                    int32_t id = read_varint(&rec_cursor);
+                    mc_int id = read_varint(&rec_cursor);
                     net_string command = read_string(&rec_cursor, 32500);
                     break;
                 }
                 case 7: { // container ack
                     log("Packet container ack");
-                    uint8_t container_id = read_ubyte(&rec_cursor);
-                    uint16_t uid = read_ushort(&rec_cursor);
-                    uint8_t accepted = read_ubyte(&rec_cursor);
+                    mc_ubyte container_id = read_ubyte(&rec_cursor);
+                    mc_ushort uid = read_ushort(&rec_cursor);
+                    mc_ubyte accepted = read_ubyte(&rec_cursor);
                     break;
                 }
                 case 8: { // container button click
                     log("Packet container button click");
-                    uint8_t container_id = read_ubyte(&rec_cursor);
-                    uint8_t button_id = read_ubyte(&rec_cursor);
+                    mc_ubyte container_id = read_ubyte(&rec_cursor);
+                    mc_ubyte button_id = read_ubyte(&rec_cursor);
                     break;
                 }
                 case 9: { // container click
                     log("Packet container click");
-                    uint8_t container_id = read_ubyte(&rec_cursor);
-                    uint16_t slot = read_ushort(&rec_cursor);
-                    uint8_t button = read_ubyte(&rec_cursor);
-                    uint16_t uid = read_ushort(&rec_cursor);
-                    int32_t click_type = read_varint(&rec_cursor);
+                    mc_ubyte container_id = read_ubyte(&rec_cursor);
+                    mc_ushort slot = read_ushort(&rec_cursor);
+                    mc_ubyte button = read_ubyte(&rec_cursor);
+                    mc_ushort uid = read_ushort(&rec_cursor);
+                    mc_int click_type = read_varint(&rec_cursor);
                     // @TODO(traks) read item
                     break;
                 }
                 case 10: { // container close
                     log("Packet container close");
-                    uint8_t container_id = read_ubyte(&rec_cursor);
+                    mc_ubyte container_id = read_ubyte(&rec_cursor);
                     break;
                 }
                 case 11: { // custom payload
                     log("Packet custom payload");
                     net_string id = read_string(&rec_cursor, 32767);
                     unsigned char * payload = rec_cursor.buf + rec_cursor.index;
-                    int32_t payload_size = packet_start + packet_size
+                    mc_int payload_size = packet_start + packet_size
                             - rec_cursor.index;
 
                     if (payload_size > 32767) {
@@ -664,19 +664,19 @@ server_tick(void) {
                 }
                 case 13: { // entity tag query
                     log("Packet entity tag query");
-                    int32_t transaction_id = read_varint(&rec_cursor);
-                    int32_t entity_id = read_varint(&rec_cursor);
+                    mc_int transaction_id = read_varint(&rec_cursor);
+                    mc_int entity_id = read_varint(&rec_cursor);
                     break;
                 }
                 case 14: { // interact
                     log("Packet interact");
-                    int32_t entity_id = read_varint(&rec_cursor);
-                    int32_t action = read_varint(&rec_cursor);
+                    mc_int entity_id = read_varint(&rec_cursor);
+                    mc_int action = read_varint(&rec_cursor);
                     // @TODO further reading
                     break;
                 }
                 case 15: { // keep alive
-                    uint64_t id = read_ulong(&rec_cursor);
+                    mc_ulong id = read_ulong(&rec_cursor);
                     if (brain->last_keep_alive_id == id) {
                         brain->flags |= PLAYER_BRAIN_GOT_ALIVE_RESPONSE;
                     }
@@ -684,7 +684,7 @@ server_tick(void) {
                 }
                 case 16: { // lock difficulty
                     log("Packet lock difficulty");
-                    uint8_t locked = read_ubyte(&rec_cursor);
+                    mc_ubyte locked = read_ubyte(&rec_cursor);
                     break;
                 }
                 case 17: { // move player pos
@@ -710,20 +710,20 @@ server_tick(void) {
                 }
                 case 22: { // paddle boat
                     log("Packet paddle boat");
-                    uint8_t left = read_ubyte(&rec_cursor);
-                    uint8_t right = read_ubyte(&rec_cursor);
+                    mc_ubyte left = read_ubyte(&rec_cursor);
+                    mc_ubyte right = read_ubyte(&rec_cursor);
                     break;
                 }
                 case 23: { // pick item
                     log("Packet pick item");
-                    int32_t slot = read_varint(&rec_cursor);
+                    mc_int slot = read_varint(&rec_cursor);
                     break;
                 }
                 case 24: { // place recipe
                     log("Packet place recipe");
-                    uint8_t container_id = read_ubyte(&rec_cursor);
+                    mc_ubyte container_id = read_ubyte(&rec_cursor);
                     // @TODO read recipe
-                    uint8_t shift_down = read_ubyte(&rec_cursor);
+                    mc_ubyte shift_down = read_ubyte(&rec_cursor);
                     break;
                 }
                 case 25: { // player abilities
@@ -732,9 +732,9 @@ server_tick(void) {
                     break;
                 }
                 case 26: { // player action
-                    int32_t action = read_varint(&rec_cursor);
-                    uint64_t pos = read_ulong(&rec_cursor);
-                    uint8_t direction = read_ubyte(&rec_cursor);
+                    mc_int action = read_varint(&rec_cursor);
+                    mc_ulong pos = read_ulong(&rec_cursor);
+                    mc_ubyte direction = read_ubyte(&rec_cursor);
 
                     switch (action) {
                     case 0: { // start destroy block
@@ -775,9 +775,9 @@ server_tick(void) {
                     break;
                 }
                 case 27: { // player command
-                    int32_t id = read_varint(&rec_cursor);
-                    int32_t action = read_varint(&rec_cursor);
-                    int32_t data = read_varint(&rec_cursor);
+                    mc_int id = read_varint(&rec_cursor);
+                    mc_int action = read_varint(&rec_cursor);
+                    mc_int data = read_varint(&rec_cursor);
 
                     switch (action) {
                     case 0: // press shift key
@@ -829,84 +829,84 @@ server_tick(void) {
                 }
                 case 31: { // resource pack
                     log("Packet resource pack");
-                    int32_t action = read_varint(&rec_cursor);
+                    mc_int action = read_varint(&rec_cursor);
                     break;
                 }
                 case 32: { // seen advancements
                     log("Packet seen advancements");
-                    int32_t action = read_varint(&rec_cursor);
+                    mc_int action = read_varint(&rec_cursor);
                     // @TODO(traks) further processing
                     break;
                 }
                 case 33: { // select trade
                     log("Packet select trade");
-                    int32_t item = read_varint(&rec_cursor);
+                    mc_int item = read_varint(&rec_cursor);
                     break;
                 }
                 case 34: { // set beacon
                     log("Packet set beacon");
-                    int32_t primary_effect = read_varint(&rec_cursor);
-                    int32_t secondary_effect = read_varint(&rec_cursor);
+                    mc_int primary_effect = read_varint(&rec_cursor);
+                    mc_int secondary_effect = read_varint(&rec_cursor);
                     break;
                 }
                 case 35: { // set carried item
-                    uint16_t slot = read_ushort(&rec_cursor);
+                    mc_ushort slot = read_ushort(&rec_cursor);
                     // @TODO(traks) handle packet
                     break;
                 }
                 case 36: { // set command block
                     log("Packet set command block");
-                    uint64_t block_pos = read_ulong(&rec_cursor);
+                    mc_ulong block_pos = read_ulong(&rec_cursor);
                     net_string command = read_string(&rec_cursor, 32767);
-                    int32_t mode = read_varint(&rec_cursor);
-                    uint8_t flags = read_ubyte(&rec_cursor);
-                    uint8_t track_output = (flags & 0x1);
-                    uint8_t conditional = (flags & 0x2);
-                    uint8_t automatic = (flags & 0x4);
+                    mc_int mode = read_varint(&rec_cursor);
+                    mc_ubyte flags = read_ubyte(&rec_cursor);
+                    mc_ubyte track_output = (flags & 0x1);
+                    mc_ubyte conditional = (flags & 0x2);
+                    mc_ubyte automatic = (flags & 0x4);
                     break;
                 }
                 case 37: { // set command minecart
                     log("Packet set command minecart");
-                    int32_t entity_id = read_varint(&rec_cursor);
+                    mc_int entity_id = read_varint(&rec_cursor);
                     net_string command = read_string(&rec_cursor, 32767);
-                    uint8_t track_output = read_ubyte(&rec_cursor);
+                    mc_ubyte track_output = read_ubyte(&rec_cursor);
                     break;
                 }
                 case 38: { // set creative mode slot
                     log("Packet set creative mode slot");
-                    uint16_t slot = read_ushort(&rec_cursor);
-                    uint8_t has_item = read_ubyte(&rec_cursor);
+                    mc_ushort slot = read_ushort(&rec_cursor);
+                    mc_ubyte has_item = read_ubyte(&rec_cursor);
                     // @TODO(traks) further reading and processing
                     break;
                 }
                 case 39: { // set jigsaw block
                     log("Packet set jigsaw block");
-                    uint64_t block_pos = read_ulong(&rec_cursor);
+                    mc_ulong block_pos = read_ulong(&rec_cursor);
                     // @TODO(traks) further reading
                     break;
                 }
                 case 40: { // set structure block
                     log("Packet set structure block");
-                    uint64_t block_pos = read_ulong(&rec_cursor);
-                    int32_t update_type = read_varint(&rec_cursor);
-                    int32_t mode = read_varint(&rec_cursor);
+                    mc_ulong block_pos = read_ulong(&rec_cursor);
+                    mc_int update_type = read_varint(&rec_cursor);
+                    mc_int mode = read_varint(&rec_cursor);
                     net_string name = read_string(&rec_cursor, 32767);
                     // @TODO(traks) read signed bytes instead
-                    uint8_t offset_x = read_ubyte(&rec_cursor);
-                    uint8_t offset_y = read_ubyte(&rec_cursor);
-                    uint8_t offset_z = read_ubyte(&rec_cursor);
-                    uint8_t size_x = read_ubyte(&rec_cursor);
-                    uint8_t size_y = read_ubyte(&rec_cursor);
-                    uint8_t size_z = read_ubyte(&rec_cursor);
-                    int32_t mirror = read_varint(&rec_cursor);
-                    int32_t rotation = read_varint(&rec_cursor);
+                    mc_ubyte offset_x = read_ubyte(&rec_cursor);
+                    mc_ubyte offset_y = read_ubyte(&rec_cursor);
+                    mc_ubyte offset_z = read_ubyte(&rec_cursor);
+                    mc_ubyte size_x = read_ubyte(&rec_cursor);
+                    mc_ubyte size_y = read_ubyte(&rec_cursor);
+                    mc_ubyte size_z = read_ubyte(&rec_cursor);
+                    mc_int mirror = read_varint(&rec_cursor);
+                    mc_int rotation = read_varint(&rec_cursor);
                     net_string data = read_string(&rec_cursor, 12);
                     // @TODO(traks) further reading
                     break;
                 }
                 case 41: { // sign update
                     log("Packet sign update");
-                    uint64_t block_pos = read_ulong(&rec_cursor);
+                    mc_ulong block_pos = read_ulong(&rec_cursor);
                     net_string lines[4];
                     for (int i = 0; i < ARRAY_SIZE(lines); i++) {
                         lines[i] = read_string(&rec_cursor, 384);
@@ -915,26 +915,26 @@ server_tick(void) {
                 }
                 case 42: { // swing
                     log("Packet swing");
-                    int32_t hand = read_varint(&rec_cursor);
+                    mc_int hand = read_varint(&rec_cursor);
                     break;
                 }
                 case 43: { // teleport to entity
                     log("Packet teleport to entity");
                     // @TODO(traks) read UUID instead
-                    uint64_t uuid_high = read_ulong(&rec_cursor);
-                    uint64_t uuid_low = read_ulong(&rec_cursor);
+                    mc_ulong uuid_high = read_ulong(&rec_cursor);
+                    mc_ulong uuid_low = read_ulong(&rec_cursor);
                     break;
                 }
                 case 44: { // use item on
-                    int32_t hand = read_varint(&rec_cursor);
-                    uint64_t clicked_block_pos = read_ulong(&rec_cursor);
-                    int32_t clicked_face = read_varint(&rec_cursor);
+                    mc_int hand = read_varint(&rec_cursor);
+                    mc_ulong clicked_block_pos = read_ulong(&rec_cursor);
+                    mc_int clicked_face = read_varint(&rec_cursor);
                     // @TODO(traks) read further
                     break;
                 }
                 case 45: { // use item
                     log("Packet use item");
-                    int32_t hand = read_varint(&rec_cursor);
+                    mc_int hand = read_varint(&rec_cursor);
                     break;
                 }
                 default: {
@@ -1063,12 +1063,12 @@ main(void) {
     mach_timebase_info(&timebase_info);
 
     for (;;) {
-        uint64_t start_time = mach_absolute_time();
+        unsigned long long start_time = mach_absolute_time();
 
         server_tick();
 
-        uint64_t end_time = mach_absolute_time();
-        uint64_t elapsed_micros = (end_time - start_time)
+        unsigned long long end_time = mach_absolute_time();
+        unsigned long long elapsed_micros = (end_time - start_time)
                 * timebase_info.numer / timebase_info.denom / 1000;
 
         if (got_sigint) {
