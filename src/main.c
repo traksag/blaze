@@ -54,8 +54,15 @@ typedef struct {
 
 typedef struct {
     int32_t size;
-    unsigned char * ptr;
+    void * ptr;
 } net_string;
+
+typedef struct {
+    unsigned char * buf;
+    int limit;
+    int index;
+    int error;
+} buffer_cursor;
 
 static initial_connection initial_connections[32];
 static int initial_connection_count;
@@ -126,10 +133,10 @@ handle_sigint(int sig) {
 }
 
 static int32_t
-read_varint(unsigned char * buf, int limit, int * cursor, int * error) {
+read_varint(buffer_cursor * cursor) {
     uint32_t in = 0;
-    unsigned char * data = buf + *cursor;
-    int remaining = limit - *cursor;
+    unsigned char * data = cursor->buf + cursor->index;
+    int remaining = cursor->limit - cursor->index;
     // first decode the first 1-4 bytes
     int end = MIN(remaining, 4);
     int i;
@@ -146,14 +153,14 @@ read_varint(unsigned char * buf, int limit, int * cursor, int * error) {
     // The first bytes were decoded. If we reached the end of the buffer, it is
     // missing the final 5th byte.
     if (remaining < 5) {
-        *error = 1;
+        cursor->error = 1;
         return 0;
     }
     unsigned char final = data[4];
     in |= (uint_least32_t) (final & 0xf) << 28;
 
 exit:
-    *cursor += i + 1;
+    cursor->index += i + 1;
     if (in <= 0x7fffffff) {
         return in;
     } else {
@@ -162,8 +169,7 @@ exit:
 }
 
 static void
-write_varint(unsigned char * buf, int limit, int * cursor, int * error,
-        int32_t val) {
+write_varint(buffer_cursor * cursor, int32_t val) {
     uint32_t out;
     // convert to two's complement representation
     if (val >= 0) {
@@ -172,19 +178,19 @@ write_varint(unsigned char * buf, int limit, int * cursor, int * error,
         out = (uint32_t) (val + 0x7fffffff + 1) + 0x80000000;
     }
 
-    int remaining = limit - *cursor;
-    unsigned char * data = buf + *cursor;
+    int remaining = cursor->limit - cursor->index;
+    unsigned char * data = cursor->buf + cursor->index;
 
     // write each block of 7 bits until no more are necessary
     int i = 0;
     for (;;) {
         if (i >= remaining) {
-            *error = 1;
+            cursor->error = 1;
             return;
         }
         if (out <= 0x7f) {
             data[i] = out;
-            *cursor += i + 1;
+            cursor->index += i + 1;
             break;
         } else {
             data[i] = 0x80 | (out & 0x7f);
@@ -218,71 +224,84 @@ varint_size(int32_t val)
 }
 
 static uint16_t
-read_ushort(unsigned char * buf, int limit, int * cursor, int * error) {
-    if (limit - *cursor < 2) {
-        *error = 1;
+read_ushort(buffer_cursor * cursor) {
+    if (cursor->limit - cursor->index < 2) {
+        cursor->error = 1;
         return 0;
     }
 
+    unsigned char * buf = cursor->buf + cursor->index;
     uint16_t res = 0;
-    res |= (uint16_t) buf[*cursor] << 8;
-    res |= (uint16_t) buf[*cursor + 1];
-    *cursor += 2;
+    res |= (uint16_t) buf[0] << 8;
+    res |= (uint16_t) buf[1];
+    cursor->index += 2;
     return res;
 }
 
 static uint64_t
-read_ulong(unsigned char * buf, int limit, int * cursor, int * error) {
-    if (limit - *cursor < 8) {
-        *error = 1;
+read_ulong(buffer_cursor * cursor) {
+    if (cursor->limit - cursor->index < 8) {
+        cursor->error = 1;
         return 0;
     }
 
+    unsigned char * buf = cursor->buf + cursor->index;
     uint64_t res = 0;
-    res |= (uint64_t) buf[*cursor] << 54;
-    res |= (uint64_t) buf[*cursor + 1] << 48;
-    res |= (uint64_t) buf[*cursor + 2] << 40;
-    res |= (uint64_t) buf[*cursor + 3] << 32;
-    res |= (uint64_t) buf[*cursor + 4] << 24;
-    res |= (uint64_t) buf[*cursor + 5] << 16;
-    res |= (uint64_t) buf[*cursor + 6] << 8;
-    res |= (uint64_t) buf[*cursor + 7];
-    *cursor += 8;
+    res |= (uint64_t) buf[0] << 54;
+    res |= (uint64_t) buf[1] << 48;
+    res |= (uint64_t) buf[2] << 40;
+    res |= (uint64_t) buf[3] << 32;
+    res |= (uint64_t) buf[4] << 24;
+    res |= (uint64_t) buf[5] << 16;
+    res |= (uint64_t) buf[6] << 8;
+    res |= (uint64_t) buf[7];
+    cursor->index += 8;
     return res;
 }
 
 static void
-write_ulong(unsigned char * buf, int limit, int * cursor, int * error,
-        uint64_t val) {
-    if (limit - *cursor < 8) {
-        *error = 1;
+write_ulong(buffer_cursor * cursor, uint64_t val) {
+    if (cursor->limit - cursor->index < 8) {
+        cursor->error = 1;
         return;
     }
 
-    buf[*cursor] = (val >> 56) & 0xff;
-    buf[*cursor + 1] = (val >> 48) & 0xff;
-    buf[*cursor + 2] = (val >> 40) & 0xff;
-    buf[*cursor + 3] = (val >> 32) & 0xff;
-    buf[*cursor + 4] = (val >> 24) & 0xff;
-    buf[*cursor + 5] = (val >> 16) & 0xff;
-    buf[*cursor + 6] = (val >> 8) & 0xff;
-    buf[*cursor + 7] = (val >> 0) & 0xff;
-    *cursor += 8;
+    unsigned char * buf = cursor->buf + cursor->index;
+    buf[0] = (val >> 56) & 0xff;
+    buf[1] = (val >> 48) & 0xff;
+    buf[2] = (val >> 40) & 0xff;
+    buf[3] = (val >> 32) & 0xff;
+    buf[4] = (val >> 24) & 0xff;
+    buf[5] = (val >> 16) & 0xff;
+    buf[6] = (val >> 8) & 0xff;
+    buf[7] = (val >> 0) & 0xff;
+    cursor->index += 8;
 }
 
 static net_string
-read_string(unsigned char * buf, int limit, int * cursor, int * error) {
-    int32_t size = read_varint(buf, limit, cursor, error);
+read_string(buffer_cursor * cursor) {
+    int32_t size = read_varint(cursor);
     net_string res = {0};
-    if (size < 0 || size > limit - *cursor) {
-        *error = 1;
+    if (size < 0 || size > cursor->limit - cursor->index) {
+        cursor->error = 1;
         return res;
     }
 
     res.size = size;
-    res.ptr = buf + *cursor;
-    *cursor += size;
+    res.ptr = cursor->buf + cursor->index;
+    cursor->index += size;
     return res;
+}
+
+static void
+write_string(buffer_cursor * cursor, net_string val) {
+    write_varint(cursor, val.size);
+    if (cursor->limit - cursor->index < val.size) {
+        cursor->error = 1;
+        return;
+    }
+    memcpy(cursor->buf + cursor->index, val.ptr, val.size);
+    cursor->index += val.size;
 }
 
 static void
@@ -353,14 +372,20 @@ server_tick(void) {
         } else {
             init_con->rec_cursor += rec_size;
 
-            int cursor = 0;
-            int error = 0;
+            buffer_cursor rec_cursor = {
+                .buf = init_con->rec_buf,
+                .limit = init_con->rec_cursor
+            };
+            buffer_cursor send_cursor = {
+                .buf = init_con->send_buf,
+                .limit = sizeof init_con->send_buf,
+                .index = init_con->send_cursor
+            };
 
             for (;;) {
-                int32_t packet_size = read_varint(init_con->rec_buf,
-                        init_con->rec_cursor, &cursor, &error);
+                int32_t packet_size = read_varint(&rec_cursor);
 
-                if (error != 0) {
+                if (rec_cursor.error != 0) {
                     // packet size not fully received yet
                     break;
                 }
@@ -370,42 +395,37 @@ server_tick(void) {
                     initial_connection_count--;
                     break;
                 }
-                if (packet_size > init_con->rec_cursor) {
+                if (packet_size > rec_cursor.limit) {
                     // packet not fully received yet
                     break;
                 }
 
-                int packet_start = cursor;
-                int32_t packet_id = read_varint(init_con->rec_buf,
-                        init_con->rec_cursor, &cursor, &error);
+                int packet_start = rec_cursor.index;
+                int32_t packet_id = read_varint(&rec_cursor);
 
                 switch (init_con->protocol_state) {
                 case PROTOCOL_HANDSHAKE: {
                     if (packet_id != 0) {
-                        error = 1;
+                        rec_cursor.error = 1;
                     }
 
-                    int32_t protocol_version = read_varint(init_con->rec_buf,
-                            init_con->rec_cursor, &cursor, &error);
-                    net_string address = read_string(init_con->rec_buf,
-                            init_con->rec_cursor, &cursor, &error);
-                    uint16_t port = read_ushort(init_con->rec_buf,
-                            init_con->rec_cursor, &cursor, &error);
-                    int32_t next_state = read_varint(init_con->rec_buf,
-                            init_con->rec_cursor, &cursor, &error);
+                    int32_t protocol_version = read_varint(&rec_cursor);
+                    net_string address = read_string(&rec_cursor);
+                    uint16_t port = read_ushort(&rec_cursor);
+                    int32_t next_state = read_varint(&rec_cursor);
 
                     if (next_state == 1) {
                         init_con->protocol_state = PROTOCOL_AWAIT_STATUS_REQUEST;
                     } else if (next_state == 2) {
                         init_con->protocol_state = PROTOCOL_AWAIT_HELLO;
                     } else {
-                        error = 1;
+                        rec_cursor.error = 1;
                     }
                     break;
                 }
                 case PROTOCOL_AWAIT_STATUS_REQUEST: {
                     if (packet_id != 0) {
-                        error = 1;
+                        rec_cursor.error = 1;
                     }
 
                     char response[] =
@@ -423,46 +443,39 @@ server_tick(void) {
                             "    \"text\": \"Running Blaze\""
                             "  }"
                             "}";
+                    net_string response_str = {
+                        .size = sizeof response - 1,
+                        .ptr = response
+                    };
                     int out_size = varint_size(0)
-                            + varint_size(sizeof response - 1)
-                            + (sizeof response - 1);
-                    write_varint(init_con->send_buf, sizeof init_con->send_buf,
-                            &init_con->send_cursor, &error, out_size);
-                    write_varint(init_con->send_buf, sizeof init_con->send_buf,
-                            &init_con->send_cursor, &error, 0);
-                    write_varint(init_con->send_buf, sizeof init_con->send_buf,
-                            &init_con->send_cursor, &error, sizeof response - 1);
-                    memcpy(init_con->send_buf + init_con->send_cursor,
-                            response, sizeof response - 1);
-                    init_con->send_cursor += sizeof response - 1;
+                            + varint_size(response_str.size)
+                            + response_str.size;
+                    write_varint(&send_cursor, out_size);
+                    write_varint(&send_cursor, 0);
+                    write_string(&send_cursor, response_str);
 
                     init_con->protocol_state = PROTOCOL_AWAIT_PING_REQUEST;
                     break;
                 }
                 case PROTOCOL_AWAIT_PING_REQUEST: {
                     if (packet_id != 1) {
-                        error = 1;
+                        rec_cursor.error = 1;
                     }
 
-                    uint64_t payload = read_ulong(init_con->rec_buf,
-                            init_con->rec_cursor, &cursor, &error);
+                    uint64_t payload = read_ulong(&rec_cursor);
 
                     int out_size = varint_size(1) + 8;
-                    write_varint(init_con->send_buf, sizeof init_con->send_buf,
-                            &init_con->send_cursor, &error, out_size);
-                    write_varint(init_con->send_buf, sizeof init_con->send_buf,
-                            &init_con->send_cursor, &error, 1);
-                    write_ulong(init_con->send_buf, sizeof init_con->send_buf,
-                            &init_con->send_cursor, &error, payload);
+                    write_varint(&send_cursor, out_size);
+                    write_varint(&send_cursor, 1);
+                    write_ulong(&send_cursor, payload);
                     break;
                 }
                 case PROTOCOL_AWAIT_HELLO: {
                     if (packet_id != 0) {
-                        error = 1;
+                        rec_cursor.error = 1;
                     }
 
-                    net_string username = read_string(init_con->rec_buf,
-                            init_con->rec_cursor, &cursor, &error);
+                    net_string username = read_string(&rec_cursor);
                     log("Username is '%.*s'", username.size, username.ptr);
 
                     // @TODO(traks) online mode
@@ -470,30 +483,33 @@ server_tick(void) {
                     // @TODO(traks) move to gameplay connection and spawn the
                     // player and so on
 
-                    error = 1;
+                    rec_cursor.error = 1;
                     break;
                 }
                 default:
                     log("Unknown protocol state %d", init_con->protocol_state);
-                    error = 1;
+                    rec_cursor.error = 1;
                     break;
                 }
 
-                if (packet_size != cursor - packet_start) {
-                    error = 1;
+                if (packet_size != rec_cursor.index - packet_start) {
+                    rec_cursor.error = 1;
                 }
 
-                if (error != 0) {
+                if (rec_cursor.error != 0) {
                     log("Protocol error occurred");
                     close(sock);
                     init_con->flags = 0;
                     initial_connection_count--;
+                    break;
                 }
             }
 
-            memmove(init_con->rec_buf, init_con->rec_buf + init_con->rec_cursor,
-                    sizeof init_con->rec_buf - init_con->rec_cursor);
-            init_con->rec_cursor -= cursor;
+            memmove(rec_cursor.buf, rec_cursor.buf + rec_cursor.index,
+                    rec_cursor.limit - rec_cursor.index);
+            init_con->rec_cursor = rec_cursor.limit - rec_cursor.index;
+
+            init_con->send_cursor = send_cursor.index;
         }
     }
 
