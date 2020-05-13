@@ -1,4 +1,6 @@
+#include <assert.h>
 #include <string.h>
+#include <math.h>
 #include "codec.h"
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
@@ -150,6 +152,23 @@ net_write_ulong(buffer_cursor * cursor, mc_ulong val) {
     cursor->index += 8;
 }
 
+mc_uint
+net_read_uint(buffer_cursor * cursor) {
+    if (cursor->limit - cursor->index < 4) {
+        cursor->error = 1;
+        return 0;
+    }
+
+    unsigned char * buf = cursor->buf + cursor->index;
+    mc_uint res = 0;
+    res |= (mc_uint) buf[0] << 24;
+    res |= (mc_uint) buf[1] << 16;
+    res |= (mc_uint) buf[2] << 8;
+    res |= (mc_uint) buf[3];
+    cursor->index += 4;
+    return res;
+}
+
 void
 net_write_uint(buffer_cursor * cursor, mc_uint val) {
     if (cursor->limit - cursor->index < 4) {
@@ -214,4 +233,208 @@ net_write_string(buffer_cursor * cursor, net_string val) {
     }
     memcpy(cursor->buf + cursor->index, val.ptr, val.size);
     cursor->index += val.size;
+}
+
+mc_float
+net_read_float(buffer_cursor * cursor) {
+    mc_uint in = net_read_uint(cursor);
+    int encoded_e = (in >> 23) & 0xff;
+    mc_int significand = in & 0x7fffff;
+    int sign = in & 0x80000000;
+
+    if (encoded_e == 0) {
+        if (significand == 0) {
+            return 0;
+        } else {
+            // subnormal number
+            significand = sign ? -significand : significand;
+            return ldexpf(significand, encoded_e - 127 - 23);
+        }
+    } else if (encoded_e == 0x7ff) {
+        if (significand == 0) {
+            return sign ? -INFINITY : INFINITY;
+        } else {
+            return NAN;
+        }
+    } else {
+        // normal number
+        significand |= 0x800000;
+        significand = sign ? -significand : significand;
+        return ldexp(significand, encoded_e - 127 - 23);
+    }
+}
+
+static void
+net_write_float_zero(buffer_cursor * cursor, int neg) {
+    net_write_uint(cursor, neg ? 0x80000000 : 0);
+}
+
+static void
+net_write_float_inf(buffer_cursor * cursor, int neg) {
+    net_write_uint(cursor, neg ? 0xff800000 : 0x7f800000);
+}
+
+void
+net_write_float(buffer_cursor * cursor, mc_float val) {
+    switch (fpclassify(val)) {
+    case FP_NORMAL:
+    case FP_SUBNORMAL: {
+        int e;
+        // The normalised value is in the range [0.5, 1). For example, "1 * 2^0"
+        // becomes "0.5 * 2^1". However, the significand in the IEEE 754
+        // specification is "1.xxxx...", i.e. the exponent "e" is one higher
+        // than the one we need for the IEEE 754 representation.
+        mc_float normalised = frexpf(val, &e);
+        int encoded_e = e - 1 + 127;
+
+        if (encoded_e >= 0xff) {
+            net_write_float_inf(cursor, signbit(val));
+            break;
+        }
+        if (encoded_e < 0) {
+            net_write_float_zero(cursor, signbit(val));
+            break;
+        }
+
+        mc_int significand = ldexpf(normalised, 24);
+        mc_uint out;
+
+        if (significand < 0) {
+            significand = -significand;
+            out = 0x80000000;
+        } else {
+            out = 0;
+        }
+
+        assert(significand >= (int_least32_t) 1 << 23);
+        assert(significand < (int_least32_t) 1 << 24);
+
+        if (encoded_e > 0) {
+            // encode normal
+            significand -= (int_least32_t) 1 << 23;
+        } else {
+            // encode subnormal
+            significand >>= 1;
+        }
+
+        out |= (uint_least32_t) encoded_e << 23;
+        out |= significand;
+        net_write_uint(cursor, out);
+        break;
+    }
+    case FP_ZERO:
+        net_write_float_zero(cursor, signbit(val));
+        break;
+    case FP_INFINITE:
+        net_write_float_inf(cursor, signbit(val));
+        break;
+    case FP_NAN:
+        net_write_uint(cursor, signbit(val) ? 0xff800001 : 0x7f800001);
+        break;
+    default:
+        cursor->error = 1;
+    }
+}
+
+mc_double
+net_read_double(buffer_cursor * cursor) {
+    mc_ulong in = net_read_ulong(cursor);
+    int encoded_e = (in >> 52) & 0x7ff;
+    mc_long significand = in & 0xfffffffffffff;
+    int sign = in & 0x8000000000000000;
+
+    if (encoded_e == 0) {
+        if (significand == 0) {
+            return 0;
+        } else {
+            // subnormal number
+            significand = sign ? -significand : significand;
+            return ldexp(significand, encoded_e - 1023 - 52);
+        }
+    } else if (encoded_e == 0x7ff) {
+        if (significand == 0) {
+            return sign ? -INFINITY : INFINITY;
+        } else {
+            return NAN;
+        }
+    } else {
+        // normal number
+        significand |= 0x10000000000000;
+        significand = sign ? -significand : significand;
+        return ldexp(significand, encoded_e - 1023 - 52);
+    }
+}
+
+static void
+net_write_double_zero(buffer_cursor * cursor, int neg) {
+    net_write_ulong(cursor, neg ? 0x8000000000000000 : 0);
+}
+
+static void
+net_write_double_inf(buffer_cursor * cursor, int neg) {
+    net_write_ulong(cursor, neg ? 0xfff0000000000000 : 0x7ff0000000000000);
+}
+
+void
+net_write_double(buffer_cursor * cursor, mc_double val) {
+    // @TODO We use functions that depend on the actual type mc_double is.
+    switch (fpclassify(val)) {
+    case FP_NORMAL:
+    case FP_SUBNORMAL: {
+        int e;
+        // The normalised value is in the range [0.5, 1). For example, "1 * 2^0"
+        // becomes "0.5 * 2^1". However, the significand in the IEEE 754
+        // specification is "1.xxxx...", i.e. the exponent "e" is one higher
+        // than the one we need for the IEEE 754 representation.
+        mc_double normalised = frexp(val, &e);
+        int encoded_e = e - 1 + 1023;
+
+        if (encoded_e >= 0x7ff) {
+            net_write_double_inf(cursor, signbit(val));
+            break;
+        }
+        if (encoded_e < 0) {
+            net_write_double_zero(cursor, signbit(val));
+            break;
+        }
+
+        mc_long significand = ldexp(normalised, 53);
+        mc_ulong out;
+
+        if (significand < 0) {
+            significand = -significand;
+            out = 0x8000000000000000;
+        } else {
+            out = 0;
+        }
+
+        assert(significand >= (int_least64_t) 1 << 52);
+        assert(significand < (int_least64_t) 1 << 53);
+
+        if (encoded_e > 0) {
+            // encode normal
+            significand -= (int_least64_t) 1 << 52;
+        } else {
+            // encode subnormal
+            significand >>= 1;
+        }
+
+        out |= (uint_least64_t) encoded_e << 52;
+        out |= significand;
+        net_write_ulong(cursor, out);
+        break;
+    }
+    case FP_ZERO:
+        net_write_double_zero(cursor, signbit(val));
+        break;
+    case FP_INFINITE:
+        net_write_double_inf(cursor, signbit(val));
+        break;
+    case FP_NAN:
+        net_write_ulong(cursor, signbit(val) ?
+                0xfff0000000000001 : 0x7ff0000000000001);
+        break;
+    default:
+        cursor->error = 1;
+    }
 }

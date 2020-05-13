@@ -21,6 +21,10 @@
 
 #define MAX_CHUNK_CACHE_RADIUS (10)
 
+#define KEEP_ALIVE_SPACING (10 * 20)
+
+#define KEEP_ALIVE_TIMEOUT (30 * 20)
+
 enum gamemode {
     GAMEMODE_SURVIVAL,
     GAMEMODE_CREATIVE,
@@ -79,6 +83,8 @@ typedef struct {
 
 #define PLAYER_BRAIN_SPRINTING ((unsigned) (1 << 5))
 
+#define PLAYER_BRAIN_ON_GROUND ((unsigned) (1 << 6))
+
 typedef struct {
     int sock;
     unsigned flags;
@@ -104,7 +110,13 @@ typedef struct {
     mc_ubyte model_customisation;
     mc_int main_hand;
 
-    mc_ulong last_keep_alive_id;
+    mc_ulong last_keep_alive_sent_tick;
+
+    mc_double x;
+    mc_double y;
+    mc_double z;
+    mc_float rot_x;
+    mc_float rot_y;
 } player_brain;
 
 static initial_connection initial_connections[32];
@@ -176,6 +188,37 @@ log_errno(void * format) {
 static void
 handle_sigint(int sig) {
     got_sigint = 1;
+}
+
+static void
+teleport_player(player_brain * brain, mc_double new_x,
+        mc_double new_y, mc_double new_z) {
+    brain->flags |= PLAYER_BRAIN_TELEPORTING;
+
+    brain->current_teleport_id++;
+    brain->x = new_x;
+    brain->y = new_y;
+    brain->z = new_z;
+}
+
+static void
+process_move_player_packet(player_brain * brain,
+        mc_double new_x, mc_double new_y, mc_double new_z,
+        mc_float new_rot_x, mc_float new_rot_y, int on_ground) {
+    if ((brain->flags & PLAYER_BRAIN_TELEPORTING) != 0) {
+        return;
+    }
+
+    brain->x = new_x;
+    brain->y = new_y;
+    brain->z = new_z;
+    brain->rot_x = new_rot_x;
+    brain->rot_y = new_rot_y;
+    if (on_ground) {
+        brain->flags |= PLAYER_BRAIN_ON_GROUND;
+    } else {
+        brain->flags &= ~PLAYER_BRAIN_ON_GROUND;
+    }
 }
 
 static void
@@ -446,6 +489,8 @@ server_tick(void) {
                 brain->username_size = init_con->username_size;
                 // @TODO(traks) server-wide global
                 brain->new_chunk_cache_radius = MAX_CHUNK_CACHE_RADIUS;
+                brain->last_keep_alive_sent_tick = current_tick;
+                brain->flags |= PLAYER_BRAIN_GOT_ALIVE_RESPONSE;
 
                 player_brain_count++;
 
@@ -483,9 +528,9 @@ server_tick(void) {
                 net_write_ubyte(&send_cursor, 0); // reduced debug info
                 net_write_ubyte(&send_cursor, 1); // show death screen on death
 
-                // @TODO(traks) send player position packet (after chunks?)
-
                 brain->send_cursor = send_cursor.index;
+
+                teleport_player(brain, 88, 70, 73);
 
                 log("Player '%.*s' joined", (int) brain->username_size,
                         brain->username);
@@ -523,11 +568,6 @@ server_tick(void) {
             buffer_cursor rec_cursor = {
                 .buf = brain->rec_buf,
                 .limit = brain->rec_cursor
-            };
-            buffer_cursor send_cursor = {
-                .buf = brain->send_buf,
-                .limit = sizeof brain->send_buf,
-                .index = brain->send_cursor
             };
 
             for (;;) {
@@ -677,7 +717,7 @@ server_tick(void) {
                 }
                 case 15: { // keep alive
                     mc_ulong id = net_read_ulong(&rec_cursor);
-                    if (brain->last_keep_alive_id == id) {
+                    if (brain->last_keep_alive_sent_tick == id) {
                         brain->flags |= PLAYER_BRAIN_GOT_ALIVE_RESPONSE;
                     }
                     break;
@@ -688,19 +728,39 @@ server_tick(void) {
                     break;
                 }
                 case 17: { // move player pos
-                    // @TODO(traks) read packet
+                    mc_double x = net_read_double(&rec_cursor);
+                    mc_double y = net_read_double(&rec_cursor);
+                    mc_double z = net_read_double(&rec_cursor);
+                    int on_ground = net_read_ubyte(&rec_cursor);
+                    process_move_player_packet(brain, x, y, z,
+                            brain->rot_x, brain->rot_y, on_ground);
                     break;
                 }
                 case 18: { // move player pos rot
-                    // @TODO(traks) read packet
+                    mc_double x = net_read_double(&rec_cursor);
+                    mc_double y = net_read_double(&rec_cursor);
+                    mc_double z = net_read_double(&rec_cursor);
+                    mc_float rot_y = net_read_float(&rec_cursor);
+                    mc_float rot_x = net_read_float(&rec_cursor);
+                    int on_ground = net_read_ubyte(&rec_cursor);
+                    process_move_player_packet(brain, x, y, z,
+                            rot_x, rot_y, on_ground);
                     break;
                 }
                 case 19: { // move player rot
-                    // @TODO(traks) read packet
+                    mc_float rot_y = net_read_float(&rec_cursor);
+                    mc_float rot_x = net_read_float(&rec_cursor);
+                    int on_ground = net_read_ubyte(&rec_cursor);
+                    process_move_player_packet(brain,
+                            brain->x, brain->y, brain->z,
+                            rot_x, rot_y, on_ground);
                     break;
                 }
                 case 20: { // move player
-                    // @TODO(traks) read packet
+                    int on_ground = net_read_ubyte(&rec_cursor);
+                    process_move_player_packet(brain,
+                            brain->x, brain->y, brain->z,
+                            brain->rot_x, brain->rot_y, on_ground);
                     break;
                 }
                 case 21: { // move vehicle
@@ -959,8 +1019,6 @@ server_tick(void) {
             memmove(rec_cursor.buf, rec_cursor.buf + rec_cursor.index,
                     rec_cursor.limit - rec_cursor.index);
             brain->rec_cursor = rec_cursor.limit - rec_cursor.index;
-
-            brain->send_cursor = send_cursor.index;
         }
     }
 
@@ -969,6 +1027,49 @@ server_tick(void) {
         if ((brain->flags & PLAYER_BRAIN_IN_USE) == 0) {
             continue;
         }
+
+        // first write all the new packets to our own outgoing packet buffer
+
+        buffer_cursor send_cursor = {
+            .limit = sizeof brain->send_buf,
+            .buf = brain->send_buf,
+            .index = brain->send_cursor
+        };
+
+        // send keep alive packet every so often
+        if (current_tick - brain->last_keep_alive_sent_tick >= KEEP_ALIVE_SPACING
+                && (brain->flags & PLAYER_BRAIN_GOT_ALIVE_RESPONSE)) {
+            // send keep alive packet
+            net_write_varint(&send_cursor, net_varint_size(33) + 8);
+            net_write_varint(&send_cursor, 33);
+            net_write_ulong(&send_cursor, current_tick);
+
+            brain->last_keep_alive_sent_tick = current_tick;
+            brain->flags &= ~PLAYER_BRAIN_GOT_ALIVE_RESPONSE;
+        }
+
+        if ((brain->flags & PLAYER_BRAIN_TELEPORTING)
+                && !(brain->flags & PLAYER_BRAIN_SENT_TELEPORT)) {
+            // send player position packet
+            int out_size = net_varint_size(54) + 8 + 8 + 8 + 4 + 4 + 1
+                    + net_varint_size(brain->current_teleport_id);
+            net_write_varint(&send_cursor, out_size);
+            int start_index = send_cursor.index;
+            net_write_varint(&send_cursor, 54);
+            net_write_double(&send_cursor, brain->x);
+            net_write_double(&send_cursor, brain->y);
+            net_write_double(&send_cursor, brain->z);
+            net_write_float(&send_cursor, brain->rot_y);
+            net_write_float(&send_cursor, brain->rot_x);
+            net_write_ubyte(&send_cursor, 0); // relative arguments
+            net_write_varint(&send_cursor, brain->current_teleport_id);
+
+            brain->flags |= PLAYER_BRAIN_SENT_TELEPORT;
+        }
+
+        brain->send_cursor = send_cursor.index;
+
+        // try to write everything to the socket buffer
 
         int sock = brain->sock;
         ssize_t send_size = send(sock, brain->send_buf,

@@ -3,11 +3,16 @@
 
 #include <stdint.h>
 
+typedef int8_t mc_byte;
+typedef int16_t mc_short;
 typedef int32_t mc_int;
+typedef int64_t mc_long;
 typedef uint8_t mc_ubyte;
 typedef uint16_t mc_ushort;
 typedef uint32_t mc_uint;
 typedef uint64_t mc_ulong;
+typedef float mc_float;
+typedef double mc_double;
 
 typedef struct {
     unsigned char * buf;
@@ -41,6 +46,9 @@ net_read_ulong(buffer_cursor * cursor);
 void
 net_write_ulong(buffer_cursor * cursor, mc_ulong val);
 
+mc_uint
+net_read_uint(buffer_cursor * cursor);
+
 void
 net_write_uint(buffer_cursor * cursor, mc_uint val);
 
@@ -55,5 +63,17 @@ net_read_string(buffer_cursor * cursor, mc_int max_size);
 
 void
 net_write_string(buffer_cursor * cursor, net_string val);
+
+mc_float
+net_read_float(buffer_cursor * cursor);
+
+void
+net_write_float(buffer_cursor * cursor, mc_float val);
+
+mc_double
+net_read_double(buffer_cursor * cursor);
+
+void
+net_write_double(buffer_cursor * cursor, mc_double val);
 
 #endif
