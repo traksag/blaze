@@ -473,3 +473,27 @@ net_write_double(buffer_cursor * cursor, mc_double val) {
         cursor->error = 1;
     }
 }
+
+net_block_pos
+net_read_block_pos(buffer_cursor * cursor) {
+    mc_ulong val = net_read_ulong(cursor);
+
+    // @TODO(traks) make this faster
+    mc_int x = val >> 38;
+    mc_int y = val & 0xfff;
+    mc_int z = (val >> 12) & 0x3ffffff;
+
+    if (x >= 0x2000000) {
+        x -= 0x3ffffff;
+    }
+    if (z >= 0x2000000) {
+        z -= 0x3ffffff;
+    }
+
+    net_block_pos res = {
+        .x = x,
+        .y = y,
+        .z = z
+    };
+    return res;
+}

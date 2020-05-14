@@ -15,6 +15,12 @@ typedef float mc_float;
 typedef double mc_double;
 
 typedef struct {
+    mc_int x;
+    mc_int y;
+    mc_int z;
+} net_block_pos;
+
+typedef struct {
     unsigned char * buf;
     int limit;
     int index;
@@ -84,5 +90,8 @@ net_read_double(buffer_cursor * cursor);
 
 void
 net_write_double(buffer_cursor * cursor, mc_double val);
+
+net_block_pos
+net_read_block_pos(buffer_cursor * cursor);
 
 #endif

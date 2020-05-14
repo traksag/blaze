@@ -147,6 +147,8 @@ typedef struct {
     static_assert(PLAYER_SLOTS <= 64, "Too many player slots");
     mc_ulong slots_needing_update;
     unsigned char selected_slot;
+
+    unsigned char gamemode;
 } player_data;
 
 #define ENTITY_IN_USE ((unsigned) (1 << 0))
@@ -948,6 +950,7 @@ server_tick(void) {
                 brain->last_keep_alive_sent_tick = current_tick;
                 brain->flags |= PLAYER_BRAIN_GOT_ALIVE_RESPONSE;
                 entity->player.selected_slot = PLAYER_FIRST_HOTBAR_SLOT;
+                entity->player.gamemode = GAMEMODE_CREATIVE;
 
                 buffer_cursor send_cursor = {
                     .buf = brain->send_buf,
@@ -973,7 +976,7 @@ server_tick(void) {
                 net_write_varint(&send_cursor, out_size);
                 net_write_varint(&send_cursor, 38);
                 net_write_uint(&send_cursor, entity->eid);
-                net_write_ubyte(&send_cursor, GAMEMODE_CREATIVE);
+                net_write_ubyte(&send_cursor, entity->player.gamemode);
                 net_write_uint(&send_cursor, 0); // environment
                 net_write_ulong(&send_cursor, 0); // seed
                 net_write_ubyte(&send_cursor, 0); // max players (ignored by client)
@@ -1264,14 +1267,38 @@ server_tick(void) {
                 }
                 case 26: { // player action
                     mc_int action = net_read_varint(&rec_cursor);
-                    mc_ulong pos = net_read_ulong(&rec_cursor);
+                    // @TODO(traks) validate block pos inside world
+                    net_block_pos block_pos = net_read_block_pos(&rec_cursor);
                     mc_ubyte direction = net_read_ubyte(&rec_cursor);
 
                     switch (action) {
                     case 0: { // start destroy block
                         // The player started mining the block. If the player is in
                         // creative mode, the stop and abort packets are not sent.
-                        // @TODO(traks)
+                        // @TODO(traks) implementation for other gamemodes
+                        if (entity->player.gamemode == GAMEMODE_CREATIVE) {
+                            // @TODO(traks) ensure block pos is close to the
+                            // player and the chunk is sent to the player
+                            __m128i xz = _mm_set_epi32(0, 0, block_pos.z, block_pos.x);
+                            __m128i chunk_xz = _mm_srai_epi32(xz, 4);
+                            chunk_pos pos = {
+                                .x = _mm_extract_epi32(chunk_xz, 0),
+                                .z = _mm_extract_epi32(chunk_xz, 1)
+                            };
+                            chunk * ch = get_chunk_if_loaded(pos);
+                            if (ch == NULL) {
+                                // @TODO(traks) client will still see block as
+                                // broken. Does that really matter? A forget
+                                // packet will probably reach them soon enough.
+                                break;
+                            }
+
+                            // @TODO(traks) ANDing signed integers better work
+                            int in_chunk_x = block_pos.x & 0xf;
+                            int in_chunk_z = block_pos.z & 0xf;
+                            chunk_set_block_state(ch, in_chunk_x, block_pos.y,
+                                    in_chunk_z, 0);
+                        }
                         break;
                     }
                     case 1: { // abort destroy block
