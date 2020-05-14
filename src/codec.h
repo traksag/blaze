@@ -37,8 +37,17 @@ net_write_varint(buffer_cursor * cursor, mc_int val);
 int
 net_varint_size(mc_int val);
 
+mc_int
+net_read_int(buffer_cursor * cursor);
+
+void
+net_write_int(buffer_cursor * cursor, mc_int val);
+
 mc_ushort
 net_read_ushort(buffer_cursor * cursor);
+
+void
+net_write_ushort(buffer_cursor * cursor, mc_ushort val);
 
 mc_ulong
 net_read_ulong(buffer_cursor * cursor);

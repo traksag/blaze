@@ -11,6 +11,8 @@
 #include <fcntl.h>
 #include <string.h>
 #include <mach/mach_time.h>
+#include <limits.h>
+#include <x86intrin.h>
 #include "codec.h"
 
 #define ARRAY_SIZE(x) (sizeof (x) / sizeof *(x))
@@ -21,9 +23,13 @@
 
 #define MAX_CHUNK_CACHE_RADIUS (10)
 
+#define MAX_CHUNK_CACHE_DIAM (2 * MAX_CHUNK_CACHE_RADIUS + 1)
+
 #define KEEP_ALIVE_SPACING (10 * 20)
 
 #define KEEP_ALIVE_TIMEOUT (30 * 20)
+
+#define MAX_CHUNK_SENDS_PER_TICK (2)
 
 enum gamemode {
     GAMEMODE_SURVIVAL,
@@ -71,6 +77,31 @@ typedef struct {
     int username_size;
 } initial_connection;
 
+typedef struct {
+    mc_short x;
+    mc_short z;
+} chunk_pos;
+
+typedef struct {
+    mc_ushort * sections[16];
+    mc_ushort non_air_count[16];
+    // need shorts to store 257 different heights
+    mc_ushort motion_blocking_height_map[256];
+} chunk;
+
+#define CHUNKS_PER_BUCKET (32)
+
+#define CHUNK_MAP_SIZE (1024)
+
+typedef struct chunk_bucket chunk_bucket;
+
+struct chunk_bucket {
+    chunk_bucket * next_bucket;
+    int size;
+    chunk_pos positions[CHUNKS_PER_BUCKET];
+    chunk chunks[CHUNKS_PER_BUCKET];
+};
+
 #define PLAYER_BRAIN_IN_USE ((unsigned) (1 << 0))
 
 #define PLAYER_BRAIN_TELEPORTING ((unsigned) (1 << 1))
@@ -86,6 +117,10 @@ typedef struct {
 #define PLAYER_BRAIN_ON_GROUND ((unsigned) (1 << 6))
 
 typedef struct {
+    unsigned char sent;
+} chunk_cache_entry;
+
+typedef struct {
     int sock;
     unsigned flags;
     unsigned char rec_buf[65536];
@@ -96,11 +131,17 @@ typedef struct {
 
     unsigned char username[16];
     int username_size;
+
     // The radius of the client's view distance, excluding the centre chunk,
     // and including an extra outer rim the client doesn't render but uses
     // for connected blocks and such.
     int chunk_cache_radius;
+    mc_short chunk_cache_centre_x;
+    mc_short chunk_cache_centre_z;
     int new_chunk_cache_radius;
+    // @TODO(traks) maybe this should just be a bitmap
+    chunk_cache_entry chunk_cache[MAX_CHUNK_CACHE_DIAM * MAX_CHUNK_CACHE_DIAM];
+
     mc_int current_teleport_id;
 
     unsigned char language[16];
@@ -124,6 +165,15 @@ static int initial_connection_count;
 
 static player_brain player_brains[8];
 static int player_brain_count;
+
+// @TODO(traks) don't use a hash map. Performance depends on the chunks loaded,
+// which depends on the positions of players in the world. Doesn't seem good
+// that players moving to certain locations can cause performance drops...
+//
+// Our goal is 1000 players, so if we construct our hash and hash map in an
+// appropriate way, we can ensure there are at most 1000 entries per bucket.
+// Not sure if that's any good.
+static chunk_bucket chunk_map[CHUNK_MAP_SIZE];
 
 static void
 log(void * format, ...) {
@@ -219,6 +269,299 @@ process_move_player_packet(player_brain * brain,
     } else {
         brain->flags &= ~PLAYER_BRAIN_ON_GROUND;
     }
+}
+
+static int
+chunk_cache_index(chunk_pos pos) {
+    // Do some remainder operations first so we don't integer overflow. Note
+    // that the remainder operator can produce negative numbers.
+    int n = MAX_CHUNK_CACHE_DIAM * MAX_CHUNK_CACHE_DIAM;
+    long x = (pos.x % n) + n;
+    long z = (pos.z % n) + n;
+    return (x * MAX_CHUNK_CACHE_DIAM + z) % n;
+}
+
+static int
+chunk_pos_equal(chunk_pos a, chunk_pos b) {
+    // @TODO(traks) make sure this compiles to a single compare. If not, should
+    // probably change chunk_pos to be a uint32_t.
+    return a.x == b.x && a.z == b.z;
+}
+
+static int
+hash_chunk_pos(chunk_pos pos) {
+    // @TODO(traks) this signed-to-unsigned cast better work
+    return (((unsigned) pos.x & 0x1f) << 5) | ((unsigned) pos.z & 0x1f);
+}
+
+static mc_ushort
+chunk_get_block_state(chunk * ch, int x, int y, int z) {
+    assert(0 <= x && x < 16);
+    assert(0 <= y && y < 256);
+    assert(0 <= z && z < 16);
+
+    int section_y = y >> 4;
+    mc_ushort * section = ch->sections[section_y];
+
+    if (section == NULL) {
+        return 0;
+    }
+
+    int index = (y << 8) | (z << 4) | x;
+    return section[index];
+}
+
+static void
+chunk_set_block_state(chunk * ch, int x, int y, int z, mc_ushort block_state) {
+    assert(0 <= x && x < 16);
+    assert(0 <= y && y < 256);
+    assert(0 <= z && z < 16);
+
+    int section_y = y >> 4;
+    mc_ushort * section = ch->sections[section_y];
+
+    if (section == NULL) {
+        section = calloc(4096, sizeof (mc_ushort));
+        ch->sections[section_y] = section;
+    }
+
+    int index = (y << 8) | (z << 4) | x;
+
+    if (section[index] == 0) {
+        ch->non_air_count[section_y]++;
+    }
+    if (block_state == 0) {
+        ch->non_air_count[section_y]--;
+    }
+
+    section[index] = block_state;
+
+    int height_map_index = (z << 4) | x;
+
+    mc_ushort max_height = ch->motion_blocking_height_map[height_map_index];
+    if (y + 1 == max_height) {
+        if (block_state == 0) {
+            // @TODO(traks) handle other airs
+            max_height = 0;
+
+            for (int lower_y = y - 1; lower_y >= 0; lower_y--) {
+                if (chunk_get_block_state(ch, x, lower_y, z) != 0) {
+                    // @TODO(traks) handle other airs
+                    max_height = lower_y + 1;
+                }
+            }
+
+            ch->motion_blocking_height_map[height_map_index] = max_height;
+        }
+    } else if (y >= max_height) {
+        if (block_state != 0) {
+            // @TODO(traks) handle other airs
+            ch->motion_blocking_height_map[height_map_index] = y + 1;
+        }
+    }
+}
+
+static chunk *
+get_or_create_chunk(chunk_pos pos) {
+    int hash = hash_chunk_pos(pos);
+    chunk_bucket * bucket = chunk_map + hash;
+
+    for (;;) {
+        int bucket_size = bucket->size;
+        int i;
+
+        for (i = 0; i < bucket_size; i++) {
+            if (chunk_pos_equal(bucket->positions[i], pos)) {
+                return bucket->chunks + i;
+            }
+        }
+
+        if (i < CHUNKS_PER_BUCKET) {
+            bucket->positions[i] = pos;
+            bucket->size++;
+            chunk * ch = bucket->chunks + i;
+            *ch = (chunk) {0};
+
+            for (int x = 0; x < 16; x++) {
+                for (int z = 0; z < 16; z++) {
+                    chunk_set_block_state(ch, x, 0, z, 1);
+                }
+            }
+            return ch;
+        }
+
+        // chunk not found, move to next bucket
+        chunk_bucket * next = bucket->next_bucket;
+        if (next == NULL) {
+            // @TODO(traks) get rid of this fallible operation
+            next = malloc(sizeof *next);
+            if (next == NULL) {
+                log_errno("Failed to allocate chunk bucket: %s");
+                exit(1);
+            }
+            next->next_bucket = NULL;
+            next->size = 0;
+
+            bucket->next_bucket = next;
+        }
+
+        bucket = next;
+    }
+}
+
+static chunk *
+get_chunk_if_loaded(chunk_pos pos) {
+    int hash = hash_chunk_pos(pos);
+    chunk_bucket * bucket = chunk_map + hash;
+
+    for (;;) {
+        int bucket_size = bucket->size;
+
+        for (int i = 0; i < bucket_size; i++) {
+            if (chunk_pos_equal(bucket->positions[i], pos)) {
+                return bucket->chunks + i;
+            }
+        }
+
+        // chunk not found, move to next bucket
+        bucket = bucket->next_bucket;
+        if (bucket == NULL) {
+            return NULL;
+        }
+    }
+}
+
+static void
+send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos) {
+    // bit mask for included chunk sections; bottom section in least
+    // significant bit
+    chunk * ch = get_or_create_chunk(pos);
+    mc_ushort section_mask = 0;
+    for (int i = 0; i < 16; i++) {
+        if (ch->sections[i] != NULL) {
+            section_mask |= 1 << i;
+        }
+    }
+
+    // calculate total size of chunk section data
+    mc_int section_data_size = 0;
+
+    for (int i = 0; i < 16; i++) {
+        mc_ushort * section = ch->sections[i];
+        if (section == NULL) {
+            continue;
+        }
+
+        // size of non-air count + bits per block
+        section_data_size += 2 + 1;
+        // size of block state data in longs
+        section_data_size += net_varint_size(14 * 16 * 16 * 16 / 64);
+        // number of bytes used to store block state data
+        section_data_size += (14 * 16 * 16 * 16 / 64) * 8;
+    }
+
+    net_string height_map_name = NET_STRING("MOTION_BLOCKING");
+
+    int out_size = net_varint_size(34) + 4 + 4 + 1 + net_varint_size(section_mask)
+            + 1 + 2 + 1 + 2 + height_map_name.size + 4 + 36 * 8 + 1
+            + 1024 * 4
+            + net_varint_size(section_data_size) + section_data_size
+            + net_varint_size(0);
+
+    // send level chunk packet
+    net_write_varint(send_cursor, out_size);
+    int packet_start = send_cursor->index;
+    net_write_varint(send_cursor, 34);
+    net_write_int(send_cursor, pos.x);
+    net_write_int(send_cursor, pos.z);
+    net_write_ubyte(send_cursor, 1); // full chunk
+    net_write_varint(send_cursor, section_mask);
+
+    // height map NBT
+    net_write_ubyte(send_cursor, 10);
+    // use a zero length string as name for the root compound
+    net_write_ushort(send_cursor, 0);
+
+    net_write_ubyte(send_cursor, 12);
+    // write name
+    net_write_ushort(send_cursor, height_map_name.size);
+    memcpy(send_cursor->buf + send_cursor->index, height_map_name.ptr,
+            height_map_name.size);
+    send_cursor->index += height_map_name.size;
+
+    // number of elements in long array
+    net_write_int(send_cursor, 36);
+    mc_ulong compacted_map[36] = {0};
+
+    int shift = 0;
+
+    for (int z = 0; z < 16; z++) {
+        for (int x = 0; x < 16; x++) {
+            mc_ulong height = ch->motion_blocking_height_map[(z << 4) | x];
+            int start_long = shift >> 6;
+            int offset = shift - (start_long << 6);
+
+            compacted_map[start_long] |= height << offset;
+
+            int bits_remaining = 64 - offset;
+
+            if (bits_remaining < 9) {
+                int end_long = start_long + 1;
+                compacted_map[end_long] |= height >> bits_remaining;
+            }
+
+            shift += 9;
+        }
+    }
+
+    for (int i = 0; i < 36; i++) {
+        net_write_ulong(send_cursor, compacted_map[i]);
+    }
+
+    // end of compound
+    net_write_ubyte(send_cursor, 0);
+
+    // Biome data. Currently we just set all biome blocks (4x4x4 cubes)
+    // to the plains biome.
+    for (int i = 0; i < 1024; i++) {
+        net_write_int(send_cursor, 1);
+    }
+
+    net_write_varint(send_cursor, section_data_size);
+
+    for (int i = 0; i < 16; i++) {
+        mc_ushort * section = ch->sections[i];
+        if (section == NULL) {
+            continue;
+        }
+
+        net_write_ushort(send_cursor, ch->non_air_count[i]);
+        net_write_ubyte(send_cursor, 14); // bits per block
+
+        // number of longs used for the block states
+        net_write_varint(send_cursor, 14 * 16 * 16 * 16 / 64);
+        mc_ulong val = 0;
+        int offset = 0;
+
+        for (int j = 0; j < 16 * 16 * 16; j++) {
+            mc_ulong block_state = section[j];
+            val |= block_state << offset;
+
+            if (offset >= 64 - 14) {
+                net_write_ulong(send_cursor, val);
+                val = block_state >> (64 - offset);
+            }
+
+            offset = (offset + 14) % 64;
+        }
+
+        if (offset != 0) {
+            net_write_ulong(send_cursor, val);
+        }
+    }
+
+    // number of block entities
+    net_write_varint(send_cursor, 0);
 }
 
 static void
@@ -487,7 +830,8 @@ server_tick(void) {
                 memcpy(brain->username, init_con->username,
                         init_con->username_size);
                 brain->username_size = init_con->username_size;
-                // @TODO(traks) server-wide global
+                brain->chunk_cache_radius = -1;
+                // @TODO(traks) configurable server-wide global
                 brain->new_chunk_cache_radius = MAX_CHUNK_CACHE_RADIUS;
                 brain->last_keep_alive_sent_tick = current_tick;
                 brain->flags |= PLAYER_BRAIN_GOT_ALIVE_RESPONSE;
@@ -788,7 +1132,14 @@ server_tick(void) {
                 }
                 case 25: { // player abilities
                     log("Packet player abilities");
-                    // @TODO(traks) read packet
+                    mc_ubyte flags = net_read_ubyte(&rec_cursor);
+                    mc_ubyte invulnerable = flags & 0x1;
+                    mc_ubyte flying = flags & 0x2;
+                    mc_ubyte canFly = flags & 0x4;
+                    mc_ubyte insta_build = flags & 0x8;
+                    mc_float fly_speed = net_read_float(&rec_cursor);
+                    mc_float walk_speed = net_read_float(&rec_cursor);
+                    // @TODO(traks) process packet
                     break;
                 }
                 case 26: { // player action
@@ -1054,7 +1405,6 @@ server_tick(void) {
             int out_size = net_varint_size(54) + 8 + 8 + 8 + 4 + 4 + 1
                     + net_varint_size(brain->current_teleport_id);
             net_write_varint(&send_cursor, out_size);
-            int start_index = send_cursor.index;
             net_write_varint(&send_cursor, 54);
             net_write_double(&send_cursor, brain->x);
             net_write_double(&send_cursor, brain->y);
@@ -1065,6 +1415,108 @@ server_tick(void) {
             net_write_varint(&send_cursor, brain->current_teleport_id);
 
             brain->flags |= PLAYER_BRAIN_SENT_TELEPORT;
+        }
+
+        mc_short chunk_cache_min_x = brain->chunk_cache_centre_x - brain->chunk_cache_radius;
+        mc_short chunk_cache_min_z = brain->chunk_cache_centre_z - brain->chunk_cache_radius;
+        mc_short chunk_cache_max_x = brain->chunk_cache_centre_x + brain->chunk_cache_radius;
+        mc_short chunk_cache_max_z = brain->chunk_cache_centre_z + brain->chunk_cache_radius;
+
+        __m128d xz = _mm_set_pd(brain->z, brain->x);
+        __m128d floored_xz = _mm_floor_pd(xz);
+        __m128i floored_int_xz = _mm_cvtpd_epi32(floored_xz);
+        __m128i new_centre = _mm_srai_epi32(floored_int_xz, 4);
+        mc_short new_chunk_cache_centre_x = _mm_extract_epi32(new_centre, 0);
+        mc_short new_chunk_cache_centre_z = _mm_extract_epi32(new_centre, 1);
+        mc_short new_chunk_cache_min_x = new_chunk_cache_centre_x - brain->new_chunk_cache_radius;
+        mc_short new_chunk_cache_min_z = new_chunk_cache_centre_z - brain->new_chunk_cache_radius;
+        mc_short new_chunk_cache_max_x = new_chunk_cache_centre_x + brain->new_chunk_cache_radius;
+        mc_short new_chunk_cache_max_z = new_chunk_cache_centre_z + brain->new_chunk_cache_radius;
+
+        if (brain->chunk_cache_centre_x != new_chunk_cache_centre_x
+                || brain->chunk_cache_centre_z != new_chunk_cache_centre_z) {
+            // send set chunk cache centre packet
+            int out_size = net_varint_size(65)
+                    + net_varint_size(new_chunk_cache_centre_x)
+                    + net_varint_size(new_chunk_cache_centre_z);
+            net_write_varint(&send_cursor, out_size);
+            net_write_varint(&send_cursor, 65);
+            net_write_varint(&send_cursor, new_chunk_cache_centre_x);
+            net_write_varint(&send_cursor, new_chunk_cache_centre_z);
+        }
+
+        if (brain->chunk_cache_radius != brain->new_chunk_cache_radius) {
+            // send set chunk cache radius packet
+            int out_size = net_varint_size(66)
+                    + net_varint_size(brain->new_chunk_cache_radius);
+            net_write_varint(&send_cursor, out_size);
+            net_write_varint(&send_cursor, 66);
+            net_write_varint(&send_cursor, brain->new_chunk_cache_radius);
+        }
+
+        // untrack old chunks
+        for (mc_short x = chunk_cache_min_x; x <= chunk_cache_max_x; x++) {
+            for (mc_short z = chunk_cache_min_z; z <= chunk_cache_max_z; z++) {
+                if (x >= new_chunk_cache_min_x && x <= new_chunk_cache_max_x
+                        && z >= new_chunk_cache_min_z && z <= new_chunk_cache_max_z) {
+                    // old chunk still in new region
+                    continue;
+                }
+
+                // old chunk is not in the new region
+                int index = chunk_cache_index((chunk_pos) {.x = x, .z = z});
+
+                if (brain->chunk_cache[index].sent) {
+                    brain->chunk_cache[index] = (chunk_cache_entry) {0};
+
+                    // send forget level chunk packet
+                    int out_size = net_varint_size(30) + 4 + 4;
+                    net_write_varint(&send_cursor, out_size);
+                    net_write_varint(&send_cursor, 30);
+                    net_write_int(&send_cursor, x);
+                    net_write_int(&send_cursor, z);
+                }
+            }
+        }
+
+        brain->chunk_cache_radius = brain->new_chunk_cache_radius;
+        brain->chunk_cache_centre_x = new_chunk_cache_centre_x;
+        brain->chunk_cache_centre_z = new_chunk_cache_centre_z;
+
+        // load and send tracked chunks
+        // We iterate in a spiral around the player, so chunks near the player
+        // are processed first. This shortens server join times (since players
+        // don't need to wait for the chunk they are in to load) and allows
+        // players to move around much earlier.
+        int newly_sent_chunks = 0;
+        int chunk_cache_diam = 2 * brain->new_chunk_cache_radius + 1;
+        int chunk_cache_area = chunk_cache_diam * chunk_cache_diam;
+        int off_x = 0;
+        int off_z = 0;
+        int step_x = 1;
+        int step_z = 0;
+        for (int i = 0; i < chunk_cache_area; i++) {
+            int x = new_chunk_cache_centre_x + off_x;
+            int z = new_chunk_cache_centre_z + off_z;
+            int cache_index = chunk_cache_index((chunk_pos) {.x = x, .z = z});
+            chunk_cache_entry * entry = brain->chunk_cache + cache_index;
+
+            if (newly_sent_chunks < MAX_CHUNK_SENDS_PER_TICK && !entry->sent) {
+                // send level chunk packet
+                send_chunk_fully(&send_cursor, (chunk_pos) {.x = x, .z = z});
+                entry->sent = 1;
+                newly_sent_chunks++;
+            }
+
+            off_x += step_x;
+            off_z += step_z;
+            // change direction of spiral when we hit a corner
+            if (off_x == off_z || (off_x == -off_z && off_x < 0)
+                    || (off_x == -off_z + 1 && off_x > 0)) {
+                int prev_step_x = step_x;
+                step_x = -step_z;
+                step_z = prev_step_x;
+            }
         }
 
         brain->send_cursor = send_cursor.index;

@@ -97,6 +97,28 @@ net_varint_size(mc_int val) {
     return res;
 }
 
+mc_int
+net_read_int(buffer_cursor * cursor) {
+    mc_uint in = net_read_uint(cursor);
+    if (in <= 0x7fffffff) {
+        return in;
+    } else {
+        return (mc_int) (in - 0x80000000) + (-0x7fffffff - 1);
+    }
+}
+
+void
+net_write_int(buffer_cursor * cursor, mc_int val) {
+    mc_uint out;
+    // convert to two's complement representation
+    if (val >= 0) {
+        out = val;
+    } else {
+        out = (mc_uint) (val + 0x7fffffff + 1) + 0x80000000;
+    }
+    net_write_uint(cursor, out);
+}
+
 mc_ushort
 net_read_ushort(buffer_cursor * cursor) {
     if (cursor->limit - cursor->index < 2) {
@@ -112,6 +134,19 @@ net_read_ushort(buffer_cursor * cursor) {
     return res;
 }
 
+void
+net_write_ushort(buffer_cursor * cursor, mc_ushort val) {
+    if (cursor->limit - cursor->index < 2) {
+        cursor->error = 1;
+        return;
+    }
+
+    unsigned char * buf = cursor->buf + cursor->index;
+    buf[0] = (val >> 8) & 0xff;
+    buf[1] = (val >> 0) & 0xff;
+    cursor->index += 2;
+}
+
 mc_ulong
 net_read_ulong(buffer_cursor * cursor) {
     if (cursor->limit - cursor->index < 8) {
@@ -121,7 +156,7 @@ net_read_ulong(buffer_cursor * cursor) {
 
     unsigned char * buf = cursor->buf + cursor->index;
     mc_ulong res = 0;
-    res |= (mc_ulong) buf[0] << 54;
+    res |= (mc_ulong) buf[0] << 56;
     res |= (mc_ulong) buf[1] << 48;
     res |= (mc_ulong) buf[2] << 40;
     res |= (mc_ulong) buf[3] << 32;
@@ -240,7 +275,7 @@ net_read_float(buffer_cursor * cursor) {
     mc_uint in = net_read_uint(cursor);
     int encoded_e = (in >> 23) & 0xff;
     mc_int significand = in & 0x7fffff;
-    int sign = in & 0x80000000;
+    mc_uint sign = in & 0x80000000;
 
     if (encoded_e == 0) {
         if (significand == 0) {
@@ -341,7 +376,7 @@ net_read_double(buffer_cursor * cursor) {
     mc_ulong in = net_read_ulong(cursor);
     int encoded_e = (in >> 52) & 0x7ff;
     mc_long significand = in & 0xfffffffffffff;
-    int sign = in & 0x8000000000000000;
+    mc_ulong sign = in & 0x8000000000000000;
 
     if (encoded_e == 0) {
         if (significand == 0) {
