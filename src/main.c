@@ -222,6 +222,11 @@ typedef struct {
     entity_id tracked_entities[MAX_ENTITIES];
 } player_brain;
 
+typedef struct {
+    mc_ushort size;
+    unsigned char text[512];
+} global_msg;
+
 static initial_connection initial_connections[32];
 static int initial_connection_count;
 
@@ -240,6 +245,10 @@ static chunk_bucket chunk_map[CHUNK_MAP_SIZE];
 static entity_data entities[MAX_ENTITIES];
 static mc_ushort next_entity_generations[MAX_ENTITIES];
 static mc_int entity_count;
+
+// global messages for the current tick
+static global_msg global_msgs[16];
+static int global_msg_count;
 
 static void
 log(void * format, ...) {
@@ -1086,8 +1095,18 @@ server_tick(void) {
                     break;
                 }
                 case 3: { // chat
-                    log("Packet chat");
-                    net_string msg = net_read_string(&rec_cursor, 256);
+                    net_string chat = net_read_string(&rec_cursor, 256);
+
+                    if (global_msg_count < ARRAY_SIZE(global_msgs)) {
+                        global_msg * msg = global_msgs + global_msg_count;
+                        global_msg_count++;
+                        int text_size = sprintf(
+                                (void *) msg->text, "<%.*s> %.*s",
+                                (int) entity->player.username_size,
+                                entity->player.username,
+                                (int) chat.size, chat.ptr);
+                        msg->size = text_size;
+                    }
                     break;
                 }
                 case 4: { // client command
@@ -1826,6 +1845,23 @@ server_tick(void) {
                     net_write_ushort(&send_cursor, 0);
                     net_write_ushort(&send_cursor, 0);
                     net_write_ushort(&send_cursor, 0);
+
+                    // int out_size = net_varint_size(5)
+                    //         + net_varint_size(candidate_eid)
+                    //         + 16 + 3 * 8 + 2 * 1;
+                    // net_write_varint(&send_cursor, out_size);
+                    // net_write_varint(&send_cursor, 5);
+                    // net_write_varint(&send_cursor, candidate_eid);
+                    // // @TODO(traks) appropriate UUID
+                    // net_write_ulong(&send_cursor, 0);
+                    // net_write_ulong(&send_cursor, 0);
+                    // // @TODO(traks) network entity type
+                    // net_write_double(&send_cursor, candidate->x);
+                    // net_write_double(&send_cursor, candidate->y);
+                    // net_write_double(&send_cursor, candidate->z);
+                    // // @TODO(traks) make sure signed cast to mc_ubyte works
+                    // net_write_ubyte(&send_cursor, (int) (candidate->rot_y * 256.0f / 360.0f));
+                    // net_write_ubyte(&send_cursor, (int) (candidate->rot_x * 256.0f / 360.0f));
                     break;
                 default:
                     continue;
@@ -1851,6 +1887,43 @@ server_tick(void) {
             }
         }
 
+        // send chat messages
+
+        for (int i = 0; i < global_msg_count; i++) {
+            global_msg * msg = global_msgs + i;
+
+            // @TODO(traks) formatted messages and such
+            unsigned char buf[1024];
+            int buf_index = 0;
+            net_string prefix = NET_STRING("{\"text\":\"");
+            net_string suffix = NET_STRING("\"}");
+
+            memcpy(buf + buf_index, prefix.ptr, prefix.size);
+            buf_index += prefix.size;
+
+            for (int i = 0; i < msg->size; i++) {
+                if (msg->text[i] == '"' || msg->text[i] == '\\') {
+                    buf[buf_index] = '\\';
+                    buf_index++;
+                }
+                buf[buf_index] = msg->text[i];
+                buf_index++;
+            }
+
+            memcpy(buf + buf_index, suffix.ptr, suffix.size);
+            buf_index += suffix.size;
+
+            // send chat packet
+            int out_size = net_varint_size(15) + net_varint_size(buf_index)
+                    + buf_index + 1;
+            net_write_varint(&send_cursor, out_size);
+            net_write_varint(&send_cursor, 15);
+            net_write_varint(&send_cursor, buf_index);
+            memcpy(send_cursor.buf + send_cursor.index, buf, buf_index);
+            send_cursor.index += buf_index;
+            net_write_ubyte(&send_cursor, 0); // chat box position
+        }
+
         // try to write everything to the socket buffer
 
         brain->send_cursor = send_cursor.index;
@@ -1873,6 +1946,9 @@ server_tick(void) {
             brain->send_cursor -= send_size;
         }
     }
+
+    // clear global messages
+    global_msg_count = 0;
 
     current_tick++;
 }
