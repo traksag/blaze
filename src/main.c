@@ -105,6 +105,11 @@ struct chunk_bucket {
     chunk chunks[CHUNKS_PER_BUCKET];
 };
 
+typedef struct {
+    mc_int type;
+    mc_ubyte size;
+} item_stack;
+
 enum entity_type {
     ENTITY_NULL,
     ENTITY_PLAYER,
@@ -118,9 +123,30 @@ enum entity_type {
 static_assert(MAX_ENTITIES <= (1UL << 20), "MAX_ENTITIES too large");
 typedef mc_uint entity_id;
 
+// Player inventory slots are indexed as follows:
+//
+//  0           the crafting grid result slot
+//  1-4         the 2x2 crafting grid slots
+//  5-8         the 4 armour slots
+//  9-35        the 36 main inventory slots
+//  36-44       hotbar slots
+//  45          off hand slot
+//
+// Here are some defines for convenience.
+#define PLAYER_SLOTS (46)
+#define PLAYER_FIRST_HOTBAR_SLOT (36)
+#define PLAYER_LAST_HOTBAR_SLOT (44)
+#define PLAYER_OFF_HAND_SLOT (45)
+
 typedef struct {
     unsigned char username[16];
     int username_size;
+
+    item_stack slots_prev_tick[PLAYER_SLOTS];
+    item_stack slots[PLAYER_SLOTS];
+    static_assert(PLAYER_SLOTS <= 64, "Too many player slots");
+    mc_ulong slots_needing_update;
+    unsigned char selected_slot;
 } player_data;
 
 #define ENTITY_IN_USE ((unsigned) (1 << 0))
@@ -921,6 +947,7 @@ server_tick(void) {
                 brain->new_chunk_cache_radius = MAX_CHUNK_CACHE_RADIUS;
                 brain->last_keep_alive_sent_tick = current_tick;
                 brain->flags |= PLAYER_BRAIN_GOT_ALIVE_RESPONSE;
+                entity->player.selected_slot = PLAYER_FIRST_HOTBAR_SLOT;
 
                 buffer_cursor send_cursor = {
                     .buf = brain->send_buf,
@@ -954,6 +981,12 @@ server_tick(void) {
                 net_write_varint(&send_cursor, brain->new_chunk_cache_radius - 1);
                 net_write_ubyte(&send_cursor, 0); // reduced debug info
                 net_write_ubyte(&send_cursor, 1); // show death screen on death
+
+                // send set carried item packet
+                net_write_varint(&send_cursor, net_varint_size(64) + 1);
+                net_write_varint(&send_cursor, 64);
+                net_write_ubyte(&send_cursor, entity->player.selected_slot
+                        - PLAYER_FIRST_HOTBAR_SLOT);
 
                 brain->send_cursor = send_cursor.index;
 
@@ -1252,11 +1285,20 @@ server_tick(void) {
                         break;
                     }
                     case 3: { // drop all items
-                        // @TODO(traks)
+                        // @TODO(traks) create item entities
+                        int sel_slot = entity->player.selected_slot;
+                        entity->player.slots[sel_slot] = (item_stack) {0};
                         break;
                     }
                     case 4: { // drop item
-                        // @TODO(traks)
+                        // @TODO(traks) create item entity
+                        int sel_slot = entity->player.selected_slot;
+                        item_stack * is = entity->player.slots + sel_slot;
+                        if (is->size > 0) {
+                            is->size--;
+                        } else {
+                            *is = (item_stack) {0};
+                        }
                         break;
                     }
                     case 5: { // release use item
@@ -1264,7 +1306,16 @@ server_tick(void) {
                         break;
                     }
                     case 6: { // swap held items
-                        // @TODO(traks)
+                        int sel_slot = entity->player.selected_slot;
+                        item_stack * sel = entity->player.slots + sel_slot;
+                        item_stack * off = entity->player.slots + PLAYER_OFF_HAND_SLOT;
+                        item_stack sel_copy = *sel;
+                        *sel = *off;
+                        *off = sel_copy;
+                        // client doesn't update its view of the inventory for
+                        // this packet, so send updates to the client
+                        entity->player.slots_needing_update |= (mc_ulong) 1 << sel_slot;
+                        entity->player.slots_needing_update |= (mc_ulong) 1 << PLAYER_OFF_HAND_SLOT;
                         break;
                     }
                     default:
@@ -1349,7 +1400,11 @@ server_tick(void) {
                 }
                 case 35: { // set carried item
                     mc_ushort slot = net_read_ushort(&rec_cursor);
-                    // @TODO(traks) handle packet
+                    if (slot > PLAYER_LAST_HOTBAR_SLOT - PLAYER_FIRST_HOTBAR_SLOT) {
+                        rec_cursor.error = 1;
+                        break;
+                    }
+                    entity->player.selected_slot = PLAYER_FIRST_HOTBAR_SLOT + slot;
                     break;
                 }
                 case 36: { // set command block
@@ -1371,10 +1426,27 @@ server_tick(void) {
                     break;
                 }
                 case 38: { // set creative mode slot
-                    log("Packet set creative mode slot");
                     mc_ushort slot = net_read_ushort(&rec_cursor);
                     mc_ubyte has_item = net_read_ubyte(&rec_cursor);
-                    // @TODO(traks) further reading and processing
+
+                    if (slot >= PLAYER_SLOTS) {
+                        rec_cursor.error = 1;
+                        break;
+                    }
+
+                    item_stack * is = entity->player.slots + slot;
+                    *is = (item_stack) {0};
+
+                    if (has_item) {
+                        // @TODO(traks) validate type
+                        is->type = net_read_varint(&rec_cursor);
+                        // @TODO(traks) validate max stack size by type
+                        is->size = net_read_ubyte(&rec_cursor);
+
+                        // @TODO(traks) parse and use NBT data to construct
+                        // item stack
+                        rec_cursor.index = packet_start + packet_size;
+                    }
                     break;
                 }
                 case 39: { // set jigsaw block
@@ -1608,9 +1680,45 @@ server_tick(void) {
             }
         }
 
-        brain->send_cursor = send_cursor.index;
+        // send updates in player's own inventory
+
+        for (int i = 0; i < PLAYER_SLOTS; i++) {
+            if (!(entity->player.slots_needing_update & ((mc_ulong) 1 << i))) {
+                continue;
+            }
+
+            log("Sending slot update for %d", i);
+            item_stack * is = entity->player.slots + i;
+
+            // send container set slot packet
+            int out_size = net_varint_size(23) + 1 + 2 + 1;
+            if (is->type != 0) {
+                out_size += net_varint_size(is->type) + 1 + 1;
+            }
+
+            net_write_varint(&send_cursor, out_size);
+            net_write_varint(&send_cursor, 23);
+            net_write_ubyte(&send_cursor, 0); // inventory id
+            net_write_ushort(&send_cursor, i);
+
+            if (is->type == 0) {
+                net_write_ubyte(&send_cursor, 0); // has item
+            } else {
+                net_write_ubyte(&send_cursor, 1); // has item
+                net_write_varint(&send_cursor, is->type);
+                net_write_ubyte(&send_cursor, is->size);
+                // @TODO(traks) write NBT (currently just a single end tag)
+                net_write_ubyte(&send_cursor, 0);
+            }
+        }
+
+        entity->player.slots_needing_update = 0;
+        memcpy(entity->player.slots_prev_tick, entity->player.slots,
+                sizeof entity->player.slots);
 
         // try to write everything to the socket buffer
+
+        brain->send_cursor = send_cursor.index;
 
         int sock = brain->sock;
         ssize_t send_size = send(sock, brain->send_buf,
