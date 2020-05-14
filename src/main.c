@@ -217,6 +217,9 @@ typedef struct {
     mc_ulong last_keep_alive_sent_tick;
 
     entity_id eid;
+
+    // @TODO(traks) this feels a bit silly, but very simple
+    entity_id tracked_entities[MAX_ENTITIES];
 } player_brain;
 
 static initial_connection initial_connections[32];
@@ -1565,7 +1568,7 @@ server_tick(void) {
             continue;
         }
 
-        entity_data * entity = resolve_entity(brain->eid);
+        entity_data * player = resolve_entity(brain->eid);
 
         // first write all the new packets to our own outgoing packet buffer
 
@@ -1587,18 +1590,18 @@ server_tick(void) {
             brain->flags &= ~PLAYER_BRAIN_GOT_ALIVE_RESPONSE;
         }
 
-        if ((entity->flags & ENTITY_TELEPORTING)
+        if ((player->flags & ENTITY_TELEPORTING)
                 && !(brain->flags & PLAYER_BRAIN_SENT_TELEPORT)) {
             // send player position packet
             int out_size = net_varint_size(54) + 8 + 8 + 8 + 4 + 4 + 1
                     + net_varint_size(brain->current_teleport_id);
             net_write_varint(&send_cursor, out_size);
             net_write_varint(&send_cursor, 54);
-            net_write_double(&send_cursor, entity->x);
-            net_write_double(&send_cursor, entity->y);
-            net_write_double(&send_cursor, entity->z);
-            net_write_float(&send_cursor, entity->rot_y);
-            net_write_float(&send_cursor, entity->rot_x);
+            net_write_double(&send_cursor, player->x);
+            net_write_double(&send_cursor, player->y);
+            net_write_double(&send_cursor, player->z);
+            net_write_float(&send_cursor, player->rot_y);
+            net_write_float(&send_cursor, player->rot_x);
             net_write_ubyte(&send_cursor, 0); // relative arguments
             net_write_varint(&send_cursor, brain->current_teleport_id);
 
@@ -1610,7 +1613,7 @@ server_tick(void) {
         mc_short chunk_cache_max_x = brain->chunk_cache_centre_x + brain->chunk_cache_radius;
         mc_short chunk_cache_max_z = brain->chunk_cache_centre_z + brain->chunk_cache_radius;
 
-        __m128d xz = _mm_set_pd(entity->z, entity->x);
+        __m128d xz = _mm_set_pd(player->z, player->x);
         __m128d floored_xz = _mm_floor_pd(xz);
         __m128i floored_int_xz = _mm_cvtpd_epi32(floored_xz);
         __m128i new_centre = _mm_srai_epi32(floored_int_xz, 4);
@@ -1710,12 +1713,12 @@ server_tick(void) {
         // send updates in player's own inventory
 
         for (int i = 0; i < PLAYER_SLOTS; i++) {
-            if (!(entity->player.slots_needing_update & ((mc_ulong) 1 << i))) {
+            if (!(player->player.slots_needing_update & ((mc_ulong) 1 << i))) {
                 continue;
             }
 
             log("Sending slot update for %d", i);
-            item_stack * is = entity->player.slots + i;
+            item_stack * is = player->player.slots + i;
 
             // send container set slot packet
             int out_size = net_varint_size(23) + 1 + 2 + 1;
@@ -1739,9 +1742,114 @@ server_tick(void) {
             }
         }
 
-        entity->player.slots_needing_update = 0;
-        memcpy(entity->player.slots_prev_tick, entity->player.slots,
-                sizeof entity->player.slots);
+        player->player.slots_needing_update = 0;
+        memcpy(player->player.slots_prev_tick, player->player.slots,
+                sizeof player->player.slots);
+
+        // entity tracking
+
+        entity_id removed_entities[64];
+        int removed_entity_count = 0;
+
+        for (int j = 1; j < MAX_ENTITIES; j++) {
+            entity_id tracked_eid = brain->tracked_entities[j];
+            entity_data * candidate = entities + j;
+            entity_id candidate_eid = candidate->eid;
+
+            if (tracked_eid != 0) {
+                // entity is currently being tracked
+                if ((candidate->flags & ENTITY_IN_USE)
+                        && candidate_eid == tracked_eid) {
+                    // entity is still there, so send updates
+
+                    // send teleport entity packet
+                    int out_size = net_varint_size(87)
+                            + net_varint_size(tracked_eid) + 3 * 8 + 3 * 1;
+                    net_write_varint(&send_cursor, out_size);
+                    net_write_varint(&send_cursor, 87);
+                    net_write_varint(&send_cursor, tracked_eid);
+                    net_write_double(&send_cursor, candidate->x);
+                    net_write_double(&send_cursor, candidate->y);
+                    net_write_double(&send_cursor, candidate->z);
+                    // @TODO(traks) make sure signed cast to mc_ubyte works
+                    net_write_ubyte(&send_cursor, (int) (candidate->rot_y * 256.0f / 360.0f));
+                    net_write_ubyte(&send_cursor, (int) (candidate->rot_x * 256.0f / 360.0f));
+                    net_write_ubyte(&send_cursor, !!(candidate->flags & ENTITY_ON_GROUND));
+                    continue;
+                }
+
+                // entity we tracked is gone
+                if (removed_entity_count == ARRAY_SIZE(removed_entities)) {
+                    // no more space to untrack, try again next tick
+                    continue;
+                }
+
+                brain->tracked_entities[j] = 0;
+                removed_entities[removed_entity_count] = tracked_eid;
+                removed_entity_count++;
+            }
+
+            if ((candidate->flags & ENTITY_IN_USE) && candidate_eid != brain->eid) {
+                // candidate is valid for being newly tracked
+                mc_double dx = candidate->x - player->x;
+                mc_double dy = candidate->y - player->y;
+                mc_double dz = candidate->z - player->z;
+
+                if (dx * dx + dy * dy + dz + dz > 40 * 40) {
+                    continue;
+                }
+
+                switch (candidate->type) {
+                case ENTITY_PLAYER: {
+                    // send add mob packet
+                    int out_size = net_varint_size(3)
+                            + net_varint_size(candidate_eid)
+                            + 16 + net_varint_size(5)
+                            + 3 * 8 + 3 * 1 + 3 * 2;
+                    net_write_varint(&send_cursor, out_size);
+                    net_write_varint(&send_cursor, 3);
+                    net_write_varint(&send_cursor, candidate_eid);
+                    // @TODO(traks) appropriate UUID
+                    net_write_ulong(&send_cursor, 0);
+                    net_write_ulong(&send_cursor, 0);
+                    // @TODO(traks) network entity type
+                    net_write_varint(&send_cursor, 5);
+                    net_write_double(&send_cursor, candidate->x);
+                    net_write_double(&send_cursor, candidate->y);
+                    net_write_double(&send_cursor, candidate->z);
+                    // @TODO(traks) make sure signed cast to mc_ubyte works
+                    net_write_ubyte(&send_cursor, (int) (candidate->rot_y * 256.0f / 360.0f));
+                    net_write_ubyte(&send_cursor, (int) (candidate->rot_x * 256.0f / 360.0f));
+                    // @TODO(traks) y head rotation (what is that?)
+                    net_write_ubyte(&send_cursor, 0);
+                    // @TODO(traks) entity velocity
+                    net_write_ushort(&send_cursor, 0);
+                    net_write_ushort(&send_cursor, 0);
+                    net_write_ushort(&send_cursor, 0);
+                    break;
+                default:
+                    continue;
+                }
+                }
+
+                mc_uint entity_index = candidate_eid & ENTITY_INDEX_MASK;
+                brain->tracked_entities[entity_index] = candidate_eid;
+            }
+        }
+
+        if (removed_entity_count > 0) {
+            // send remove entities packet
+            int remove_entities_packet_size = net_varint_size(56);
+            for (int i = 0; i < removed_entity_count; i++) {
+                remove_entities_packet_size += net_varint_size(removed_entities[i]);
+            }
+
+            net_write_varint(&send_cursor, remove_entities_packet_size);
+            net_write_varint(&send_cursor, 56);
+            for (int i = 0; i < removed_entity_count; i++) {
+                net_write_varint(&send_cursor, removed_entities[i]);
+            }
+        }
 
         // try to write everything to the socket buffer
 
