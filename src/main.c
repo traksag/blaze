@@ -31,6 +31,9 @@
 
 #define MAX_CHUNK_SENDS_PER_TICK (2)
 
+// must be power of 2
+#define MAX_ENTITIES (1024)
+
 enum gamemode {
     GAMEMODE_SURVIVAL,
     GAMEMODE_CREATIVE,
@@ -102,9 +105,46 @@ struct chunk_bucket {
     chunk chunks[CHUNKS_PER_BUCKET];
 };
 
-#define PLAYER_BRAIN_IN_USE ((unsigned) (1 << 0))
+enum entity_type {
+    ENTITY_NULL,
+    ENTITY_PLAYER,
+};
 
-#define PLAYER_BRAIN_TELEPORTING ((unsigned) (1 << 1))
+#define ENTITY_INDEX_MASK (MAX_ENTITIES - 1)
+
+// Top 12 bits are used for the generation, lowest 20 bits can be used for the
+// index into the entity table. Bits actually used for the index depends on
+// MAX_ENTITIES.
+static_assert(MAX_ENTITIES <= (1UL << 20), "MAX_ENTITIES too large");
+typedef mc_uint entity_id;
+
+typedef struct {
+    unsigned char username[16];
+    int username_size;
+} player_data;
+
+#define ENTITY_IN_USE ((unsigned) (1 << 0))
+
+#define ENTITY_TELEPORTING ((unsigned) (1 << 1))
+
+#define ENTITY_ON_GROUND ((unsigned) (1 << 2))
+
+typedef struct {
+    mc_double x;
+    mc_double y;
+    mc_double z;
+    mc_float rot_x;
+    mc_float rot_y;
+    entity_id eid;
+    unsigned flags;
+    unsigned type;
+
+    union {
+        player_data player;
+    };
+} entity_data;
+
+#define PLAYER_BRAIN_IN_USE ((unsigned) (1 << 0))
 
 #define PLAYER_BRAIN_SENT_TELEPORT ((unsigned) (1 << 2))
 
@@ -113,8 +153,6 @@ struct chunk_bucket {
 #define PLAYER_BRAIN_SHIFTING ((unsigned) (1 << 4))
 
 #define PLAYER_BRAIN_SPRINTING ((unsigned) (1 << 5))
-
-#define PLAYER_BRAIN_ON_GROUND ((unsigned) (1 << 6))
 
 typedef struct {
     unsigned char sent;
@@ -128,9 +166,6 @@ typedef struct {
 
     unsigned char send_buf[1048576];
     int send_cursor;
-
-    unsigned char username[16];
-    int username_size;
 
     // The radius of the client's view distance, excluding the centre chunk,
     // and including an extra outer rim the client doesn't render but uses
@@ -153,11 +188,7 @@ typedef struct {
 
     mc_ulong last_keep_alive_sent_tick;
 
-    mc_double x;
-    mc_double y;
-    mc_double z;
-    mc_float rot_x;
-    mc_float rot_y;
+    entity_id eid;
 } player_brain;
 
 static initial_connection initial_connections[32];
@@ -174,6 +205,10 @@ static int player_brain_count;
 // appropriate way, we can ensure there are at most 1000 entries per bucket.
 // Not sure if that's any good.
 static chunk_bucket chunk_map[CHUNK_MAP_SIZE];
+
+static entity_data entities[MAX_ENTITIES];
+static mc_ushort next_entity_generations[MAX_ENTITIES];
+static mc_int entity_count;
 
 static void
 log(void * format, ...) {
@@ -240,34 +275,74 @@ handle_sigint(int sig) {
     got_sigint = 1;
 }
 
-static void
-teleport_player(player_brain * brain, mc_double new_x,
-        mc_double new_y, mc_double new_z) {
-    brain->flags |= PLAYER_BRAIN_TELEPORTING;
+static entity_data *
+resolve_entity(entity_id eid) {
+    mc_uint index = eid & ENTITY_INDEX_MASK;
+    entity_data * entity = entities + index;
+    if (entity->eid != eid || !(entity->flags & ENTITY_IN_USE)) {
+        // return the null entity
+        return entities;
+    }
+    return entity;
+}
 
-    brain->current_teleport_id++;
-    brain->x = new_x;
-    brain->y = new_y;
-    brain->z = new_z;
+static entity_data *
+try_reserve_entity(unsigned type) {
+    for (uint32_t i = 0; i < MAX_ENTITIES; i++) {
+        entity_data * entity = entities + i;
+        if (!(entity->flags & ENTITY_IN_USE)) {
+            mc_ushort generation = next_entity_generations[i];
+            entity_id eid = ((mc_uint) generation << 20) | i;
+            *entity = (entity_data) {0};
+            entity->eid = eid;
+            entity->type = type;
+            entity->flags |= ENTITY_IN_USE;
+            next_entity_generations[i] = (generation + 1) & 0xfff;
+            entity_count++;
+            return entity;
+        }
+    }
+    // first entity used as placeholder for null entity
+    return entities;
 }
 
 static void
-process_move_player_packet(player_brain * brain,
+evict_entity(entity_id eid) {
+    entity_data * entity = resolve_entity(eid);
+    if (entity->type != ENTITY_NULL) {
+        entity->flags &= ~ENTITY_IN_USE;
+        entity_count--;
+    }
+}
+
+static void
+teleport_player(player_brain * brain, mc_double new_x,
+        mc_double new_y, mc_double new_z) {
+    brain->current_teleport_id++;
+    entity_data * entity = resolve_entity(brain->eid);
+    entity->flags |= ENTITY_TELEPORTING;
+    entity->x = new_x;
+    entity->y = new_y;
+    entity->z = new_z;
+}
+
+static void
+process_move_player_packet(entity_data * entity,
         mc_double new_x, mc_double new_y, mc_double new_z,
         mc_float new_rot_x, mc_float new_rot_y, int on_ground) {
-    if ((brain->flags & PLAYER_BRAIN_TELEPORTING) != 0) {
+    if ((entity->flags & ENTITY_TELEPORTING) != 0) {
         return;
     }
 
-    brain->x = new_x;
-    brain->y = new_y;
-    brain->z = new_z;
-    brain->rot_x = new_rot_x;
-    brain->rot_y = new_rot_y;
+    entity->x = new_x;
+    entity->y = new_y;
+    entity->z = new_z;
+    entity->rot_x = new_rot_x;
+    entity->rot_y = new_rot_y;
     if (on_ground) {
-        brain->flags |= PLAYER_BRAIN_ON_GROUND;
+        entity->flags |= ENTITY_ON_GROUND;
     } else {
-        brain->flags &= ~PLAYER_BRAIN_ON_GROUND;
+        entity->flags &= ~ENTITY_ON_GROUND;
     }
 }
 
@@ -816,27 +891,36 @@ server_tick(void) {
                     continue;
                 }
 
+                entity_data * entity = try_reserve_entity(ENTITY_PLAYER);
+
+                if (entity->type == ENTITY_NULL) {
+                    // @TODO(traks) send some message and disconnect
+                    close(init_con->sock);
+                    continue;
+                }
+
                 player_brain * brain;
                 for (int j = 0; j < ARRAY_SIZE(player_brains); j++) {
                     brain = player_brains + j;
-                    if ((brain->flags & PLAYER_BRAIN_IN_USE) != 0) {
-                        continue;
+                    if ((brain->flags & PLAYER_BRAIN_IN_USE) == 0) {
+                        break;
                     }
                 }
 
+                player_brain_count++;
                 *brain = (player_brain) {0};
                 brain->flags |= PLAYER_BRAIN_IN_USE;
+
                 brain->sock = init_con->sock;
-                memcpy(brain->username, init_con->username,
+                brain->eid = entity->eid;
+                memcpy(entity->player.username, init_con->username,
                         init_con->username_size);
-                brain->username_size = init_con->username_size;
+                entity->player.username_size = init_con->username_size;
                 brain->chunk_cache_radius = -1;
                 // @TODO(traks) configurable server-wide global
                 brain->new_chunk_cache_radius = MAX_CHUNK_CACHE_RADIUS;
                 brain->last_keep_alive_sent_tick = current_tick;
                 brain->flags |= PLAYER_BRAIN_GOT_ALIVE_RESPONSE;
-
-                player_brain_count++;
 
                 buffer_cursor send_cursor = {
                     .buf = brain->send_buf,
@@ -844,7 +928,7 @@ server_tick(void) {
                 };
 
                 // send game profile packet
-                net_string username = {brain->username_size, brain->username};
+                net_string username = {init_con->username_size, init_con->username};
                 net_string uuid_str = NET_STRING("01234567-89ab-cdef-0123-456789abcdef");
                 int out_size = net_varint_size(2)
                         + net_varint_size(uuid_str.size) + uuid_str.size
@@ -861,8 +945,7 @@ server_tick(void) {
                         + net_varint_size(brain->new_chunk_cache_radius - 1) + 1 + 1;
                 net_write_varint(&send_cursor, out_size);
                 net_write_varint(&send_cursor, 38);
-                // @TODO(traks) implement entity IDs
-                net_write_uint(&send_cursor, 0);
+                net_write_uint(&send_cursor, entity->eid);
                 net_write_ubyte(&send_cursor, GAMEMODE_CREATIVE);
                 net_write_uint(&send_cursor, 0); // environment
                 net_write_ulong(&send_cursor, 0); // seed
@@ -876,13 +959,14 @@ server_tick(void) {
 
                 teleport_player(brain, 88, 70, 73);
 
-                log("Player '%.*s' joined", (int) brain->username_size,
-                        brain->username);
+                log("Player '%.*s' joined", (int) init_con->username_size,
+                        init_con->username);
             }
         }
     }
 
     // update players
+    // @TODO(traks) clean up player entity when brain disconnects
 
     for (int i = 0; i < ARRAY_SIZE(player_brains); i++) {
         player_brain * brain = player_brains + i;
@@ -890,6 +974,8 @@ server_tick(void) {
             continue;
         }
 
+        entity_data * entity = resolve_entity(brain->eid);
+        assert(entity->type == ENTITY_PLAYER);
         int sock = brain->sock;
         ssize_t rec_size = recv(sock, brain->rec_buf + brain->rec_cursor,
                 sizeof brain->rec_buf - brain->rec_cursor, 0);
@@ -939,10 +1025,11 @@ server_tick(void) {
                 case 0: { // accept teleport
                     mc_int teleport_id = net_read_varint(&rec_cursor);
 
-                    if ((brain->flags & PLAYER_BRAIN_TELEPORTING)
+                    if ((entity->flags & ENTITY_TELEPORTING)
                             && (brain->flags & PLAYER_BRAIN_SENT_TELEPORT)
                             && teleport_id == brain->current_teleport_id) {
-                        brain->flags &= ~(PLAYER_BRAIN_TELEPORTING | PLAYER_BRAIN_SENT_TELEPORT);
+                        entity->flags &= ~ENTITY_TELEPORTING;
+                        brain->flags &= ~PLAYER_BRAIN_SENT_TELEPORT;
                     }
                     break;
                 }
@@ -1076,8 +1163,8 @@ server_tick(void) {
                     mc_double y = net_read_double(&rec_cursor);
                     mc_double z = net_read_double(&rec_cursor);
                     int on_ground = net_read_ubyte(&rec_cursor);
-                    process_move_player_packet(brain, x, y, z,
-                            brain->rot_x, brain->rot_y, on_ground);
+                    process_move_player_packet(entity, x, y, z,
+                            entity->rot_x, entity->rot_y, on_ground);
                     break;
                 }
                 case 18: { // move player pos rot
@@ -1087,7 +1174,7 @@ server_tick(void) {
                     mc_float rot_y = net_read_float(&rec_cursor);
                     mc_float rot_x = net_read_float(&rec_cursor);
                     int on_ground = net_read_ubyte(&rec_cursor);
-                    process_move_player_packet(brain, x, y, z,
+                    process_move_player_packet(entity, x, y, z,
                             rot_x, rot_y, on_ground);
                     break;
                 }
@@ -1095,16 +1182,16 @@ server_tick(void) {
                     mc_float rot_y = net_read_float(&rec_cursor);
                     mc_float rot_x = net_read_float(&rec_cursor);
                     int on_ground = net_read_ubyte(&rec_cursor);
-                    process_move_player_packet(brain,
-                            brain->x, brain->y, brain->z,
+                    process_move_player_packet(entity,
+                            entity->x, entity->y, entity->z,
                             rot_x, rot_y, on_ground);
                     break;
                 }
                 case 20: { // move player
                     int on_ground = net_read_ubyte(&rec_cursor);
-                    process_move_player_packet(brain,
-                            brain->x, brain->y, brain->z,
-                            brain->rot_x, brain->rot_y, on_ground);
+                    process_move_player_packet(entity,
+                            entity->x, entity->y, entity->z,
+                            entity->rot_x, entity->rot_y, on_ground);
                     break;
                 }
                 case 21: { // move vehicle
@@ -1379,6 +1466,8 @@ server_tick(void) {
             continue;
         }
 
+        entity_data * entity = resolve_entity(brain->eid);
+
         // first write all the new packets to our own outgoing packet buffer
 
         buffer_cursor send_cursor = {
@@ -1399,18 +1488,18 @@ server_tick(void) {
             brain->flags &= ~PLAYER_BRAIN_GOT_ALIVE_RESPONSE;
         }
 
-        if ((brain->flags & PLAYER_BRAIN_TELEPORTING)
+        if ((entity->flags & ENTITY_TELEPORTING)
                 && !(brain->flags & PLAYER_BRAIN_SENT_TELEPORT)) {
             // send player position packet
             int out_size = net_varint_size(54) + 8 + 8 + 8 + 4 + 4 + 1
                     + net_varint_size(brain->current_teleport_id);
             net_write_varint(&send_cursor, out_size);
             net_write_varint(&send_cursor, 54);
-            net_write_double(&send_cursor, brain->x);
-            net_write_double(&send_cursor, brain->y);
-            net_write_double(&send_cursor, brain->z);
-            net_write_float(&send_cursor, brain->rot_y);
-            net_write_float(&send_cursor, brain->rot_x);
+            net_write_double(&send_cursor, entity->x);
+            net_write_double(&send_cursor, entity->y);
+            net_write_double(&send_cursor, entity->z);
+            net_write_float(&send_cursor, entity->rot_y);
+            net_write_float(&send_cursor, entity->rot_x);
             net_write_ubyte(&send_cursor, 0); // relative arguments
             net_write_varint(&send_cursor, brain->current_teleport_id);
 
@@ -1422,7 +1511,7 @@ server_tick(void) {
         mc_short chunk_cache_max_x = brain->chunk_cache_centre_x + brain->chunk_cache_radius;
         mc_short chunk_cache_max_z = brain->chunk_cache_centre_z + brain->chunk_cache_radius;
 
-        __m128d xz = _mm_set_pd(brain->z, brain->x);
+        __m128d xz = _mm_set_pd(entity->z, entity->x);
         __m128d floored_xz = _mm_floor_pd(xz);
         __m128i floored_int_xz = _mm_cvtpd_epi32(floored_xz);
         __m128i new_centre = _mm_srai_epi32(floored_int_xz, 4);
@@ -1614,6 +1703,9 @@ main(void) {
 
     mach_timebase_info_data_t timebase_info;
     mach_timebase_info(&timebase_info);
+
+    // reserve null entity
+    entities[0].flags |= ENTITY_IN_USE;
 
     for (;;) {
         unsigned long long start_time = mach_absolute_time();
