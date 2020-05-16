@@ -13,6 +13,9 @@
 #include <mach/mach_time.h>
 #include <limits.h>
 #include <x86intrin.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <zlib.h>
 #include "codec.h"
 
 #define ARRAY_SIZE(x) (sizeof (x) / sizeof *(x))
@@ -495,6 +498,181 @@ chunk_set_block_state(chunk * ch, int x, int y, int z, mc_ushort block_state) {
             ch->motion_blocking_height_map[height_map_index] = y + 1;
         }
     }
+}
+
+static void
+try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
+    // @TODO(traks) error handling and/or error messages for all failure cases
+    // in this entire function?
+
+    __m128i chunk_xz = _mm_set_epi32(0, 0, pos.z, pos.x);
+    __m128i region_xz = _mm_srai_epi32(chunk_xz, 4);
+    int region_x = _mm_extract_epi32(region_xz, 0);
+    int region_z = _mm_extract_epi32(region_xz, 1);
+
+    unsigned char file_name[64];
+    int file_name_size = sprintf((void *) file_name,
+            "world/region/r.%d.%d.mca", region_x, region_z);
+
+    int region_fd = open((void *) file_name, O_RDONLY);
+    if (region_fd == -1) {
+        log_errno("Failed to open region file: %s");
+        return;
+    }
+
+    struct stat region_stat;
+    if (fstat(region_fd, &region_stat)) {
+        log_errno("Failed to get region file stat: %s");
+        close(region_fd);
+        return;
+    }
+
+    // @TODO(traks) should we unmap this or something?
+    void * region_mmap = mmap(NULL, region_stat.st_size, PROT_READ,
+            MAP_PRIVATE, region_fd, 0);
+    if (region_mmap == MAP_FAILED) {
+        log_errno("Failed to mmap region file: %s");
+        close(region_fd);
+        return;
+    }
+
+    // after mmaping we can close the file descriptor
+    close(region_fd);
+
+    buffer_cursor cursor = {
+        .buf = region_mmap,
+        .limit = region_stat.st_size
+    };
+
+    // First read from the chunk location table at which sector (4096 byte
+    // block) the chunk data starts.
+    // @TODO(traks) this & better work for negative values
+    int index = ((pos.z & 0x1f) << 5) | (pos.x & 0x1f);
+    cursor.index = index << 2;
+    mc_uint loc = net_read_uint(&cursor);
+
+    if (loc == 0) {
+        // chunk not present in region file
+        return;
+    }
+
+    mc_uint sector_offset = loc >> 8;
+    mc_uint sector_count = loc & 0xff;
+
+    if (sector_offset < 2) {
+        log("Chunk data in header");
+        return;
+    }
+    if (sector_count == 0) {
+        log("Chunk data uses 0 sectors");
+        return;
+    }
+    if (sector_offset + sector_count > (cursor.limit >> 12)) {
+        log("Chunk data out of bounds");
+        return;
+    }
+
+    cursor.index = sector_offset << 12;
+    mc_uint size_in_bytes = net_read_uint(&cursor);
+
+    if (size_in_bytes > (sector_count << 12)) {
+        log("Chunk data outside of its sectors");
+        return;
+    }
+
+    cursor.limit = cursor.index + size_in_bytes;
+    mc_ubyte storage_type = net_read_ubyte(&cursor);
+
+    if (cursor.error) {
+        log("Chunk header reading error");
+        return;
+    }
+
+    if (storage_type & 0x80) {
+        // @TODO(traks) separate file is used to store the chunk
+        log("External chunk storage");
+        return;
+    }
+
+    int windowBits;
+
+    if (storage_type == 1) {
+        // gzip compressed
+        // 16 means: gzip stream and determine window size from header
+        windowBits = 16;
+    } else if (storage_type == 2) {
+        // zlib compressed
+        // 0 means: zlib stream and determine window size from header
+        windowBits = 0;
+    } else {
+        log("Unknown chunk compression method");
+        return;
+    }
+
+    // @TODO(traks) perhaps use https://github.com/ebiggers/libdeflate instead
+    // of zlib. Using zlib now just because I had the code for it laying around.
+    z_stream zstream;
+    zstream.zalloc = NULL;
+    zstream.zfree = NULL;
+    zstream.opaque = NULL;
+
+    if (inflateInit2(&zstream, windowBits) != Z_OK) {
+        log("inflateInit failed");
+        return;
+    }
+
+    zstream.next_in = cursor.buf + cursor.index;
+    zstream.avail_in = cursor.limit - cursor.index;
+
+    size_t max_uncompressed_size = 1048576;
+    unsigned char * uncompressed = malloc(max_uncompressed_size);
+
+    if (uncompressed == NULL) {
+        log("Failed to allocate space for uncompressed chunk");
+        return;
+    }
+
+    zstream.next_out = uncompressed;
+    zstream.avail_out = max_uncompressed_size;
+
+    if (inflate(&zstream, Z_FINISH) != Z_STREAM_END) {
+        free(uncompressed);
+        log("Failed to finish inflating chunk: %s", zstream.msg);
+        return;
+    }
+
+    if (inflateEnd(&zstream) != Z_OK) {
+        free(uncompressed);
+        log("inflateEnd failed");
+        return;
+    }
+
+    if (zstream.avail_in != 0) {
+        free(uncompressed);
+        log("Didn't inflate entire chunk");
+        return;
+    }
+
+    cursor = (buffer_cursor) {
+        .buf = uncompressed,
+        .limit = zstream.total_out
+    };
+
+    // @TODO(traks) read chunk
+    for (int x = 0; x < 16; x++) {
+        for (int z = 0; z < 16; z++) {
+            chunk_set_block_state(ch, x, 0, z, 2);
+        }
+    }
+
+    free(uncompressed);
+
+    if (cursor.error) {
+        log("Failed to read uncompressed data");
+        return;
+    }
+
+    ch->flags |= CHUNK_LOADED;
 }
 
 static chunk *
@@ -2052,13 +2230,18 @@ server_tick(void) {
         }
 
         // @TODO(traks) actual chunk loading from whatever storage provider
-        for (int x = 0; x < 16; x++) {
-            for (int z = 0; z < 16; z++) {
-                chunk_set_block_state(ch, x, 0, z, 1);
-            }
-        }
+        try_read_chunk_from_storage(pos, ch);
 
-        ch->flags |= CHUNK_LOADED;
+        if (!(ch->flags & CHUNK_LOADED)) {
+            // @TODO(traks) fall back to stone plateau at y = 0 for now
+            for (int x = 0; x < 16; x++) {
+                for (int z = 0; z < 16; z++) {
+                    chunk_set_block_state(ch, x, 0, z, 1);
+                }
+            }
+
+            ch->flags |= CHUNK_LOADED;
+        }
     }
 
     chunk_load_request_count = 0;

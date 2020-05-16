@@ -1,1 +1,1 @@
-clang -o blaze src/*.c
+clang -o blaze -lz src/*.c
