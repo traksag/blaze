@@ -31,6 +31,8 @@
 
 #define MAX_CHUNK_SENDS_PER_TICK (2)
 
+#define MAX_CHUNK_LOADS_PER_TICK (2)
+
 // must be power of 2
 #define MAX_ENTITIES (1024)
 
@@ -85,11 +87,19 @@ typedef struct {
     mc_short z;
 } chunk_pos;
 
+#define CHUNK_LOADED (1u << 0)
+
 typedef struct {
     mc_ushort * sections[16];
     mc_ushort non_air_count[16];
     // need shorts to store 257 different heights
     mc_ushort motion_blocking_height_map[256];
+
+    // increment if you want to keep a chunk available in the map, decrement
+    // if you no longer care for the chunk.
+    // If = 0 the chunk will be removed from the map at some point.
+    mc_uint available_interest;
+    unsigned flags;
 } chunk;
 
 #define CHUNKS_PER_BUCKET (32)
@@ -241,6 +251,12 @@ static int player_brain_count;
 // appropriate way, we can ensure there are at most 1000 entries per bucket.
 // Not sure if that's any good.
 static chunk_bucket chunk_map[CHUNK_MAP_SIZE];
+
+// All chunks that should be loaded. Stored in a request list to allow for
+// ordered loads. If a
+// @TODO(traks) appropriate size
+static chunk_pos chunk_load_requests[64];
+static int chunk_load_request_count;
 
 static entity_data entities[MAX_ENTITIES];
 static mc_ushort next_entity_generations[MAX_ENTITIES];
@@ -436,7 +452,12 @@ chunk_set_block_state(chunk * ch, int x, int y, int z, mc_ushort block_state) {
     mc_ushort * section = ch->sections[section_y];
 
     if (section == NULL) {
+        // @TODO(traks) better allocation scheme
         section = calloc(4096, sizeof (mc_ushort));
+        if (section == NULL) {
+            log_errno("Failed to allocate section: %s");
+            exit(1);
+        }
         ch->sections[section_y] = section;
     }
 
@@ -496,12 +517,6 @@ get_or_create_chunk(chunk_pos pos) {
             bucket->size++;
             chunk * ch = bucket->chunks + i;
             *ch = (chunk) {0};
-
-            for (int x = 0; x < 16; x++) {
-                for (int z = 0; z < 16; z++) {
-                    chunk_set_block_state(ch, x, 0, z, 1);
-                }
-            }
             return ch;
         }
 
@@ -509,13 +524,11 @@ get_or_create_chunk(chunk_pos pos) {
         chunk_bucket * next = bucket->next_bucket;
         if (next == NULL) {
             // @TODO(traks) get rid of this fallible operation
-            next = malloc(sizeof *next);
+            next = calloc(sizeof *next, 1);
             if (next == NULL) {
                 log_errno("Failed to allocate chunk bucket: %s");
                 exit(1);
             }
-            next->next_bucket = NULL;
-            next->size = 0;
 
             bucket->next_bucket = next;
         }
@@ -526,6 +539,32 @@ get_or_create_chunk(chunk_pos pos) {
 
 static chunk *
 get_chunk_if_loaded(chunk_pos pos) {
+    int hash = hash_chunk_pos(pos);
+    chunk_bucket * bucket = chunk_map + hash;
+
+    for (;;) {
+        int bucket_size = bucket->size;
+
+        for (int i = 0; i < bucket_size; i++) {
+            if (chunk_pos_equal(bucket->positions[i], pos)) {
+                chunk * ch = bucket->chunks + i;
+                if (ch->flags & CHUNK_LOADED) {
+                    return ch;
+                }
+                return NULL;
+            }
+        }
+
+        // chunk not found, move to next bucket
+        bucket = bucket->next_bucket;
+        if (bucket == NULL) {
+            return NULL;
+        }
+    }
+}
+
+static chunk *
+get_chunk_if_available(chunk_pos pos) {
     int hash = hash_chunk_pos(pos);
     chunk_bucket * bucket = chunk_map + hash;
 
@@ -547,10 +586,9 @@ get_chunk_if_loaded(chunk_pos pos) {
 }
 
 static void
-send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos) {
+send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch) {
     // bit mask for included chunk sections; bottom section in least
     // significant bit
-    chunk * ch = get_or_create_chunk(pos);
     mc_ushort section_mask = 0;
     for (int i = 0; i < 16; i++) {
         if (ch->sections[i] != NULL) {
@@ -685,6 +723,19 @@ disconnect_player_now(player_brain * brain) {
     brain->flags = 0;
     player_brain_count--;
     evict_entity(brain->eid);
+
+    mc_short chunk_cache_min_x = brain->chunk_cache_centre_x - brain->chunk_cache_radius;
+    mc_short chunk_cache_max_x = brain->chunk_cache_centre_x + brain->chunk_cache_radius;
+    mc_short chunk_cache_min_z = brain->chunk_cache_centre_z - brain->chunk_cache_radius;
+    mc_short chunk_cache_max_z = brain->chunk_cache_centre_z + brain->chunk_cache_radius;
+
+    for (mc_short x = chunk_cache_min_x; x <= chunk_cache_max_x; x++) {
+        for (mc_short z = chunk_cache_min_z; z <= chunk_cache_max_z; z++) {
+            chunk_pos pos = {.x = x, .z = z};
+            chunk * ch = get_or_create_chunk(pos);
+            ch->available_interest--;
+        }
+    }
 }
 
 static void
@@ -1674,7 +1725,11 @@ server_tick(void) {
                 }
 
                 // old chunk is not in the new region
-                int index = chunk_cache_index((chunk_pos) {.x = x, .z = z});
+                chunk_pos pos = {.x = x, .z = z};
+                int index = chunk_cache_index(pos);
+                chunk * ch = get_chunk_if_available(pos);
+                assert(ch != NULL);
+                ch->available_interest--;
 
                 if (brain->chunk_cache[index].sent) {
                     brain->chunk_cache[index] = (chunk_cache_entry) {0};
@@ -1689,6 +1744,22 @@ server_tick(void) {
             }
         }
 
+        // track new chunks
+        for (mc_short x = new_chunk_cache_min_x; x <= new_chunk_cache_max_x; x++) {
+            for (mc_short z = new_chunk_cache_min_z; z <= new_chunk_cache_max_z; z++) {
+                if (x >= chunk_cache_min_x && x <= chunk_cache_max_x
+                        && z >= chunk_cache_min_z && z <= chunk_cache_max_z) {
+                    // chunk already in old region
+                    continue;
+                }
+
+                // chunk not in old region
+                chunk_pos pos = {.x = x, .z = z};
+                chunk * ch = get_or_create_chunk(pos);
+                ch->available_interest++;
+            }
+        }
+
         brain->chunk_cache_radius = brain->new_chunk_cache_radius;
         brain->chunk_cache_centre_x = new_chunk_cache_centre_x;
         brain->chunk_cache_centre_z = new_chunk_cache_centre_z;
@@ -1699,6 +1770,7 @@ server_tick(void) {
         // don't need to wait for the chunk they are in to load) and allows
         // players to move around much earlier.
         int newly_sent_chunks = 0;
+        int newly_loaded_chunks = 0;
         int chunk_cache_diam = 2 * brain->new_chunk_cache_radius + 1;
         int chunk_cache_area = chunk_cache_diam * chunk_cache_diam;
         int off_x = 0;
@@ -1710,12 +1782,28 @@ server_tick(void) {
             int z = new_chunk_cache_centre_z + off_z;
             int cache_index = chunk_cache_index((chunk_pos) {.x = x, .z = z});
             chunk_cache_entry * entry = brain->chunk_cache + cache_index;
+            chunk_pos pos = {.x = x, .z = z};
+
+            if (newly_loaded_chunks < MAX_CHUNK_LOADS_PER_TICK
+                    && chunk_load_request_count < ARRAY_SIZE(chunk_load_requests)) {
+                chunk * ch = get_chunk_if_available(pos);
+                assert(ch != NULL);
+                assert(ch->available_interest > 0);
+                if (!(ch->flags & CHUNK_LOADED)) {
+                    chunk_load_requests[chunk_load_request_count] = pos;
+                    chunk_load_request_count++;
+                    newly_loaded_chunks++;
+                }
+            }
 
             if (newly_sent_chunks < MAX_CHUNK_SENDS_PER_TICK && !entry->sent) {
-                // send level chunk packet
-                send_chunk_fully(&send_cursor, (chunk_pos) {.x = x, .z = z});
-                entry->sent = 1;
-                newly_sent_chunks++;
+                chunk * ch = get_chunk_if_loaded(pos);
+                if (ch != NULL) {
+                    // send level chunk packet
+                    send_chunk_fully(&send_cursor, pos, ch);
+                    entry->sent = 1;
+                    newly_sent_chunks++;
+                }
             }
 
             off_x += step_x;
@@ -1949,6 +2037,84 @@ server_tick(void) {
 
     // clear global messages
     global_msg_count = 0;
+
+    // load chunks from requests
+
+    for (int i = 0; i < chunk_load_request_count; i++) {
+        chunk_pos pos = chunk_load_requests[i];
+        chunk * ch = get_chunk_if_available(pos);
+        if (ch == NULL) {
+            continue;
+        }
+        if (ch->available_interest == 0) {
+            // no one cares about the chunk anymore, so don't bother loading it
+            continue;
+        }
+
+        // @TODO(traks) actual chunk loading from whatever storage provider
+        for (int x = 0; x < 16; x++) {
+            for (int z = 0; z < 16; z++) {
+                chunk_set_block_state(ch, x, 0, z, 1);
+            }
+        }
+
+        ch->flags |= CHUNK_LOADED;
+    }
+
+    chunk_load_request_count = 0;
+
+    // update chunks
+
+    for (int bucketi = 0; bucketi < ARRAY_SIZE(chunk_map); bucketi++) {
+        chunk_bucket * first_bucket = chunk_map + bucketi;
+        chunk_bucket * prev = NULL;
+        chunk_bucket * bucket = first_bucket;
+
+        for (;;) {
+            int size = bucket->size;
+
+            for (int chunki = 0; chunki < size; chunki++) {
+                chunk * ch = bucket->chunks + chunki;
+                if (ch->available_interest == 0) {
+                    for (int sectioni = 0; sectioni < 16; sectioni++) {
+                        if (ch->sections[sectioni] != NULL) {
+                            free(ch->sections[sectioni]);
+                        }
+                    }
+
+                    chunk_bucket * last_bucket = bucket;
+                    while (last_bucket->next_bucket != NULL
+                            && last_bucket->next_bucket->size != 0) {
+                        last_bucket = last_bucket->next_bucket;
+                    }
+                    int last = last_bucket->size - 1;
+                    assert(last >= 0);
+                    bucket->chunks[chunki] = last_bucket->chunks[last];
+                    last_bucket->size--;
+                    if (last_bucket == bucket) {
+                        size--;
+                    }
+                    chunki--;
+                }
+            }
+
+            chunk_bucket * next = bucket->next_bucket;
+
+            if (bucket->size == 0 && bucket != first_bucket) {
+                // @TODO(traks) do something else once our allocation strategy
+                // changes
+                free(bucket);
+                prev->next_bucket = next;
+            } else {
+                prev = bucket;
+            }
+
+            bucket = next;
+            if (next == NULL) {
+                break;
+            }
+        }
+    }
 
     current_tick++;
 }
