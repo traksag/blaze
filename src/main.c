@@ -680,6 +680,14 @@ send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos) {
 }
 
 static void
+disconnect_player_now(player_brain * brain) {
+    close(brain->sock);
+    brain->flags = 0;
+    player_brain_count--;
+    evict_entity(brain->eid);
+}
+
+static void
 server_tick(void) {
     // accept new connections
 
@@ -1029,16 +1037,12 @@ server_tick(void) {
                 sizeof brain->rec_buf - brain->rec_cursor, 0);
 
         if (rec_size == 0) {
-            close(sock);
-            brain->flags = 0;
-            player_brain_count--;
+            disconnect_player_now(brain);
         } else if (rec_size == -1) {
             // EAGAIN means no data received
             if (errno != EAGAIN) {
                 log_errno("Couldn't receive protocol data: %s");
-                close(sock);
-                brain->flags = 0;
-                player_brain_count--;
+                disconnect_player_now(brain);
             }
         } else {
             brain->rec_cursor += rec_size;
@@ -1056,9 +1060,7 @@ server_tick(void) {
                     break;
                 }
                 if (packet_size <= 0 || packet_size > sizeof brain->rec_buf) {
-                    close(sock);
-                    brain->flags = 0;
-                    player_brain_count--;
+                    disconnect_player_now(brain);
                     break;
                 }
                 if (packet_size > rec_cursor.limit) {
@@ -1568,9 +1570,7 @@ server_tick(void) {
 
                 if (rec_cursor.error != 0) {
                     log("Protocol error occurred");
-                    close(sock);
-                    brain->flags = 0;
-                    player_brain_count--;
+                    disconnect_player_now(brain);
                     break;
                 }
             }
@@ -1875,13 +1875,15 @@ server_tick(void) {
 
         if (removed_entity_count > 0) {
             // send remove entities packet
-            int remove_entities_packet_size = net_varint_size(56);
+            int out_size = net_varint_size(56)
+                    + net_varint_size(removed_entity_count);
             for (int i = 0; i < removed_entity_count; i++) {
-                remove_entities_packet_size += net_varint_size(removed_entities[i]);
+                out_size += net_varint_size(removed_entities[i]);
             }
 
-            net_write_varint(&send_cursor, remove_entities_packet_size);
+            net_write_varint(&send_cursor, out_size);
             net_write_varint(&send_cursor, 56);
+            net_write_varint(&send_cursor, removed_entity_count);
             for (int i = 0; i < removed_entity_count; i++) {
                 net_write_varint(&send_cursor, removed_entities[i]);
             }
@@ -1936,9 +1938,7 @@ server_tick(void) {
             // EAGAIN means no data sent
             if (errno != EAGAIN) {
                 log_errno("Couldn't send protocol data: %s");
-                close(sock);
-                brain->flags = 0;
-                player_brain_count--;
+                disconnect_player_now(brain);
             }
         } else {
             memmove(brain->send_buf, brain->send_buf + send_size,
