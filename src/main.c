@@ -16,6 +16,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <zlib.h>
+#include <stdalign.h>
 #include "codec.h"
 
 #define ARRAY_SIZE(x) (sizeof (x) / sizeof *(x))
@@ -236,6 +237,12 @@ typedef struct {
 } player_brain;
 
 typedef struct {
+    unsigned char * ptr;
+    mc_int size;
+    mc_int index;
+} memory_arena;
+
+typedef struct {
     mc_ushort size;
     unsigned char text[512];
 } global_msg;
@@ -268,6 +275,9 @@ static mc_int entity_count;
 // global messages for the current tick
 static global_msg global_msgs[16];
 static int global_msg_count;
+
+void * short_lived_scratch;
+mc_int short_lived_scratch_size;
 
 static void
 log(void * format, ...) {
@@ -327,6 +337,18 @@ log_errno(void * format) {
     char error_msg[64] = {0};
     strerror_r(errno, error_msg, sizeof error_msg);
     log(format, error_msg);
+}
+
+static void *
+reserve_in_arena(memory_arena * arena, mc_int size) {
+    mc_int align = alignof (max_align_t);
+    // round up to multiple of align
+    mc_int actual_size = (size + align - 1) / align * align;
+    assert(arena->size - actual_size >= arena->index);
+
+    void * res = arena->ptr + arena->index;
+    arena->index += actual_size;
+    return res;
 }
 
 static void
@@ -504,6 +526,10 @@ static void
 try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
     // @TODO(traks) error handling and/or error messages for all failure cases
     // in this entire function?
+    memory_arena scratch_arena = {
+        .ptr = short_lived_scratch,
+        .size = short_lived_scratch_size
+    };
 
     __m128i chunk_xz = _mm_set_epi32(0, 0, pos.z, pos.x);
     __m128i region_xz = _mm_srai_epi32(chunk_xz, 4);
@@ -624,31 +650,24 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
     zstream.next_in = cursor.buf + cursor.index;
     zstream.avail_in = cursor.limit - cursor.index;
 
-    size_t max_uncompressed_size = 1048576;
-    unsigned char * uncompressed = malloc(max_uncompressed_size);
-
-    if (uncompressed == NULL) {
-        log("Failed to allocate space for uncompressed chunk");
-        return;
-    }
+    size_t max_uncompressed_size = 2097152;
+    unsigned char * uncompressed = reserve_in_arena(&scratch_arena,
+            max_uncompressed_size);
 
     zstream.next_out = uncompressed;
     zstream.avail_out = max_uncompressed_size;
 
     if (inflate(&zstream, Z_FINISH) != Z_STREAM_END) {
-        free(uncompressed);
         log("Failed to finish inflating chunk: %s", zstream.msg);
         return;
     }
 
     if (inflateEnd(&zstream) != Z_OK) {
-        free(uncompressed);
         log("inflateEnd failed");
         return;
     }
 
     if (zstream.avail_in != 0) {
-        free(uncompressed);
         log("Didn't inflate entire chunk");
         return;
     }
@@ -665,8 +684,6 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
         }
     }
 
-    free(uncompressed);
-
     if (cursor.error) {
         log("Failed to read uncompressed data");
         return;
@@ -679,88 +696,56 @@ static chunk *
 get_or_create_chunk(chunk_pos pos) {
     int hash = hash_chunk_pos(pos);
     chunk_bucket * bucket = chunk_map + hash;
+    int bucket_size = bucket->size;
 
-    for (;;) {
-        int bucket_size = bucket->size;
-        int i;
-
-        for (i = 0; i < bucket_size; i++) {
-            if (chunk_pos_equal(bucket->positions[i], pos)) {
-                return bucket->chunks + i;
-            }
+    int i;
+    for (i = 0; i < bucket_size; i++) {
+        if (chunk_pos_equal(bucket->positions[i], pos)) {
+            return bucket->chunks + i;
         }
-
-        if (i < CHUNKS_PER_BUCKET) {
-            bucket->positions[i] = pos;
-            bucket->size++;
-            chunk * ch = bucket->chunks + i;
-            *ch = (chunk) {0};
-            return ch;
-        }
-
-        // chunk not found, move to next bucket
-        chunk_bucket * next = bucket->next_bucket;
-        if (next == NULL) {
-            // @TODO(traks) get rid of this fallible operation
-            next = calloc(sizeof *next, 1);
-            if (next == NULL) {
-                log_errno("Failed to allocate chunk bucket: %s");
-                exit(1);
-            }
-
-            bucket->next_bucket = next;
-        }
-
-        bucket = next;
     }
+
+    assert(i < CHUNKS_PER_BUCKET);
+
+    bucket->positions[i] = pos;
+    bucket->size++;
+    chunk * ch = bucket->chunks + i;
+    *ch = (chunk) {0};
+    return ch;
 }
 
 static chunk *
 get_chunk_if_loaded(chunk_pos pos) {
     int hash = hash_chunk_pos(pos);
     chunk_bucket * bucket = chunk_map + hash;
+    int bucket_size = bucket->size;
 
-    for (;;) {
-        int bucket_size = bucket->size;
-
-        for (int i = 0; i < bucket_size; i++) {
-            if (chunk_pos_equal(bucket->positions[i], pos)) {
-                chunk * ch = bucket->chunks + i;
-                if (ch->flags & CHUNK_LOADED) {
-                    return ch;
-                }
-                return NULL;
+    for (int i = 0; i < bucket_size; i++) {
+        if (chunk_pos_equal(bucket->positions[i], pos)) {
+            chunk * ch = bucket->chunks + i;
+            if (ch->flags & CHUNK_LOADED) {
+                return ch;
             }
-        }
-
-        // chunk not found, move to next bucket
-        bucket = bucket->next_bucket;
-        if (bucket == NULL) {
             return NULL;
         }
     }
+
+    return NULL;
 }
 
 static chunk *
 get_chunk_if_available(chunk_pos pos) {
     int hash = hash_chunk_pos(pos);
     chunk_bucket * bucket = chunk_map + hash;
+    int bucket_size = bucket->size;
 
-    for (;;) {
-        int bucket_size = bucket->size;
-
-        for (int i = 0; i < bucket_size; i++) {
-            if (chunk_pos_equal(bucket->positions[i], pos)) {
-                return bucket->chunks + i;
-            }
-        }
-
-        // chunk not found, move to next bucket
-        bucket = bucket->next_bucket;
-        if (bucket == NULL) {
-            return NULL;
+    for (int i = 0; i < bucket_size; i++) {
+        if (chunk_pos_equal(bucket->positions[i], pos)) {
+            return bucket->chunks + i;
         }
     }
+
+    return NULL;
 }
 
 static void
@@ -2249,52 +2234,24 @@ server_tick(void) {
     // update chunks
 
     for (int bucketi = 0; bucketi < ARRAY_SIZE(chunk_map); bucketi++) {
-        chunk_bucket * first_bucket = chunk_map + bucketi;
-        chunk_bucket * prev = NULL;
-        chunk_bucket * bucket = first_bucket;
+        chunk_bucket * bucket = chunk_map + bucketi;
+        int size = bucket->size;
 
-        for (;;) {
-            int size = bucket->size;
-
-            for (int chunki = 0; chunki < size; chunki++) {
-                chunk * ch = bucket->chunks + chunki;
-                if (ch->available_interest == 0) {
-                    for (int sectioni = 0; sectioni < 16; sectioni++) {
-                        if (ch->sections[sectioni] != NULL) {
-                            free(ch->sections[sectioni]);
-                        }
+        for (int chunki = 0; chunki < size; chunki++) {
+            chunk * ch = bucket->chunks + chunki;
+            if (ch->available_interest == 0) {
+                for (int sectioni = 0; sectioni < 16; sectioni++) {
+                    if (ch->sections[sectioni] != NULL) {
+                        free(ch->sections[sectioni]);
                     }
-
-                    chunk_bucket * last_bucket = bucket;
-                    while (last_bucket->next_bucket != NULL
-                            && last_bucket->next_bucket->size != 0) {
-                        last_bucket = last_bucket->next_bucket;
-                    }
-                    int last = last_bucket->size - 1;
-                    assert(last >= 0);
-                    bucket->chunks[chunki] = last_bucket->chunks[last];
-                    last_bucket->size--;
-                    if (last_bucket == bucket) {
-                        size--;
-                    }
-                    chunki--;
                 }
-            }
 
-            chunk_bucket * next = bucket->next_bucket;
-
-            if (bucket->size == 0 && bucket != first_bucket) {
-                // @TODO(traks) do something else once our allocation strategy
-                // changes
-                free(bucket);
-                prev->next_bucket = next;
-            } else {
-                prev = bucket;
-            }
-
-            bucket = next;
-            if (next == NULL) {
-                break;
+                int last = size - 1;
+                assert(last >= 0);
+                bucket->chunks[chunki] = bucket->chunks[last];
+                bucket->size--;
+                size--;
+                chunki--;
             }
         }
     }
@@ -2374,6 +2331,15 @@ main(void) {
 
     // reserve null entity
     entities[0].flags |= ENTITY_IN_USE;
+
+    // allocate memory for arenas
+    short_lived_scratch_size = 4194304;
+    short_lived_scratch = calloc(short_lived_scratch_size, 1);
+
+    if (short_lived_scratch == NULL) {
+        log_errno("Failed to allocate short lived scratch arena: %s");
+        exit(1);
+    }
 
     for (;;) {
         unsigned long long start_time = mach_absolute_time();
