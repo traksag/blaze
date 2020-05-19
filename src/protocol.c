@@ -119,6 +119,28 @@ net_write_int(buffer_cursor * cursor, mc_int val) {
     net_write_uint(cursor, out);
 }
 
+mc_byte
+net_read_byte(buffer_cursor * cursor) {
+    mc_ubyte in = net_read_ubyte(cursor);
+    if (in <= 0x7f) {
+        return in;
+    } else {
+        return (mc_byte) (in - 0x80) + (-0x7f - 1);
+    }
+}
+
+void
+net_write_byte(buffer_cursor * cursor, mc_byte val) {
+    mc_ubyte out;
+    // convert to two's complement representation
+    if (val >= 0) {
+        out = val;
+    } else {
+        out = (mc_ubyte) (val + 0x7f + 1) + 0x80;
+    }
+    net_write_ubyte(cursor, out);
+}
+
 mc_ushort
 net_read_ushort(buffer_cursor * cursor) {
     if (cursor->limit - cursor->index < 2) {

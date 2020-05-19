@@ -49,6 +49,12 @@ net_read_int(buffer_cursor * cursor);
 void
 net_write_int(buffer_cursor * cursor, mc_int val);
 
+mc_byte
+net_read_byte(buffer_cursor * cursor);
+
+void
+net_write_byte(buffer_cursor * cursor, mc_byte val);
+
 mc_ushort
 net_read_ushort(buffer_cursor * cursor);
 

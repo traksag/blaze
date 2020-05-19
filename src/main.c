@@ -506,6 +506,22 @@ chunk_get_block_state(chunk * ch, int x, int y, int z) {
 }
 
 static void
+recalculate_chunk_motion_blocking_height_map(chunk * ch) {
+    for (int zx = 0; zx < 16 * 16; zx++) {
+        ch->motion_blocking_height_map[zx] = 0;
+        for (int y = 255; y >= 0; y--) {
+            mc_ushort block_state = chunk_get_block_state(ch,
+                    zx & 0xf, y, zx >> 4);
+            // @TODO(traks) other airs
+            if (block_state != 0) {
+                ch->motion_blocking_height_map[zx] = y + 1;
+                break;
+            }
+        }
+    }
+}
+
+static void
 chunk_set_block_state(chunk * ch, int x, int y, int z, mc_ushort block_state) {
     assert(0 <= x && x < 16);
     assert(0 <= y && y < 256);
@@ -562,22 +578,20 @@ chunk_set_block_state(chunk * ch, int x, int y, int z, mc_ushort block_state) {
 
 static mc_uint
 nbt_move_to_key(net_string matcher, nbt_tape_entry * tape,
-        buffer_cursor * cursor) {
-    mc_uint i = 0;
+        mc_uint start_index, buffer_cursor * cursor) {
+    mc_uint i = start_index;
     while (tape[i].tag != NBT_TAG_END) {
         cursor->index = tape[i].buffer_index;
         mc_ushort key_size = net_read_ushort(cursor);
         unsigned char * key = cursor->buf + cursor->index;
-        printf("%d %.*s\n", tape[i].tag, key_size, key);
+        // printf("%d %.*s\n", tape[i].tag, key_size, key);
         if (key_size == matcher.size
                 && memcmp(key, matcher.ptr, matcher.size) == 0) {
-            puts("MATCH");
             cursor->index += key_size;
             break;
         }
         i = tape[i + 1].next_compound_entry;
     }
-    puts("DONE");
     return i;
 }
 
@@ -889,6 +903,11 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
                 .element_tag = element_tag,
                 .list_elems_remaining = list_size
             };
+
+            // append size entry
+            nbt_tape_entry new_entry = {.list_size = list_size};
+            tape[cur_tape_index] = new_entry;
+            cur_tape_index++;
             break;
         }
         case NBT_TAG_COMPOUND:
@@ -934,59 +953,132 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
     // }
     // puts("");
 
-    nbt_move_to_key(NET_STRING("DataVersion"), tape, &cursor);
+    for (int section_y = 0; section_y < 16; section_y++) {
+        assert(ch->sections[section_y] == NULL);
+    }
+
+    nbt_move_to_key(NET_STRING("DataVersion"), tape, 0, &cursor);
     mc_int data_version = net_read_int(&cursor);
     if (data_version != 2230) {
         log("Unknown data version %jd", (intmax_t) data_version);
         return;
     }
 
-    mc_uint level_start = nbt_move_to_key(NET_STRING("Level"), tape, &cursor);
+    mc_uint level_start = nbt_move_to_key(NET_STRING("Level"), tape, 0, &cursor);
     if (tape[level_start].tag != NBT_TAG_COMPOUND) {
         log("NBT Level tag not a compound");
         return;
     }
     level_start += 2;
 
-    mc_uint j = level_start;
-    while (tape[j].tag != NBT_TAG_END) {
-        cursor.index = tape[j].buffer_index;
-        mc_ushort key_size = net_read_ushort(&cursor);
-        unsigned char * key = cursor.buf + cursor.index;
-        printf("%d %.*s\n", tape[j].tag, key_size, key);
-        j = tape[j + 1].next_compound_entry;
-    }
+    mc_uint sections_start = nbt_move_to_key(NET_STRING("Sections"),
+            tape, level_start, &cursor);
+    mc_uint section_count = tape[sections_start + 2].list_size;
+    mc_uint section_start = sections_start + 4;
 
-    // mc_uint sections_start = level_start + nbt_move_to_key(
-    //         NET_STRING("Sections"), tape + level_start, &cursor);
-    // puts("BLA");
-    // if (tape[sections_start].tag != NBT_TAG_COMPOUND) {
-    //     log("NBT Sections tag not a compound");
-    //     return;
-    // }
-    // return;
+    // maximum amount of memory the palette will ever use
+    mc_ushort * palette_map = alloc_in_arena(&scratch_arena,
+            4096 * sizeof (mc_ushort));
 
-    // mc_uint section_count = tape[sections_start + 2].list_size;
-    // mc_uint section_start = sections_start + 3;
-    // for (mc_uint sectioni = 0; sectioni < section_count; sectioni++) {
-    //     nbt_move_to_key(NET_STRING("Y"), tape + section_start, &cursor);
-    //     mc_ubyte y = net_read_ubyte(&cursor);
-    //     log("Y is %d\n", (int) y);
+    for (mc_uint sectioni = 0; sectioni < section_count; sectioni++) {
+        nbt_move_to_key(NET_STRING("Y"), tape, section_start, &cursor);
+        mc_byte section_y = net_read_byte(&cursor);
 
-    //     // move to end of section compound
-    //     mc_uint i = section_start;
-    //     while (tape[i].tag != NBT_TAG_END) {
-    //         i = tape[i + 1].next_compound_entry;
-    //     }
-    //     section_start = i + 1;
-    // }
-
-    // @TODO(traks) read chunk
-    for (int x = 0; x < 16; x++) {
-        for (int z = 0; z < 16; z++) {
-            chunk_set_block_state(ch, x, 0, z, 2);
+        if (ch->sections[section_y] != NULL) {
+            log("Duplicate section Y %d", (int) section_y);
+            return;
         }
+
+        int palette_start = nbt_move_to_key(NET_STRING("Palette"),
+                tape, section_start, &cursor);
+
+        if (tape[palette_start].tag != NBT_TAG_END) {
+            if (section_y < 0 || section_y >= 16) {
+                log("Section Y %d with palette", (int) section_y);
+                return;
+            }
+
+            // @TODO(traks) get rid of this dynamic allocation. May be fine to
+            // fail since loading the chunk can fail in all sorts of ways
+            // anyhow.
+            mc_ushort * section = calloc(sizeof *section, 4096);
+            if (section == NULL) {
+                log_errno("Failed to allocate section: %s");
+                exit(1);
+            }
+            // Note that the section allocation will be freed when the chunk
+            // gets removed somewhere else in the code base.
+            ch->sections[section_y] = section;
+
+            mc_uint palette_size = tape[palette_start + 2].list_size;
+            mc_uint palettei_start = palette_start + 4;
+
+            for (uint palettei = 0; palettei < palette_size; palettei++) {
+                mc_uint name_start = nbt_move_to_key(NET_STRING("Name"),
+                        tape, palettei_start, &cursor);
+                if (tape[name_start].tag != NBT_TAG_END) {
+                    mc_ushort resource_loc_size = net_read_ushort(&cursor);
+                    unsigned char * resource_loc = cursor.buf + cursor.index;
+                    // @TODO(traks) convert resource location to something that
+                    // takes in properties and produces a block state. Use air
+                    // by default.
+                }
+
+                // move to end of section compound
+                mc_uint i = palettei_start;
+                while (tape[i].tag != NBT_TAG_END) {
+                    i = tape[i + 1].next_compound_entry;
+                }
+                palettei_start = i + 2;
+            }
+
+            nbt_move_to_key(NET_STRING("BlockStates"),
+                    tape, section_start, &cursor);
+            mc_uint entry_count = net_read_uint(&cursor);
+            mc_uint bits_per_id = entry_count >> 6;
+            mc_uint id_mask = (1 << bits_per_id) - 1;
+            int offset = 0;
+            mc_ulong entry = net_read_ulong(&cursor);
+
+            for (int j = 0; j < 4096; j++) {
+                mc_uint id = (entry >> offset) & id_mask;
+                mc_uint remaining_bits = 64 - offset;
+                if (bits_per_id >= remaining_bits) {
+                    entry = net_read_ulong(&cursor);
+                    id |= (entry << remaining_bits) & id_mask;
+                    offset = bits_per_id - remaining_bits;
+                } else {
+                    offset += bits_per_id;
+                }
+
+                if (id >= palette_size) {
+                    log("Out of bounds palette ID");
+                    return;
+                }
+
+                // @TODO(traks) uncomment when palette loading is done
+                // mc_ushort block_state = palette_map[id];
+                mc_ushort block_state = id == 0 ? 0 : 1;
+
+                section[j] = block_state;
+
+                if (block_state != 0) {
+                    ch->non_air_count[section_y]++;
+                }
+            }
+
+            ch->sections[section_y] = section;
+        }
+
+        // move to end of section compound
+        mc_uint i = section_start;
+        while (tape[i].tag != NBT_TAG_END) {
+            i = tape[i + 1].next_compound_entry;
+        }
+        section_start = i + 2;
     }
+
+    recalculate_chunk_motion_blocking_height_map(ch);
 
     if (cursor.error) {
         log("Failed to read uncompressed data");
@@ -2525,7 +2617,7 @@ server_tick(void) {
             // @TODO(traks) fall back to stone plateau at y = 0 for now
             for (int x = 0; x < 16; x++) {
                 for (int z = 0; z < 16; z++) {
-                    chunk_set_block_state(ch, x, 0, z, 1);
+                    chunk_set_block_state(ch, x, 0, z, 2);
                 }
             }
 
