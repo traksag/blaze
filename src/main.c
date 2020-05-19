@@ -314,8 +314,8 @@ static mc_int entity_count;
 static global_msg global_msgs[16];
 static int global_msg_count;
 
-void * short_lived_scratch;
-mc_int short_lived_scratch_size;
+static void * short_lived_scratch;
+static mc_int short_lived_scratch_size;
 
 static void
 log(void * format, ...) {
@@ -584,7 +584,6 @@ nbt_move_to_key(net_string matcher, nbt_tape_entry * tape,
         cursor->index = tape[i].buffer_index;
         mc_ushort key_size = net_read_ushort(cursor);
         unsigned char * key = cursor->buf + cursor->index;
-        // printf("%d %.*s\n", tape[i].tag, key_size, key);
         if (key_size == matcher.size
                 && memcmp(key, matcher.ptr, matcher.size) == 0) {
             cursor->index += key_size;
@@ -593,6 +592,183 @@ nbt_move_to_key(net_string matcher, nbt_tape_entry * tape,
         i = tape[i + 1].next_compound_entry;
     }
     return i;
+}
+
+static nbt_tape_entry *
+load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_level) {
+    // @TODO(traks) Here's another idea for NBT parsing. Instead of using a
+    // tape, for each level we could maintain a linked list of blocks of
+    // something similar to tape entries. The benefit being that we need to jump
+    // over subtrees a lot less (depending on the block size) when iterating
+    // through the keys, and that we don't need to track these jumps as is done
+    // when constructing the tape.
+    nbt_tape_entry * tape = alloc_in_arena(arena, 1048576);
+    memory_arena scratch_arena = {
+        .ptr = arena->ptr,
+        .index = arena->index,
+        .size = arena->size
+    };
+    nbt_level_info * level_info = alloc_in_arena(&scratch_arena,
+            (max_level + 1) * sizeof *level_info);
+    int cur_tape_index = 0;
+    int cur_level = 0;
+    level_info[0] = (nbt_level_info) {0};
+
+    mc_ubyte tag = net_read_ubyte(cursor);
+
+    if (tag == NBT_TAG_END) {
+        // no nbt data
+        goto exit;
+    } else if (tag != NBT_TAG_COMPOUND) {
+        cursor->error = 1;
+        goto exit;
+    }
+
+    // skip key of root compound
+    mc_ushort key_size = net_read_ushort(cursor);
+    if (key_size > cursor->limit - cursor->index) {
+        cursor->error = 1;
+        goto exit;
+    }
+    cursor->index += key_size;
+
+    for (;;) {
+        if (cur_level == max_level + 1) {
+            cursor->error = 1;
+            goto exit;
+        }
+        if (!level_info[cur_level].is_list) {
+            // compound
+            tag = net_read_ubyte(cursor);
+            tape[level_info[cur_level].prev_compound_entry + 1]
+                    .next_compound_entry = cur_tape_index;
+
+            if (tag == NBT_TAG_END) {
+                tape[cur_tape_index] = (nbt_tape_entry) {.tag = NBT_TAG_END};
+                cur_tape_index++;
+                cur_level--;
+
+                if (cur_level == -1) {
+                    goto exit;
+                } else {
+                    continue;
+                }
+            }
+
+            mc_int entry_start = cursor->index;
+            key_size = net_read_ushort(cursor);
+            if (key_size > cursor->limit - cursor->index) {
+                cursor->error = 1;
+                goto exit;
+            }
+            cursor->index += key_size;
+
+            level_info[cur_level].prev_compound_entry = cur_tape_index;
+            nbt_tape_entry new_entry = {
+                .buffer_index = entry_start,
+                .tag = tag
+            };
+            tape[cur_tape_index] = new_entry;
+            cur_tape_index++;
+            // increment another time for the next pointer
+            cur_tape_index++;
+        } else {
+            // list
+            if (level_info[cur_level].list_elems_remaining == 0) {
+                nbt_tape_entry new_entry = {.tag = NBT_TAG_LIST_END};
+                tape[cur_tape_index] = new_entry;
+                cur_tape_index++;
+                cur_level--;
+                continue;
+            }
+
+            level_info[cur_level].list_elems_remaining--;
+            tag = level_info[cur_level].element_tag;
+
+            if (tag == NBT_TAG_COMPOUND) {
+                nbt_tape_entry new_entry = {.tag = NBT_TAG_COMPOUND_IN_LIST};
+                tape[cur_tape_index] = new_entry;
+                cur_tape_index++;
+            }
+            if (tag == NBT_TAG_LIST) {
+                nbt_tape_entry new_entry = {.tag = NBT_TAG_LIST_IN_LIST};
+                tape[cur_tape_index] = new_entry;
+                cur_tape_index++;
+            }
+        }
+
+        static mc_byte elem_bytes[] = {0, 1, 2, 4, 8, 4, 8};
+        static mc_byte array_elem_bytes[] = {1, 0, 0, 0, 4, 8};
+        switch (tag) {
+        case NBT_TAG_END:
+            // Minecraft uses this sometimes for empty lists even if the
+            // element tag differs if the list is non-empty... why...?
+            goto exit;
+        case NBT_TAG_BYTE:
+        case NBT_TAG_SHORT:
+        case NBT_TAG_INT:
+        case NBT_TAG_LONG:
+        case NBT_TAG_FLOAT:
+        case NBT_TAG_DOUBLE: {
+            int bytes = elem_bytes[tag];
+            if (cursor->index > cursor->limit - bytes) {
+                cursor->error = 1;
+                goto exit;
+            } else {
+                cursor->index += bytes;
+            }
+            break;
+        }
+        case NBT_TAG_BYTE_ARRAY:
+        case NBT_TAG_INT_ARRAY:
+        case NBT_TAG_LONG_ARRAY: {
+            mc_long elem_bytes = array_elem_bytes[tag - NBT_TAG_BYTE_ARRAY];
+            mc_long array_size = net_read_uint(cursor);
+            if (cursor->index > (mc_long) cursor->limit
+                    - elem_bytes * array_size) {
+                cursor->error = 1;
+                goto exit;
+            } else {
+                cursor->index += elem_bytes * array_size;
+            }
+            break;
+        }
+        case NBT_TAG_STRING: {
+            mc_ushort size = net_read_ushort(cursor);
+            if (cursor->index > cursor->limit - size) {
+                cursor->error = 1;
+            } else {
+                cursor->index += size;
+            }
+            break;
+        }
+        case NBT_TAG_LIST: {
+            cur_level++;
+            mc_uint element_tag = net_read_ubyte(cursor);
+            mc_long list_size = net_read_uint(cursor);
+            level_info[cur_level] = (nbt_level_info) {
+                .is_list = 1,
+                .element_tag = element_tag,
+                .list_elems_remaining = list_size
+            };
+
+            // append size entry
+            nbt_tape_entry new_entry = {.list_size = list_size};
+            tape[cur_tape_index] = new_entry;
+            cur_tape_index++;
+            break;
+        }
+        case NBT_TAG_COMPOUND:
+            cur_level++;
+            level_info[cur_level] = (nbt_level_info) {0};
+            break;
+        default:
+            goto exit;
+        }
+    }
+
+exit:
+    return tape;
 }
 
 static void
@@ -750,208 +926,13 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
         .limit = zstream.total_out
     };
 
-    // @TODO(traks) Here's another idea for NBT parsing. Instead of using a
-    // tape, for each level we could maintain a linked list of blocks of
-    // something similar to tape entries. The benefit being that we need to jump
-    // over subtrees a lot less (depending on the block size) when iterating
-    // through the keys, and that we don't need to track these jumps as is done
-    // when constructing the tape.
-
-    mc_ubyte tag = net_read_ubyte(&cursor);
-
-    if (tag == NBT_TAG_END) {
-        // no nbt data
-        log("No chunk NBT data");
-        return;
-    } else if (tag != NBT_TAG_COMPOUND) {
-        log("Invalid NBT data with root tag %d", (int) tag);
-        return;
-    }
-
-    // skip key of root compound
-    mc_ushort key_size = net_read_ushort(&cursor);
-    if (key_size > cursor.limit - cursor.index) {
-        log("NBT key too long");
-        return;
-    }
-    cursor.index += key_size;
-
-    nbt_tape_entry * tape = alloc_in_arena(&scratch_arena, 1048576);
-    int max_level = 64;
-    nbt_level_info * level_info = alloc_in_arena(&scratch_arena,
-            (max_level + 1) * sizeof *level_info);
-    int cur_tape_index = 0;
-    int cur_level = 0;
-    level_info[0] = (nbt_level_info) {0};
-
-    for (;;) {
-        if (cur_level == max_level + 1) {
-            log("Too many NBT levels");
-            return;
-        }
-        if (!level_info[cur_level].is_list) {
-            // compound
-            tag = net_read_ubyte(&cursor);
-            tape[level_info[cur_level].prev_compound_entry + 1]
-                    .next_compound_entry = cur_tape_index;
-
-            if (tag == NBT_TAG_END) {
-                tape[cur_tape_index] = (nbt_tape_entry) {.tag = NBT_TAG_END};
-                cur_tape_index++;
-                cur_level--;
-
-                if (cur_level == -1) {
-                    break;
-                } else {
-                    continue;
-                }
-            }
-
-            mc_int entry_start = cursor.index;
-            key_size = net_read_ushort(&cursor);
-            if (key_size > cursor.limit - cursor.index) {
-                log("NBT key too long");
-                return;
-            }
-            cursor.index += key_size;
-
-            level_info[cur_level].prev_compound_entry = cur_tape_index;
-            nbt_tape_entry new_entry = {
-                .buffer_index = entry_start,
-                .tag = tag
-            };
-            tape[cur_tape_index] = new_entry;
-            cur_tape_index++;
-            // increment another time for the next pointer
-            cur_tape_index++;
-        } else {
-            // list
-            if (level_info[cur_level].list_elems_remaining == 0) {
-                nbt_tape_entry new_entry = {.tag = NBT_TAG_LIST_END};
-                tape[cur_tape_index] = new_entry;
-                cur_tape_index++;
-                cur_level--;
-                continue;
-            }
-
-            level_info[cur_level].list_elems_remaining--;
-            tag = level_info[cur_level].element_tag;
-
-            if (tag == NBT_TAG_COMPOUND) {
-                nbt_tape_entry new_entry = {.tag = NBT_TAG_COMPOUND_IN_LIST};
-                tape[cur_tape_index] = new_entry;
-                cur_tape_index++;
-            }
-            if (tag == NBT_TAG_LIST) {
-                nbt_tape_entry new_entry = {.tag = NBT_TAG_LIST_IN_LIST};
-                tape[cur_tape_index] = new_entry;
-                cur_tape_index++;
-            }
-        }
-
-        static mc_byte elem_bytes[] = {0, 1, 2, 4, 8, 4, 8};
-        static mc_byte array_elem_bytes[] = {1, 0, 0, 0, 4, 8};
-        switch (tag) {
-        case NBT_TAG_END:
-            // Minecraft uses this sometimes for empty lists even if the
-            // element tag differs if the list is non-empty... why...?
-            log("NBT non-empty wildcard list");
-            return;
-        case NBT_TAG_BYTE:
-        case NBT_TAG_SHORT:
-        case NBT_TAG_INT:
-        case NBT_TAG_LONG:
-        case NBT_TAG_FLOAT:
-        case NBT_TAG_DOUBLE: {
-            int bytes = elem_bytes[tag];
-            if (cursor.index > cursor.limit - bytes) {
-                cursor.error = 1;
-            } else {
-                cursor.index += bytes;
-            }
-            break;
-        }
-        case NBT_TAG_BYTE_ARRAY:
-        case NBT_TAG_INT_ARRAY:
-        case NBT_TAG_LONG_ARRAY: {
-            mc_long elem_bytes = array_elem_bytes[tag - NBT_TAG_BYTE_ARRAY];
-            mc_long array_size = net_read_uint(&cursor);
-            if (cursor.index > (mc_long) cursor.limit
-                    - elem_bytes * array_size) {
-                cursor.error = 1;
-                break;
-            } else {
-                cursor.index += elem_bytes * array_size;
-            }
-            break;
-        }
-        case NBT_TAG_STRING: {
-            mc_ushort size = net_read_ushort(&cursor);
-            if (cursor.index > cursor.limit - size) {
-                cursor.error = 1;
-            } else {
-                cursor.index += size;
-            }
-            break;
-        }
-        case NBT_TAG_LIST: {
-            cur_level++;
-            mc_uint element_tag = net_read_ubyte(&cursor);
-            mc_long list_size = net_read_uint(&cursor);
-            level_info[cur_level] = (nbt_level_info) {
-                .is_list = 1,
-                .element_tag = element_tag,
-                .list_elems_remaining = list_size
-            };
-
-            // append size entry
-            nbt_tape_entry new_entry = {.list_size = list_size};
-            tape[cur_tape_index] = new_entry;
-            cur_tape_index++;
-            break;
-        }
-        case NBT_TAG_COMPOUND:
-            cur_level++;
-            level_info[cur_level] = (nbt_level_info) {0};
-            break;
-        default:
-            log("Unknown NBT tag %d", (int) tag);
-            return;
-        }
-    }
+    // @TODO(traks) more appropriate max level, currently 64
+    nbt_tape_entry * tape = load_nbt(&cursor, &scratch_arena, 64);
 
     if (cursor.error) {
-        log("Failed to read uncompressed data");
+        log("Failed to read uncompressed NBT data");
         return;
     }
-
-    // int indent = 0;
-    // puts("");
-    // for (int i = 0; i < cur_tape_index; i++) {
-    //     for (int ind = 0; ind < indent; ind++) {
-    //         printf("  ");
-    //     }
-
-    //     int tag = tape[i].tag;
-    //     if (tag == NBT_TAG_COMPOUND_IN_LIST || tag == NBT_TAG_LIST_IN_LIST) {
-    //         printf("%d -\n", (int) tape[i].tag);
-    //     } else if (tag != NBT_TAG_END && tag != NBT_TAG_LIST_END) {
-    //         cursor.index = tape[i].buffer_index;
-    //         mc_ushort key_size = net_read_ushort(&cursor);
-    //         printf("%d %.*s\n", (int) tape[i].tag,
-    //                 (int) key_size, cursor.buf + cursor.index);
-    //     }
-    //     if (tag == NBT_TAG_END || tag == NBT_TAG_LIST_END) {
-    //         indent--;
-    //         puts("end");
-    //     }
-    //     if (tag == NBT_TAG_COMPOUND || tag == NBT_TAG_LIST
-    //             || tag == NBT_TAG_COMPOUND_IN_LIST
-    //             || tag == NBT_TAG_LIST_IN_LIST) {
-    //         indent++;
-    //     }
-    // }
-    // puts("");
 
     for (int section_y = 0; section_y < 16; section_y++) {
         assert(ch->sections[section_y] == NULL);
@@ -2104,9 +2085,18 @@ server_tick(void) {
                         // @TODO(traks) validate max stack size by type
                         is->size = net_read_ubyte(&rec_cursor);
 
-                        // @TODO(traks) parse and use NBT data to construct
-                        // item stack
-                        rec_cursor.index = packet_start + packet_size;
+                        memory_arena scratch_arena = {
+                            .ptr = short_lived_scratch,
+                            .size = short_lived_scratch_size
+                        };
+                        // @TODO(traks) better value than 64 for the max level
+                        nbt_tape_entry * tape = load_nbt(&rec_cursor,
+                                &scratch_arena, 64);
+                        if (rec_cursor.error) {
+                            break;
+                        }
+
+                        // @TODO(traks) use NBT data to construct item stack
                     }
                     break;
                 }
@@ -2607,6 +2597,9 @@ server_tick(void) {
         }
         if (ch->available_interest == 0) {
             // no one cares about the chunk anymore, so don't bother loading it
+            continue;
+        }
+        if (ch->flags & CHUNK_LOADED) {
             continue;
         }
 
