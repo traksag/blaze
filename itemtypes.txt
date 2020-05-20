@@ -1,0 +1,86 @@
+key minecraft:air
+max_stack_size 0
+
+key minecraft:stone
+max_stack_size 64
+
+key minecraft:granite
+max_stack_size 64
+
+key minecraft:polished_granite
+max_stack_size 64
+
+key minecraft:diorite
+max_stack_size 64
+
+key minecraft:polished_diorite
+max_stack_size 64
+
+key minecraft:andesite
+max_stack_size 64
+
+key minecraft:polished_andesite
+max_stack_size 64
+
+key minecraft:grass_block
+max_stack_size 64
+
+key minecraft:dirt
+max_stack_size 64
+
+key minecraft:coarse_dirt
+max_stack_size 64
+
+key minecraft:podzol
+max_stack_size 64
+
+key minecraft:cobblestone
+max_stack_size 64
+
+key minecraft:oak_planks
+max_stack_size 64
+
+key minecraft:spruce_planks
+max_stack_size 64
+
+key minecraft:birch_planks
+max_stack_size 64
+
+key minecraft:jungle_planks
+max_stack_size 64
+
+key minecraft:acacia_planks
+max_stack_size 64
+
+key minecraft:dark_oak_planks
+max_stack_size 64
+
+key minecraft:oak_sapling
+max_stack_size 64
+
+key minecraft:spruce_sapling
+max_stack_size 64
+
+key minecraft:birch_sapling
+max_stack_size 64
+
+key minecraft:jungle_sapling
+max_stack_size 64
+
+key minecraft:acacia_sapling
+max_stack_size 64
+
+key minecraft:dark_oak_sapling
+max_stack_size 64
+
+key minecraft:bedrock
+max_stack_size 64
+
+key minecraft:sand
+max_stack_size 64
+
+key minecraft:red_sand
+max_stack_size 64
+
+key minecraft:gravel
+max_stack_size 64

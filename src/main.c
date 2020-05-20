@@ -141,6 +141,10 @@ struct chunk_bucket {
 };
 
 typedef struct {
+    mc_ubyte max_stack_size;
+} item_type;
+
+typedef struct {
     mc_int type;
     mc_ubyte size;
 } item_stack;
@@ -316,6 +320,9 @@ static int global_msg_count;
 
 static void * short_lived_scratch;
 static mc_int short_lived_scratch_size;
+
+static item_type item_types[1000];
+static int item_type_count;
 
 static void
 log(void * format, ...) {
@@ -2080,10 +2087,20 @@ server_tick(void) {
                     *is = (item_stack) {0};
 
                     if (has_item) {
-                        // @TODO(traks) validate type
                         is->type = net_read_varint(&rec_cursor);
-                        // @TODO(traks) validate max stack size by type
                         is->size = net_read_ubyte(&rec_cursor);
+
+                        if (is->type < 0 || is->type >= item_type_count) {
+                            is->type = 0;
+                            entity->player.slots_needing_update |=
+                                    (mc_ulong) 1 << slot;
+                        }
+                        item_type * type = item_types + is->type;
+                        if (is->size > type->max_stack_size) {
+                            is->size = type->max_stack_size;
+                            entity->player.slots_needing_update |=
+                                    (mc_ulong) 1 << slot;
+                        }
 
                         memory_arena scratch_arena = {
                             .ptr = short_lived_scratch,
@@ -2648,6 +2665,87 @@ server_tick(void) {
     current_tick++;
 }
 
+static int
+net_string_equal(net_string a, net_string b) {
+    return a.size == b.size && memcmp(a.ptr, b.ptr, a.size) == 0;
+}
+
+static void
+load_item_types(void) {
+    int fd = open("itemtypes.txt", O_RDONLY);
+    if (fd == -1) {
+        return;
+    }
+
+    struct stat stat;
+    if (fstat(fd, &stat)) {
+        close(fd);
+        return;
+    }
+
+    // @TODO(traks) should we unmap this or something?
+    unsigned char * fmmap = mmap(NULL, stat.st_size, PROT_READ,
+            MAP_PRIVATE, fd, 0);
+    if (fmmap == MAP_FAILED) {
+        close(fd);
+        return;
+    }
+
+    // after mmaping we can close the file descriptor
+    close(fd);
+
+    net_string args[16];
+    int arg_count;
+
+    net_string key;
+    net_string max_stack_size;
+
+    size_t line_start = 0;
+    for (;;) {
+        args[0].ptr = fmmap + line_start;
+        arg_count = 0;
+
+        size_t i;
+        for (i = line_start; ; i++) {
+            if (fmmap[i] != '\n' && fmmap[i] != ' ') {
+                continue;
+            }
+            if (fmmap[i] == '\n' && arg_count == 0) {
+                break;
+            }
+
+            args[arg_count].size = fmmap + i
+                    - (unsigned char *) args[arg_count].ptr;
+            arg_count++;
+            assert(arg_count < ARRAY_SIZE(args));
+            args[arg_count].ptr = fmmap + i + 1;
+
+            if (fmmap[i] == '\n') {
+                break;
+            }
+        }
+
+        if (arg_count > 0) {
+            if (net_string_equal(args[0], NET_STRING("key"))) {
+                key = args[1];
+            } else if (net_string_equal(args[0], NET_STRING("max_stack_size"))) {
+                max_stack_size = args[1];
+            }
+        } else {
+            // empty line between item types
+            item_type it = {0};
+            it.max_stack_size = atoi(max_stack_size.ptr);
+            item_types[item_type_count] = it;
+            item_type_count++;
+        }
+
+        line_start = i + 1;
+        if (line_start == stat.st_size) {
+            break;
+        }
+    }
+}
+
 int
 main(void) {
     log("Running Blaze");
@@ -2729,6 +2827,8 @@ main(void) {
         log_errno("Failed to allocate short lived scratch arena: %s");
         exit(1);
     }
+
+    load_item_types();
 
     for (;;) {
         unsigned long long start_time = mach_absolute_time();
