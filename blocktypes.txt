@@ -1,0 +1,81 @@
+key minecraft:air
+
+key minecraft:stone
+
+key minecraft:granite
+
+key minecraft:polished_granite
+
+key minecraft:diorite
+
+key minecraft:polished_diorite
+
+key minecraft:andesite
+
+key minecraft:polished_andesite
+
+key minecraft:grass_block
+property snowy true false
+default_values false
+
+key minecraft:dirt
+
+key minecraft:coarse_dirt
+
+key minecraft:podzol
+property snowy true false
+default_values false
+
+key minecraft:cobblestone
+
+key minecraft:oak_planks
+
+key minecraft:spruce_planks
+
+key minecraft:birch_planks
+
+key minecraft:jungle_planks
+
+key minecraft:acacia_planks
+
+key minecraft:dark_oak_planks
+
+key minecraft:oak_sapling
+property stage 0 1
+default_values 0
+
+key minecraft:spruce_sapling
+property stage 0 1
+default_values 0
+
+key minecraft:birch_sapling
+property stage 0 1
+default_values 0
+
+key minecraft:jungle_sapling
+property stage 0 1
+default_values 0
+
+key minecraft:acacia_sapling
+property stage 0 1
+default_values 0
+
+key minecraft:dark_oak_sapling
+property stage 0 1
+default_values 0
+
+key minecraft:bedrock
+
+key minecraft:water
+property level 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
+default_values 0
+
+key minecraft:lava
+property level 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
+default_values 0
+
+key minecraft:sand
+
+key minecraft:red_sand
+
+key minecraft:gravel

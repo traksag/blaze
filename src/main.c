@@ -307,6 +307,16 @@ typedef struct {
     mc_uint list_elems_remaining;
 } nbt_level_info;
 
+typedef struct {
+    mc_ushort base_state;
+} block_properties;
+
+typedef struct {
+    unsigned char resource_loc_size;
+    unsigned char resource_loc[31];
+    mc_ushort id;
+} block_type_spec;
+
 static initial_connection initial_connections[32];
 static int initial_connection_count;
 
@@ -341,6 +351,10 @@ static mc_int short_lived_scratch_size;
 
 static item_type item_types[1000];
 static int item_type_count;
+
+static block_type_spec block_type_table[1000];
+static block_properties block_properties_table[1000];
+static int block_type_count;
 
 static void
 log(void * format, ...) {
@@ -417,6 +431,46 @@ alloc_in_arena(memory_arena * arena, mc_int size) {
 static void
 handle_sigint(int sig) {
     got_sigint = 1;
+}
+
+static int
+net_string_equal(net_string a, net_string b) {
+    return a.size == b.size && memcmp(a.ptr, b.ptr, a.size) == 0;
+}
+
+static mc_ushort
+hash_block_resource_location(net_string resource_loc) {
+    mc_ushort res = 0;
+    unsigned char * string = resource_loc.ptr;
+    for (int i = 0; i < resource_loc.size; i++) {
+        res = res * 31 + string[i];
+    }
+    return res % ARRAY_SIZE(block_type_table);
+}
+
+static mc_short
+resolve_block_type_id(net_string resource_loc) {
+    mc_ushort hash = hash_block_resource_location(resource_loc);
+    mc_ushort i = hash;
+    for (;;) {
+        block_type_spec * spec = block_type_table + i;
+        net_string entry = {
+            .ptr = spec->resource_loc,
+            .size = spec->resource_loc_size
+        };
+        if (net_string_equal(resource_loc, entry)) {
+            return spec->id;
+        }
+
+        i = (i + 1) % ARRAY_SIZE(block_type_table);
+        if (i == hash) {
+            // @TODO(traks) instead of returning -1 on error, perhaps we should
+            // return some special value that also points into
+            // block type id -> something tables to some default unknown block
+            // type value. Could e.g. use sponge for that.
+            return -1;
+        }
+    }
 }
 
 static entity_data *
@@ -1034,10 +1088,16 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
                         tape, palettei_start, &cursor);
                 if (tape[name_start].tag != NBT_TAG_END) {
                     mc_ushort resource_loc_size = net_read_ushort(&cursor);
-                    unsigned char * resource_loc = cursor.buf + cursor.index;
-                    // @TODO(traks) convert resource location to something that
-                    // takes in properties and produces a block state. Use air
-                    // by default.
+                    net_string resource_loc = {
+                        .size = resource_loc_size,
+                        .ptr = cursor.buf + cursor.index
+                    };
+                    mc_short type_id = resolve_block_type_id(resource_loc);
+                    if (type_id == -1) {
+                        // @TODO(traks) should probably just error out
+                        type_id = 2;
+                    }
+                    palette_map[palettei] = type_id;
                 }
 
                 // move to end of section compound
@@ -1072,10 +1132,9 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
                     return;
                 }
 
-                // @TODO(traks) uncomment when palette loading is done
-                // mc_ushort block_state = palette_map[id];
-                mc_ushort block_state = id == 0 ? 0 : 1;
-
+                mc_ushort type_id = palette_map[id];
+                block_properties * props = block_properties_table + type_id;
+                mc_ushort block_state = props->base_state;
                 section[j] = block_state;
 
                 if (block_state != 0) {
@@ -1649,7 +1708,6 @@ server_tick(void) {
     }
 
     // update players
-    // @TODO(traks) clean up player entity when brain disconnects
 
     for (int i = 0; i < ARRAY_SIZE(player_brains); i++) {
         player_brain * brain = player_brains + i;
@@ -2842,8 +2900,33 @@ server_tick(void) {
 }
 
 static int
-net_string_equal(net_string a, net_string b) {
-    return a.size == b.size && memcmp(a.ptr, b.ptr, a.size) == 0;
+parse_database_line(buffer_cursor * cursor, net_string * args) {
+    int arg_count = 0;
+    int cur_size = 0;
+    int i;
+    unsigned char * line = cursor->buf;
+    for (i = cursor->index; ; i++) {
+        if (i == cursor->limit || line[i] == ' ' || line[i] == '\n') {
+            if (cur_size > 0) {
+                args[arg_count].ptr = cursor->buf + (i - cur_size);
+                args[arg_count].size = cur_size;
+                arg_count++;
+                cur_size = 0;
+            }
+            if (i == cursor->limit) {
+                break;
+            }
+            if (line[i] == '\n') {
+                i++;
+                break;
+            }
+        } else {
+            cur_size++;
+        }
+    }
+
+    cursor->index = i;
+    return arg_count;
 }
 
 static void
@@ -2870,54 +2953,79 @@ load_item_types(void) {
     // after mmaping we can close the file descriptor
     close(fd);
 
+    buffer_cursor cursor = {.buf = fmmap, .limit = stat.st_size};
     net_string args[16];
-    int arg_count;
+    item_type * it;
 
-    net_string key;
-    net_string max_stack_size;
-
-    size_t line_start = 0;
-    for (;;) {
-        args[0].ptr = fmmap + line_start;
-        arg_count = 0;
-
-        size_t i;
-        for (i = line_start; ; i++) {
-            if (fmmap[i] != '\n' && fmmap[i] != ' ') {
-                continue;
-            }
-            if (fmmap[i] == '\n' && arg_count == 0) {
-                break;
-            }
-
-            args[arg_count].size = fmmap + i
-                    - (unsigned char *) args[arg_count].ptr;
-            arg_count++;
-            assert(arg_count < ARRAY_SIZE(args));
-            args[arg_count].ptr = fmmap + i + 1;
-
-            if (fmmap[i] == '\n') {
-                break;
-            }
-        }
-
-        if (arg_count > 0) {
-            if (net_string_equal(args[0], NET_STRING("key"))) {
-                key = args[1];
-            } else if (net_string_equal(args[0], NET_STRING("max_stack_size"))) {
-                max_stack_size = args[1];
-            }
-        } else {
-            // empty line between item types
-            item_type it = {0};
-            it.max_stack_size = atoi(max_stack_size.ptr);
-            item_types[item_type_count] = it;
+    while (cursor.index != cursor.limit) {
+        int arg_count = parse_database_line(&cursor, args);
+        if (arg_count == 0) {
+            // empty line
+        } else if (net_string_equal(args[0], NET_STRING("key"))) {
+            it = item_types + item_type_count;
             item_type_count++;
+        } else if (net_string_equal(args[0], NET_STRING("max_stack_size"))) {
+            it->max_stack_size = atoi(args[1].ptr);
         }
+    }
+}
 
-        line_start = i + 1;
-        if (line_start == stat.st_size) {
-            break;
+static void
+load_block_types(void) {
+    int fd = open("blocktypes.txt", O_RDONLY);
+    if (fd == -1) {
+        return;
+    }
+
+    struct stat stat;
+    if (fstat(fd, &stat)) {
+        close(fd);
+        return;
+    }
+
+    // @TODO(traks) should we unmap this or something?
+    unsigned char * fmmap = mmap(NULL, stat.st_size, PROT_READ,
+            MAP_PRIVATE, fd, 0);
+    if (fmmap == MAP_FAILED) {
+        close(fd);
+        return;
+    }
+
+    // after mmaping we can close the file descriptor
+    close(fd);
+
+    buffer_cursor cursor = {.buf = fmmap, .limit = stat.st_size};
+    net_string args[32];
+    mc_ushort base_state = 0;
+    mc_ushort states_for_type = 0;
+
+    while (cursor.index != cursor.limit) {
+        int arg_count = parse_database_line(&cursor, args);
+        if (arg_count == 0) {
+            // empty line
+        } else if (net_string_equal(args[0], NET_STRING("key"))) {
+            net_string key = args[1];
+            mc_ushort hash = hash_block_resource_location(key);
+            mc_ushort type_id = block_type_count;
+            block_type_count++;
+
+            for (mc_ushort i = hash; ;
+                    i = (i + 1) % ARRAY_SIZE(block_type_table)) {
+                block_type_spec * spec = block_type_table + i;
+                if (spec->resource_loc_size == 0) {
+                    assert(key.size <= sizeof spec->resource_loc);
+                    spec->resource_loc_size = key.size;
+                    memcpy(spec->resource_loc, key.ptr, key.size);
+                    spec->id = type_id;
+                    break;
+                }
+            }
+
+            base_state += states_for_type;
+            block_properties_table[type_id].base_state = base_state;
+            states_for_type = 1;
+        } else if (net_string_equal(args[0], NET_STRING("property"))) {
+            states_for_type *= arg_count - 2;
         }
     }
 }
@@ -3005,6 +3113,7 @@ main(void) {
     }
 
     load_item_types();
+    load_block_types();
 
     for (;;) {
         unsigned long long start_time = mach_absolute_time();
