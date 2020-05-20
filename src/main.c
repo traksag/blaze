@@ -1307,7 +1307,8 @@ disconnect_player_now(player_brain * brain) {
     for (mc_short x = chunk_cache_min_x; x <= chunk_cache_max_x; x++) {
         for (mc_short z = chunk_cache_min_z; z <= chunk_cache_max_z; z++) {
             chunk_pos pos = {.x = x, .z = z};
-            chunk * ch = get_or_create_chunk(pos);
+            chunk * ch = get_chunk_if_available(pos);
+            assert(ch != NULL);
             ch->available_interest--;
         }
     }
@@ -2580,25 +2581,31 @@ server_tick(void) {
                 // entity is currently being tracked
                 if ((candidate->flags & ENTITY_IN_USE)
                         && candidate_eid == tracked_eid) {
-                    // entity is still there, so send updates
+                    // entity is still there
+                    mc_double dx = candidate->x - player->x;
+                    mc_double dy = candidate->y - player->y;
+                    mc_double dz = candidate->z - player->z;
 
-                    // send teleport entity packet
-                    int out_size = net_varint_size(87)
-                            + net_varint_size(tracked_eid) + 3 * 8 + 3 * 1;
-                    net_write_varint(&send_cursor, out_size);
-                    net_write_varint(&send_cursor, 87);
-                    net_write_varint(&send_cursor, tracked_eid);
-                    net_write_double(&send_cursor, candidate->x);
-                    net_write_double(&send_cursor, candidate->y);
-                    net_write_double(&send_cursor, candidate->z);
-                    // @TODO(traks) make sure signed cast to mc_ubyte works
-                    net_write_ubyte(&send_cursor, (int) (candidate->rot_y * 256.0f / 360.0f));
-                    net_write_ubyte(&send_cursor, (int) (candidate->rot_x * 256.0f / 360.0f));
-                    net_write_ubyte(&send_cursor, !!(candidate->flags & ENTITY_ON_GROUND));
-                    continue;
+                    if (dx * dx + dy * dy + dz * dz < 45 * 45) {
+                        // send teleport entity packet
+                        int out_size = net_varint_size(87)
+                                + net_varint_size(tracked_eid) + 3 * 8 + 3 * 1;
+                        net_write_varint(&send_cursor, out_size);
+                        net_write_varint(&send_cursor, 87);
+                        net_write_varint(&send_cursor, tracked_eid);
+                        net_write_double(&send_cursor, candidate->x);
+                        net_write_double(&send_cursor, candidate->y);
+                        net_write_double(&send_cursor, candidate->z);
+                        // @TODO(traks) make sure signed cast to mc_ubyte works
+                        net_write_ubyte(&send_cursor, (int) (candidate->rot_y * 256.0f / 360.0f));
+                        net_write_ubyte(&send_cursor, (int) (candidate->rot_x * 256.0f / 360.0f));
+                        net_write_ubyte(&send_cursor, !!(candidate->flags & ENTITY_ON_GROUND));
+                        continue;
+                    }
                 }
 
-                // entity we tracked is gone
+                // entity we tracked is gone or too far away
+
                 if (removed_entity_count == ARRAY_SIZE(removed_entities)) {
                     // no more space to untrack, try again next tick
                     continue;
@@ -2615,7 +2622,7 @@ server_tick(void) {
                 mc_double dy = candidate->y - player->y;
                 mc_double dz = candidate->z - player->z;
 
-                if (dx * dx + dy * dy + dz + dz > 40 * 40) {
+                if (dx * dx + dy * dy + dz * dz > 40 * 40) {
                     continue;
                 }
 
@@ -2809,9 +2816,8 @@ server_tick(void) {
 
     for (int bucketi = 0; bucketi < ARRAY_SIZE(chunk_map); bucketi++) {
         chunk_bucket * bucket = chunk_map + bucketi;
-        int size = bucket->size;
 
-        for (int chunki = 0; chunki < size; chunki++) {
+        for (int chunki = 0; chunki < bucket->size; chunki++) {
             chunk * ch = bucket->chunks + chunki;
             ch->changed_block_count = 0;
 
@@ -2822,11 +2828,11 @@ server_tick(void) {
                     }
                 }
 
-                int last = size - 1;
+                int last = bucket->size - 1;
                 assert(last >= 0);
                 bucket->chunks[chunki] = bucket->chunks[last];
+                bucket->positions[chunki] = bucket->positions[last];
                 bucket->size--;
-                size--;
                 chunki--;
             }
         }
