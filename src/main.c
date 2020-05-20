@@ -61,11 +61,22 @@ enum nbt_tag {
     NBT_TAG_LIST_IN_LIST,
 };
 
+// in network id order
 enum gamemode {
     GAMEMODE_SURVIVAL,
     GAMEMODE_CREATIVE,
     GAMEMODE_ADVENTURE,
     GAMEMODE_SPECTATOR,
+};
+
+// in network id order
+enum direction {
+    DIRECTION_NEG_Y, // down
+    DIRECTION_POS_Y, // up
+    DIRECTION_NEG_Z, // north
+    DIRECTION_POS_Z, // south
+    DIRECTION_NEG_X, // west
+    DIRECTION_POS_X, // east
 };
 
 static unsigned long long current_tick;
@@ -125,6 +136,13 @@ typedef struct {
     // If = 0 the chunk will be removed from the map at some point.
     mc_uint available_interest;
     unsigned flags;
+
+    // @TODO(traks) more changed blocks, better compression, store it per chunk
+    // section perhaps. Figure out when this limit can be exceeded. I highly
+    // doubt more than 16 blocks will be changed per chunk due to players except
+    // if very high player density.
+    mc_ushort changed_blocks[16];
+    mc_ubyte changed_block_count;
 } chunk;
 
 #define CHUNKS_PER_BUCKET (32)
@@ -508,7 +526,7 @@ chunk_get_block_state(chunk * ch, int x, int y, int z) {
         return 0;
     }
 
-    int index = (y << 8) | (z << 4) | x;
+    int index = ((y & 0xf) << 8) | (z << 4) | x;
     return section[index];
 }
 
@@ -533,6 +551,16 @@ chunk_set_block_state(chunk * ch, int x, int y, int z, mc_ushort block_state) {
     assert(0 <= x && x < 16);
     assert(0 <= y && y < 256);
     assert(0 <= z && z < 16);
+    assert(ch->flags & CHUNK_LOADED);
+    // @TODO(traks) somehow ensure this never fails even with tons of players,
+    // or make sure we appropriate handle cases in which too many changes occur
+    // to a chunk per tick.
+    assert(ch->changed_block_count < ARRAY_SIZE(ch->changed_blocks));
+
+    // format is that of the chunk blocks update packet
+    ch->changed_blocks[ch->changed_block_count] =
+            ((mc_ushort) x << 12) | (z << 8) | y;
+    ch->changed_block_count++;
 
     int section_y = y >> 4;
     mc_ushort * section = ch->sections[section_y];
@@ -547,7 +575,7 @@ chunk_set_block_state(chunk * ch, int x, int y, int z, mc_ushort block_state) {
         ch->sections[section_y] = section;
     }
 
-    int index = (y << 8) | (z << 4) | x;
+    int index = ((y & 0xf) << 8) | (z << 4) | x;
 
     if (section[index] == 0) {
         ch->non_air_count[section_y]++;
@@ -2165,9 +2193,89 @@ server_tick(void) {
                 }
                 case 44: { // use item on
                     mc_int hand = net_read_varint(&rec_cursor);
-                    mc_ulong clicked_block_pos = net_read_ulong(&rec_cursor);
+                    net_block_pos clicked_pos = net_read_block_pos(&rec_cursor);
                     mc_int clicked_face = net_read_varint(&rec_cursor);
-                    // @TODO(traks) read further
+                    mc_float click_offset_x = net_read_float(&rec_cursor);
+                    mc_float click_offset_y = net_read_float(&rec_cursor);
+                    mc_float click_offset_z = net_read_float(&rec_cursor);
+                    // @TODO(traks) figure out what this is used for
+                    mc_ubyte is_inside = net_read_ubyte(&rec_cursor);
+
+                    // @TODO(traks) if we cancel at any point and don't kick the
+                    // client, send some packets to the client to make the
+                    // original blocks reappear, otherwise we'll get a desync
+
+                    if (hand != 0 && hand != 1) {
+                        rec_cursor.error = 1;
+                        break;
+                    }
+                    if (clicked_face < 0 || clicked_face >= 6) {
+                        rec_cursor.error = 1;
+                        break;
+                    }
+                    if (click_offset_x < 0 || click_offset_x > 1
+                            || click_offset_y < 0 || click_offset_y > 1
+                            || click_offset_z < 0 || click_offset_z > 1) {
+                        rec_cursor.error = 1;
+                        break;
+                    }
+
+                    if (entity->flags & ENTITY_TELEPORTING) {
+                        // ignore
+                        break;
+                    }
+
+                    // @TODO(traks) special handling depending on gamemode
+
+                    // @TODO(traks) ensure clicked block is in one of the sent
+                    // chunks inside the player's chunk cache
+
+                    int sel_slot = entity->player.selected_slot;
+                    item_stack * sel = entity->player.slots + sel_slot;
+                    item_stack * off = entity->player.slots + PLAYER_OFF_HAND_SLOT;
+                    item_stack * used = hand == 0 ? sel : off;
+
+                    if (!(brain->flags & PLAYER_BRAIN_SHIFTING)
+                            || (sel->type == 0 && off->type == 0)) {
+                        // @TODO(traks) use clicked block (button, door, etc.)
+                    }
+
+                    // @TODO(traks) check for cooldowns (ender pearls,
+                    // chorus fruits)
+
+                    // @TODO(traks) use item type to determine which place
+                    // handler to fire
+                    item_type * used_type = item_types + used->type;
+
+                    net_block_pos target_pos = clicked_pos;
+                    switch (clicked_face) {
+                    case DIRECTION_NEG_Y: target_pos.y--; break;
+                    case DIRECTION_POS_Y: target_pos.y++; break;
+                    case DIRECTION_NEG_Z: target_pos.z--; break;
+                    case DIRECTION_POS_Z: target_pos.z++; break;
+                    case DIRECTION_NEG_X: target_pos.x--; break;
+                    case DIRECTION_POS_X: target_pos.x++; break;
+                    }
+
+                    // @TODO(traks) check if target pos is in chunk visible to
+                    // the player
+
+                    __m128i xz = _mm_set_epi32(0, 0, target_pos.z, target_pos.x);
+                    __m128i chunk_xz = _mm_srai_epi32(xz, 4);
+                    chunk_pos pos = {
+                        .x = _mm_extract_epi32(chunk_xz, 0),
+                        .z = _mm_extract_epi32(chunk_xz, 1)
+                    };
+                    chunk * ch = get_chunk_if_loaded(pos);
+                    if (ch == NULL) {
+                        break;
+                    }
+
+                    // @TODO(traks) ANDing signed integers better work
+                    int in_chunk_x = target_pos.x & 0xf;
+                    int in_chunk_z = target_pos.z & 0xf;
+                    chunk_set_block_state(ch, in_chunk_x, target_pos.y,
+                            in_chunk_z, 2);
                     break;
                 }
                 case 45: { // use item
@@ -2255,6 +2363,7 @@ server_tick(void) {
         __m128i new_centre = _mm_srai_epi32(floored_int_xz, 4);
         mc_short new_chunk_cache_centre_x = _mm_extract_epi32(new_centre, 0);
         mc_short new_chunk_cache_centre_z = _mm_extract_epi32(new_centre, 1);
+        assert(brain->new_chunk_cache_radius <= MAX_CHUNK_CACHE_RADIUS);
         mc_short new_chunk_cache_min_x = new_chunk_cache_centre_x - brain->new_chunk_cache_radius;
         mc_short new_chunk_cache_min_z = new_chunk_cache_centre_z - brain->new_chunk_cache_radius;
         mc_short new_chunk_cache_max_x = new_chunk_cache_centre_x + brain->new_chunk_cache_radius;
@@ -2284,15 +2393,53 @@ server_tick(void) {
         // untrack old chunks
         for (mc_short x = chunk_cache_min_x; x <= chunk_cache_max_x; x++) {
             for (mc_short z = chunk_cache_min_z; z <= chunk_cache_max_z; z++) {
+                chunk_pos pos = {.x = x, .z = z};
+                int index = chunk_cache_index(pos);
+
                 if (x >= new_chunk_cache_min_x && x <= new_chunk_cache_max_x
                         && z >= new_chunk_cache_min_z && z <= new_chunk_cache_max_z) {
                     // old chunk still in new region
+                    // send block changes if chunk is visible to the client
+                    if (!brain->chunk_cache[index].sent) {
+                        continue;
+                    }
+
+                    chunk * ch = get_chunk_if_loaded(pos);
+                    assert(ch != NULL);
+                    if (ch->changed_block_count == 0) {
+                        continue;
+                    }
+
+                    // send chunk blocks update packet
+                    int out_size = net_varint_size(16) + 2 * 4
+                            + net_varint_size(ch->changed_block_count);
+
+                    // @TODO(traks) less duplication between this and the part
+                    // below
+                    for (int i = 0; i < ch->changed_block_count; i++) {
+                        mc_ushort pos = ch->changed_blocks[i];
+                        mc_ushort block_state = chunk_get_block_state(ch,
+                                pos >> 12, pos & 0xff, (pos >> 8) & 0xf);
+                        out_size += 2 + net_varint_size(block_state);
+                    }
+
+                    net_write_varint(&send_cursor, out_size);
+                    net_write_varint(&send_cursor, 16);
+                    net_write_int(&send_cursor, x);
+                    net_write_int(&send_cursor, z);
+                    net_write_varint(&send_cursor, ch->changed_block_count);
+
+                    for (int i = 0; i < ch->changed_block_count; i++) {
+                        mc_ushort pos = ch->changed_blocks[i];
+                        net_write_ushort(&send_cursor, pos);
+                        mc_ushort block_state = chunk_get_block_state(ch,
+                                pos >> 12, pos & 0xff, (pos >> 8) & 0xf);
+                        net_write_varint(&send_cursor, block_state);
+                    }
                     continue;
                 }
 
                 // old chunk is not in the new region
-                chunk_pos pos = {.x = x, .z = z};
-                int index = chunk_cache_index(pos);
                 chunk * ch = get_chunk_if_available(pos);
                 assert(ch != NULL);
                 ch->available_interest--;
@@ -2625,9 +2772,30 @@ server_tick(void) {
 
         if (!(ch->flags & CHUNK_LOADED)) {
             // @TODO(traks) fall back to stone plateau at y = 0 for now
+            // clean up some of the mess the chunk loader might've left behind
+            // @TODO(traks) perhaps this should be in a separate struct so we
+            // can easily clear it
+            for (int sectioni = 0; sectioni < 16; sectioni++) {
+                if (ch->sections[sectioni] != NULL) {
+                    free(ch->sections[sectioni]);
+                    ch->sections[sectioni] = NULL;
+                }
+                ch->non_air_count[sectioni] = 0;
+            }
+
+            // @TODO(traks) get rid of allocation
+            ch->sections[0] = calloc(sizeof (mc_ushort), 4096);
+            if (ch->sections[0] == NULL) {
+                log("Failed to allocate chunk section during generation");
+                exit(1);
+            }
+
             for (int x = 0; x < 16; x++) {
                 for (int z = 0; z < 16; z++) {
-                    chunk_set_block_state(ch, x, 0, z, 2);
+                    int index = (z << 4) | x;
+                    ch->sections[0][index] = 2;
+                    ch->motion_blocking_height_map[index] = 1;
+                    ch->non_air_count[0]++;
                 }
             }
 
@@ -2645,6 +2813,8 @@ server_tick(void) {
 
         for (int chunki = 0; chunki < size; chunki++) {
             chunk * ch = bucket->chunks + chunki;
+            ch->changed_block_count = 0;
+
             if (ch->available_interest == 0) {
                 for (int sectioni = 0; sectioni < 16; sectioni++) {
                     if (ch->sections[sectioni] != NULL) {
