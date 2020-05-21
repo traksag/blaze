@@ -316,14 +316,14 @@ typedef struct {
 
 typedef struct {
     unsigned char resource_loc_size;
-    unsigned char resource_loc[31];
+    unsigned char resource_loc[43];
     mc_ushort id;
 } block_type_spec;
 
 typedef struct {
     unsigned char value_count;
     // name size, name, value size, value, value size, value, etc.
-    unsigned char tape[63];
+    unsigned char tape[255];
 } block_property_spec;
 
 static initial_connection initial_connections[32];
@@ -365,7 +365,7 @@ static block_type_spec block_type_table[1000];
 static block_properties block_properties_table[1000];
 static int block_type_count;
 
-static block_property_spec block_property_specs[64];
+static block_property_spec block_property_specs[128];
 static int block_property_spec_count;
 
 static void
