@@ -309,6 +309,9 @@ typedef struct {
 
 typedef struct {
     mc_ushort base_state;
+    unsigned char property_count;
+    unsigned char property_specs[8];
+    unsigned char default_value_indices[8];
 } block_properties;
 
 typedef struct {
@@ -316,6 +319,12 @@ typedef struct {
     unsigned char resource_loc[31];
     mc_ushort id;
 } block_type_spec;
+
+typedef struct {
+    unsigned char value_count;
+    // name size, name, value size, value, value size, value, etc.
+    unsigned char tape[63];
+} block_property_spec;
 
 static initial_connection initial_connections[32];
 static int initial_connection_count;
@@ -355,6 +364,9 @@ static int item_type_count;
 static block_type_spec block_type_table[1000];
 static block_properties block_properties_table[1000];
 static int block_type_count;
+
+static block_property_spec block_property_specs[64];
+static int block_property_spec_count;
 
 static void
 log(void * format, ...) {
@@ -470,6 +482,26 @@ resolve_block_type_id(net_string resource_loc) {
             // type value. Could e.g. use sponge for that.
             return -1;
         }
+    }
+}
+
+static int
+find_property_value_index(block_property_spec * prop_spec, net_string val) {
+    unsigned char * tape = prop_spec->tape;
+    tape += 1 + tape[0];
+    for (int i = 0; ; i++) {
+        // Note that after the values a 0 follows
+        if (tape[0] == 0) {
+            return -1;
+        }
+        net_string real_val = {
+            .ptr = tape + 1,
+            .size = tape[0]
+        };
+        if (net_string_equal(real_val, val)) {
+            return i;
+        }
+        tape += 1 + tape[0];
     }
 }
 
@@ -1084,6 +1116,8 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
             mc_uint palettei_start = palette_start + 4;
 
             for (uint palettei = 0; palettei < palette_size; palettei++) {
+                mc_short type_id = 0;
+
                 mc_uint name_start = nbt_move_to_key(NET_STRING("Name"),
                         tape, palettei_start, &cursor);
                 if (tape[name_start].tag != NBT_TAG_END) {
@@ -1092,15 +1126,49 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
                         .size = resource_loc_size,
                         .ptr = cursor.buf + cursor.index
                     };
-                    mc_short type_id = resolve_block_type_id(resource_loc);
+                    type_id = resolve_block_type_id(resource_loc);
                     if (type_id == -1) {
                         // @TODO(traks) should probably just error out
                         type_id = 2;
                     }
-                    palette_map[palettei] = type_id;
                 }
 
-                // move to end of section compound
+                mc_ushort stride = 0;
+
+                mc_uint props_start = nbt_move_to_key(NET_STRING("Properties"),
+                        tape, palettei_start, &cursor);
+                if (tape[props_start].tag == NBT_TAG_COMPOUND) {
+                    props_start += 2;
+                }
+
+                block_properties * props = block_properties_table + type_id;
+                for (int propi = 0; propi < props->property_count; propi++) {
+                    block_property_spec * prop_spec = block_property_specs
+                            + props->property_specs[propi];
+                    net_string prop_name = {
+                        .size = prop_spec->tape[0],
+                        .ptr = prop_spec->tape + 1
+                    };
+                    mc_uint val_start = nbt_move_to_key(prop_name,
+                            tape, props_start, &cursor);
+                    int val_index = -1;
+                    if (tape[val_start].tag != NBT_TAG_END) {
+                        mc_ushort val_size = net_read_ushort(&cursor);
+                        net_string val = {
+                            .size = val_size,
+                            .ptr = cursor.buf + cursor.index
+                        };
+                        val_index = find_property_value_index(prop_spec, val);
+                    }
+                    if (val_index == -1) {
+                        val_index = props->default_value_indices[propi];
+                    }
+                    stride = stride * prop_spec->value_count + val_index;
+                }
+
+                palette_map[palettei] = props->base_state + stride;
+
+                // move to end of palette entry compound
                 mc_uint i = palettei_start;
                 while (tape[i].tag != NBT_TAG_END) {
                     i = tape[i + 1].next_compound_entry;
@@ -1132,9 +1200,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
                     return;
                 }
 
-                mc_ushort type_id = palette_map[id];
-                block_properties * props = block_properties_table + type_id;
-                mc_ushort block_state = props->base_state;
+                mc_ushort block_state = palette_map[id];
                 section[j] = block_state;
 
                 if (block_state != 0) {
@@ -2998,6 +3064,7 @@ load_block_types(void) {
     net_string args[32];
     mc_ushort base_state = 0;
     mc_ushort states_for_type = 0;
+    block_type_spec * type_spec;
 
     while (cursor.index != cursor.limit) {
         int arg_count = parse_database_line(&cursor, args);
@@ -3011,12 +3078,12 @@ load_block_types(void) {
 
             for (mc_ushort i = hash; ;
                     i = (i + 1) % ARRAY_SIZE(block_type_table)) {
-                block_type_spec * spec = block_type_table + i;
-                if (spec->resource_loc_size == 0) {
-                    assert(key.size <= sizeof spec->resource_loc);
-                    spec->resource_loc_size = key.size;
-                    memcpy(spec->resource_loc, key.ptr, key.size);
-                    spec->id = type_id;
+                type_spec = block_type_table + i;
+                if (type_spec->resource_loc_size == 0) {
+                    assert(key.size <= sizeof type_spec->resource_loc);
+                    type_spec->resource_loc_size = key.size;
+                    memcpy(type_spec->resource_loc, key.ptr, key.size);
+                    type_spec->id = type_id;
                     break;
                 }
             }
@@ -3026,6 +3093,49 @@ load_block_types(void) {
             states_for_type = 1;
         } else if (net_string_equal(args[0], NET_STRING("property"))) {
             states_for_type *= arg_count - 2;
+            block_property_spec prop_spec = {0};
+            prop_spec.value_count = arg_count - 2;
+
+            int speci = 0;
+            for (int i = 1; i < arg_count; i++) {
+                // let there be one 0 at the end of the property's tape. We use
+                // this to detect the end in other operations.
+                assert(sizeof prop_spec.tape - speci - 1 >= 1 + args[i].size);
+                prop_spec.tape[speci] = args[i].size;
+                speci++;
+                memcpy(prop_spec.tape + speci, args[i].ptr, args[i].size);
+                speci += args[i].size;
+            }
+
+            block_properties * props = block_properties_table + type_spec->id;
+
+            int i;
+            for (i = 0; i < block_property_spec_count; i++) {
+                if (memcmp(block_property_specs + i,
+                        &prop_spec, sizeof prop_spec) == 0) {
+                    props->property_specs[props->property_count] = i;
+                    props->property_count++;
+                    break;
+                }
+            }
+            if (i == block_property_spec_count) {
+                assert(block_property_spec_count < ARRAY_SIZE(block_property_specs));
+                props->property_specs[props->property_count] = block_property_spec_count;
+                props->property_count++;
+                block_property_specs[block_property_spec_count] = prop_spec;
+                block_property_spec_count++;
+            }
+        } else if (net_string_equal(args[0], NET_STRING("default_values"))) {
+            block_properties * props = block_properties_table + type_spec->id;
+
+            for (int i = 1; i < arg_count; i++) {
+                assert(i - 1 < props->property_count);
+                block_property_spec * prop_spec = block_property_specs
+                        + props->property_specs[i - 1];
+                int value_index = find_property_value_index(prop_spec, args[i]);
+                assert(value_index != -1);
+                props->default_value_indices[i - 1] = value_index;
+            }
         }
     }
 }
