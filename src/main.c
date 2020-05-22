@@ -239,6 +239,8 @@ typedef struct {
 
 #define PLAYER_BRAIN_SPRINTING ((unsigned) (1 << 5))
 
+#define PLAYER_BRAIN_INITIALISED_TAB_LIST ((unsigned) (1 << 6))
+
 typedef struct {
     unsigned char sent;
 } chunk_cache_entry;
@@ -326,6 +328,10 @@ typedef struct {
     unsigned char tape[255];
 } block_property_spec;
 
+typedef struct {
+    entity_id eid;
+} tab_list_entry;
+
 static initial_connection initial_connections[32];
 static int initial_connection_count;
 
@@ -367,6 +373,13 @@ static int block_type_count;
 
 static block_property_spec block_property_specs[128];
 static int block_property_spec_count;
+
+static tab_list_entry tab_list_added[64];
+static int tab_list_added_count;
+static tab_list_entry tab_list_removed[64];
+static int tab_list_removed_count;
+static tab_list_entry tab_list[1024];
+static int tab_list_size;
 
 static void
 log(void * format, ...) {
@@ -1767,6 +1780,12 @@ server_tick(void) {
 
                 teleport_player(brain, 88, 70, 73);
 
+                // @TODO(traks) ensure this can never happen instead of assering
+                // it never will hopefully happen
+                assert(tab_list_added_count < ARRAY_SIZE(tab_list_added));
+                tab_list_added[tab_list_added_count].eid = brain->eid;
+                tab_list_added_count++;
+
                 log("Player '%.*s' joined", (int) init_con->username_size,
                         init_con->username);
             }
@@ -2431,6 +2450,32 @@ server_tick(void) {
         }
     }
 
+    // remove players from tab list if necessary
+    for (int i = 0; i < tab_list_size; i++) {
+        tab_list_entry * entry = tab_list + i;
+        entity_data * entity = resolve_entity(entry->eid);
+        if (entity->type == ENTITY_NULL) {
+            // @TODO(traks) make sure this can never happen instead of hoping
+            assert(tab_list_removed_count < ARRAY_SIZE(tab_list_removed));
+            tab_list_removed[tab_list_removed_count] = *entry;
+            tab_list_removed_count++;
+            tab_list[i] = tab_list[tab_list_size - 1];
+            tab_list_size--;
+            i--;
+            continue;
+        }
+        // @TODO(traks) make sure this can never happen instead of hoping
+        assert(entity->type == ENTITY_PLAYER);
+    }
+
+    // add players to live tab list
+    for (int i = 0; i < tab_list_added_count; i++) {
+        tab_list_entry * new_entry = tab_list_added + i;
+        assert(tab_list_size < ARRAY_SIZE(tab_list));
+        tab_list[tab_list_size] = *new_entry;
+        tab_list_size++;
+    }
+
     for (int i = 0; i < ARRAY_SIZE(player_brains); i++) {
         player_brain * brain = player_brains + i;
         if ((brain->flags & PLAYER_BRAIN_IN_USE) == 0) {
@@ -2691,6 +2736,108 @@ server_tick(void) {
         memcpy(player->player.slots_prev_tick, player->player.slots,
                 sizeof player->player.slots);
 
+        // tab list updates
+
+        if (!(brain->flags & PLAYER_BRAIN_INITIALISED_TAB_LIST)) {
+            brain->flags |= PLAYER_BRAIN_INITIALISED_TAB_LIST;
+            if (tab_list_size > 0) {
+                // send player info packet
+                int out_size = net_varint_size(52) + net_varint_size(0)
+                        + net_varint_size(tab_list_size);
+                for (int i = 0; i < tab_list_size; i++) {
+                    tab_list_entry * entry = tab_list + i;
+                    entity_data * entity = resolve_entity(entry->eid);
+                    assert(entity->type == ENTITY_PLAYER);
+                    out_size += 16
+                            + net_varint_size(entity->player.username_size)
+                            + entity->player.username_size
+                            + net_varint_size(0)
+                            + net_varint_size(entity->player.gamemode)
+                            + net_varint_size(0) + 1;
+                }
+
+                net_write_varint(&send_cursor, out_size);
+                net_write_varint(&send_cursor, 52);
+                net_write_varint(&send_cursor, 0); // action: add
+                net_write_varint(&send_cursor, tab_list_size);
+
+                for (int i = 0; i < tab_list_size; i++) {
+                    tab_list_entry * entry = tab_list + i;
+                    entity_data * entity = resolve_entity(entry->eid);
+                    assert(entity->type == ENTITY_PLAYER);
+                    // @TODO(traks) write UUID
+                    net_write_ulong(&send_cursor, 0);
+                    net_write_ulong(&send_cursor, entry->eid);
+                    net_string username = {
+                        .ptr = entity->player.username,
+                        .size = entity->player.username_size
+                    };
+                    net_write_string(&send_cursor, username);
+                    net_write_varint(&send_cursor, 0); // num properties
+                    net_write_varint(&send_cursor, entity->player.gamemode);
+                    net_write_varint(&send_cursor, 0); // latency
+                    net_write_ubyte(&send_cursor, 0); // has display name
+                }
+            }
+        } else {
+            if (tab_list_removed_count > 0) {
+                // send player info packet
+                int out_size = net_varint_size(52) + net_varint_size(4)
+                        + net_varint_size(tab_list_removed_count)
+                        + tab_list_removed_count * 16;
+                net_write_varint(&send_cursor, out_size);
+                net_write_varint(&send_cursor, 52);
+                net_write_varint(&send_cursor, 4); // action: remove
+                net_write_varint(&send_cursor, tab_list_removed_count);
+
+                for (int i = 0; i < tab_list_removed_count; i++) {
+                    tab_list_entry * entry = tab_list_removed + i;
+                    // @TODO(traks) write UUID
+                    net_write_ulong(&send_cursor, 0);
+                    net_write_ulong(&send_cursor, entry->eid);
+                }
+            }
+            if (tab_list_added_count > 0) {
+                // send player info packet
+                int out_size = net_varint_size(52) + net_varint_size(0)
+                        + net_varint_size(tab_list_added_count);
+                for (int i = 0; i < tab_list_added_count; i++) {
+                    tab_list_entry * entry = tab_list_added + i;
+                    entity_data * entity = resolve_entity(entry->eid);
+                    assert(entity->type == ENTITY_PLAYER);
+                    out_size += 16
+                            + net_varint_size(entity->player.username_size)
+                            + entity->player.username_size
+                            + net_varint_size(0)
+                            + net_varint_size(entity->player.gamemode)
+                            + net_varint_size(0) + 1;
+                }
+
+                net_write_varint(&send_cursor, out_size);
+                net_write_varint(&send_cursor, 52);
+                net_write_varint(&send_cursor, 0); // action: add
+                net_write_varint(&send_cursor, tab_list_added_count);
+
+                for (int i = 0; i < tab_list_added_count; i++) {
+                    tab_list_entry * entry = tab_list_added + i;
+                    entity_data * entity = resolve_entity(entry->eid);
+                    assert(entity->type == ENTITY_PLAYER);
+                    // @TODO(traks) write UUID
+                    net_write_ulong(&send_cursor, 0);
+                    net_write_ulong(&send_cursor, entry->eid);
+                    net_string username = {
+                        .ptr = entity->player.username,
+                        .size = entity->player.username_size
+                    };
+                    net_write_string(&send_cursor, username);
+                    net_write_varint(&send_cursor, 0); // num properties
+                    net_write_varint(&send_cursor, entity->player.gamemode);
+                    net_write_varint(&send_cursor, 0); // latency
+                    net_write_ubyte(&send_cursor, 0); // has display name
+                }
+            }
+        }
+
         // entity tracking
 
         entity_id removed_entities[64];
@@ -2881,6 +3028,10 @@ server_tick(void) {
 
     // clear global messages
     global_msg_count = 0;
+
+    // clear tab list updates
+    tab_list_added_count = 0;
+    tab_list_removed_count = 0;
 
     // load chunks from requests
 
