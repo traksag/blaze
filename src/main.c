@@ -399,7 +399,7 @@ static tab_list_entry tab_list[1024];
 static int tab_list_size;
 
 static void
-log(void * format, ...) {
+logs(void * format, ...) {
     char msg[128];
     va_list ap;
     va_start(ap, format);
@@ -452,10 +452,10 @@ log(void * format, ...) {
 }
 
 static void
-log_errno(void * format) {
+logs_errno(void * format) {
     char error_msg[64] = {0};
     strerror_r(errno, error_msg, sizeof error_msg);
-    log(format, error_msg);
+    logs(format, error_msg);
 }
 
 static void *
@@ -692,7 +692,7 @@ chunk_set_block_state(chunk * ch, int x, int y, int z, mc_ushort block_state) {
         // @TODO(traks) better allocation scheme
         section = calloc(4096, sizeof (mc_ushort));
         if (section == NULL) {
-            log_errno("Failed to allocate section: %s");
+            logs_errno("Failed to allocate section: %s");
             exit(1);
         }
         ch->sections[section_y] = section;
@@ -949,13 +949,13 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
 
     int region_fd = open((void *) file_name, O_RDONLY);
     if (region_fd == -1) {
-        log_errno("Failed to open region file: %s");
+        logs_errno("Failed to open region file: %s");
         return;
     }
 
     struct stat region_stat;
     if (fstat(region_fd, &region_stat)) {
-        log_errno("Failed to get region file stat: %s");
+        logs_errno("Failed to get region file stat: %s");
         close(region_fd);
         return;
     }
@@ -964,7 +964,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
     void * region_mmap = mmap(NULL, region_stat.st_size, PROT_READ,
             MAP_PRIVATE, region_fd, 0);
     if (region_mmap == MAP_FAILED) {
-        log_errno("Failed to mmap region file: %s");
+        logs_errno("Failed to mmap region file: %s");
         close(region_fd);
         return;
     }
@@ -993,15 +993,15 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
     mc_uint sector_count = loc & 0xff;
 
     if (sector_offset < 2) {
-        log("Chunk data in header");
+        logs("Chunk data in header");
         return;
     }
     if (sector_count == 0) {
-        log("Chunk data uses 0 sectors");
+        logs("Chunk data uses 0 sectors");
         return;
     }
     if (sector_offset + sector_count > (cursor.limit >> 12)) {
-        log("Chunk data out of bounds");
+        logs("Chunk data out of bounds");
         return;
     }
 
@@ -1009,7 +1009,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
     mc_uint size_in_bytes = net_read_uint(&cursor);
 
     if (size_in_bytes > (sector_count << 12)) {
-        log("Chunk data outside of its sectors");
+        logs("Chunk data outside of its sectors");
         return;
     }
 
@@ -1017,13 +1017,13 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
     mc_ubyte storage_type = net_read_ubyte(&cursor);
 
     if (cursor.error) {
-        log("Chunk header reading error");
+        logs("Chunk header reading error");
         return;
     }
 
     if (storage_type & 0x80) {
         // @TODO(traks) separate file is used to store the chunk
-        log("External chunk storage");
+        logs("External chunk storage");
         return;
     }
 
@@ -1038,7 +1038,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
         // 0 means: zlib stream and determine window size from header
         windowBits = 0;
     } else {
-        log("Unknown chunk compression method");
+        logs("Unknown chunk compression method");
         return;
     }
 
@@ -1050,7 +1050,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
     zstream.opaque = NULL;
 
     if (inflateInit2(&zstream, windowBits) != Z_OK) {
-        log("inflateInit failed");
+        logs("inflateInit failed");
         return;
     }
 
@@ -1065,17 +1065,17 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
     zstream.avail_out = max_uncompressed_size;
 
     if (inflate(&zstream, Z_FINISH) != Z_STREAM_END) {
-        log("Failed to finish inflating chunk: %s", zstream.msg);
+        logs("Failed to finish inflating chunk: %s", zstream.msg);
         return;
     }
 
     if (inflateEnd(&zstream) != Z_OK) {
-        log("inflateEnd failed");
+        logs("inflateEnd failed");
         return;
     }
 
     if (zstream.avail_in != 0) {
-        log("Didn't inflate entire chunk");
+        logs("Didn't inflate entire chunk");
         return;
     }
 
@@ -1088,7 +1088,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
     nbt_tape_entry * tape = load_nbt(&cursor, &scratch_arena, 64);
 
     if (cursor.error) {
-        log("Failed to read uncompressed NBT data");
+        logs("Failed to read uncompressed NBT data");
         return;
     }
 
@@ -1099,13 +1099,13 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
     nbt_move_to_key(NET_STRING("DataVersion"), tape, 0, &cursor);
     mc_int data_version = net_read_int(&cursor);
     if (data_version != 2230) {
-        log("Unknown data version %jd", (intmax_t) data_version);
+        logs("Unknown data version %jd", (intmax_t) data_version);
         return;
     }
 
     mc_uint level_start = nbt_move_to_key(NET_STRING("Level"), tape, 0, &cursor);
     if (tape[level_start].tag != NBT_TAG_COMPOUND) {
-        log("NBT Level tag not a compound");
+        logs("NBT Level tag not a compound");
         return;
     }
     level_start += 2;
@@ -1124,7 +1124,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
         mc_byte section_y = net_read_byte(&cursor);
 
         if (ch->sections[section_y] != NULL) {
-            log("Duplicate section Y %d", (int) section_y);
+            logs("Duplicate section Y %d", (int) section_y);
             return;
         }
 
@@ -1133,7 +1133,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
 
         if (tape[palette_start].tag != NBT_TAG_END) {
             if (section_y < 0 || section_y >= 16) {
-                log("Section Y %d with palette", (int) section_y);
+                logs("Section Y %d with palette", (int) section_y);
                 return;
             }
 
@@ -1142,7 +1142,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
             // anyhow.
             mc_ushort * section = calloc(sizeof *section, 4096);
             if (section == NULL) {
-                log_errno("Failed to allocate section: %s");
+                logs_errno("Failed to allocate section: %s");
                 exit(1);
             }
             // Note that the section allocation will be freed when the chunk
@@ -1233,7 +1233,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
                 }
 
                 if (id >= palette_size) {
-                    log("Out of bounds palette ID");
+                    logs("Out of bounds palette ID");
                     return;
                 }
 
@@ -1259,7 +1259,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
     recalculate_chunk_motion_blocking_height_map(ch);
 
     if (cursor.error) {
-        log("Failed to read uncompressed data");
+        logs("Failed to read uncompressed data");
         return;
     }
 
@@ -1538,7 +1538,7 @@ server_tick(void) {
         } else if (rec_size == -1) {
             // EAGAIN means no data received
             if (errno != EAGAIN) {
-                log_errno("Couldn't receive protocol data: %s");
+                logs_errno("Couldn't receive protocol data: %s");
                 close(sock);
                 init_con->flags &= ~INITIAL_CONNECTION_IN_USE;
                 initial_connection_count--;
@@ -1665,7 +1665,7 @@ server_tick(void) {
                     break;
                 }
                 default:
-                    log("Protocol state %d not accepting packets",
+                    logs("Protocol state %d not accepting packets",
                             init_con->protocol_state);
                     rec_cursor.error = 1;
                     break;
@@ -1676,7 +1676,7 @@ server_tick(void) {
                 }
 
                 if (rec_cursor.error != 0) {
-                    log("Protocol error occurred");
+                    logs("Protocol error occurred");
                     close(sock);
                     init_con->flags = 0;
                     initial_connection_count--;
@@ -1705,7 +1705,7 @@ server_tick(void) {
         if (send_size == -1) {
             // EAGAIN means no data sent
             if (errno != EAGAIN) {
-                log_errno("Couldn't send protocol data: %s");
+                logs_errno("Couldn't send protocol data: %s");
                 close(sock);
                 init_con->flags = 0;
                 initial_connection_count--;
@@ -1808,7 +1808,7 @@ server_tick(void) {
                 tab_list_added[tab_list_added_count].eid = brain->eid;
                 tab_list_added_count++;
 
-                log("Player '%.*s' joined", (int) init_con->username_size,
+                logs("Player '%.*s' joined", (int) init_con->username_size,
                         init_con->username);
             }
         }
@@ -1837,7 +1837,7 @@ server_tick(void) {
         } else if (rec_size == -1) {
             // EAGAIN means no data received
             if (errno != EAGAIN) {
-                log_errno("Couldn't receive protocol data: %s");
+                logs_errno("Couldn't receive protocol data: %s");
                 disconnect_player_now(brain);
             }
         } else {
@@ -1880,14 +1880,14 @@ server_tick(void) {
                     break;
                 }
                 case 1: { // block entity tag query
-                    log("Packet block entity tag query");
+                    logs("Packet block entity tag query");
                     mc_int id = net_read_varint(&rec_cursor);
                     mc_ulong block_pos = net_read_ulong(&rec_cursor);
                     // @TODO(traks) handle packet
                     break;
                 }
                 case 2: { // change difficulty
-                    log("Packet change difficulty");
+                    logs("Packet change difficulty");
                     mc_ubyte difficulty = net_read_ubyte(&rec_cursor);
                     // @TODO(traks) handle packet
                     break;
@@ -1908,12 +1908,12 @@ server_tick(void) {
                     break;
                 }
                 case 4: { // client command
-                    log("Packet client command");
+                    logs("Packet client command");
                     mc_int action = net_read_varint(&rec_cursor);
                     break;
                 }
                 case 5: { // client information
-                    log("Packet client information");
+                    logs("Packet client information");
                     net_string language = net_read_string(&rec_cursor, 16);
                     mc_ubyte view_distance = net_read_ubyte(&rec_cursor);
                     mc_int chat_visibility = net_read_varint(&rec_cursor);
@@ -1935,26 +1935,26 @@ server_tick(void) {
                     break;
                 }
                 case 6: { // command suggestion
-                    log("Packet command suggestion");
+                    logs("Packet command suggestion");
                     mc_int id = net_read_varint(&rec_cursor);
                     net_string command = net_read_string(&rec_cursor, 32500);
                     break;
                 }
                 case 7: { // container ack
-                    log("Packet container ack");
+                    logs("Packet container ack");
                     mc_ubyte container_id = net_read_ubyte(&rec_cursor);
                     mc_ushort uid = net_read_ushort(&rec_cursor);
                     mc_ubyte accepted = net_read_ubyte(&rec_cursor);
                     break;
                 }
                 case 8: { // container button click
-                    log("Packet container button click");
+                    logs("Packet container button click");
                     mc_ubyte container_id = net_read_ubyte(&rec_cursor);
                     mc_ubyte button_id = net_read_ubyte(&rec_cursor);
                     break;
                 }
                 case 9: { // container click
-                    log("Packet container click");
+                    logs("Packet container click");
                     mc_ubyte container_id = net_read_ubyte(&rec_cursor);
                     mc_ushort slot = net_read_ushort(&rec_cursor);
                     mc_ubyte button = net_read_ubyte(&rec_cursor);
@@ -1964,12 +1964,12 @@ server_tick(void) {
                     break;
                 }
                 case 10: { // container close
-                    log("Packet container close");
+                    logs("Packet container close");
                     mc_ubyte container_id = net_read_ubyte(&rec_cursor);
                     break;
                 }
                 case 11: { // custom payload
-                    log("Packet custom payload");
+                    logs("Packet custom payload");
                     net_string id = net_read_string(&rec_cursor, 32767);
                     unsigned char * payload = rec_cursor.buf + rec_cursor.index;
                     mc_int payload_size = packet_start + packet_size
@@ -1985,18 +1985,18 @@ server_tick(void) {
                     break;
                 }
                 case 12: { // edit book
-                    log("Packet edit book");
+                    logs("Packet edit book");
                     // @TODO(traks) read packet
                     break;
                 }
                 case 13: { // entity tag query
-                    log("Packet entity tag query");
+                    logs("Packet entity tag query");
                     mc_int transaction_id = net_read_varint(&rec_cursor);
                     mc_int entity_id = net_read_varint(&rec_cursor);
                     break;
                 }
                 case 14: { // interact
-                    log("Packet interact");
+                    logs("Packet interact");
                     mc_int entity_id = net_read_varint(&rec_cursor);
                     mc_int action = net_read_varint(&rec_cursor);
                     // @TODO further reading
@@ -2010,7 +2010,7 @@ server_tick(void) {
                     break;
                 }
                 case 16: { // lock difficulty
-                    log("Packet lock difficulty");
+                    logs("Packet lock difficulty");
                     mc_ubyte locked = net_read_ubyte(&rec_cursor);
                     break;
                 }
@@ -2053,30 +2053,30 @@ server_tick(void) {
                     break;
                 }
                 case 21: { // move vehicle
-                    log("Packet move vehicle");
+                    logs("Packet move vehicle");
                     // @TODO(traks) read packet
                     break;
                 }
                 case 22: { // paddle boat
-                    log("Packet paddle boat");
+                    logs("Packet paddle boat");
                     mc_ubyte left = net_read_ubyte(&rec_cursor);
                     mc_ubyte right = net_read_ubyte(&rec_cursor);
                     break;
                 }
                 case 23: { // pick item
-                    log("Packet pick item");
+                    logs("Packet pick item");
                     mc_int slot = net_read_varint(&rec_cursor);
                     break;
                 }
                 case 24: { // place recipe
-                    log("Packet place recipe");
+                    logs("Packet place recipe");
                     mc_ubyte container_id = net_read_ubyte(&rec_cursor);
                     // @TODO read recipe
                     mc_ubyte shift_down = net_read_ubyte(&rec_cursor);
                     break;
                 }
                 case 25: { // player abilities
-                    log("Packet player abilities");
+                    logs("Packet player abilities");
                     mc_ubyte flags = net_read_ubyte(&rec_cursor);
                     mc_ubyte invulnerable = flags & 0x1;
                     mc_ubyte flying = flags & 0x2;
@@ -2211,38 +2211,38 @@ server_tick(void) {
                     break;
                 }
                 case 28: { // player input
-                    log("Packet player input");
+                    logs("Packet player input");
                     // @TODO(traks) read packet
                     break;
                 }
                 case 29: { // recipe book update
-                    log("Packet recipe book update");
+                    logs("Packet recipe book update");
                     // @TODO(traks) read packet
                     break;
                 }
                 case 30: { // rename item
-                    log("Packet rename item");
+                    logs("Packet rename item");
                     net_string name = net_read_string(&rec_cursor, 32767);
                     break;
                 }
                 case 31: { // resource pack
-                    log("Packet resource pack");
+                    logs("Packet resource pack");
                     mc_int action = net_read_varint(&rec_cursor);
                     break;
                 }
                 case 32: { // seen advancements
-                    log("Packet seen advancements");
+                    logs("Packet seen advancements");
                     mc_int action = net_read_varint(&rec_cursor);
                     // @TODO(traks) further processing
                     break;
                 }
                 case 33: { // select trade
-                    log("Packet select trade");
+                    logs("Packet select trade");
                     mc_int item = net_read_varint(&rec_cursor);
                     break;
                 }
                 case 34: { // set beacon
-                    log("Packet set beacon");
+                    logs("Packet set beacon");
                     mc_int primary_effect = net_read_varint(&rec_cursor);
                     mc_int secondary_effect = net_read_varint(&rec_cursor);
                     break;
@@ -2257,7 +2257,7 @@ server_tick(void) {
                     break;
                 }
                 case 36: { // set command block
-                    log("Packet set command block");
+                    logs("Packet set command block");
                     mc_ulong block_pos = net_read_ulong(&rec_cursor);
                     net_string command = net_read_string(&rec_cursor, 32767);
                     mc_int mode = net_read_varint(&rec_cursor);
@@ -2268,7 +2268,7 @@ server_tick(void) {
                     break;
                 }
                 case 37: { // set command minecart
-                    log("Packet set command minecart");
+                    logs("Packet set command minecart");
                     mc_int entity_id = net_read_varint(&rec_cursor);
                     net_string command = net_read_string(&rec_cursor, 32767);
                     mc_ubyte track_output = net_read_ubyte(&rec_cursor);
@@ -2318,13 +2318,13 @@ server_tick(void) {
                     break;
                 }
                 case 39: { // set jigsaw block
-                    log("Packet set jigsaw block");
+                    logs("Packet set jigsaw block");
                     mc_ulong block_pos = net_read_ulong(&rec_cursor);
                     // @TODO(traks) further reading
                     break;
                 }
                 case 40: { // set structure block
-                    log("Packet set structure block");
+                    logs("Packet set structure block");
                     mc_ulong block_pos = net_read_ulong(&rec_cursor);
                     mc_int update_type = net_read_varint(&rec_cursor);
                     mc_int mode = net_read_varint(&rec_cursor);
@@ -2343,7 +2343,7 @@ server_tick(void) {
                     break;
                 }
                 case 41: { // sign update
-                    log("Packet sign update");
+                    logs("Packet sign update");
                     mc_ulong block_pos = net_read_ulong(&rec_cursor);
                     net_string lines[4];
                     for (int i = 0; i < ARRAY_SIZE(lines); i++) {
@@ -2352,12 +2352,12 @@ server_tick(void) {
                     break;
                 }
                 case 42: { // swing
-                    log("Packet swing");
+                    logs("Packet swing");
                     mc_int hand = net_read_varint(&rec_cursor);
                     break;
                 }
                 case 43: { // teleport to entity
-                    log("Packet teleport to entity");
+                    logs("Packet teleport to entity");
                     // @TODO(traks) read UUID instead
                     mc_ulong uuid_high = net_read_ulong(&rec_cursor);
                     mc_ulong uuid_low = net_read_ulong(&rec_cursor);
@@ -2451,12 +2451,12 @@ server_tick(void) {
                     break;
                 }
                 case 45: { // use item
-                    log("Packet use item");
+                    logs("Packet use item");
                     mc_int hand = net_read_varint(&rec_cursor);
                     break;
                 }
                 default: {
-                    log("Unknown player packet id %jd", (intmax_t) packet_id);
+                    logs("Unknown player packet id %jd", (intmax_t) packet_id);
                     rec_cursor.error = 1;
                 }
                 }
@@ -2466,7 +2466,7 @@ server_tick(void) {
                 }
 
                 if (rec_cursor.error != 0) {
-                    log("Protocol error occurred");
+                    logs("Protocol error occurred");
                     disconnect_player_now(brain);
                     break;
                 }
@@ -2752,7 +2752,7 @@ server_tick(void) {
                 continue;
             }
 
-            log("Sending slot update for %d", i);
+            logs("Sending slot update for %d", i);
             item_stack * is = player->player.slots + i;
 
             // send container set slot packet
@@ -3092,7 +3092,7 @@ server_tick(void) {
         if (send_size == -1) {
             // EAGAIN means no data sent
             if (errno != EAGAIN) {
-                log_errno("Couldn't send protocol data: %s");
+                logs_errno("Couldn't send protocol data: %s");
                 disconnect_player_now(brain);
             }
         } else {
@@ -3144,7 +3144,7 @@ server_tick(void) {
             // @TODO(traks) get rid of allocation
             ch->sections[0] = calloc(sizeof (mc_ushort), 4096);
             if (ch->sections[0] == NULL) {
-                log("Failed to allocate chunk section during generation");
+                logs("Failed to allocate chunk section during generation");
                 exit(1);
             }
 
@@ -3369,7 +3369,7 @@ load_block_types(void) {
 
 int
 main(void) {
-    log("Running Blaze");
+    logs("Running Blaze");
 
     // Ignore SIGPIPE so the server doesn't crash (by getting signals) if a
     // client decides to abruptly close its end of the connection.
@@ -3390,12 +3390,12 @@ main(void) {
     server_sock = socket(AF_INET, SOCK_STREAM, 0);
 
     if (server_sock == -1) {
-        log_errno("Failed to create socket: %s");
+        logs_errno("Failed to create socket: %s");
         exit(1);
     }
     if (server_sock >= FD_SETSIZE) {
         // can't select on this socket
-        log("Socket is FD_SETSIZE or higher");
+        logs("Socket is FD_SETSIZE or higher");
         exit(1);
     }
 
@@ -3404,35 +3404,35 @@ main(void) {
     int yes = 1;
     if (setsockopt(server_sock, SOL_SOCKET,
             SO_REUSEADDR, &yes, sizeof yes) == -1) {
-        log_errno("Failed to set sock opt: %s");
+        logs_errno("Failed to set sock opt: %s");
         exit(1);
     }
 
     // @TODO(traks) non-blocking connect? Also note that connect will finish
     // asynchronously if it has been interrupted by a signal.
     if (bind(server_sock, addr_ptr, sizeof server_addr) == -1) {
-        log_errno("Can't bind to address: %s");
+        logs_errno("Can't bind to address: %s");
         exit(1);
     }
 
     if (listen(server_sock, 16) == -1) {
-        log_errno("Can't listen: %s");
+        logs_errno("Can't listen: %s");
         exit(1);
     }
 
     int flags = fcntl(server_sock, F_GETFL, 0);
 
     if (flags == -1) {
-        log_errno("Can't get socket flags: %s");
+        logs_errno("Can't get socket flags: %s");
         exit(1);
     }
 
     if (fcntl(server_sock, F_SETFL, flags | O_NONBLOCK) == -1) {
-        log_errno("Can't set socket flags: %s");
+        logs_errno("Can't set socket flags: %s");
         exit(1);
     }
 
-    log("Bound to address");
+    logs("Bound to address");
 
     mach_timebase_info_data_t timebase_info;
     mach_timebase_info(&timebase_info);
@@ -3445,7 +3445,7 @@ main(void) {
     short_lived_scratch = calloc(short_lived_scratch_size, 1);
 
     if (short_lived_scratch == NULL) {
-        log_errno("Failed to allocate short lived scratch arena: %s");
+        logs_errno("Failed to allocate short lived scratch arena: %s");
         exit(1);
     }
 
@@ -3462,7 +3462,7 @@ main(void) {
                 * timebase_info.numer / timebase_info.denom / 1000;
 
         if (got_sigint) {
-            log("Interrupted");
+            logs("Interrupted");
             break;
         }
 
@@ -3471,6 +3471,6 @@ main(void) {
         }
     }
 
-    log("Goodbye!");
+    logs("Goodbye!");
     return 0;
 }
