@@ -40,6 +40,8 @@
 // must be power of 2
 #define MAX_ENTITIES (1024)
 
+#define MAX_PLAYERS (8)
+
 enum nbt_tag {
     NBT_TAG_END,
     NBT_TAG_BYTE,
@@ -352,7 +354,7 @@ typedef struct {
 static initial_connection initial_connections[32];
 static int initial_connection_count;
 
-static player_brain player_brains[8];
+static player_brain player_brains[MAX_PLAYERS];
 static int player_brain_count;
 
 // @TODO(traks) don't use a hash map. Performance depends on the chunks loaded,
@@ -395,7 +397,7 @@ static tab_list_entry tab_list_added[64];
 static int tab_list_added_count;
 static tab_list_entry tab_list_removed[64];
 static int tab_list_removed_count;
-static tab_list_entry tab_list[1024];
+static tab_list_entry tab_list[MAX_PLAYERS];
 static int tab_list_size;
 
 static void
@@ -1602,31 +1604,55 @@ server_tick(void) {
                         rec_cursor.error = 1;
                     }
 
-                    char response[] =
-                            "{"
-                            "  \"version\": {"
-                            "    \"name\": \"1.15.2\","
-                            "    \"protocol\": 578"
-                            "  },"
-                            "  \"players\": {"
-                            "    \"max\": 100,"
-                            "    \"online\": 0,"
-                            "    \"sample\": []"
-                            "  },"
-                            "  \"description\": {"
-                            "    \"text\": \"Running Blaze\""
-                            "  }"
-                            "}";
-                    net_string response_str = {
-                        .size = sizeof response - 1,
-                        .ptr = response
+                    memory_arena scratch_arena = {
+                        .ptr = short_lived_scratch,
+                        .size = short_lived_scratch_size
                     };
+
+                    int list_size = tab_list_size;
+                    size_t list_bytes = list_size * sizeof (tab_list_entry);
+                    tab_list_entry * list = alloc_in_arena(
+                            &scratch_arena, list_bytes);
+                    memcpy(list, tab_list, list_bytes);
+                    int sample_size = MIN(12, list_size);
+
+                    unsigned char * response = alloc_in_arena(&scratch_arena, 1024);
+                    int response_size = 0;
+                    response_size += sprintf((char *) response + response_size,
+                            "{\"version\":{\"name\":\"1.15.2\",\"protocol\":578},"
+                            "\"players\":{\"max\":%d,\"online\":%d,\"sample\":[",
+                            (int) MAX_PLAYERS, (int) list_size);
+
+                    for (int i = 0; i < sample_size; i++) {
+                        int target = i + (rand() % (list_size - i));
+                        tab_list_entry * sampled = list + target;
+                        list[target] = list[i];
+
+                        if (i > 0) {
+                            response[response_size] = ',';
+                            response_size += 1;
+                        }
+
+                        entity_data * entity = resolve_entity(sampled->eid);
+                        assert(entity->type == ENTITY_PLAYER);
+                        // @TODO(traks) actual UUID
+                        response_size += sprintf((char *) response + response_size,
+                                "{\"id\":\"01234567-89ab-cdef-0123-456789abcdef\","
+                                "\"name\":\"%.*s\"}",
+                                (int) entity->player.username_size,
+                                entity->player.username);
+                    }
+
+                    response_size += sprintf((char *) response + response_size,
+                            "]},\"description\":{\"text\":\"Running Blaze\"}}");
+
                     int out_size = net_varint_size(0)
-                            + net_varint_size(response_str.size)
-                            + response_str.size;
+                            + net_varint_size(response_size)
+                            + response_size;
                     net_write_varint(&send_cursor, out_size);
                     net_write_varint(&send_cursor, 0);
-                    net_write_string(&send_cursor, response_str);
+                    net_write_varint(&send_cursor, response_size);
+                    net_write_data(&send_cursor, response, response_size);
 
                     init_con->protocol_state = PROTOCOL_AWAIT_PING_REQUEST;
                     break;
