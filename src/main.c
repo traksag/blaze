@@ -69,6 +69,21 @@ enum gamemode {
     GAMEMODE_SPECTATOR,
 };
 
+// I think of the Minecraft coordinate system as follows:
+//
+//        +Y
+//        |
+//        |
+//        *---- +X (270 degrees)
+//       /
+//      /
+//     +Z (0 degrees)
+//
+// Then north naturally corresponds to -Z, east to +X, etc. However, entity
+// rotations along the Y axis are the opposite to what you might expect: adding
+// degrees rotates clockwise instead of counter-clockwise (as is common in
+// mathematics).
+
 // in network id order
 enum direction {
     DIRECTION_NEG_Y, // down
@@ -206,6 +221,10 @@ typedef struct {
     unsigned char selected_slot;
 
     unsigned char gamemode;
+
+    mc_float head_rot_x;
+    mc_float head_rot_y;
+    mc_float body_rot_y;
 } player_data;
 
 #define ENTITY_IN_USE ((unsigned) (1 << 0))
@@ -218,8 +237,6 @@ typedef struct {
     mc_double x;
     mc_double y;
     mc_double z;
-    mc_float rot_x;
-    mc_float rot_y;
     entity_id eid;
     unsigned flags;
     unsigned type;
@@ -536,6 +553,9 @@ try_reserve_entity(unsigned type) {
         if (!(entity->flags & ENTITY_IN_USE)) {
             mc_ushort generation = next_entity_generations[i];
             entity_id eid = ((mc_uint) generation << 20) | i;
+            // @TODO(traks) should we default-initialise the type-specific data
+            // as well? I think this only default-initialises the first entry
+            // in the union.
             *entity = (entity_data) {0};
             entity->eid = eid;
             entity->type = type;
@@ -560,19 +580,23 @@ evict_entity(entity_id eid) {
 
 static void
 teleport_player(player_brain * brain, mc_double new_x,
-        mc_double new_y, mc_double new_z) {
+        mc_double new_y, mc_double new_z,
+        mc_float new_rot_x, mc_float new_rot_y) {
     brain->current_teleport_id++;
     entity_data * entity = resolve_entity(brain->eid);
     entity->flags |= ENTITY_TELEPORTING;
     entity->x = new_x;
     entity->y = new_y;
     entity->z = new_z;
+    entity->player.head_rot_x = new_rot_x;
+    entity->player.head_rot_y = new_rot_y;
+    entity->player.body_rot_y = new_rot_y;
 }
 
 static void
 process_move_player_packet(entity_data * entity,
         mc_double new_x, mc_double new_y, mc_double new_z,
-        mc_float new_rot_x, mc_float new_rot_y, int on_ground) {
+        mc_float new_head_rot_x, mc_float new_head_rot_y, int on_ground) {
     if ((entity->flags & ENTITY_TELEPORTING) != 0) {
         return;
     }
@@ -580,8 +604,8 @@ process_move_player_packet(entity_data * entity,
     entity->x = new_x;
     entity->y = new_y;
     entity->z = new_z;
-    entity->rot_x = new_rot_x;
-    entity->rot_y = new_rot_y;
+    entity->player.head_rot_x = new_head_rot_x;
+    entity->player.head_rot_y = new_head_rot_y;
     if (on_ground) {
         entity->flags |= ENTITY_ON_GROUND;
     } else {
@@ -1351,9 +1375,7 @@ send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch) {
     net_write_ubyte(send_cursor, 12);
     // write name
     net_write_ushort(send_cursor, height_map_name.size);
-    memcpy(send_cursor->buf + send_cursor->index, height_map_name.ptr,
-            height_map_name.size);
-    send_cursor->index += height_map_name.size;
+    net_write_data(send_cursor, height_map_name.ptr, height_map_name.size);
 
     // number of elements in long array
     net_write_int(send_cursor, 36);
@@ -1778,7 +1800,7 @@ server_tick(void) {
 
                 brain->send_cursor = send_cursor.index;
 
-                teleport_player(brain, 88, 70, 73);
+                teleport_player(brain, 88, 70, 73, 0, 0);
 
                 // @TODO(traks) ensure this can never happen instead of assering
                 // it never will hopefully happen
@@ -1805,6 +1827,10 @@ server_tick(void) {
         int sock = brain->sock;
         ssize_t rec_size = recv(sock, brain->rec_buf + brain->rec_cursor,
                 sizeof brain->rec_buf - brain->rec_cursor, 0);
+
+        mc_double start_move_x = entity->x;
+        mc_double start_move_y = entity->y;
+        mc_double start_move_z = entity->z;
 
         if (rec_size == 0) {
             disconnect_player_now(brain);
@@ -1994,34 +2020,36 @@ server_tick(void) {
                     mc_double z = net_read_double(&rec_cursor);
                     int on_ground = net_read_ubyte(&rec_cursor);
                     process_move_player_packet(entity, x, y, z,
-                            entity->rot_x, entity->rot_y, on_ground);
+                            entity->player.head_rot_x,
+                            entity->player.head_rot_y, on_ground);
                     break;
                 }
                 case 18: { // move player pos rot
                     mc_double x = net_read_double(&rec_cursor);
                     mc_double y = net_read_double(&rec_cursor);
                     mc_double z = net_read_double(&rec_cursor);
-                    mc_float rot_y = net_read_float(&rec_cursor);
-                    mc_float rot_x = net_read_float(&rec_cursor);
+                    mc_float head_rot_y = net_read_float(&rec_cursor);
+                    mc_float head_rot_x = net_read_float(&rec_cursor);
                     int on_ground = net_read_ubyte(&rec_cursor);
                     process_move_player_packet(entity, x, y, z,
-                            rot_x, rot_y, on_ground);
+                            head_rot_x, head_rot_y, on_ground);
                     break;
                 }
                 case 19: { // move player rot
-                    mc_float rot_y = net_read_float(&rec_cursor);
-                    mc_float rot_x = net_read_float(&rec_cursor);
+                    mc_float head_rot_y = net_read_float(&rec_cursor);
+                    mc_float head_rot_x = net_read_float(&rec_cursor);
                     int on_ground = net_read_ubyte(&rec_cursor);
                     process_move_player_packet(entity,
                             entity->x, entity->y, entity->z,
-                            rot_x, rot_y, on_ground);
+                            head_rot_x, head_rot_y, on_ground);
                     break;
                 }
                 case 20: { // move player
                     int on_ground = net_read_ubyte(&rec_cursor);
                     process_move_player_packet(entity,
                             entity->x, entity->y, entity->z,
-                            entity->rot_x, entity->rot_y, on_ground);
+                            entity->player.head_rot_x,
+                            entity->player.head_rot_y, on_ground);
                     break;
                 }
                 case 21: { // move vehicle
@@ -2448,6 +2476,23 @@ server_tick(void) {
                     rec_cursor.limit - rec_cursor.index);
             brain->rec_cursor = rec_cursor.limit - rec_cursor.index;
         }
+
+        // @TODO(traks) only here because players could be disconnected and get
+        // all their data cleaned up immediately if some packet handling error
+        // occurs above. Eventually we should handle errors more gracefully.
+        // Then this check shouldn't be necessary anymore.
+        if (!(brain->flags & PLAYER_BRAIN_IN_USE)) {
+            continue;
+        }
+
+        if (!(entity->flags & ENTITY_TELEPORTING)) {
+            mc_double move_dx = entity->x - start_move_x;
+            mc_double move_dy = entity->y - start_move_y;
+            mc_double move_dz = entity->z - start_move_z;
+
+            // @TODO(traks) rotate player body depending on head rotation and
+            // direction the player is moving to
+        }
     }
 
     // remove players from tab list if necessary
@@ -2514,8 +2559,8 @@ server_tick(void) {
             net_write_double(&send_cursor, player->x);
             net_write_double(&send_cursor, player->y);
             net_write_double(&send_cursor, player->z);
-            net_write_float(&send_cursor, player->rot_y);
-            net_write_float(&send_cursor, player->rot_x);
+            net_write_float(&send_cursor, player->player.head_rot_y);
+            net_write_float(&send_cursor, player->player.head_rot_x);
             net_write_ubyte(&send_cursor, 0); // relative arguments
             net_write_varint(&send_cursor, brain->current_teleport_id);
 
@@ -2856,6 +2901,15 @@ server_tick(void) {
                     mc_double dx = candidate->x - player->x;
                     mc_double dy = candidate->y - player->y;
                     mc_double dz = candidate->z - player->z;
+                    mc_float rot_x = 0;
+                    mc_float rot_y = 0;
+
+                    switch (candidate->type) {
+                    case ENTITY_PLAYER:
+                        rot_x = candidate->player.head_rot_x;
+                        rot_y = candidate->player.body_rot_y;
+                        break;
+                    }
 
                     if (dx * dx + dy * dy + dz * dz < 45 * 45) {
                         // send teleport entity packet
@@ -2868,9 +2922,19 @@ server_tick(void) {
                         net_write_double(&send_cursor, candidate->y);
                         net_write_double(&send_cursor, candidate->z);
                         // @TODO(traks) make sure signed cast to mc_ubyte works
-                        net_write_ubyte(&send_cursor, (int) (candidate->rot_y * 256.0f / 360.0f));
-                        net_write_ubyte(&send_cursor, (int) (candidate->rot_x * 256.0f / 360.0f));
+                        net_write_ubyte(&send_cursor, (int) (rot_y * 256.0f / 360.0f));
+                        net_write_ubyte(&send_cursor, (int) (rot_x * 256.0f / 360.0f));
                         net_write_ubyte(&send_cursor, !!(candidate->flags & ENTITY_ON_GROUND));
+
+                        // send rotate head packet
+                        out_size = net_varint_size(60)
+                                + net_varint_size(candidate_eid) + 1;
+                        net_write_varint(&send_cursor, out_size);
+                        net_write_varint(&send_cursor, 60);
+                        net_write_varint(&send_cursor, candidate_eid);
+                        // @TODO(traks) make sure signed cast to mc_ubyte works
+                        net_write_ubyte(&send_cursor, (int)
+                                (candidate->player.head_rot_y * 256.0f / 360.0f));
                         continue;
                     }
                 }
@@ -2899,48 +2963,61 @@ server_tick(void) {
 
                 switch (candidate->type) {
                 case ENTITY_PLAYER: {
-                    // send add mob packet
-                    int out_size = net_varint_size(3)
-                            + net_varint_size(candidate_eid)
-                            + 16 + net_varint_size(5)
-                            + 3 * 8 + 3 * 1 + 3 * 2;
-                    net_write_varint(&send_cursor, out_size);
-                    net_write_varint(&send_cursor, 3);
-                    net_write_varint(&send_cursor, candidate_eid);
-                    // @TODO(traks) appropriate UUID
-                    net_write_ulong(&send_cursor, 0);
-                    net_write_ulong(&send_cursor, 0);
-                    // @TODO(traks) network entity type
-                    net_write_varint(&send_cursor, 5);
-                    net_write_double(&send_cursor, candidate->x);
-                    net_write_double(&send_cursor, candidate->y);
-                    net_write_double(&send_cursor, candidate->z);
-                    // @TODO(traks) make sure signed cast to mc_ubyte works
-                    net_write_ubyte(&send_cursor, (int) (candidate->rot_y * 256.0f / 360.0f));
-                    net_write_ubyte(&send_cursor, (int) (candidate->rot_x * 256.0f / 360.0f));
-                    // @TODO(traks) y head rotation (what is that?)
-                    net_write_ubyte(&send_cursor, 0);
-                    // @TODO(traks) entity velocity
-                    net_write_ushort(&send_cursor, 0);
-                    net_write_ushort(&send_cursor, 0);
-                    net_write_ushort(&send_cursor, 0);
-
-                    // int out_size = net_varint_size(5)
+                    // // send add mob packet
+                    // int out_size = net_varint_size(3)
                     //         + net_varint_size(candidate_eid)
-                    //         + 16 + 3 * 8 + 2 * 1;
+                    //         + 16 + net_varint_size(5)
+                    //         + 3 * 8 + 3 * 1 + 3 * 2;
                     // net_write_varint(&send_cursor, out_size);
-                    // net_write_varint(&send_cursor, 5);
+                    // net_write_varint(&send_cursor, 3);
                     // net_write_varint(&send_cursor, candidate_eid);
                     // // @TODO(traks) appropriate UUID
                     // net_write_ulong(&send_cursor, 0);
                     // net_write_ulong(&send_cursor, 0);
                     // // @TODO(traks) network entity type
+                    // net_write_varint(&send_cursor, 5);
                     // net_write_double(&send_cursor, candidate->x);
                     // net_write_double(&send_cursor, candidate->y);
                     // net_write_double(&send_cursor, candidate->z);
                     // // @TODO(traks) make sure signed cast to mc_ubyte works
                     // net_write_ubyte(&send_cursor, (int) (candidate->rot_y * 256.0f / 360.0f));
                     // net_write_ubyte(&send_cursor, (int) (candidate->rot_x * 256.0f / 360.0f));
+                    // // @TODO(traks) y head rotation (what is that?)
+                    // net_write_ubyte(&send_cursor, 0);
+                    // // @TODO(traks) entity velocity
+                    // net_write_ushort(&send_cursor, 0);
+                    // net_write_ushort(&send_cursor, 0);
+                    // net_write_ushort(&send_cursor, 0);
+
+                    // send add player packet
+                    int out_size = net_varint_size(5)
+                            + net_varint_size(candidate_eid)
+                            + 16 + 3 * 8 + 2 * 1;
+                    net_write_varint(&send_cursor, out_size);
+                    net_write_varint(&send_cursor, 5);
+                    net_write_varint(&send_cursor, candidate_eid);
+                    // @TODO(traks) appropriate UUID
+                    net_write_ulong(&send_cursor, 0);
+                    net_write_ulong(&send_cursor, candidate_eid);
+                    // @TODO(traks) network entity type
+                    net_write_double(&send_cursor, candidate->x);
+                    net_write_double(&send_cursor, candidate->y);
+                    net_write_double(&send_cursor, candidate->z);
+                    // @TODO(traks) make sure signed cast to mc_ubyte works
+                    net_write_ubyte(&send_cursor, (int)
+                            (candidate->player.body_rot_y * 256.0f / 360.0f));
+                    net_write_ubyte(&send_cursor, (int)
+                            (candidate->player.head_rot_x * 256.0f / 360.0f));
+
+                    // send rotate head packet
+                    out_size = net_varint_size(60)
+                            + net_varint_size(candidate_eid) + 1;
+                    net_write_varint(&send_cursor, out_size);
+                    net_write_varint(&send_cursor, 60);
+                    net_write_varint(&send_cursor, candidate_eid);
+                    // @TODO(traks) make sure signed cast to mc_ubyte works
+                    net_write_ubyte(&send_cursor, (int)
+                            (candidate->player.head_rot_y * 256.0f / 360.0f));
                     break;
                 default:
                     continue;
@@ -3000,8 +3077,7 @@ server_tick(void) {
             net_write_varint(&send_cursor, out_size);
             net_write_varint(&send_cursor, 15);
             net_write_varint(&send_cursor, buf_index);
-            memcpy(send_cursor.buf + send_cursor.index, buf, buf_index);
-            send_cursor.index += buf_index;
+            net_write_data(&send_cursor, buf, buf_index);
             net_write_ubyte(&send_cursor, 0); // chat box position
         }
 

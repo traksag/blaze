@@ -21,6 +21,9 @@ typedef struct {
 } net_block_pos;
 
 typedef struct {
+    // @TODO(traks) could the compiler think that the buffer points to some
+    // buffer that contains this struct itself, meaning it has to reload fields
+    // after we write something to it?
     unsigned char * buf;
     int limit;
     int index;
@@ -99,5 +102,8 @@ net_write_double(buffer_cursor * cursor, mc_double val);
 
 net_block_pos
 net_read_block_pos(buffer_cursor * cursor);
+
+void
+net_write_data(buffer_cursor * cursor, void * restrict src, size_t size);
 
 #endif

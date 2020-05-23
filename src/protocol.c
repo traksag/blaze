@@ -519,3 +519,14 @@ net_read_block_pos(buffer_cursor * cursor) {
     };
     return res;
 }
+
+void
+net_write_data(buffer_cursor * cursor, void * restrict src, size_t size) {
+    if (cursor->limit - cursor->index < size) {
+        cursor->error = 1;
+        return;
+    }
+
+    memcpy(cursor->buf + cursor->index, src, size);
+    cursor->index += size;
+}
