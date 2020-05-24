@@ -143,7 +143,27 @@ typedef struct {
 #define CHUNK_LOADED (1u << 0)
 
 typedef struct {
-    mc_ushort * sections[16];
+    int index_in_bucket;
+    mc_ushort block_states[4096];
+} chunk_section;
+
+#define CHUNK_SECTIONS_PER_BUCKET (64)
+
+typedef struct chunk_section_bucket chunk_section_bucket;
+
+struct chunk_section_bucket {
+    chunk_section chunk_sections[CHUNK_SECTIONS_PER_BUCKET];
+    // @TODO(traks) we use 2 * CHUNK_SECTIONS_PER_BUCKET 4096-byte pages for the
+    // block states in the chunk sections. How much of the next page do we use?
+    chunk_section_bucket * next;
+    chunk_section_bucket * prev;
+    int used_sections;
+    // @TODO(traks) store this in longs?
+    unsigned char used_map[CHUNK_SECTIONS_PER_BUCKET];
+};
+
+typedef struct {
+    chunk_section * sections[16];
     mc_ushort non_air_count[16];
     // need shorts to store 257 different heights
     mc_ushort motion_blocking_height_map[256];
@@ -365,6 +385,9 @@ static int player_brain_count;
 // appropriate way, we can ensure there are at most 1000 entries per bucket.
 // Not sure if that's any good.
 static chunk_bucket chunk_map[CHUNK_MAP_SIZE];
+
+static chunk_section_bucket * full_chunk_section_buckets;
+static chunk_section_bucket * chunk_section_buckets_with_unused;
 
 // All chunks that should be loaded. Stored in a request list to allow for
 // ordered loads. If a
@@ -625,6 +648,98 @@ chunk_cache_index(chunk_pos pos) {
     return (x * MAX_CHUNK_CACHE_DIAM + z) % n;
 }
 
+static chunk_section *
+alloc_chunk_section() {
+    chunk_section_bucket * bucket = chunk_section_buckets_with_unused;
+    if (bucket == NULL) {
+        // initialises all memory to 0
+        bucket = mmap(NULL, sizeof *bucket, PROT_READ | PROT_WRITE,
+                MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (bucket == MAP_FAILED) {
+            return NULL;
+        }
+        chunk_section_buckets_with_unused = bucket;
+    }
+
+    int seci;
+    for (seci = 0; seci < CHUNK_SECTIONS_PER_BUCKET; seci++) {
+        if (bucket->used_map[seci] == 0) {
+            break;
+        }
+    }
+
+    assert(seci < CHUNK_SECTIONS_PER_BUCKET);
+    assert(bucket->used_sections < CHUNK_SECTIONS_PER_BUCKET);
+    chunk_section * res = bucket->chunk_sections + seci;
+    *res = (chunk_section) {0};
+    res->index_in_bucket = seci;
+    bucket->used_map[seci] = 1;
+    bucket->used_sections++;
+
+    if (bucket->used_sections == CHUNK_SECTIONS_PER_BUCKET) {
+        // bucket is full, so move bucket to linked list of full ones
+        chunk_section_bucket * next = bucket->next;
+        if (next != NULL) {
+            next->prev = NULL;
+        }
+        chunk_section_buckets_with_unused = next;
+
+        bucket->next = full_chunk_section_buckets;
+        bucket->prev = NULL;
+        if (full_chunk_section_buckets != NULL) {
+            assert(full_chunk_section_buckets->prev == NULL);
+            full_chunk_section_buckets->prev = bucket;
+        }
+        full_chunk_section_buckets = bucket;
+    }
+    return res;
+}
+
+static void
+free_chunk_section(chunk_section * section) {
+    int index_in_bucket = section->index_in_bucket;
+    chunk_section_bucket * bucket = (void *) (section - index_in_bucket);
+    assert(bucket->used_map[index_in_bucket] == 1);
+    assert(bucket->used_sections > 0);
+    bucket->used_map[index_in_bucket] = 0;
+    bucket->used_sections--;
+
+    if (bucket->used_sections == CHUNK_SECTIONS_PER_BUCKET - 1) {
+        // bucket went from full to non-full, so move to linked list of buckets
+        // with unused entries
+        if (bucket->prev != NULL) {
+            bucket->prev->next = bucket->next;
+        } else {
+            full_chunk_section_buckets = bucket->next;
+        }
+        if (bucket->next != NULL) {
+            bucket->next->prev = bucket->prev;
+        }
+
+        bucket->prev = NULL;
+        bucket->next = chunk_section_buckets_with_unused;
+        if (bucket->next != NULL) {
+            bucket->next->prev = bucket;
+        }
+        chunk_section_buckets_with_unused = bucket;
+    } else if (bucket->used_sections == 0) {
+        if (bucket->prev != NULL) {
+            bucket->prev->next = bucket->next;
+        } else {
+            chunk_section_buckets_with_unused = bucket->next;
+        }
+        if (bucket->next != NULL) {
+            bucket->next->prev = bucket->prev;
+        }
+
+        // @TODO(traks) figure out whether this actually unmaps all memory used
+        // for the bucket, or if the last page is only partially unmapped or
+        // something.
+        int bad = munmap(bucket, sizeof *bucket);
+        assert(!bad);
+    }
+}
+
 static int
 chunk_pos_equal(chunk_pos a, chunk_pos b) {
     // @TODO(traks) make sure this compiles to a single compare. If not, should
@@ -645,14 +760,14 @@ chunk_get_block_state(chunk * ch, int x, int y, int z) {
     assert(0 <= z && z < 16);
 
     int section_y = y >> 4;
-    mc_ushort * section = ch->sections[section_y];
+    chunk_section * section = ch->sections[section_y];
 
     if (section == NULL) {
         return 0;
     }
 
     int index = ((y & 0xf) << 8) | (z << 4) | x;
-    return section[index];
+    return section->block_states[index];
 }
 
 static void
@@ -688,11 +803,12 @@ chunk_set_block_state(chunk * ch, int x, int y, int z, mc_ushort block_state) {
     ch->changed_block_count++;
 
     int section_y = y >> 4;
-    mc_ushort * section = ch->sections[section_y];
+    chunk_section * section = ch->sections[section_y];
 
     if (section == NULL) {
-        // @TODO(traks) better allocation scheme
-        section = calloc(4096, sizeof (mc_ushort));
+        // @TODO(traks) instead of making block setting fallible, perhaps
+        // getting the chunk should be if chunk sections cannot be allocated
+        section = alloc_chunk_section();
         if (section == NULL) {
             logs_errno("Failed to allocate section: %s");
             exit(1);
@@ -702,14 +818,14 @@ chunk_set_block_state(chunk * ch, int x, int y, int z, mc_ushort block_state) {
 
     int index = ((y & 0xf) << 8) | (z << 4) | x;
 
-    if (section[index] == 0) {
+    if (section->block_states[index] == 0) {
         ch->non_air_count[section_y]++;
     }
     if (block_state == 0) {
         ch->non_air_count[section_y]--;
     }
 
-    section[index] = block_state;
+    section->block_states[index] = block_state;
 
     int height_map_index = (z << 4) | x;
 
@@ -1139,10 +1255,9 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
                 return;
             }
 
-            // @TODO(traks) get rid of this dynamic allocation. May be fine to
-            // fail since loading the chunk can fail in all sorts of ways
-            // anyhow.
-            mc_ushort * section = calloc(sizeof *section, 4096);
+            // @TODO(traks) May be fine to fail since loading the chunk can fail
+            // in all sorts of ways anyhow...
+            chunk_section * section = alloc_chunk_section();
             if (section == NULL) {
                 logs_errno("Failed to allocate section: %s");
                 exit(1);
@@ -1240,14 +1355,12 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
                 }
 
                 mc_ushort block_state = palette_map[id];
-                section[j] = block_state;
+                section->block_states[j] = block_state;
 
                 if (block_state != 0) {
                     ch->non_air_count[section_y]++;
                 }
             }
-
-            ch->sections[section_y] = section;
         }
 
         // move to end of section compound
@@ -1339,7 +1452,7 @@ send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch) {
     mc_int section_data_size = 0;
 
     for (int i = 0; i < 16; i++) {
-        mc_ushort * section = ch->sections[i];
+        chunk_section * section = ch->sections[i];
         if (section == NULL) {
             continue;
         }
@@ -1420,7 +1533,7 @@ send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch) {
     net_write_varint(send_cursor, section_data_size);
 
     for (int i = 0; i < 16; i++) {
-        mc_ushort * section = ch->sections[i];
+        chunk_section * section = ch->sections[i];
         if (section == NULL) {
             continue;
         }
@@ -1434,7 +1547,7 @@ send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch) {
         int offset = 0;
 
         for (int j = 0; j < 16 * 16 * 16; j++) {
-            mc_ulong block_state = section[j];
+            mc_ulong block_state = section->block_states[j];
             val |= block_state << offset;
 
             if (offset >= 64 - 14) {
@@ -3161,14 +3274,15 @@ server_tick(void) {
             // can easily clear it
             for (int sectioni = 0; sectioni < 16; sectioni++) {
                 if (ch->sections[sectioni] != NULL) {
-                    free(ch->sections[sectioni]);
+                    free_chunk_section(ch->sections[sectioni]);
                     ch->sections[sectioni] = NULL;
                 }
                 ch->non_air_count[sectioni] = 0;
             }
 
-            // @TODO(traks) get rid of allocation
-            ch->sections[0] = calloc(sizeof (mc_ushort), 4096);
+            // @TODO(traks) perhaps should require enough chunk sections to be
+            // available for chunk before even trying to load/generate it.
+            ch->sections[0] = alloc_chunk_section();
             if (ch->sections[0] == NULL) {
                 logs("Failed to allocate chunk section during generation");
                 exit(1);
@@ -3177,7 +3291,7 @@ server_tick(void) {
             for (int x = 0; x < 16; x++) {
                 for (int z = 0; z < 16; z++) {
                     int index = (z << 4) | x;
-                    ch->sections[0][index] = 2;
+                    ch->sections[0]->block_states[index] = 2;
                     ch->motion_blocking_height_map[index] = 1;
                     ch->non_air_count[0]++;
                 }
@@ -3201,7 +3315,7 @@ server_tick(void) {
             if (ch->available_interest == 0) {
                 for (int sectioni = 0; sectioni < 16; sectioni++) {
                     if (ch->sections[sectioni] != NULL) {
-                        free(ch->sections[sectioni]);
+                        free_chunk_section(ch->sections[sectioni]);
                     }
                 }
 
