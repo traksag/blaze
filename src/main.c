@@ -10,14 +10,20 @@
 #include <time.h>
 #include <fcntl.h>
 #include <string.h>
-#include <mach/mach_time.h>
 #include <limits.h>
 #include <x86intrin.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <zlib.h>
 #include <stdalign.h>
+#include <math.h>
 #include "codec.h"
+
+#if defined(__APPLE__) && defined(__MACH__)
+#include <mach/mach_time.h>
+#else
+#include <time.h>
+#endif
 
 #define ARRAY_SIZE(x) (sizeof (x) / sizeof *(x))
 
@@ -2711,8 +2717,12 @@ server_tick(void) {
         mc_short chunk_cache_max_x = brain->chunk_cache_centre_x + brain->chunk_cache_radius;
         mc_short chunk_cache_max_z = brain->chunk_cache_centre_z + brain->chunk_cache_radius;
 
-        __m128d xz = _mm_set_pd(player->z, player->x);
-        __m128d floored_xz = _mm_floor_pd(xz);
+        // @TODO(traks) there's also an intrinsic for flooring multiple doubles
+        // at once. Figure out what systems can use that and perhaps move all
+        // this intrinsics stuff into vector math functions with fallback to
+        // stdlib scalar operations. Although shifting negative numbers is
+        // undefined...
+        __m128d floored_xz = _mm_set_pd(floor(player->z), floor(player->x));
         __m128i floored_int_xz = _mm_cvtpd_epi32(floored_xz);
         __m128i new_centre = _mm_srai_epi32(floored_int_xz, 4);
         mc_short new_chunk_cache_centre_x = _mm_extract_epi32(new_centre, 0);
@@ -3523,7 +3533,8 @@ main(void) {
         .sin_family = AF_INET,
         .sin_port = htons(25565),
         .sin_addr = {
-            .s_addr = htonl(0x7f000001)
+            // bind to any address, so we can test on other machines
+            .s_addr = 0
         }
     };
 
@@ -3574,8 +3585,10 @@ main(void) {
 
     logs("Bound to address");
 
+#if defined(__APPLE__) && defined(__MACH__)
     mach_timebase_info_data_t timebase_info;
     mach_timebase_info(&timebase_info);
+#endif
 
     // reserve null entity
     entities[0].flags |= ENTITY_IN_USE;
@@ -3593,13 +3606,26 @@ main(void) {
     load_block_types();
 
     for (;;) {
+#if defined(__APPLE__) && defined(__MACH__)
         unsigned long long start_time = mach_absolute_time();
+#else
+        struct timespec start_time;
+        clock_gettime(CLOCK_MONOTONIC, &start_time);
+#endif
 
         server_tick();
 
+#if defined(__APPLE__) && defined(__MACH__)
         unsigned long long end_time = mach_absolute_time();
         unsigned long long elapsed_micros = (end_time - start_time)
                 * timebase_info.numer / timebase_info.denom / 1000;
+#else
+        struct timespec end_time;
+        clock_gettime(CLOCK_MONOTONIC, &start_time);
+        unsigned long long elapsed_micros =
+                ((long long) end_time.tv_nsec - start_time.tv_nsec) / 1000
+                + ((long long) end_time.tv_sec - start_time.tv_sec) * 1000000;
+#endif
 
         if (got_sigint) {
             logs("Interrupted");
