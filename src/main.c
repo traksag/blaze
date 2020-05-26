@@ -377,6 +377,12 @@ typedef struct {
     entity_id eid;
 } tab_list_entry;
 
+typedef struct {
+    long long start_time;
+    long long end_time;
+    char * name;
+} timed_block;
+
 static initial_connection initial_connections[32];
 static int initial_connection_count;
 
@@ -428,6 +434,64 @@ static tab_list_entry tab_list_removed[64];
 static int tab_list_removed_count;
 static tab_list_entry tab_list[MAX_PLAYERS];
 static int tab_list_size;
+
+static timed_block timed_blocks[1000];
+static int timed_block_count;
+static int timed_block_depth_stack[64];
+static int cur_timed_block_depth;
+
+#if defined(__APPLE__) && defined(__MACH__)
+
+static mach_timebase_info_data_t timebase_info;
+static unsigned long long program_start_time;
+
+static void
+init_program_nano_time() {
+    mach_timebase_info(&timebase_info);
+    program_start_time = mach_absolute_time();
+}
+
+static unsigned long long
+program_nano_time() {
+    unsigned long long diff = mach_absolute_time() - program_start_time;
+    return diff * timebase_info.numer / timebase_info.denom;
+}
+
+#else
+
+static struct timespec program_start_time;
+
+static void
+init_program_nano_time() {
+    clock_gettime(CLOCK_MONOTONIC, &program_start_time);
+}
+
+static long long
+program_nano_time() {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    long long diff_sec_nanos = (now.tv_sec - program_start_time.tv_sec) * 1000000000;
+    long long diff_nanos = (long long) now.tv_nsec - program_start_time.tv_nsec;
+    return diff_sec_nanos + diff_nanos;
+}
+
+#endif
+
+static void
+begin_timed_block(char * name) {
+    int i = timed_block_count;
+    timed_block_count++;
+    timed_block_depth_stack[cur_timed_block_depth] = i;
+    cur_timed_block_depth++;
+    timed_blocks[i].name = name;
+    timed_blocks[i].start_time = program_nano_time();
+}
+
+static void
+end_timed_block() {
+    timed_blocks[cur_timed_block_depth].end_time = program_nano_time();
+    cur_timed_block_depth--;
+}
 
 static void
 logs(void * format, ...) {
@@ -1571,6 +1635,14 @@ send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch) {
 
     // number of block entities
     net_write_varint(send_cursor, 0);
+    // @TODO(traks) got
+    //
+    //  IndexOutOfBoundsException: readerIndex(47463) + length(1) exceeds
+    //  writerIndex(47463): PooledUnsafeDirectByteBuf(...)
+    //
+    // Presumably this was a chunk packet the client tried to read but somehow
+    // they ended up outside the packet buffer.
+    assert(out_size == send_cursor->index - packet_start);
 }
 
 static void
@@ -1597,6 +1669,7 @@ disconnect_player_now(player_brain * brain) {
 
 static void
 server_tick(void) {
+    begin_timed_block("server tick");
     // accept new connections
 
     for (;;) {
@@ -3340,6 +3413,7 @@ server_tick(void) {
     }
 
     current_tick++;
+    end_timed_block();
 }
 
 static int
@@ -3519,6 +3593,8 @@ load_block_types(void) {
 
 int
 main(void) {
+    init_program_nano_time();
+
     logs("Running Blaze");
 
     // Ignore SIGPIPE so the server doesn't crash (by getting signals) if a
@@ -3585,11 +3661,6 @@ main(void) {
 
     logs("Bound to address");
 
-#if defined(__APPLE__) && defined(__MACH__)
-    mach_timebase_info_data_t timebase_info;
-    mach_timebase_info(&timebase_info);
-#endif
-
     // reserve null entity
     entities[0].flags |= ENTITY_IN_USE;
 
@@ -3606,26 +3677,44 @@ main(void) {
     load_block_types();
 
     for (;;) {
-#if defined(__APPLE__) && defined(__MACH__)
-        unsigned long long start_time = mach_absolute_time();
-#else
-        struct timespec start_time;
-        clock_gettime(CLOCK_MONOTONIC, &start_time);
-#endif
+        long long start_time = program_nano_time();
 
         server_tick();
 
-#if defined(__APPLE__) && defined(__MACH__)
-        unsigned long long end_time = mach_absolute_time();
-        unsigned long long elapsed_micros = (end_time - start_time)
-                * timebase_info.numer / timebase_info.denom / 1000;
-#else
-        struct timespec end_time;
-        clock_gettime(CLOCK_MONOTONIC, &start_time);
-        unsigned long long elapsed_micros =
-                ((long long) end_time.tv_nsec - start_time.tv_nsec) / 1000
-                + ((long long) end_time.tv_sec - start_time.tv_sec) * 1000000;
-#endif
+        // send all profiling data to somewhere
+        struct sockaddr_in profiler_addr = {
+            .sin_family = AF_INET,
+            .sin_port = htons(16186), // prf
+            .sin_addr = {
+                .s_addr = htonl(0x7f000001)
+            }
+        };
+
+        int profiler_sock = socket(AF_INET, SOCK_STREAM, 0);
+        struct sockaddr * profiler_addr_ptr = (struct sockaddr *) &profiler_addr;
+        if (connect(profiler_sock, profiler_addr_ptr, sizeof profiler_addr) == 0) {
+            buffer_cursor cursor = {
+                .buf = short_lived_scratch,
+                .limit = short_lived_scratch_size
+            };
+            net_write_int(&cursor, timed_block_count);
+            for (int i = 0; i < timed_block_count; i++) {
+                timed_block * block = timed_blocks + i;
+                int name_size = strlen(block->name);
+                net_write_ubyte(&cursor, name_size);
+                net_write_data(&cursor, block->name, name_size);
+                net_write_ulong(&cursor, block->start_time);
+                net_write_ulong(&cursor, block->end_time);
+            }
+            ssize_t send_size = send(profiler_sock, cursor.buf, cursor.index, 0);
+            assert(send_size == cursor.index);
+        }
+        close(profiler_sock);
+        timed_block_count = 0;
+        cur_timed_block_depth = 0;
+
+        long long end_time = program_nano_time();
+        long long elapsed_micros = (end_time - start_time) / 1000;
 
         if (got_sigint) {
             logs("Interrupted");
