@@ -46,7 +46,7 @@
 // must be power of 2
 #define MAX_ENTITIES (1024)
 
-#define MAX_PLAYERS (8)
+#define MAX_PLAYERS (100)
 
 enum nbt_tag {
     NBT_TAG_END,
@@ -133,7 +133,7 @@ typedef struct {
     int rec_cursor;
 
     // @TODO(traks) figure out appropriate size
-    unsigned char send_buf[600];
+    unsigned char send_buf[2048];
     int send_cursor;
 
     int protocol_state;
@@ -489,8 +489,9 @@ begin_timed_block(char * name) {
 
 static void
 end_timed_block() {
-    timed_blocks[cur_timed_block_depth].end_time = program_nano_time();
     cur_timed_block_depth--;
+    timed_block * block = timed_blocks + timed_block_depth_stack[cur_timed_block_depth];
+    block->end_time = program_nano_time();
 }
 
 static void
@@ -1119,6 +1120,8 @@ exit:
 
 static void
 try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
+    begin_timed_block("read chunk");
+
     // @TODO(traks) error handling and/or error messages for all failure cases
     // in this entire function?
     memory_arena scratch_arena = {
@@ -1138,23 +1141,25 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
     int region_fd = open((void *) file_name, O_RDONLY);
     if (region_fd == -1) {
         logs_errno("Failed to open region file: %s");
-        return;
+        goto bail;
     }
 
     struct stat region_stat;
     if (fstat(region_fd, &region_stat)) {
         logs_errno("Failed to get region file stat: %s");
         close(region_fd);
-        return;
+        goto bail;
     }
 
     // @TODO(traks) should we unmap this or something?
+    // begin_timed_block("mmap");
     void * region_mmap = mmap(NULL, region_stat.st_size, PROT_READ,
             MAP_PRIVATE, region_fd, 0);
+    // end_timed_block();
     if (region_mmap == MAP_FAILED) {
         logs_errno("Failed to mmap region file: %s");
         close(region_fd);
-        return;
+        goto bail;
     }
 
     // after mmaping we can close the file descriptor
@@ -1174,7 +1179,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
 
     if (loc == 0) {
         // chunk not present in region file
-        return;
+        goto bail;
     }
 
     mc_uint sector_offset = loc >> 8;
@@ -1182,15 +1187,15 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
 
     if (sector_offset < 2) {
         logs("Chunk data in header");
-        return;
+        goto bail;
     }
     if (sector_count == 0) {
         logs("Chunk data uses 0 sectors");
-        return;
+        goto bail;
     }
     if (sector_offset + sector_count > (cursor.limit >> 12)) {
         logs("Chunk data out of bounds");
-        return;
+        goto bail;
     }
 
     cursor.index = sector_offset << 12;
@@ -1198,7 +1203,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
 
     if (size_in_bytes > (sector_count << 12)) {
         logs("Chunk data outside of its sectors");
-        return;
+        goto bail;
     }
 
     cursor.limit = cursor.index + size_in_bytes;
@@ -1206,13 +1211,13 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
 
     if (cursor.error) {
         logs("Chunk header reading error");
-        return;
+        goto bail;
     }
 
     if (storage_type & 0x80) {
         // @TODO(traks) separate file is used to store the chunk
         logs("External chunk storage");
-        return;
+        goto bail;
     }
 
     int windowBits;
@@ -1227,9 +1232,10 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
         windowBits = 0;
     } else {
         logs("Unknown chunk compression method");
-        return;
+        goto bail;
     }
 
+    begin_timed_block("inflate");
     // @TODO(traks) perhaps use https://github.com/ebiggers/libdeflate instead
     // of zlib. Using zlib now just because I had the code for it laying around.
     z_stream zstream;
@@ -1239,7 +1245,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
 
     if (inflateInit2(&zstream, windowBits) != Z_OK) {
         logs("inflateInit failed");
-        return;
+        goto bail;
     }
 
     zstream.next_in = cursor.buf + cursor.index;
@@ -1254,30 +1260,33 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
 
     if (inflate(&zstream, Z_FINISH) != Z_STREAM_END) {
         logs("Failed to finish inflating chunk: %s", zstream.msg);
-        return;
+        goto bail;
     }
 
     if (inflateEnd(&zstream) != Z_OK) {
         logs("inflateEnd failed");
-        return;
+        goto bail;
     }
 
     if (zstream.avail_in != 0) {
         logs("Didn't inflate entire chunk");
-        return;
+        goto bail;
     }
+    end_timed_block();
 
     cursor = (buffer_cursor) {
         .buf = uncompressed,
         .limit = zstream.total_out
     };
 
+    // begin_timed_block("load nbt");
     // @TODO(traks) more appropriate max level, currently 64
     nbt_tape_entry * tape = load_nbt(&cursor, &scratch_arena, 64);
+    // end_timed_block();
 
     if (cursor.error) {
         logs("Failed to read uncompressed NBT data");
-        return;
+        goto bail;
     }
 
     for (int section_y = 0; section_y < 16; section_y++) {
@@ -1288,13 +1297,13 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
     mc_int data_version = net_read_int(&cursor);
     if (data_version != 2230) {
         logs("Unknown data version %jd", (intmax_t) data_version);
-        return;
+        goto bail;
     }
 
     mc_uint level_start = nbt_move_to_key(NET_STRING("Level"), tape, 0, &cursor);
     if (tape[level_start].tag != NBT_TAG_COMPOUND) {
         logs("NBT Level tag not a compound");
-        return;
+        goto bail;
     }
     level_start += 2;
 
@@ -1313,7 +1322,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
 
         if (ch->sections[section_y] != NULL) {
             logs("Duplicate section Y %d", (int) section_y);
-            return;
+            goto bail;
         }
 
         int palette_start = nbt_move_to_key(NET_STRING("Palette"),
@@ -1322,7 +1331,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
         if (tape[palette_start].tag != NBT_TAG_END) {
             if (section_y < 0 || section_y >= 16) {
                 logs("Section Y %d with palette", (int) section_y);
-                return;
+                goto bail;
             }
 
             // @TODO(traks) May be fine to fail since loading the chunk can fail
@@ -1421,7 +1430,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
 
                 if (id >= palette_size) {
                     logs("Out of bounds palette ID");
-                    return;
+                    goto bail;
                 }
 
                 mc_ushort block_state = palette_map[id];
@@ -1445,10 +1454,13 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
 
     if (cursor.error) {
         logs("Failed to read uncompressed data");
-        return;
+        goto bail;
     }
 
     ch->flags |= CHUNK_LOADED;
+
+bail:
+    end_timed_block();
 }
 
 static chunk *
@@ -1711,6 +1723,7 @@ server_tick(void) {
         new_connection->sock = accepted;
         new_connection->flags |= INITIAL_CONNECTION_IN_USE;
         initial_connection_count++;
+        logs("Created initial connection");
     }
 
     // update initial connections
@@ -1770,6 +1783,7 @@ server_tick(void) {
 
                 int packet_start = rec_cursor.index;
                 mc_int packet_id = net_read_varint(&rec_cursor);
+                logs("Initial packet %d", packet_id);
 
                 switch (init_con->protocol_state) {
                 case PROTOCOL_HANDSHAKE: {
@@ -1808,7 +1822,7 @@ server_tick(void) {
                     memcpy(list, tab_list, list_bytes);
                     int sample_size = MIN(12, list_size);
 
-                    unsigned char * response = alloc_in_arena(&scratch_arena, 1024);
+                    unsigned char * response = alloc_in_arena(&scratch_arena, 2048);
                     int response_size = 0;
                     response_size += sprintf((char *) response + response_size,
                             "{\"version\":{\"name\":\"1.15.2\",\"protocol\":578},"
@@ -1818,7 +1832,6 @@ server_tick(void) {
                     for (int i = 0; i < sample_size; i++) {
                         int target = i + (rand() % (list_size - i));
                         tab_list_entry * sampled = list + target;
-                        list[target] = list[i];
 
                         if (i > 0) {
                             response[response_size] = ',';
@@ -1833,6 +1846,8 @@ server_tick(void) {
                                 "\"name\":\"%.*s\"}",
                                 (int) entity->player.username_size,
                                 entity->player.username);
+
+                        *sampled = list[i];
                     }
 
                     response_size += sprintf((char *) response + response_size,
@@ -1894,7 +1909,7 @@ server_tick(void) {
                 }
 
                 if (rec_cursor.error != 0) {
-                    logs("Protocol error occurred");
+                    logs("Initial connection protocol error occurred");
                     close(sock);
                     init_con->flags = 0;
                     initial_connection_count--;
@@ -2684,7 +2699,7 @@ server_tick(void) {
                 }
 
                 if (rec_cursor.error != 0) {
-                    logs("Protocol error occurred");
+                    logs("Player protocol error occurred");
                     disconnect_player_now(brain);
                     break;
                 }
@@ -3609,8 +3624,7 @@ main(void) {
         .sin_family = AF_INET,
         .sin_port = htons(25565),
         .sin_addr = {
-            // bind to any address, so we can test on other machines
-            .s_addr = 0
+            .s_addr = htonl(0x7f000001)
         }
     };
 
@@ -3676,27 +3690,39 @@ main(void) {
     load_item_types();
     load_block_types();
 
+    int profiler_sock = -1;
+
     for (;;) {
         long long start_time = program_nano_time();
 
         server_tick();
 
-        // send all profiling data to somewhere
-        struct sockaddr_in profiler_addr = {
-            .sin_family = AF_INET,
-            .sin_port = htons(16186), // prf
-            .sin_addr = {
-                .s_addr = htonl(0x7f000001)
-            }
-        };
+        if (profiler_sock == -1) {
+            profiler_sock = socket(AF_INET, SOCK_STREAM, 0);
 
-        int profiler_sock = socket(AF_INET, SOCK_STREAM, 0);
-        struct sockaddr * profiler_addr_ptr = (struct sockaddr *) &profiler_addr;
-        if (connect(profiler_sock, profiler_addr_ptr, sizeof profiler_addr) == 0) {
+            struct sockaddr_in profiler_addr = {
+                .sin_family = AF_INET,
+                .sin_port = htons(16186), // prf
+                .sin_addr = {
+                    .s_addr = htonl(0x7f000001)
+                }
+            };
+
+            struct sockaddr * profiler_addr_ptr = (struct sockaddr *) &profiler_addr;
+            if (connect(profiler_sock, profiler_addr_ptr, sizeof profiler_addr)) {
+                close(profiler_sock);
+                profiler_sock = -1;
+            }
+        }
+        if (profiler_sock != -1) {
             buffer_cursor cursor = {
                 .buf = short_lived_scratch,
                 .limit = short_lived_scratch_size
             };
+
+            // fill in length after writing all the data
+            cursor.index += 2;
+
             net_write_int(&cursor, timed_block_count);
             for (int i = 0; i < timed_block_count; i++) {
                 timed_block * block = timed_blocks + i;
@@ -3705,11 +3731,28 @@ main(void) {
                 net_write_data(&cursor, block->name, name_size);
                 net_write_ulong(&cursor, block->start_time);
                 net_write_ulong(&cursor, block->end_time);
+                assert(block->start_time < block->end_time);
             }
-            ssize_t send_size = send(profiler_sock, cursor.buf, cursor.index, 0);
-            assert(send_size == cursor.index);
+
+            int end = cursor.index;
+            cursor.index = 0;
+            net_write_ushort(&cursor, end - 2);
+            cursor.index = end;
+
+            int write_index = 0;
+            while (write_index != cursor.index) {
+                ssize_t send_size = send(profiler_sock,
+                        cursor.buf + write_index,
+                        cursor.index - write_index, 0);
+                if (send_size == -1 || send_size == 0) {
+                    close(profiler_sock);
+                    profiler_sock = -1;
+                    break;
+                }
+                write_index += send_size;
+            }
         }
-        close(profiler_sock);
+
         timed_block_count = 0;
         cur_timed_block_depth = 0;
 
