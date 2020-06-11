@@ -1904,6 +1904,8 @@ server_tick(void) {
                     break;
                 }
 
+                assert(send_cursor.error == 0);
+
                 if (packet_size != rec_cursor.index - packet_start) {
                     rec_cursor.error = 1;
                 }
@@ -2031,6 +2033,7 @@ server_tick(void) {
                 net_write_ubyte(&send_cursor, entity->player.selected_slot
                         - PLAYER_FIRST_HOTBAR_SLOT);
 
+                assert(send_cursor.error == 0);
                 brain->send_cursor = send_cursor.index;
 
                 teleport_player(brain, 88, 70, 73, 0, 0);
@@ -3320,6 +3323,7 @@ server_tick(void) {
 
         // try to write everything to the socket buffer
 
+        assert(send_cursor.error == 0);
         brain->send_cursor = send_cursor.index;
 
         int sock = brain->sock;
