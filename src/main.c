@@ -949,7 +949,8 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_level) {
     // over subtrees a lot less (depending on the block size) when iterating
     // through the keys, and that we don't need to track these jumps as is done
     // when constructing the tape.
-    nbt_tape_entry * tape = alloc_in_arena(arena, 1048576);
+    int max_entries = 65536;
+    nbt_tape_entry * tape = alloc_in_arena(arena, max_entries * sizeof *tape);
     memory_arena scratch_arena = {
         .ptr = arena->ptr,
         .index = arena->index,
@@ -980,6 +981,10 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_level) {
     cursor->index += key_size;
 
     for (;;) {
+        if (cur_tape_index >= max_entries - 10) {
+            cursor->error = 1;
+            goto exit;
+        }
         if (cur_level == max_level + 1) {
             cursor->error = 1;
             goto exit;
@@ -987,6 +992,11 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_level) {
         if (!level_info[cur_level].is_list) {
             // compound
             tag = net_read_ubyte(cursor);
+            // @NOTE(traks) we need to be a bit careful here in case this is the
+            // first entry of the compound, because then there is no previous
+            // entry yet. Currently the previous entry is just the current entry
+            // for the first one, so we write to the next tape entry. This is of
+            // course not a problem (and circumvents if-statements and such).
             tape[level_info[cur_level].prev_compound_entry + 1]
                     .next_compound_entry = cur_tape_index;
 
@@ -1107,7 +1117,10 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_level) {
         }
         case NBT_TAG_COMPOUND:
             cur_level++;
-            level_info[cur_level] = (nbt_level_info) {0};
+            level_info[cur_level] = (nbt_level_info) {
+                .is_list = 0,
+                .prev_compound_entry = cur_tape_index
+            };
             break;
         default:
             goto exit;
