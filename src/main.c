@@ -14,22 +14,15 @@
 #include <x86intrin.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <zlib.h>
 #include <stdalign.h>
 #include <math.h>
-#include "codec.h"
+#include "shared.h"
 
 #if defined(__APPLE__) && defined(__MACH__)
 #include <mach/mach_time.h>
 #else
 #include <time.h>
 #endif
-
-#define ARRAY_SIZE(x) (sizeof (x) / sizeof *(x))
-
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
-
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
 
 #define MAX_CHUNK_CACHE_RADIUS (10)
 
@@ -47,27 +40,6 @@
 #define MAX_ENTITIES (1024)
 
 #define MAX_PLAYERS (100)
-
-enum nbt_tag {
-    NBT_TAG_END,
-    NBT_TAG_BYTE,
-    NBT_TAG_SHORT,
-    NBT_TAG_INT,
-    NBT_TAG_LONG,
-    NBT_TAG_FLOAT,
-    NBT_TAG_DOUBLE,
-    NBT_TAG_BYTE_ARRAY,
-    NBT_TAG_STRING,
-    NBT_TAG_LIST,
-    NBT_TAG_COMPOUND,
-    NBT_TAG_INT_ARRAY,
-    NBT_TAG_LONG_ARRAY,
-
-    // our own tags for internal use
-    NBT_TAG_LIST_END,
-    NBT_TAG_COMPOUND_IN_LIST,
-    NBT_TAG_LIST_IN_LIST,
-};
 
 // in network id order
 enum gamemode {
@@ -140,66 +112,6 @@ typedef struct {
     unsigned char username[16];
     int username_size;
 } initial_connection;
-
-typedef struct {
-    mc_short x;
-    mc_short z;
-} chunk_pos;
-
-#define CHUNK_LOADED (1u << 0)
-
-typedef struct {
-    int index_in_bucket;
-    mc_ushort block_states[4096];
-} chunk_section;
-
-#define CHUNK_SECTIONS_PER_BUCKET (64)
-
-typedef struct chunk_section_bucket chunk_section_bucket;
-
-struct chunk_section_bucket {
-    chunk_section chunk_sections[CHUNK_SECTIONS_PER_BUCKET];
-    // @TODO(traks) we use 2 * CHUNK_SECTIONS_PER_BUCKET 4096-byte pages for the
-    // block states in the chunk sections. How much of the next page do we use?
-    chunk_section_bucket * next;
-    chunk_section_bucket * prev;
-    int used_sections;
-    // @TODO(traks) store this in longs?
-    unsigned char used_map[CHUNK_SECTIONS_PER_BUCKET];
-};
-
-typedef struct {
-    chunk_section * sections[16];
-    mc_ushort non_air_count[16];
-    // need shorts to store 257 different heights
-    mc_ushort motion_blocking_height_map[256];
-
-    // increment if you want to keep a chunk available in the map, decrement
-    // if you no longer care for the chunk.
-    // If = 0 the chunk will be removed from the map at some point.
-    mc_uint available_interest;
-    unsigned flags;
-
-    // @TODO(traks) more changed blocks, better compression, store it per chunk
-    // section perhaps. Figure out when this limit can be exceeded. I highly
-    // doubt more than 16 blocks will be changed per chunk due to players except
-    // if very high player density.
-    mc_ushort changed_blocks[16];
-    mc_ubyte changed_block_count;
-} chunk;
-
-#define CHUNKS_PER_BUCKET (32)
-
-#define CHUNK_MAP_SIZE (1024)
-
-typedef struct chunk_bucket chunk_bucket;
-
-struct chunk_bucket {
-    chunk_bucket * next_bucket;
-    int size;
-    chunk_pos positions[CHUNKS_PER_BUCKET];
-    chunk chunks[CHUNKS_PER_BUCKET];
-};
 
 typedef struct {
     mc_ubyte max_stack_size;
@@ -327,51 +239,15 @@ typedef struct {
 } player_brain;
 
 typedef struct {
-    unsigned char * ptr;
-    mc_int size;
-    mc_int index;
-} memory_arena;
-
-typedef struct {
     mc_ushort size;
     unsigned char text[512];
 } global_msg;
-
-typedef union {
-    struct {
-        mc_uint buffer_index:22;
-        mc_uint tag:5;
-        mc_uint element_tag:5;
-    };
-    mc_uint next_compound_entry;
-    mc_uint list_size;
-} nbt_tape_entry;
-
-typedef struct {
-    mc_uint is_list:1;
-    mc_uint element_tag:4;
-    mc_uint prev_compound_entry:20;
-    mc_uint list_elems_remaining;
-} nbt_level_info;
-
-typedef struct {
-    mc_ushort base_state;
-    unsigned char property_count;
-    unsigned char property_specs[8];
-    unsigned char default_value_indices[8];
-} block_properties;
 
 typedef struct {
     unsigned char resource_loc_size;
     unsigned char resource_loc[43];
     mc_ushort id;
 } block_type_spec;
-
-typedef struct {
-    unsigned char value_count;
-    // name size, name, value size, value, value size, value, etc.
-    unsigned char tape[255];
-} block_property_spec;
 
 typedef struct {
     entity_id eid;
@@ -388,18 +264,6 @@ static int initial_connection_count;
 
 static player_brain player_brains[MAX_PLAYERS];
 static int player_brain_count;
-
-// @TODO(traks) don't use a hash map. Performance depends on the chunks loaded,
-// which depends on the positions of players in the world. Doesn't seem good
-// that players moving to certain locations can cause performance drops...
-//
-// Our goal is 1000 players, so if we construct our hash and hash map in an
-// appropriate way, we can ensure there are at most 1000 entries per bucket.
-// Not sure if that's any good.
-static chunk_bucket chunk_map[CHUNK_MAP_SIZE];
-
-static chunk_section_bucket * full_chunk_section_buckets;
-static chunk_section_bucket * chunk_section_buckets_with_unused;
 
 // All chunks that should be loaded. Stored in a request list to allow for
 // ordered loads. If a
@@ -477,7 +341,7 @@ program_nano_time() {
 
 #endif
 
-static void
+void
 begin_timed_block(char * name) {
     int i = timed_block_count;
     timed_block_count++;
@@ -487,14 +351,14 @@ begin_timed_block(char * name) {
     timed_blocks[i].start_time = program_nano_time();
 }
 
-static void
+void
 end_timed_block() {
     cur_timed_block_depth--;
     timed_block * block = timed_blocks + timed_block_depth_stack[cur_timed_block_depth];
     block->end_time = program_nano_time();
 }
 
-static void
+void
 logs(void * format, ...) {
     char msg[128];
     va_list ap;
@@ -547,14 +411,14 @@ logs(void * format, ...) {
     printf("%s  %s\n", time, msg);
 }
 
-static void
+void
 logs_errno(void * format) {
     char error_msg[64] = {0};
     strerror_r(errno, error_msg, sizeof error_msg);
     logs(format, error_msg);
 }
 
-static void *
+void *
 alloc_in_arena(memory_arena * arena, mc_int size) {
     mc_int align = alignof (max_align_t);
     // round up to multiple of align
@@ -586,7 +450,7 @@ hash_block_resource_location(net_string resource_loc) {
     return res % ARRAY_SIZE(block_type_table);
 }
 
-static mc_short
+mc_short
 resolve_block_type_id(net_string resource_loc) {
     mc_ushort hash = hash_block_resource_location(resource_loc);
     mc_ushort i = hash;
@@ -611,7 +475,7 @@ resolve_block_type_id(net_string resource_loc) {
     }
 }
 
-static int
+int
 find_property_value_index(block_property_spec * prop_spec, net_string val) {
     unsigned char * tape = prop_spec->tape;
     tape += 1 + tape[0];
@@ -717,819 +581,6 @@ chunk_cache_index(chunk_pos pos) {
     long x = (pos.x % n) + n;
     long z = (pos.z % n) + n;
     return (x * MAX_CHUNK_CACHE_DIAM + z) % n;
-}
-
-static chunk_section *
-alloc_chunk_section() {
-    chunk_section_bucket * bucket = chunk_section_buckets_with_unused;
-    if (bucket == NULL) {
-        // initialises all memory to 0
-        bucket = mmap(NULL, sizeof *bucket, PROT_READ | PROT_WRITE,
-                MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-        if (bucket == MAP_FAILED) {
-            return NULL;
-        }
-        chunk_section_buckets_with_unused = bucket;
-    }
-
-    int seci;
-    for (seci = 0; seci < CHUNK_SECTIONS_PER_BUCKET; seci++) {
-        if (bucket->used_map[seci] == 0) {
-            break;
-        }
-    }
-
-    assert(seci < CHUNK_SECTIONS_PER_BUCKET);
-    assert(bucket->used_sections < CHUNK_SECTIONS_PER_BUCKET);
-    chunk_section * res = bucket->chunk_sections + seci;
-    *res = (chunk_section) {0};
-    res->index_in_bucket = seci;
-    bucket->used_map[seci] = 1;
-    bucket->used_sections++;
-
-    if (bucket->used_sections == CHUNK_SECTIONS_PER_BUCKET) {
-        // bucket is full, so move bucket to linked list of full ones
-        chunk_section_bucket * next = bucket->next;
-        if (next != NULL) {
-            next->prev = NULL;
-        }
-        chunk_section_buckets_with_unused = next;
-
-        bucket->next = full_chunk_section_buckets;
-        bucket->prev = NULL;
-        if (full_chunk_section_buckets != NULL) {
-            assert(full_chunk_section_buckets->prev == NULL);
-            full_chunk_section_buckets->prev = bucket;
-        }
-        full_chunk_section_buckets = bucket;
-    }
-    return res;
-}
-
-static void
-free_chunk_section(chunk_section * section) {
-    int index_in_bucket = section->index_in_bucket;
-    chunk_section_bucket * bucket = (void *) (section - index_in_bucket);
-    assert(bucket->used_map[index_in_bucket] == 1);
-    assert(bucket->used_sections > 0);
-    bucket->used_map[index_in_bucket] = 0;
-    bucket->used_sections--;
-
-    if (bucket->used_sections == CHUNK_SECTIONS_PER_BUCKET - 1) {
-        // bucket went from full to non-full, so move to linked list of buckets
-        // with unused entries
-        if (bucket->prev != NULL) {
-            bucket->prev->next = bucket->next;
-        } else {
-            full_chunk_section_buckets = bucket->next;
-        }
-        if (bucket->next != NULL) {
-            bucket->next->prev = bucket->prev;
-        }
-
-        bucket->prev = NULL;
-        bucket->next = chunk_section_buckets_with_unused;
-        if (bucket->next != NULL) {
-            bucket->next->prev = bucket;
-        }
-        chunk_section_buckets_with_unused = bucket;
-    } else if (bucket->used_sections == 0) {
-        if (bucket->prev != NULL) {
-            bucket->prev->next = bucket->next;
-        } else {
-            chunk_section_buckets_with_unused = bucket->next;
-        }
-        if (bucket->next != NULL) {
-            bucket->next->prev = bucket->prev;
-        }
-
-        // @TODO(traks) figure out whether this actually unmaps all memory used
-        // for the bucket, or if the last page is only partially unmapped or
-        // something.
-        int bad = munmap(bucket, sizeof *bucket);
-        assert(!bad);
-    }
-}
-
-static int
-chunk_pos_equal(chunk_pos a, chunk_pos b) {
-    // @TODO(traks) make sure this compiles to a single compare. If not, should
-    // probably change chunk_pos to be a uint32_t.
-    return a.x == b.x && a.z == b.z;
-}
-
-static int
-hash_chunk_pos(chunk_pos pos) {
-    // @TODO(traks) this signed-to-unsigned cast better work
-    return (((unsigned) pos.x & 0x1f) << 5) | ((unsigned) pos.z & 0x1f);
-}
-
-static mc_ushort
-chunk_get_block_state(chunk * ch, int x, int y, int z) {
-    assert(0 <= x && x < 16);
-    assert(0 <= y && y < 256);
-    assert(0 <= z && z < 16);
-
-    int section_y = y >> 4;
-    chunk_section * section = ch->sections[section_y];
-
-    if (section == NULL) {
-        return 0;
-    }
-
-    int index = ((y & 0xf) << 8) | (z << 4) | x;
-    return section->block_states[index];
-}
-
-static void
-recalculate_chunk_motion_blocking_height_map(chunk * ch) {
-    for (int zx = 0; zx < 16 * 16; zx++) {
-        ch->motion_blocking_height_map[zx] = 0;
-        for (int y = 255; y >= 0; y--) {
-            mc_ushort block_state = chunk_get_block_state(ch,
-                    zx & 0xf, y, zx >> 4);
-            // @TODO(traks) other airs
-            if (block_state != 0) {
-                ch->motion_blocking_height_map[zx] = y + 1;
-                break;
-            }
-        }
-    }
-}
-
-static void
-chunk_set_block_state(chunk * ch, int x, int y, int z, mc_ushort block_state) {
-    assert(0 <= x && x < 16);
-    assert(0 <= y && y < 256);
-    assert(0 <= z && z < 16);
-    assert(ch->flags & CHUNK_LOADED);
-    // @TODO(traks) somehow ensure this never fails even with tons of players,
-    // or make sure we appropriate handle cases in which too many changes occur
-    // to a chunk per tick.
-    assert(ch->changed_block_count < ARRAY_SIZE(ch->changed_blocks));
-
-    // format is that of the chunk blocks update packet
-    ch->changed_blocks[ch->changed_block_count] =
-            ((mc_ushort) x << 12) | (z << 8) | y;
-    ch->changed_block_count++;
-
-    int section_y = y >> 4;
-    chunk_section * section = ch->sections[section_y];
-
-    if (section == NULL) {
-        // @TODO(traks) instead of making block setting fallible, perhaps
-        // getting the chunk should be if chunk sections cannot be allocated
-        section = alloc_chunk_section();
-        if (section == NULL) {
-            logs_errno("Failed to allocate section: %s");
-            exit(1);
-        }
-        ch->sections[section_y] = section;
-    }
-
-    int index = ((y & 0xf) << 8) | (z << 4) | x;
-
-    if (section->block_states[index] == 0) {
-        ch->non_air_count[section_y]++;
-    }
-    if (block_state == 0) {
-        ch->non_air_count[section_y]--;
-    }
-
-    section->block_states[index] = block_state;
-
-    int height_map_index = (z << 4) | x;
-
-    mc_ushort max_height = ch->motion_blocking_height_map[height_map_index];
-    if (y + 1 == max_height) {
-        if (block_state == 0) {
-            // @TODO(traks) handle other airs
-            max_height = 0;
-
-            for (int lower_y = y - 1; lower_y >= 0; lower_y--) {
-                if (chunk_get_block_state(ch, x, lower_y, z) != 0) {
-                    // @TODO(traks) handle other airs
-                    max_height = lower_y + 1;
-                }
-            }
-
-            ch->motion_blocking_height_map[height_map_index] = max_height;
-        }
-    } else if (y >= max_height) {
-        if (block_state != 0) {
-            // @TODO(traks) handle other airs
-            ch->motion_blocking_height_map[height_map_index] = y + 1;
-        }
-    }
-}
-
-static mc_uint
-nbt_move_to_key(net_string matcher, nbt_tape_entry * tape,
-        mc_uint start_index, buffer_cursor * cursor) {
-    mc_uint i = start_index;
-    while (tape[i].tag != NBT_TAG_END) {
-        cursor->index = tape[i].buffer_index;
-        mc_ushort key_size = net_read_ushort(cursor);
-        unsigned char * key = cursor->buf + cursor->index;
-        if (key_size == matcher.size
-                && memcmp(key, matcher.ptr, matcher.size) == 0) {
-            cursor->index += key_size;
-            break;
-        }
-        i = tape[i + 1].next_compound_entry;
-    }
-    return i;
-}
-
-static nbt_tape_entry *
-load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_level) {
-    // @TODO(traks) Here's another idea for NBT parsing. Instead of using a
-    // tape, for each level we could maintain a linked list of blocks of
-    // something similar to tape entries. The benefit being that we need to jump
-    // over subtrees a lot less (depending on the block size) when iterating
-    // through the keys, and that we don't need to track these jumps as is done
-    // when constructing the tape.
-    int max_entries = 65536;
-    nbt_tape_entry * tape = alloc_in_arena(arena, max_entries * sizeof *tape);
-    memory_arena scratch_arena = {
-        .ptr = arena->ptr,
-        .index = arena->index,
-        .size = arena->size
-    };
-    nbt_level_info * level_info = alloc_in_arena(&scratch_arena,
-            (max_level + 1) * sizeof *level_info);
-    int cur_tape_index = 0;
-    int cur_level = 0;
-    level_info[0] = (nbt_level_info) {0};
-
-    mc_ubyte tag = net_read_ubyte(cursor);
-
-    if (tag == NBT_TAG_END) {
-        // no nbt data
-        goto exit;
-    } else if (tag != NBT_TAG_COMPOUND) {
-        cursor->error = 1;
-        goto exit;
-    }
-
-    // skip key of root compound
-    mc_ushort key_size = net_read_ushort(cursor);
-    if (key_size > cursor->limit - cursor->index) {
-        cursor->error = 1;
-        goto exit;
-    }
-    cursor->index += key_size;
-
-    for (;;) {
-        if (cur_tape_index >= max_entries - 10) {
-            cursor->error = 1;
-            goto exit;
-        }
-        if (cur_level == max_level + 1) {
-            cursor->error = 1;
-            goto exit;
-        }
-        if (!level_info[cur_level].is_list) {
-            // compound
-            tag = net_read_ubyte(cursor);
-            // @NOTE(traks) we need to be a bit careful here in case this is the
-            // first entry of the compound, because then there is no previous
-            // entry yet. Currently the previous entry is just the current entry
-            // for the first one, so we write to the next tape entry. This is of
-            // course not a problem (and circumvents if-statements and such).
-            tape[level_info[cur_level].prev_compound_entry + 1]
-                    .next_compound_entry = cur_tape_index;
-
-            if (tag == NBT_TAG_END) {
-                tape[cur_tape_index] = (nbt_tape_entry) {.tag = NBT_TAG_END};
-                cur_tape_index++;
-                cur_level--;
-
-                if (cur_level == -1) {
-                    goto exit;
-                } else {
-                    continue;
-                }
-            }
-
-            mc_int entry_start = cursor->index;
-            key_size = net_read_ushort(cursor);
-            if (key_size > cursor->limit - cursor->index) {
-                cursor->error = 1;
-                goto exit;
-            }
-            cursor->index += key_size;
-
-            level_info[cur_level].prev_compound_entry = cur_tape_index;
-            nbt_tape_entry new_entry = {
-                .buffer_index = entry_start,
-                .tag = tag
-            };
-            tape[cur_tape_index] = new_entry;
-            cur_tape_index++;
-            // increment another time for the next pointer
-            cur_tape_index++;
-        } else {
-            // list
-            if (level_info[cur_level].list_elems_remaining == 0) {
-                nbt_tape_entry new_entry = {.tag = NBT_TAG_LIST_END};
-                tape[cur_tape_index] = new_entry;
-                cur_tape_index++;
-                cur_level--;
-                continue;
-            }
-
-            level_info[cur_level].list_elems_remaining--;
-            tag = level_info[cur_level].element_tag;
-
-            if (tag == NBT_TAG_COMPOUND) {
-                nbt_tape_entry new_entry = {.tag = NBT_TAG_COMPOUND_IN_LIST};
-                tape[cur_tape_index] = new_entry;
-                cur_tape_index++;
-            }
-            if (tag == NBT_TAG_LIST) {
-                nbt_tape_entry new_entry = {.tag = NBT_TAG_LIST_IN_LIST};
-                tape[cur_tape_index] = new_entry;
-                cur_tape_index++;
-            }
-        }
-
-        static mc_byte elem_bytes[] = {0, 1, 2, 4, 8, 4, 8};
-        static mc_byte array_elem_bytes[] = {1, 0, 0, 0, 4, 8};
-        switch (tag) {
-        case NBT_TAG_END:
-            // Minecraft uses this sometimes for empty lists even if the
-            // element tag differs if the list is non-empty... why...?
-            goto exit;
-        case NBT_TAG_BYTE:
-        case NBT_TAG_SHORT:
-        case NBT_TAG_INT:
-        case NBT_TAG_LONG:
-        case NBT_TAG_FLOAT:
-        case NBT_TAG_DOUBLE: {
-            int bytes = elem_bytes[tag];
-            if (cursor->index > cursor->limit - bytes) {
-                cursor->error = 1;
-                goto exit;
-            } else {
-                cursor->index += bytes;
-            }
-            break;
-        }
-        case NBT_TAG_BYTE_ARRAY:
-        case NBT_TAG_INT_ARRAY:
-        case NBT_TAG_LONG_ARRAY: {
-            mc_long elem_bytes = array_elem_bytes[tag - NBT_TAG_BYTE_ARRAY];
-            mc_long array_size = net_read_uint(cursor);
-            if (cursor->index > (mc_long) cursor->limit
-                    - elem_bytes * array_size) {
-                cursor->error = 1;
-                goto exit;
-            } else {
-                cursor->index += elem_bytes * array_size;
-            }
-            break;
-        }
-        case NBT_TAG_STRING: {
-            mc_ushort size = net_read_ushort(cursor);
-            if (cursor->index > cursor->limit - size) {
-                cursor->error = 1;
-            } else {
-                cursor->index += size;
-            }
-            break;
-        }
-        case NBT_TAG_LIST: {
-            cur_level++;
-            mc_uint element_tag = net_read_ubyte(cursor);
-            mc_long list_size = net_read_uint(cursor);
-            level_info[cur_level] = (nbt_level_info) {
-                .is_list = 1,
-                .element_tag = element_tag,
-                .list_elems_remaining = list_size
-            };
-
-            // append size entry
-            nbt_tape_entry new_entry = {.list_size = list_size};
-            tape[cur_tape_index] = new_entry;
-            cur_tape_index++;
-            break;
-        }
-        case NBT_TAG_COMPOUND:
-            cur_level++;
-            level_info[cur_level] = (nbt_level_info) {
-                .is_list = 0,
-                .prev_compound_entry = cur_tape_index
-            };
-            break;
-        default:
-            goto exit;
-        }
-    }
-
-exit:
-    return tape;
-}
-
-static void
-try_read_chunk_from_storage(chunk_pos pos, chunk * ch) {
-    begin_timed_block("read chunk");
-
-    // @TODO(traks) error handling and/or error messages for all failure cases
-    // in this entire function?
-    memory_arena scratch_arena = {
-        .ptr = short_lived_scratch,
-        .size = short_lived_scratch_size
-    };
-
-    __m128i chunk_xz = _mm_set_epi32(0, 0, pos.z, pos.x);
-    __m128i region_xz = _mm_srai_epi32(chunk_xz, 5);
-    int region_x = _mm_extract_epi32(region_xz, 0);
-    int region_z = _mm_extract_epi32(region_xz, 1);
-
-    unsigned char file_name[64];
-    int file_name_size = sprintf((void *) file_name,
-            "world/region/r.%d.%d.mca", region_x, region_z);
-
-    int region_fd = open((void *) file_name, O_RDONLY);
-    if (region_fd == -1) {
-        logs_errno("Failed to open region file: %s");
-        goto bail;
-    }
-
-    struct stat region_stat;
-    if (fstat(region_fd, &region_stat)) {
-        logs_errno("Failed to get region file stat: %s");
-        close(region_fd);
-        goto bail;
-    }
-
-    // @TODO(traks) should we unmap this or something?
-    // begin_timed_block("mmap");
-    void * region_mmap = mmap(NULL, region_stat.st_size, PROT_READ,
-            MAP_PRIVATE, region_fd, 0);
-    // end_timed_block();
-    if (region_mmap == MAP_FAILED) {
-        logs_errno("Failed to mmap region file: %s");
-        close(region_fd);
-        goto bail;
-    }
-
-    // after mmaping we can close the file descriptor
-    close(region_fd);
-
-    buffer_cursor cursor = {
-        .buf = region_mmap,
-        .limit = region_stat.st_size
-    };
-
-    // First read from the chunk location table at which sector (4096 byte
-    // block) the chunk data starts.
-    // @TODO(traks) this & better work for negative values
-    int index = ((pos.z & 0x1f) << 5) | (pos.x & 0x1f);
-    cursor.index = index << 2;
-    mc_uint loc = net_read_uint(&cursor);
-
-    if (loc == 0) {
-        // chunk not present in region file
-        goto bail;
-    }
-
-    mc_uint sector_offset = loc >> 8;
-    mc_uint sector_count = loc & 0xff;
-
-    if (sector_offset < 2) {
-        logs("Chunk data in header");
-        goto bail;
-    }
-    if (sector_count == 0) {
-        logs("Chunk data uses 0 sectors");
-        goto bail;
-    }
-    if (sector_offset + sector_count > (cursor.limit >> 12)) {
-        logs("Chunk data out of bounds");
-        goto bail;
-    }
-
-    cursor.index = sector_offset << 12;
-    mc_uint size_in_bytes = net_read_uint(&cursor);
-
-    if (size_in_bytes > (sector_count << 12)) {
-        logs("Chunk data outside of its sectors");
-        goto bail;
-    }
-
-    cursor.limit = cursor.index + size_in_bytes;
-    mc_ubyte storage_type = net_read_ubyte(&cursor);
-
-    if (cursor.error) {
-        logs("Chunk header reading error");
-        goto bail;
-    }
-
-    if (storage_type & 0x80) {
-        // @TODO(traks) separate file is used to store the chunk
-        logs("External chunk storage");
-        goto bail;
-    }
-
-    int windowBits;
-
-    if (storage_type == 1) {
-        // gzip compressed
-        // 16 means: gzip stream and determine window size from header
-        windowBits = 16;
-    } else if (storage_type == 2) {
-        // zlib compressed
-        // 0 means: zlib stream and determine window size from header
-        windowBits = 0;
-    } else {
-        logs("Unknown chunk compression method");
-        goto bail;
-    }
-
-    begin_timed_block("inflate");
-    // @TODO(traks) perhaps use https://github.com/ebiggers/libdeflate instead
-    // of zlib. Using zlib now just because I had the code for it laying around.
-    z_stream zstream;
-    zstream.zalloc = NULL;
-    zstream.zfree = NULL;
-    zstream.opaque = NULL;
-
-    if (inflateInit2(&zstream, windowBits) != Z_OK) {
-        logs("inflateInit failed");
-        goto bail;
-    }
-
-    zstream.next_in = cursor.buf + cursor.index;
-    zstream.avail_in = cursor.limit - cursor.index;
-
-    size_t max_uncompressed_size = 2097152;
-    unsigned char * uncompressed = alloc_in_arena(&scratch_arena,
-            max_uncompressed_size);
-
-    zstream.next_out = uncompressed;
-    zstream.avail_out = max_uncompressed_size;
-
-    if (inflate(&zstream, Z_FINISH) != Z_STREAM_END) {
-        logs("Failed to finish inflating chunk: %s", zstream.msg);
-        goto bail;
-    }
-
-    if (inflateEnd(&zstream) != Z_OK) {
-        logs("inflateEnd failed");
-        goto bail;
-    }
-
-    if (zstream.avail_in != 0) {
-        logs("Didn't inflate entire chunk");
-        goto bail;
-    }
-    end_timed_block();
-
-    cursor = (buffer_cursor) {
-        .buf = uncompressed,
-        .limit = zstream.total_out
-    };
-
-    // begin_timed_block("load nbt");
-    // @TODO(traks) more appropriate max level, currently 64
-    nbt_tape_entry * tape = load_nbt(&cursor, &scratch_arena, 64);
-    // end_timed_block();
-
-    if (cursor.error) {
-        logs("Failed to read uncompressed NBT data");
-        goto bail;
-    }
-
-    for (int section_y = 0; section_y < 16; section_y++) {
-        assert(ch->sections[section_y] == NULL);
-    }
-
-    nbt_move_to_key(NET_STRING("DataVersion"), tape, 0, &cursor);
-    mc_int data_version = net_read_int(&cursor);
-    if (data_version != 2230) {
-        logs("Unknown data version %jd", (intmax_t) data_version);
-        goto bail;
-    }
-
-    mc_uint level_start = nbt_move_to_key(NET_STRING("Level"), tape, 0, &cursor);
-    if (tape[level_start].tag != NBT_TAG_COMPOUND) {
-        logs("NBT Level tag not a compound");
-        goto bail;
-    }
-    level_start += 2;
-
-    mc_uint sections_start = nbt_move_to_key(NET_STRING("Sections"),
-            tape, level_start, &cursor);
-    mc_uint section_count = tape[sections_start + 2].list_size;
-    mc_uint section_start = sections_start + 4;
-
-    // maximum amount of memory the palette will ever use
-    mc_ushort * palette_map = alloc_in_arena(&scratch_arena,
-            4096 * sizeof (mc_ushort));
-
-    for (mc_uint sectioni = 0; sectioni < section_count; sectioni++) {
-        nbt_move_to_key(NET_STRING("Y"), tape, section_start, &cursor);
-        mc_byte section_y = net_read_byte(&cursor);
-
-        if (ch->sections[section_y] != NULL) {
-            logs("Duplicate section Y %d", (int) section_y);
-            goto bail;
-        }
-
-        int palette_start = nbt_move_to_key(NET_STRING("Palette"),
-                tape, section_start, &cursor);
-
-        if (tape[palette_start].tag != NBT_TAG_END) {
-            if (section_y < 0 || section_y >= 16) {
-                logs("Section Y %d with palette", (int) section_y);
-                goto bail;
-            }
-
-            // @TODO(traks) May be fine to fail since loading the chunk can fail
-            // in all sorts of ways anyhow...
-            chunk_section * section = alloc_chunk_section();
-            if (section == NULL) {
-                logs_errno("Failed to allocate section: %s");
-                exit(1);
-            }
-            // Note that the section allocation will be freed when the chunk
-            // gets removed somewhere else in the code base.
-            ch->sections[section_y] = section;
-
-            mc_uint palette_size = tape[palette_start + 2].list_size;
-            mc_uint palettei_start = palette_start + 4;
-
-            for (uint palettei = 0; palettei < palette_size; palettei++) {
-                mc_short type_id = 0;
-
-                mc_uint name_start = nbt_move_to_key(NET_STRING("Name"),
-                        tape, palettei_start, &cursor);
-                if (tape[name_start].tag != NBT_TAG_END) {
-                    mc_ushort resource_loc_size = net_read_ushort(&cursor);
-                    net_string resource_loc = {
-                        .size = resource_loc_size,
-                        .ptr = cursor.buf + cursor.index
-                    };
-                    type_id = resolve_block_type_id(resource_loc);
-                    if (type_id == -1) {
-                        // @TODO(traks) should probably just error out
-                        type_id = 2;
-                    }
-                }
-
-                mc_ushort stride = 0;
-
-                mc_uint props_start = nbt_move_to_key(NET_STRING("Properties"),
-                        tape, palettei_start, &cursor);
-                if (tape[props_start].tag == NBT_TAG_COMPOUND) {
-                    props_start += 2;
-                }
-
-                block_properties * props = block_properties_table + type_id;
-                for (int propi = 0; propi < props->property_count; propi++) {
-                    block_property_spec * prop_spec = block_property_specs
-                            + props->property_specs[propi];
-                    net_string prop_name = {
-                        .size = prop_spec->tape[0],
-                        .ptr = prop_spec->tape + 1
-                    };
-                    mc_uint val_start = nbt_move_to_key(prop_name,
-                            tape, props_start, &cursor);
-                    int val_index = -1;
-                    if (tape[val_start].tag != NBT_TAG_END) {
-                        mc_ushort val_size = net_read_ushort(&cursor);
-                        net_string val = {
-                            .size = val_size,
-                            .ptr = cursor.buf + cursor.index
-                        };
-                        val_index = find_property_value_index(prop_spec, val);
-                    }
-                    if (val_index == -1) {
-                        val_index = props->default_value_indices[propi];
-                    }
-                    stride = stride * prop_spec->value_count + val_index;
-                }
-
-                palette_map[palettei] = props->base_state + stride;
-
-                // move to end of palette entry compound
-                mc_uint i = palettei_start;
-                while (tape[i].tag != NBT_TAG_END) {
-                    i = tape[i + 1].next_compound_entry;
-                }
-                palettei_start = i + 2;
-            }
-
-            nbt_move_to_key(NET_STRING("BlockStates"),
-                    tape, section_start, &cursor);
-            mc_uint entry_count = net_read_uint(&cursor);
-            mc_uint bits_per_id = entry_count >> 6;
-            mc_uint id_mask = (1 << bits_per_id) - 1;
-            int offset = 0;
-            mc_ulong entry = net_read_ulong(&cursor);
-
-            for (int j = 0; j < 4096; j++) {
-                mc_uint id = (entry >> offset) & id_mask;
-                mc_uint remaining_bits = 64 - offset;
-                if (bits_per_id >= remaining_bits) {
-                    entry = net_read_ulong(&cursor);
-                    id |= (entry << remaining_bits) & id_mask;
-                    offset = bits_per_id - remaining_bits;
-                } else {
-                    offset += bits_per_id;
-                }
-
-                if (id >= palette_size) {
-                    logs("Out of bounds palette ID");
-                    goto bail;
-                }
-
-                mc_ushort block_state = palette_map[id];
-                section->block_states[j] = block_state;
-
-                if (block_state != 0) {
-                    ch->non_air_count[section_y]++;
-                }
-            }
-        }
-
-        // move to end of section compound
-        mc_uint i = section_start;
-        while (tape[i].tag != NBT_TAG_END) {
-            i = tape[i + 1].next_compound_entry;
-        }
-        section_start = i + 2;
-    }
-
-    recalculate_chunk_motion_blocking_height_map(ch);
-
-    if (cursor.error) {
-        logs("Failed to read uncompressed data");
-        goto bail;
-    }
-
-    ch->flags |= CHUNK_LOADED;
-
-bail:
-    end_timed_block();
-}
-
-static chunk *
-get_or_create_chunk(chunk_pos pos) {
-    int hash = hash_chunk_pos(pos);
-    chunk_bucket * bucket = chunk_map + hash;
-    int bucket_size = bucket->size;
-
-    int i;
-    for (i = 0; i < bucket_size; i++) {
-        if (chunk_pos_equal(bucket->positions[i], pos)) {
-            return bucket->chunks + i;
-        }
-    }
-
-    assert(i < CHUNKS_PER_BUCKET);
-
-    bucket->positions[i] = pos;
-    bucket->size++;
-    chunk * ch = bucket->chunks + i;
-    *ch = (chunk) {0};
-    return ch;
-}
-
-static chunk *
-get_chunk_if_loaded(chunk_pos pos) {
-    int hash = hash_chunk_pos(pos);
-    chunk_bucket * bucket = chunk_map + hash;
-    int bucket_size = bucket->size;
-
-    for (int i = 0; i < bucket_size; i++) {
-        if (chunk_pos_equal(bucket->positions[i], pos)) {
-            chunk * ch = bucket->chunks + i;
-            if (ch->flags & CHUNK_LOADED) {
-                return ch;
-            }
-            return NULL;
-        }
-    }
-
-    return NULL;
-}
-
-static chunk *
-get_chunk_if_available(chunk_pos pos) {
-    int hash = hash_chunk_pos(pos);
-    chunk_bucket * bucket = chunk_map + hash;
-    int bucket_size = bucket->size;
-
-    for (int i = 0; i < bucket_size; i++) {
-        if (chunk_pos_equal(bucket->positions[i], pos)) {
-            return bucket->chunks + i;
-        }
-    }
-
-    return NULL;
 }
 
 static void
@@ -3380,7 +2431,12 @@ server_tick(void) {
         }
 
         // @TODO(traks) actual chunk loading from whatever storage provider
-        try_read_chunk_from_storage(pos, ch);
+        memory_arena scratch_arena = {
+            .ptr = short_lived_scratch,
+            .size = short_lived_scratch_size
+        };
+        try_read_chunk_from_storage(pos, ch, &scratch_arena,
+                block_properties_table, block_property_specs);
 
         if (!(ch->flags & CHUNK_LOADED)) {
             // @TODO(traks) fall back to stone plateau at y = 0 for now
@@ -3419,30 +2475,7 @@ server_tick(void) {
     chunk_load_request_count = 0;
 
     // update chunks
-
-    for (int bucketi = 0; bucketi < ARRAY_SIZE(chunk_map); bucketi++) {
-        chunk_bucket * bucket = chunk_map + bucketi;
-
-        for (int chunki = 0; chunki < bucket->size; chunki++) {
-            chunk * ch = bucket->chunks + chunki;
-            ch->changed_block_count = 0;
-
-            if (ch->available_interest == 0) {
-                for (int sectioni = 0; sectioni < 16; sectioni++) {
-                    if (ch->sections[sectioni] != NULL) {
-                        free_chunk_section(ch->sections[sectioni]);
-                    }
-                }
-
-                int last = bucket->size - 1;
-                assert(last >= 0);
-                bucket->chunks[chunki] = bucket->chunks[last];
-                bucket->positions[chunki] = bucket->positions[last];
-                bucket->size--;
-                chunki--;
-            }
-        }
-    }
+    clean_up_unused_chunks();
 
     current_tick++;
     end_timed_block();

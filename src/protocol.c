@@ -1,7 +1,7 @@
 #include <assert.h>
 #include <string.h>
 #include <math.h>
-#include "codec.h"
+#include "shared.h"
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
