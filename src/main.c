@@ -722,6 +722,64 @@ send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch) {
 }
 
 static void
+send_light_update(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch) {
+    // There are 18 chunk sections from 1 section below the world to 1 section
+    // above the world. The lowest chunk section comes first (and is the least
+    // significant bit).
+
+    // @TODO(traks) send the real lighting data
+
+    // light sections present as arrays in this packet
+    mc_int sky_light_mask = 0x3ffff;
+    mc_int block_light_mask = 0x3ffff;
+    // sections with all light values equal to 0
+    mc_int zero_sky_light_mask = 0;
+    mc_int zero_block_light_mask = 0;
+
+    mc_int out_size = net_varint_size(37)
+            + net_varint_size(pos.x) + net_varint_size(pos.z)
+            + net_varint_size(sky_light_mask)
+            + net_varint_size(block_light_mask)
+            + net_varint_size(zero_sky_light_mask)
+            + net_varint_size(zero_block_light_mask);
+
+    for (int i = 0; i < 18; i++) {
+        if (sky_light_mask & (1 << i)) {
+            out_size += net_varint_size(2048) + 2048;
+        }
+        if (block_light_mask & (1 << i)) {
+            out_size += net_varint_size(2048) + 2048;
+        }
+    }
+
+    // send light update packet
+    net_write_varint(send_cursor, out_size);
+    net_write_varint(send_cursor, 37);
+    net_write_varint(send_cursor, pos.x);
+    net_write_varint(send_cursor, pos.z);
+    net_write_varint(send_cursor, sky_light_mask);
+    net_write_varint(send_cursor, block_light_mask);
+    net_write_varint(send_cursor, zero_sky_light_mask);
+    net_write_varint(send_cursor, zero_block_light_mask);
+
+    for (int i = 0; i < 18; i++) {
+        net_write_varint(send_cursor, 2048);
+        for (int j = 0; j < 4096; j += 2) {
+            mc_ubyte light = 0xff;
+            net_write_ubyte(send_cursor, light);
+        }
+    }
+
+    for (int i = 0; i < 18; i++) {
+        net_write_varint(send_cursor, 2048);
+        for (int j = 0; j < 4096; j += 2) {
+            mc_ubyte light = 0;
+            net_write_ubyte(send_cursor, light);
+        }
+    }
+}
+
+static void
 disconnect_player_now(player_brain * brain) {
     close(brain->sock);
     brain->flags = 0;
@@ -2031,8 +2089,9 @@ server_tick(void) {
             if (newly_sent_chunks < MAX_CHUNK_SENDS_PER_TICK && !entry->sent) {
                 chunk * ch = get_chunk_if_loaded(pos);
                 if (ch != NULL) {
-                    // send level chunk packet
+                    // send chunk blocks and lighting
                     send_chunk_fully(&send_cursor, pos, ch);
+                    send_light_update(&send_cursor, pos, ch);
                     entry->sent = 1;
                     newly_sent_chunks++;
                 }
