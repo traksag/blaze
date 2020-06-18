@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <assert.h>
 
 #define ARRAY_SIZE(x) (sizeof (x) / sizeof *(x))
 
@@ -81,6 +82,56 @@ typedef union {
     mc_uint list_size;
 } nbt_tape_entry;
 
+#define MAX_CHUNK_CACHE_RADIUS (10)
+
+#define MAX_CHUNK_CACHE_DIAM (2 * MAX_CHUNK_CACHE_RADIUS + 1)
+
+#define KEEP_ALIVE_SPACING (10 * 20)
+
+#define KEEP_ALIVE_TIMEOUT (30 * 20)
+
+#define MAX_CHUNK_SENDS_PER_TICK (2)
+
+#define MAX_CHUNK_LOADS_PER_TICK (2)
+
+// must be power of 2
+#define MAX_ENTITIES (1024)
+
+#define MAX_PLAYERS (100)
+
+// in network id order
+enum gamemode {
+    GAMEMODE_SURVIVAL,
+    GAMEMODE_CREATIVE,
+    GAMEMODE_ADVENTURE,
+    GAMEMODE_SPECTATOR,
+};
+
+// @NOTE(traks) I think of the Minecraft coordinate system as follows:
+//
+//        +Y
+//        |
+//        |
+//        *---- +X (270 degrees)
+//       /
+//      /
+//     +Z (0 degrees)
+//
+// Then north naturally corresponds to -Z, east to +X, etc. However, entity
+// rotations along the Y axis are the opposite to what you might expect: adding
+// degrees rotates clockwise instead of counter-clockwise (as is common in
+// mathematics).
+
+// in network id order
+enum direction {
+    DIRECTION_NEG_Y, // down
+    DIRECTION_POS_Y, // up
+    DIRECTION_NEG_Z, // north
+    DIRECTION_POS_Z, // south
+    DIRECTION_NEG_X, // west
+    DIRECTION_POS_X, // east
+};
+
 typedef struct {
     mc_short x;
     mc_short z;
@@ -153,6 +204,174 @@ typedef struct {
     unsigned char property_specs[8];
     unsigned char default_value_indices[8];
 } block_properties;
+
+typedef struct {
+    mc_ubyte max_stack_size;
+} item_type;
+
+typedef struct {
+    mc_int type;
+    mc_ubyte size;
+} item_stack;
+
+enum entity_type {
+    ENTITY_NULL,
+    ENTITY_PLAYER,
+};
+
+#define ENTITY_INDEX_MASK (MAX_ENTITIES - 1)
+
+// Top 12 bits are used for the generation, lowest 20 bits can be used for the
+// index into the entity table. Bits actually used for the index depends on
+// MAX_ENTITIES.
+static_assert(MAX_ENTITIES <= (1UL << 20), "MAX_ENTITIES too large");
+typedef mc_uint entity_id;
+
+// Player inventory slots are indexed as follows:
+//
+//  0           the crafting grid result slot
+//  1-4         the 2x2 crafting grid slots
+//  5-8         the 4 armour slots
+//  9-35        the 36 main inventory slots
+//  36-44       hotbar slots
+//  45          off hand slot
+//
+// Here are some defines for convenience.
+#define PLAYER_SLOTS (46)
+#define PLAYER_FIRST_HOTBAR_SLOT (36)
+#define PLAYER_LAST_HOTBAR_SLOT (44)
+#define PLAYER_OFF_HAND_SLOT (45)
+
+typedef struct {
+    unsigned char username[16];
+    int username_size;
+
+    item_stack slots_prev_tick[PLAYER_SLOTS];
+    item_stack slots[PLAYER_SLOTS];
+    static_assert(PLAYER_SLOTS <= 64, "Too many player slots");
+    mc_ulong slots_needing_update;
+    unsigned char selected_slot;
+
+    unsigned char gamemode;
+
+    mc_float head_rot_x;
+    mc_float head_rot_y;
+    mc_float body_rot_y;
+} player_data;
+
+#define ENTITY_IN_USE ((unsigned) (1 << 0))
+
+#define ENTITY_TELEPORTING ((unsigned) (1 << 1))
+
+#define ENTITY_ON_GROUND ((unsigned) (1 << 2))
+
+typedef struct {
+    mc_double x;
+    mc_double y;
+    mc_double z;
+    entity_id eid;
+    unsigned flags;
+    unsigned type;
+
+    union {
+        player_data player;
+    };
+} entity_data;
+
+#define PLAYER_BRAIN_IN_USE ((unsigned) (1 << 0))
+
+#define PLAYER_BRAIN_SENT_TELEPORT ((unsigned) (1 << 2))
+
+#define PLAYER_BRAIN_GOT_ALIVE_RESPONSE ((unsigned) (1 << 3))
+
+#define PLAYER_BRAIN_SHIFTING ((unsigned) (1 << 4))
+
+#define PLAYER_BRAIN_SPRINTING ((unsigned) (1 << 5))
+
+#define PLAYER_BRAIN_INITIALISED_TAB_LIST ((unsigned) (1 << 6))
+
+typedef struct {
+    unsigned char sent;
+} chunk_cache_entry;
+
+typedef struct {
+    int sock;
+    unsigned flags;
+    unsigned char rec_buf[65536];
+    int rec_cursor;
+
+    unsigned char send_buf[1048576];
+    int send_cursor;
+
+    // The radius of the client's view distance, excluding the centre chunk,
+    // and including an extra outer rim the client doesn't render but uses
+    // for connected blocks and such.
+    int chunk_cache_radius;
+    mc_short chunk_cache_centre_x;
+    mc_short chunk_cache_centre_z;
+    int new_chunk_cache_radius;
+    // @TODO(traks) maybe this should just be a bitmap
+    chunk_cache_entry chunk_cache[MAX_CHUNK_CACHE_DIAM * MAX_CHUNK_CACHE_DIAM];
+
+    mc_int current_teleport_id;
+
+    unsigned char language[16];
+    int language_size;
+    mc_int chat_visibility;
+    mc_ubyte sees_chat_colours;
+    mc_ubyte model_customisation;
+    mc_int main_hand;
+
+    mc_ulong last_keep_alive_sent_tick;
+
+    entity_id eid;
+
+    // @TODO(traks) this feels a bit silly, but very simple
+    entity_id tracked_entities[MAX_ENTITIES];
+} player_brain;
+
+typedef struct {
+    mc_ushort size;
+    unsigned char text[512];
+} global_msg;
+
+typedef struct {
+    entity_id eid;
+} tab_list_entry;
+
+typedef struct {
+    unsigned long long current_tick;
+
+    entity_data entities[MAX_ENTITIES];
+    mc_ushort next_entity_generations[MAX_ENTITIES];
+    mc_int entity_count;
+
+    player_brain player_brains[MAX_PLAYERS];
+    int player_brain_count;
+
+    // All chunks that should be loaded. Stored in a request list to allow for
+    // ordered loads. If a
+    // @TODO(traks) appropriate size
+    chunk_pos chunk_load_requests[64];
+    int chunk_load_request_count;
+
+    // global messages for the current tick
+    global_msg global_msgs[16];
+    int global_msg_count;
+
+    item_type item_types[1000];
+    int item_type_count;
+
+    void * short_lived_scratch;
+    mc_int short_lived_scratch_size;
+
+    tab_list_entry tab_list_added[64];
+    int tab_list_added_count;
+    tab_list_entry tab_list_removed[64];
+    int tab_list_removed_count;
+    tab_list_entry tab_list[MAX_PLAYERS];
+    int tab_list_size;
+} server;
 
 void
 logs(void * format, ...);
@@ -280,5 +499,22 @@ free_chunk_section(chunk_section * section);
 
 void
 clean_up_unused_chunks(void);
+
+entity_data *
+resolve_entity(server * serv, entity_id eid);
+
+void
+evict_entity(server * serv, entity_id eid);
+
+void
+teleport_player(player_brain * brain, entity_data * entity,
+        mc_double new_x, mc_double new_y, mc_double new_z,
+        mc_float new_rot_x, mc_float new_rot_y);
+
+void
+tick_player_brain(player_brain * brain, server * serv);
+
+void
+send_packets_to_player(player_brain * brain, server * serv);
 
 #endif
