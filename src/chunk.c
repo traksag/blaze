@@ -389,7 +389,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     nbt_tape_entry * tape = load_nbt(&cursor, scratch_arena, 64);
 
     if (cursor.error) {
-        logs("Failed to read uncompressed NBT data");
+        logs("Failed to load NBT data");
         goto bail;
     }
 
@@ -399,7 +399,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
 
     nbt_move_to_key(NET_STRING("DataVersion"), tape, 0, &cursor);
     mc_int data_version = net_read_int(&cursor);
-    if (data_version != 2230) {
+    if (data_version != 2567) {
         logs("Unknown data version %jd", (intmax_t) data_version);
         goto bail;
     }
@@ -417,8 +417,9 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     mc_uint section_start = sections_start + 4;
 
     // maximum amount of memory the palette will ever use
+    int max_palette_map_size = 4096;
     mc_ushort * palette_map = alloc_in_arena(scratch_arena,
-            4096 * sizeof (mc_ushort));
+            max_palette_map_size * sizeof (mc_ushort));
 
     for (mc_uint sectioni = 0; sectioni < section_count; sectioni++) {
         nbt_move_to_key(NET_STRING("Y"), tape, section_start, &cursor);
@@ -451,6 +452,11 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
 
             mc_uint palette_size = tape[palette_start + 2].list_size;
             mc_uint palettei_start = palette_start + 4;
+
+            if (palette_size == 0 || palette_size > max_palette_map_size) {
+                logs("Invalid palette size %ju", (uintmax_t) palette_size);
+                goto bail;
+            }
 
             for (uint palettei = 0; palettei < palette_size; palettei++) {
                 mc_short type_id = 0;
@@ -516,20 +522,25 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
             nbt_move_to_key(NET_STRING("BlockStates"),
                     tape, section_start, &cursor);
             mc_uint entry_count = net_read_uint(&cursor);
-            mc_uint bits_per_id = entry_count >> 6;
+
+            if (entry_count > 4096) {
+                logs("Too many entries: %ju", (uintmax_t) entry_count);
+                goto bail;
+            }
+
+            // @TODO(traks) lzcnt is not always available
+            int palette_size_ceil_log2 = 32 - _lzcnt_u32(palette_size - 1);
+            int bits_per_id = MAX(4, palette_size_ceil_log2);
             mc_uint id_mask = (1 << bits_per_id) - 1;
             int offset = 0;
             mc_ulong entry = net_read_ulong(&cursor);
 
             for (int j = 0; j < 4096; j++) {
                 mc_uint id = (entry >> offset) & id_mask;
-                mc_uint remaining_bits = 64 - offset;
-                if (bits_per_id >= remaining_bits) {
+                offset += bits_per_id;
+                if (offset > 64 - bits_per_id) {
                     entry = net_read_ulong(&cursor);
-                    id |= (entry << remaining_bits) & id_mask;
-                    offset = bits_per_id - remaining_bits;
-                } else {
-                    offset += bits_per_id;
+                    offset = 0;
                 }
 
                 if (id >= palette_size) {
@@ -557,7 +568,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     recalculate_chunk_motion_blocking_height_map(ch);
 
     if (cursor.error) {
-        logs("Failed to read uncompressed data");
+        logs("Failed to decipher NBT data");
         goto bail;
     }
 

@@ -64,7 +64,7 @@ typedef struct {
 
 typedef struct {
     unsigned char resource_loc_size;
-    unsigned char resource_loc[43];
+    unsigned char resource_loc[44];
     mc_ushort id;
 } block_type_spec;
 
@@ -80,6 +80,7 @@ static int initial_connection_count;
 static block_type_spec block_type_table[1000];
 static block_properties block_properties_table[1000];
 static int block_type_count;
+static int block_state_count;
 
 static block_property_spec block_property_specs[128];
 static int block_property_spec_count;
@@ -435,6 +436,7 @@ server_tick(server * serv) {
                         rec_cursor.error = 1;
                     }
 
+                    // read client intention packet
                     mc_int protocol_version = net_read_varint(&rec_cursor);
                     net_string address = net_read_string(&rec_cursor, 255);
                     mc_ushort port = net_read_ushort(&rec_cursor);
@@ -454,6 +456,9 @@ server_tick(server * serv) {
                         rec_cursor.error = 1;
                     }
 
+                    // read status request packet
+                    // empty
+
                     memory_arena scratch_arena = {
                         .ptr = serv->short_lived_scratch,
                         .size = serv->short_lived_scratch_size
@@ -469,8 +474,9 @@ server_tick(server * serv) {
                     unsigned char * response = alloc_in_arena(&scratch_arena, 2048);
                     int response_size = 0;
                     response_size += sprintf((char *) response + response_size,
-                            "{\"version\":{\"name\":\"1.15.2\",\"protocol\":578},"
+                            "{\"version\":{\"name\":\"%s\",\"protocol\":%d},"
                             "\"players\":{\"max\":%d,\"online\":%d,\"sample\":[",
+                            "1.16.1", 736,
                             (int) MAX_PLAYERS, (int) list_size);
 
                     for (int i = 0; i < sample_size; i++) {
@@ -513,6 +519,7 @@ server_tick(server * serv) {
                         rec_cursor.error = 1;
                     }
 
+                    // read ping request packet
                     mc_ulong payload = net_read_ulong(&rec_cursor);
 
                     int out_size = net_varint_size(1) + 8;
@@ -526,6 +533,7 @@ server_tick(server * serv) {
                         rec_cursor.error = 1;
                     }
 
+                    // read hello packet
                     net_string username = net_read_string(&rec_cursor, 16);
                     // @TODO(traks) more username validation
                     if (username.size == 0) {
@@ -645,35 +653,206 @@ server_tick(server * serv) {
 
                 // send game profile packet
                 net_string username = {init_con->username_size, init_con->username};
-                net_string uuid_str = NET_STRING("01234567-89ab-cdef-0123-456789abcdef");
-                int out_size = net_varint_size(2)
-                        + net_varint_size(uuid_str.size) + uuid_str.size
+                int out_size = net_varint_size(2) + 16
                         + net_varint_size(username.size) + username.size;
                 net_write_varint(&send_cursor, out_size);
                 net_write_varint(&send_cursor, 2);
-                net_write_string(&send_cursor, uuid_str);
+                net_write_ulong(&send_cursor, 0x0123456789abcdef);
+                net_write_ulong(&send_cursor, 0x0123456789abcdef);
                 net_write_string(&send_cursor, username);
 
                 // send login packet
-                net_string level_type = NET_STRING("customized");
-                out_size = net_varint_size(38) + 4 + 1 + 4 + 8 + 1
-                        + net_varint_size(level_type.size) + level_type.size
-                        + net_varint_size(brain->new_chunk_cache_radius - 1) + 1 + 1;
+                net_string level_name = NET_STRING("blaze:main");
+                net_string dimension_type = NET_STRING("minecraft:overworld");
+                out_size = net_varint_size(37) + 4 + 1 + 1
+                        + net_varint_size(1)
+                        + net_varint_size(level_name.size) + level_name.size;
+
+                logs("out_size %d", out_size);
+
+                // dimension type nbt
+                out_size += 1 + 2;
+                net_string dimension_str = NET_STRING("dimension");
+                out_size += 1 + 2 + dimension_str.size + 1 + 4;
+
+                net_string name_str = NET_STRING("name");
+                out_size += 1 + 2 + name_str.size + 2 + dimension_type.size;
+                net_string has_skylight = NET_STRING("has_skylight");
+                out_size += 1 + 2 + has_skylight.size + 1;
+                net_string has_ceiling = NET_STRING("has_ceiling");
+                out_size += 1 + 2 + has_ceiling.size + 1;
+                net_string ultrawarm = NET_STRING("ultrawarm");
+                out_size += 1 + 2 + ultrawarm.size + 1;
+                net_string natural = NET_STRING("natural");
+                out_size += 1 + 2 + natural.size + 1;
+                net_string shrunk = NET_STRING("shrunk");
+                out_size += 1 + 2 + shrunk.size + 1;
+                net_string piglin_safe = NET_STRING("piglin_safe");
+                out_size += 1 + 2 + piglin_safe.size + 1;
+                net_string bed_works = NET_STRING("bed_works");
+                out_size += 1 + 2 + bed_works.size + 1;
+                net_string respawn_anchor_works = NET_STRING("respawn_anchor_works");
+                out_size += 1 + 2 + respawn_anchor_works.size + 1;
+                net_string has_raids = NET_STRING("has_raids");
+                out_size += 1 + 2 + has_raids.size + 1;
+                net_string logical_height = NET_STRING("logical_height");
+                out_size += 1 + 2 + logical_height.size + 4;
+                net_string infiniburn = NET_STRING("infiniburn");
+                net_string infiniburn_tag = NET_STRING("minecraft:infiniburn_overworld");
+                out_size += 1 + 2 + infiniburn.size + 2 + infiniburn_tag.size;
+                net_string ambient_light = NET_STRING("ambient_light");
+                out_size += 1 + 2 + ambient_light.size + 4;
+
+                out_size += 1 + 1; // end tags
+
+                logs("out_size %d", out_size);
+
+                out_size += net_varint_size(dimension_type.size) + dimension_type.size
+                        + net_varint_size(level_name.size) + level_name.size
+                        + 8 + 1
+                        + net_varint_size(brain->new_chunk_cache_radius - 1)
+                        + 1 + 1 + 1 + 1;
+                logs("out_size %d", out_size);
                 net_write_varint(&send_cursor, out_size);
-                net_write_varint(&send_cursor, 38);
+                int start = send_cursor.index;
+                net_write_varint(&send_cursor, 37);
                 net_write_uint(&send_cursor, entity->eid);
-                net_write_ubyte(&send_cursor, entity->player.gamemode);
-                net_write_uint(&send_cursor, 0); // environment
+                net_write_ubyte(&send_cursor, entity->player.gamemode); // current gamemode
+                net_write_ubyte(&send_cursor, entity->player.gamemode); // previous gamemode
+
+                // all levels/worlds currently available on the server
+                net_write_varint(&send_cursor, 1); // number of levels
+                net_write_string(&send_cursor, level_name);
+
+                // All dimension types on the server. Currently dimension types
+                // have the following configurable properties:
+                //
+                //  - fixed_time (optional long): time of day always equals this
+                //  - has_skylight (bool): sky light levels, whether it can
+                //    thunder, whether daylight sensors work, etc.
+                //  - has_ceiling (bool): affects thunder, map rendering, mob
+                //    spawning algorithm
+                //  - ultrawarm (bool): whether water can be placed and how far
+                //    and how fast lava flows
+                //  - natural (bool): whether players can sleep and whether
+                //    zombified piglin can spawn from portals
+                //  - shrunk (bool): nether coordinates or overworld coordinates
+                //    (to determine new coordinates when moving between worlds)
+                //  - piglin_safe (bool): false if piglins convert to zombified
+                //    piglins as in the vanilla overworld
+                //  - bed_works (bool): true if beds can set spawn point
+                //  - respawn_anchor_works (bool): true if respawn anchors can
+                //    set spawn point
+                //  - has_raids (bool): whether raids spawn
+                //  - logical_height (int in [0, 256]): seems to only affect
+                //    chorus fruit teleportation and nether portal spawning, not
+                //    the actual maximum world height
+                //  - infiniburn (resource loc): the resource location of a
+                //    block tag that is used to check whether fire should keep
+                //    burning forever on tagged blocks
+                //  - ambient_light (float): not used
+                //
+                // None seem to affect anything client-side.
+
+                logs("index %d", send_cursor.index - start);
+
+                net_write_ubyte(&send_cursor, NBT_TAG_COMPOUND);
+                net_write_ushort(&send_cursor, 0); // 0-length name
+
+                net_write_ubyte(&send_cursor, NBT_TAG_LIST);
+                net_write_ushort(&send_cursor, dimension_str.size);
+                net_write_data(&send_cursor, dimension_str.ptr, dimension_str.size);
+                net_write_ubyte(&send_cursor, NBT_TAG_COMPOUND); // element type
+                net_write_int(&send_cursor, 1); // number of elements
+
+                net_write_ubyte(&send_cursor, NBT_TAG_STRING);
+                net_write_ushort(&send_cursor, name_str.size);
+                net_write_data(&send_cursor, name_str.ptr, name_str.size);
+                net_write_ushort(&send_cursor, dimension_type.size);
+                net_write_data(&send_cursor, dimension_type.ptr, dimension_type.size);
+
+                net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
+                net_write_ushort(&send_cursor, has_skylight.size);
+                net_write_data(&send_cursor, has_skylight.ptr, has_skylight.size);
+                net_write_ubyte(&send_cursor, 1);
+
+                net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
+                net_write_ushort(&send_cursor, has_ceiling.size);
+                net_write_data(&send_cursor, has_ceiling.ptr, has_ceiling.size);
+                net_write_ubyte(&send_cursor, 0);
+
+                net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
+                net_write_ushort(&send_cursor, ultrawarm.size);
+                net_write_data(&send_cursor, ultrawarm.ptr, ultrawarm.size);
+                net_write_ubyte(&send_cursor, 0);
+
+                net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
+                net_write_ushort(&send_cursor, natural.size);
+                net_write_data(&send_cursor, natural.ptr, natural.size);
+                net_write_ubyte(&send_cursor, 1);
+
+                net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
+                net_write_ushort(&send_cursor, shrunk.size);
+                net_write_data(&send_cursor, shrunk.ptr, shrunk.size);
+                net_write_ubyte(&send_cursor, 0);
+
+                net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
+                net_write_ushort(&send_cursor, piglin_safe.size);
+                net_write_data(&send_cursor, piglin_safe.ptr, piglin_safe.size);
+                net_write_ubyte(&send_cursor, 0);
+
+                net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
+                net_write_ushort(&send_cursor, bed_works.size);
+                net_write_data(&send_cursor, bed_works.ptr, bed_works.size);
+                net_write_ubyte(&send_cursor, 1);
+
+                net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
+                net_write_ushort(&send_cursor, respawn_anchor_works.size);
+                net_write_data(&send_cursor, respawn_anchor_works.ptr, respawn_anchor_works.size);
+                net_write_ubyte(&send_cursor, 0);
+
+                net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
+                net_write_ushort(&send_cursor, has_raids.size);
+                net_write_data(&send_cursor, has_raids.ptr, has_raids.size);
+                net_write_ubyte(&send_cursor, 0);
+
+                net_write_ubyte(&send_cursor, NBT_TAG_INT);
+                net_write_ushort(&send_cursor, logical_height.size);
+                net_write_data(&send_cursor, logical_height.ptr, logical_height.size);
+                net_write_int(&send_cursor, 256);
+
+                net_write_ubyte(&send_cursor, NBT_TAG_STRING);
+                net_write_ushort(&send_cursor, infiniburn.size);
+                net_write_data(&send_cursor, infiniburn.ptr, infiniburn.size);
+                net_write_ushort(&send_cursor, infiniburn_tag.size);
+                net_write_data(&send_cursor, infiniburn_tag.ptr, infiniburn_tag.size);
+
+                net_write_ubyte(&send_cursor, NBT_TAG_FLOAT);
+                net_write_ushort(&send_cursor, ambient_light.size);
+                net_write_data(&send_cursor, ambient_light.ptr, ambient_light.size);
+                net_write_float(&send_cursor, 0);
+
+                net_write_ubyte(&send_cursor, NBT_TAG_END); // end of element compound
+                net_write_ubyte(&send_cursor, NBT_TAG_END); // end of root compound
+
+                logs("index %d", send_cursor.index - start);
+
+                net_write_string(&send_cursor, dimension_type);
+                net_write_string(&send_cursor, level_name);
+
                 net_write_ulong(&send_cursor, 0); // seed
                 net_write_ubyte(&send_cursor, 0); // max players (ignored by client)
-                net_write_string(&send_cursor, level_type);
                 net_write_varint(&send_cursor, brain->new_chunk_cache_radius - 1);
                 net_write_ubyte(&send_cursor, 0); // reduced debug info
                 net_write_ubyte(&send_cursor, 1); // show death screen on death
+                net_write_ubyte(&send_cursor, 0); // is debug
+                net_write_ubyte(&send_cursor, 0); // is flat
+
+                logs("index %d", send_cursor.index - start);
 
                 // send set carried item packet
-                net_write_varint(&send_cursor, net_varint_size(64) + 1);
-                net_write_varint(&send_cursor, 64);
+                net_write_varint(&send_cursor, net_varint_size(63) + 1);
+                net_write_varint(&send_cursor, 63);
                 net_write_ubyte(&send_cursor, entity->player.selected_slot
                         - PLAYER_FIRST_HOTBAR_SLOT);
 
@@ -913,10 +1092,15 @@ load_block_types(void) {
     mc_ushort states_for_type = 0;
     block_type_spec * type_spec;
 
-    while (cursor.index != cursor.limit) {
+    for (;;) {
         int arg_count = parse_database_line(&cursor, args);
         if (arg_count == 0) {
             // empty line
+            block_state_count += states_for_type;
+
+            if (cursor.index == cursor.limit) {
+                break;
+            }
         } else if (net_string_equal(args[0], NET_STRING("key"))) {
             net_string key = args[1];
             mc_ushort hash = hash_block_resource_location(key);
@@ -1122,7 +1306,6 @@ main(void) {
                 assert(block->start_time < block->end_time);
             }
 
-            logs("Packet size %d, blocks %d", cursor.index, timed_block_count);
             int end = cursor.index;
             cursor.index = 0;
             net_write_uint(&cursor, end - 4);

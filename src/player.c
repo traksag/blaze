@@ -66,6 +66,9 @@ send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch) {
 
     // calculate total size of chunk section data
     mc_int section_data_size = 0;
+    // @TODO(traks) compute bits per block using block type table
+    int bits_per_block = 15;
+    int blocks_per_long = 64 / bits_per_block;
 
     for (int i = 0; i < 16; i++) {
         chunk_section * section = ch->sections[i];
@@ -76,14 +79,15 @@ send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch) {
         // size of non-air count + bits per block
         section_data_size += 2 + 1;
         // size of block state data in longs
-        section_data_size += net_varint_size(14 * 16 * 16 * 16 / 64);
+        int longs = 16 * 16 * 16 / blocks_per_long;
+        section_data_size += net_varint_size(longs);
         // number of bytes used to store block state data
-        section_data_size += (14 * 16 * 16 * 16 / 64) * 8;
+        section_data_size += longs * 8;
     }
 
     net_string height_map_name = NET_STRING("MOTION_BLOCKING");
 
-    int out_size = net_varint_size(34) + 4 + 4 + 1 + net_varint_size(section_mask)
+    int out_size = net_varint_size(33) + 4 + 4 + 1 + 1 + net_varint_size(section_mask)
             + 1 + 2 + 1 + 2 + height_map_name.size + 4 + 36 * 8 + 1
             + 1024 * 4
             + net_varint_size(section_data_size) + section_data_size
@@ -92,10 +96,11 @@ send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch) {
     // send level chunk packet
     net_write_varint(send_cursor, out_size);
     int packet_start = send_cursor->index;
-    net_write_varint(send_cursor, 34);
+    net_write_varint(send_cursor, 33);
     net_write_int(send_cursor, pos.x);
     net_write_int(send_cursor, pos.z);
     net_write_ubyte(send_cursor, 1); // full chunk
+    net_write_ubyte(send_cursor, 1); // forget old data
     net_write_varint(send_cursor, section_mask);
 
     // height map NBT
@@ -155,23 +160,24 @@ send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch) {
         }
 
         net_write_ushort(send_cursor, ch->non_air_count[i]);
-        net_write_ubyte(send_cursor, 14); // bits per block
+        net_write_ubyte(send_cursor, bits_per_block);
 
         // number of longs used for the block states
-        net_write_varint(send_cursor, 14 * 16 * 16 * 16 / 64);
+        int longs = 16 * 16 * 16 / blocks_per_long;
+        net_write_varint(send_cursor, longs);
         mc_ulong val = 0;
         int offset = 0;
 
         for (int j = 0; j < 16 * 16 * 16; j++) {
             mc_ulong block_state = section->block_states[j];
             val |= block_state << offset;
+            offset += bits_per_block;
 
-            if (offset >= 64 - 14) {
+            if (offset > 64 - bits_per_block) {
                 net_write_ulong(send_cursor, val);
-                val = block_state >> (64 - offset);
+                val = 0;
+                offset = 0;
             }
-
-            offset = (offset + 14) % 64;
         }
 
         if (offset != 0) {
@@ -210,8 +216,8 @@ send_light_update(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch) {
     mc_int zero_sky_light_mask = 0;
     mc_int zero_block_light_mask = 0;
 
-    mc_int out_size = net_varint_size(37)
-            + net_varint_size(pos.x) + net_varint_size(pos.z)
+    mc_int out_size = net_varint_size(36)
+            + net_varint_size(pos.x) + net_varint_size(pos.z) + 1
             + net_varint_size(sky_light_mask)
             + net_varint_size(block_light_mask)
             + net_varint_size(zero_sky_light_mask)
@@ -228,9 +234,10 @@ send_light_update(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch) {
 
     // send light update packet
     net_write_varint(send_cursor, out_size);
-    net_write_varint(send_cursor, 37);
+    net_write_varint(send_cursor, 36);
     net_write_varint(send_cursor, pos.x);
     net_write_varint(send_cursor, pos.z);
+    net_write_ubyte(send_cursor, 1); // trust edges
     net_write_varint(send_cursor, sky_light_mask);
     net_write_varint(send_cursor, block_light_mask);
     net_write_varint(send_cursor, zero_sky_light_mask);
@@ -461,19 +468,27 @@ tick_player_brain(player_brain * brain, server * serv) {
                 // @TODO further reading
                 break;
             }
-            case 15: { // keep alive
+            case 15: { // jigsaw generate
+                logs("Packet jigsaw generate");
+                net_block_pos block_pos = net_read_block_pos(&rec_cursor);
+                mc_int levels = net_read_varint(&rec_cursor);
+                mc_ubyte keep_jigsaws = net_read_ubyte(&rec_cursor);
+                // @TODO(traks) processing
+                break;
+            }
+            case 16: { // keep alive
                 mc_ulong id = net_read_ulong(&rec_cursor);
                 if (brain->last_keep_alive_sent_tick == id) {
                     brain->flags |= PLAYER_BRAIN_GOT_ALIVE_RESPONSE;
                 }
                 break;
             }
-            case 16: { // lock difficulty
+            case 17: { // lock difficulty
                 logs("Packet lock difficulty");
                 mc_ubyte locked = net_read_ubyte(&rec_cursor);
                 break;
             }
-            case 17: { // move player pos
+            case 18: { // move player pos
                 mc_double x = net_read_double(&rec_cursor);
                 mc_double y = net_read_double(&rec_cursor);
                 mc_double z = net_read_double(&rec_cursor);
@@ -483,7 +498,7 @@ tick_player_brain(player_brain * brain, server * serv) {
                         entity->player.head_rot_y, on_ground);
                 break;
             }
-            case 18: { // move player pos rot
+            case 19: { // move player pos rot
                 mc_double x = net_read_double(&rec_cursor);
                 mc_double y = net_read_double(&rec_cursor);
                 mc_double z = net_read_double(&rec_cursor);
@@ -494,7 +509,7 @@ tick_player_brain(player_brain * brain, server * serv) {
                         head_rot_x, head_rot_y, on_ground);
                 break;
             }
-            case 19: { // move player rot
+            case 20: { // move player rot
                 mc_float head_rot_y = net_read_float(&rec_cursor);
                 mc_float head_rot_x = net_read_float(&rec_cursor);
                 int on_ground = net_read_ubyte(&rec_cursor);
@@ -503,7 +518,7 @@ tick_player_brain(player_brain * brain, server * serv) {
                         head_rot_x, head_rot_y, on_ground);
                 break;
             }
-            case 20: { // move player
+            case 21: { // move player
                 int on_ground = net_read_ubyte(&rec_cursor);
                 process_move_player_packet(entity,
                         entity->x, entity->y, entity->z,
@@ -511,42 +526,37 @@ tick_player_brain(player_brain * brain, server * serv) {
                         entity->player.head_rot_y, on_ground);
                 break;
             }
-            case 21: { // move vehicle
+            case 22: { // move vehicle
                 logs("Packet move vehicle");
                 // @TODO(traks) read packet
                 break;
             }
-            case 22: { // paddle boat
+            case 23: { // paddle boat
                 logs("Packet paddle boat");
                 mc_ubyte left = net_read_ubyte(&rec_cursor);
                 mc_ubyte right = net_read_ubyte(&rec_cursor);
                 break;
             }
-            case 23: { // pick item
+            case 24: { // pick item
                 logs("Packet pick item");
                 mc_int slot = net_read_varint(&rec_cursor);
                 break;
             }
-            case 24: { // place recipe
+            case 25: { // place recipe
                 logs("Packet place recipe");
                 mc_ubyte container_id = net_read_ubyte(&rec_cursor);
                 // @TODO read recipe
                 mc_ubyte shift_down = net_read_ubyte(&rec_cursor);
                 break;
             }
-            case 25: { // player abilities
+            case 26: { // player abilities
                 logs("Packet player abilities");
                 mc_ubyte flags = net_read_ubyte(&rec_cursor);
-                mc_ubyte invulnerable = flags & 0x1;
                 mc_ubyte flying = flags & 0x2;
-                mc_ubyte canFly = flags & 0x4;
-                mc_ubyte insta_build = flags & 0x8;
-                mc_float fly_speed = net_read_float(&rec_cursor);
-                mc_float walk_speed = net_read_float(&rec_cursor);
                 // @TODO(traks) process packet
                 break;
             }
-            case 26: { // player action
+            case 27: { // player action
                 mc_int action = net_read_varint(&rec_cursor);
                 // @TODO(traks) validate block pos inside world
                 net_block_pos block_pos = net_read_block_pos(&rec_cursor);
@@ -631,7 +641,7 @@ tick_player_brain(player_brain * brain, server * serv) {
                 }
                 break;
             }
-            case 27: { // player command
+            case 28: { // player command
                 mc_int id = net_read_varint(&rec_cursor);
                 mc_int action = net_read_varint(&rec_cursor);
                 mc_int data = net_read_varint(&rec_cursor);
@@ -669,44 +679,44 @@ tick_player_brain(player_brain * brain, server * serv) {
                 }
                 break;
             }
-            case 28: { // player input
+            case 29: { // player input
                 logs("Packet player input");
                 // @TODO(traks) read packet
                 break;
             }
-            case 29: { // recipe book update
+            case 30: { // recipe book update
                 logs("Packet recipe book update");
                 // @TODO(traks) read packet
                 break;
             }
-            case 30: { // rename item
+            case 31: { // rename item
                 logs("Packet rename item");
                 net_string name = net_read_string(&rec_cursor, 32767);
                 break;
             }
-            case 31: { // resource pack
+            case 32: { // resource pack
                 logs("Packet resource pack");
                 mc_int action = net_read_varint(&rec_cursor);
                 break;
             }
-            case 32: { // seen advancements
+            case 33: { // seen advancements
                 logs("Packet seen advancements");
                 mc_int action = net_read_varint(&rec_cursor);
                 // @TODO(traks) further processing
                 break;
             }
-            case 33: { // select trade
+            case 34: { // select trade
                 logs("Packet select trade");
                 mc_int item = net_read_varint(&rec_cursor);
                 break;
             }
-            case 34: { // set beacon
+            case 35: { // set beacon
                 logs("Packet set beacon");
                 mc_int primary_effect = net_read_varint(&rec_cursor);
                 mc_int secondary_effect = net_read_varint(&rec_cursor);
                 break;
             }
-            case 35: { // set carried item
+            case 36: { // set carried item
                 mc_ushort slot = net_read_ushort(&rec_cursor);
                 if (slot > PLAYER_LAST_HOTBAR_SLOT - PLAYER_FIRST_HOTBAR_SLOT) {
                     rec_cursor.error = 1;
@@ -715,7 +725,7 @@ tick_player_brain(player_brain * brain, server * serv) {
                 entity->player.selected_slot = PLAYER_FIRST_HOTBAR_SLOT + slot;
                 break;
             }
-            case 36: { // set command block
+            case 37: { // set command block
                 logs("Packet set command block");
                 mc_ulong block_pos = net_read_ulong(&rec_cursor);
                 net_string command = net_read_string(&rec_cursor, 32767);
@@ -726,14 +736,14 @@ tick_player_brain(player_brain * brain, server * serv) {
                 mc_ubyte automatic = (flags & 0x4);
                 break;
             }
-            case 37: { // set command minecart
+            case 38: { // set command minecart
                 logs("Packet set command minecart");
                 mc_int entity_id = net_read_varint(&rec_cursor);
                 net_string command = net_read_string(&rec_cursor, 32767);
                 mc_ubyte track_output = net_read_ubyte(&rec_cursor);
                 break;
             }
-            case 38: { // set creative mode slot
+            case 39: { // set creative mode slot
                 mc_ushort slot = net_read_ushort(&rec_cursor);
                 mc_ubyte has_item = net_read_ubyte(&rec_cursor);
 
@@ -776,13 +786,13 @@ tick_player_brain(player_brain * brain, server * serv) {
                 }
                 break;
             }
-            case 39: { // set jigsaw block
+            case 40: { // set jigsaw block
                 logs("Packet set jigsaw block");
                 mc_ulong block_pos = net_read_ulong(&rec_cursor);
                 // @TODO(traks) further reading
                 break;
             }
-            case 40: { // set structure block
+            case 41: { // set structure block
                 logs("Packet set structure block");
                 mc_ulong block_pos = net_read_ulong(&rec_cursor);
                 mc_int update_type = net_read_varint(&rec_cursor);
@@ -801,7 +811,7 @@ tick_player_brain(player_brain * brain, server * serv) {
                 // @TODO(traks) further reading
                 break;
             }
-            case 41: { // sign update
+            case 42: { // sign update
                 logs("Packet sign update");
                 mc_ulong block_pos = net_read_ulong(&rec_cursor);
                 net_string lines[4];
@@ -810,19 +820,19 @@ tick_player_brain(player_brain * brain, server * serv) {
                 }
                 break;
             }
-            case 42: { // swing
+            case 43: { // swing
                 logs("Packet swing");
                 mc_int hand = net_read_varint(&rec_cursor);
                 break;
             }
-            case 43: { // teleport to entity
+            case 44: { // teleport to entity
                 logs("Packet teleport to entity");
                 // @TODO(traks) read UUID instead
                 mc_ulong uuid_high = net_read_ulong(&rec_cursor);
                 mc_ulong uuid_low = net_read_ulong(&rec_cursor);
                 break;
             }
-            case 44: { // use item on
+            case 45: { // use item on
                 mc_int hand = net_read_varint(&rec_cursor);
                 net_block_pos clicked_pos = net_read_block_pos(&rec_cursor);
                 mc_int clicked_face = net_read_varint(&rec_cursor);
@@ -909,7 +919,7 @@ tick_player_brain(player_brain * brain, server * serv) {
                         in_chunk_z, 2);
                 break;
             }
-            case 45: { // use item
+            case 46: { // use item
                 logs("Packet use item");
                 mc_int hand = net_read_varint(&rec_cursor);
                 break;
@@ -975,8 +985,8 @@ send_packets_to_player(player_brain * brain, server * serv) {
     if (serv->current_tick - brain->last_keep_alive_sent_tick >= KEEP_ALIVE_SPACING
             && (brain->flags & PLAYER_BRAIN_GOT_ALIVE_RESPONSE)) {
         // send keep alive packet
-        net_write_varint(&send_cursor, net_varint_size(33) + 8);
-        net_write_varint(&send_cursor, 33);
+        net_write_varint(&send_cursor, net_varint_size(32) + 8);
+        net_write_varint(&send_cursor, 32);
         net_write_ulong(&send_cursor, serv->current_tick);
 
         brain->last_keep_alive_sent_tick = serv->current_tick;
@@ -986,10 +996,10 @@ send_packets_to_player(player_brain * brain, server * serv) {
     if ((player->flags & ENTITY_TELEPORTING)
             && !(brain->flags & PLAYER_BRAIN_SENT_TELEPORT)) {
         // send player position packet
-        int out_size = net_varint_size(54) + 8 + 8 + 8 + 4 + 4 + 1
+        int out_size = net_varint_size(53) + 8 + 8 + 8 + 4 + 4 + 1
                 + net_varint_size(brain->current_teleport_id);
         net_write_varint(&send_cursor, out_size);
-        net_write_varint(&send_cursor, 54);
+        net_write_varint(&send_cursor, 53);
         net_write_double(&send_cursor, player->x);
         net_write_double(&send_cursor, player->y);
         net_write_double(&send_cursor, player->z);
@@ -1027,21 +1037,21 @@ send_packets_to_player(player_brain * brain, server * serv) {
     if (brain->chunk_cache_centre_x != new_chunk_cache_centre_x
             || brain->chunk_cache_centre_z != new_chunk_cache_centre_z) {
         // send set chunk cache centre packet
-        int out_size = net_varint_size(65)
+        int out_size = net_varint_size(64)
                 + net_varint_size(new_chunk_cache_centre_x)
                 + net_varint_size(new_chunk_cache_centre_z);
         net_write_varint(&send_cursor, out_size);
-        net_write_varint(&send_cursor, 65);
+        net_write_varint(&send_cursor, 64);
         net_write_varint(&send_cursor, new_chunk_cache_centre_x);
         net_write_varint(&send_cursor, new_chunk_cache_centre_z);
     }
 
     if (brain->chunk_cache_radius != brain->new_chunk_cache_radius) {
         // send set chunk cache radius packet
-        int out_size = net_varint_size(66)
+        int out_size = net_varint_size(65)
                 + net_varint_size(brain->new_chunk_cache_radius);
         net_write_varint(&send_cursor, out_size);
-        net_write_varint(&send_cursor, 66);
+        net_write_varint(&send_cursor, 65);
         net_write_varint(&send_cursor, brain->new_chunk_cache_radius);
     }
 
@@ -1066,7 +1076,7 @@ send_packets_to_player(player_brain * brain, server * serv) {
                 }
 
                 // send chunk blocks update packet
-                int out_size = net_varint_size(16) + 2 * 4
+                int out_size = net_varint_size(15) + 2 * 4
                         + net_varint_size(ch->changed_block_count);
 
                 // @TODO(traks) less duplication between this and the part
@@ -1079,7 +1089,7 @@ send_packets_to_player(player_brain * brain, server * serv) {
                 }
 
                 net_write_varint(&send_cursor, out_size);
-                net_write_varint(&send_cursor, 16);
+                net_write_varint(&send_cursor, 15);
                 net_write_int(&send_cursor, x);
                 net_write_int(&send_cursor, z);
                 net_write_varint(&send_cursor, ch->changed_block_count);
@@ -1103,9 +1113,9 @@ send_packets_to_player(player_brain * brain, server * serv) {
                 brain->chunk_cache[index] = (chunk_cache_entry) {0};
 
                 // send forget level chunk packet
-                int out_size = net_varint_size(30) + 4 + 4;
+                int out_size = net_varint_size(29) + 4 + 4;
                 net_write_varint(&send_cursor, out_size);
-                net_write_varint(&send_cursor, 30);
+                net_write_varint(&send_cursor, 29);
                 net_write_int(&send_cursor, x);
                 net_write_int(&send_cursor, z);
             }
@@ -1205,13 +1215,13 @@ send_packets_to_player(player_brain * brain, server * serv) {
         item_stack * is = player->player.slots + i;
 
         // send container set slot packet
-        int out_size = net_varint_size(23) + 1 + 2 + 1;
+        int out_size = net_varint_size(22) + 1 + 2 + 1;
         if (is->type != 0) {
             out_size += net_varint_size(is->type) + 1 + 1;
         }
 
         net_write_varint(&send_cursor, out_size);
-        net_write_varint(&send_cursor, 23);
+        net_write_varint(&send_cursor, 22);
         net_write_ubyte(&send_cursor, 0); // inventory id
         net_write_ushort(&send_cursor, i);
 
@@ -1239,7 +1249,7 @@ send_packets_to_player(player_brain * brain, server * serv) {
         brain->flags |= PLAYER_BRAIN_INITIALISED_TAB_LIST;
         if (serv->tab_list_size > 0) {
             // send player info packet
-            int out_size = net_varint_size(52) + net_varint_size(0)
+            int out_size = net_varint_size(51) + net_varint_size(0)
                     + net_varint_size(serv->tab_list_size);
             for (int i = 0; i < serv->tab_list_size; i++) {
                 tab_list_entry * entry = serv->tab_list + i;
@@ -1254,7 +1264,7 @@ send_packets_to_player(player_brain * brain, server * serv) {
             }
 
             net_write_varint(&send_cursor, out_size);
-            net_write_varint(&send_cursor, 52);
+            net_write_varint(&send_cursor, 51);
             net_write_varint(&send_cursor, 0); // action: add
             net_write_varint(&send_cursor, serv->tab_list_size);
 
@@ -1279,11 +1289,11 @@ send_packets_to_player(player_brain * brain, server * serv) {
     } else {
         if (serv->tab_list_removed_count > 0) {
             // send player info packet
-            int out_size = net_varint_size(52) + net_varint_size(4)
+            int out_size = net_varint_size(51) + net_varint_size(4)
                     + net_varint_size(serv->tab_list_removed_count)
                     + serv->tab_list_removed_count * 16;
             net_write_varint(&send_cursor, out_size);
-            net_write_varint(&send_cursor, 52);
+            net_write_varint(&send_cursor, 51);
             net_write_varint(&send_cursor, 4); // action: remove
             net_write_varint(&send_cursor, serv->tab_list_removed_count);
 
@@ -1296,7 +1306,7 @@ send_packets_to_player(player_brain * brain, server * serv) {
         }
         if (serv->tab_list_added_count > 0) {
             // send player info packet
-            int out_size = net_varint_size(52) + net_varint_size(0)
+            int out_size = net_varint_size(51) + net_varint_size(0)
                     + net_varint_size(serv->tab_list_added_count);
             for (int i = 0; i < serv->tab_list_added_count; i++) {
                 tab_list_entry * entry = serv->tab_list_added + i;
@@ -1311,7 +1321,7 @@ send_packets_to_player(player_brain * brain, server * serv) {
             }
 
             net_write_varint(&send_cursor, out_size);
-            net_write_varint(&send_cursor, 52);
+            net_write_varint(&send_cursor, 51);
             net_write_varint(&send_cursor, 0); // action: add
             net_write_varint(&send_cursor, serv->tab_list_added_count);
 
@@ -1368,10 +1378,10 @@ send_packets_to_player(player_brain * brain, server * serv) {
 
                 if (dx * dx + dy * dy + dz * dz < 45 * 45) {
                     // send teleport entity packet
-                    int out_size = net_varint_size(87)
+                    int out_size = net_varint_size(86)
                             + net_varint_size(tracked_eid) + 3 * 8 + 3 * 1;
                     net_write_varint(&send_cursor, out_size);
-                    net_write_varint(&send_cursor, 87);
+                    net_write_varint(&send_cursor, 86);
                     net_write_varint(&send_cursor, tracked_eid);
                     net_write_double(&send_cursor, candidate->x);
                     net_write_double(&send_cursor, candidate->y);
@@ -1382,10 +1392,10 @@ send_packets_to_player(player_brain * brain, server * serv) {
                     net_write_ubyte(&send_cursor, !!(candidate->flags & ENTITY_ON_GROUND));
 
                     // send rotate head packet
-                    out_size = net_varint_size(60)
+                    out_size = net_varint_size(59)
                             + net_varint_size(candidate_eid) + 1;
                     net_write_varint(&send_cursor, out_size);
-                    net_write_varint(&send_cursor, 60);
+                    net_write_varint(&send_cursor, 59);
                     net_write_varint(&send_cursor, candidate_eid);
                     // @TODO(traks) make sure signed cast to mc_ubyte works
                     net_write_ubyte(&send_cursor, (int)
@@ -1419,12 +1429,12 @@ send_packets_to_player(player_brain * brain, server * serv) {
             switch (candidate->type) {
             case ENTITY_PLAYER: {
                 // // send add mob packet
-                // int out_size = net_varint_size(3)
+                // int out_size = net_varint_size(2)
                 //         + net_varint_size(candidate_eid)
                 //         + 16 + net_varint_size(5)
                 //         + 3 * 8 + 3 * 1 + 3 * 2;
                 // net_write_varint(&send_cursor, out_size);
-                // net_write_varint(&send_cursor, 3);
+                // net_write_varint(&send_cursor, 2);
                 // net_write_varint(&send_cursor, candidate_eid);
                 // // @TODO(traks) appropriate UUID
                 // net_write_ulong(&send_cursor, 0);
@@ -1445,11 +1455,11 @@ send_packets_to_player(player_brain * brain, server * serv) {
                 // net_write_ushort(&send_cursor, 0);
 
                 // send add player packet
-                int out_size = net_varint_size(5)
+                int out_size = net_varint_size(4)
                         + net_varint_size(candidate_eid)
                         + 16 + 3 * 8 + 2 * 1;
                 net_write_varint(&send_cursor, out_size);
-                net_write_varint(&send_cursor, 5);
+                net_write_varint(&send_cursor, 4);
                 net_write_varint(&send_cursor, candidate_eid);
                 // @TODO(traks) appropriate UUID
                 net_write_ulong(&send_cursor, 0);
@@ -1465,10 +1475,10 @@ send_packets_to_player(player_brain * brain, server * serv) {
                         (candidate->player.head_rot_x * 256.0f / 360.0f));
 
                 // send rotate head packet
-                out_size = net_varint_size(60)
+                out_size = net_varint_size(59)
                         + net_varint_size(candidate_eid) + 1;
                 net_write_varint(&send_cursor, out_size);
-                net_write_varint(&send_cursor, 60);
+                net_write_varint(&send_cursor, 59);
                 net_write_varint(&send_cursor, candidate_eid);
                 // @TODO(traks) make sure signed cast to mc_ubyte works
                 net_write_ubyte(&send_cursor, (int)
@@ -1486,14 +1496,14 @@ send_packets_to_player(player_brain * brain, server * serv) {
 
     if (removed_entity_count > 0) {
         // send remove entities packet
-        int out_size = net_varint_size(56)
+        int out_size = net_varint_size(55)
                 + net_varint_size(removed_entity_count);
         for (int i = 0; i < removed_entity_count; i++) {
             out_size += net_varint_size(removed_entities[i]);
         }
 
         net_write_varint(&send_cursor, out_size);
-        net_write_varint(&send_cursor, 56);
+        net_write_varint(&send_cursor, 55);
         net_write_varint(&send_cursor, removed_entity_count);
         for (int i = 0; i < removed_entity_count; i++) {
             net_write_varint(&send_cursor, removed_entities[i]);
@@ -1530,13 +1540,17 @@ send_packets_to_player(player_brain * brain, server * serv) {
         buf_index += suffix.size;
 
         // send chat packet
-        int out_size = net_varint_size(15) + net_varint_size(buf_index)
-                + buf_index + 1;
+        int out_size = net_varint_size(14) + net_varint_size(buf_index)
+                + buf_index + 1 + 16;
         net_write_varint(&send_cursor, out_size);
-        net_write_varint(&send_cursor, 15);
+        net_write_varint(&send_cursor, 14);
         net_write_varint(&send_cursor, buf_index);
         net_write_data(&send_cursor, buf, buf_index);
         net_write_ubyte(&send_cursor, 0); // chat box position
+        // @TODO(traks) write sender UUID. If UUID equals 0, client displays it
+        // regardless of client settings
+        net_write_ulong(&send_cursor, 0);
+        net_write_ulong(&send_cursor, 0);
     }
 
     end_timed_block();

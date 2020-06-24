@@ -86,6 +86,8 @@ key minecraft:iron_ore
 
 key minecraft:coal_ore
 
+key minecraft:nether_gold_ore
+
 key minecraft:oak_log
 property axis x y z
 default_values y
@@ -473,6 +475,8 @@ property up true false
 property west true false
 default_values 0 false false false false false
 
+key minecraft:soul_fire
+
 key minecraft:spawner
 
 key minecraft:oak_stairs
@@ -696,6 +700,22 @@ key minecraft:netherrack
 
 key minecraft:soul_sand
 
+key minecraft:soul_soil
+
+key minecraft:basalt
+property axis x y z
+default_values y
+
+key minecraft:polished_basalt
+property axis x y z
+default_values y
+
+key minecraft:soul_torch
+
+key minecraft:soul_wall_torch
+property facing north south west east
+default_values north
+
 key minecraft:glowstone
 
 key minecraft:nether_portal
@@ -855,6 +875,10 @@ property south true false
 property waterlogged true false
 property west true false
 default_values false false false false false
+
+key minecraft:chain
+property waterlogged true false
+default_values false
 
 key minecraft:glass_pane
 property east true false
@@ -1031,22 +1055,22 @@ default_values false north
 key minecraft:beacon
 
 key minecraft:cobblestone_wall
-property east true false
-property north true false
-property south true false
+property east none low tall
+property north none low tall
+property south none low tall
 property up true false
 property waterlogged true false
-property west true false
-default_values false false false true false false
+property west none low tall
+default_values none none none true false none
 
 key minecraft:mossy_cobblestone_wall
-property east true false
-property north true false
-property south true false
+property east none low tall
+property north none low tall
+property south none low tall
 property up true false
 property waterlogged true false
-property west true false
-default_values false false false true false false
+property west none low tall
+default_values none none none true false none
 
 key minecraft:flower_pot
 
@@ -2539,112 +2563,112 @@ property waterlogged true false
 default_values bottom false
 
 key minecraft:brick_wall
-property east true false
-property north true false
-property south true false
+property east none low tall
+property north none low tall
+property south none low tall
 property up true false
 property waterlogged true false
-property west true false
-default_values false false false true false false
+property west none low tall
+default_values none none none true false none
 
 key minecraft:prismarine_wall
-property east true false
-property north true false
-property south true false
+property east none low tall
+property north none low tall
+property south none low tall
 property up true false
 property waterlogged true false
-property west true false
-default_values false false false true false false
+property west none low tall
+default_values none none none true false none
 
 key minecraft:red_sandstone_wall
-property east true false
-property north true false
-property south true false
+property east none low tall
+property north none low tall
+property south none low tall
 property up true false
 property waterlogged true false
-property west true false
-default_values false false false true false false
+property west none low tall
+default_values none none none true false none
 
 key minecraft:mossy_stone_brick_wall
-property east true false
-property north true false
-property south true false
+property east none low tall
+property north none low tall
+property south none low tall
 property up true false
 property waterlogged true false
-property west true false
-default_values false false false true false false
+property west none low tall
+default_values none none none true false none
 
 key minecraft:granite_wall
-property east true false
-property north true false
-property south true false
+property east none low tall
+property north none low tall
+property south none low tall
 property up true false
 property waterlogged true false
-property west true false
-default_values false false false true false false
+property west none low tall
+default_values none none none true false none
 
 key minecraft:stone_brick_wall
-property east true false
-property north true false
-property south true false
+property east none low tall
+property north none low tall
+property south none low tall
 property up true false
 property waterlogged true false
-property west true false
-default_values false false false true false false
+property west none low tall
+default_values none none none true false none
 
 key minecraft:nether_brick_wall
-property east true false
-property north true false
-property south true false
+property east none low tall
+property north none low tall
+property south none low tall
 property up true false
 property waterlogged true false
-property west true false
-default_values false false false true false false
+property west none low tall
+default_values none none none true false none
 
 key minecraft:andesite_wall
-property east true false
-property north true false
-property south true false
+property east none low tall
+property north none low tall
+property south none low tall
 property up true false
 property waterlogged true false
-property west true false
-default_values false false false true false false
+property west none low tall
+default_values none none none true false none
 
 key minecraft:red_nether_brick_wall
-property east true false
-property north true false
-property south true false
+property east none low tall
+property north none low tall
+property south none low tall
 property up true false
 property waterlogged true false
-property west true false
-default_values false false false true false false
+property west none low tall
+default_values none none none true false none
 
 key minecraft:sandstone_wall
-property east true false
-property north true false
-property south true false
+property east none low tall
+property north none low tall
+property south none low tall
 property up true false
 property waterlogged true false
-property west true false
-default_values false false false true false false
+property west none low tall
+default_values none none none true false none
 
 key minecraft:end_stone_brick_wall
-property east true false
-property north true false
-property south true false
+property east none low tall
+property north none low tall
+property south none low tall
 property up true false
 property waterlogged true false
-property west true false
-default_values false false false true false false
+property west none low tall
+default_values none none none true false none
 
 key minecraft:diorite_wall
-property east true false
-property north true false
-property south true false
+property east none low tall
+property north none low tall
+property south none low tall
 property up true false
 property waterlogged true false
-property west true false
-default_values false false false true false false
+property west none low tall
+default_values none none none true false none
 
 key minecraft:scaffolding
 property bottom true false
@@ -2702,7 +2726,18 @@ key minecraft:lantern
 property hanging true false
 default_values false
 
+key minecraft:soul_lantern
+property hanging true false
+default_values false
+
 key minecraft:campfire
+property facing north south west east
+property lit true false
+property signal_fire true false
+property waterlogged true false
+default_values north true false false
+
+key minecraft:soul_campfire
 property facing north south west east
 property lit true false
 property signal_fire true false
@@ -2713,16 +2748,212 @@ key minecraft:sweet_berry_bush
 property age 0 1 2 3
 default_values 0
 
+key minecraft:warped_stem
+property axis x y z
+default_values y
+
+key minecraft:stripped_warped_stem
+property axis x y z
+default_values y
+
+key minecraft:warped_hyphae
+property axis x y z
+default_values y
+
+key minecraft:stripped_warped_hyphae
+property axis x y z
+default_values y
+
+key minecraft:warped_nylium
+
+key minecraft:warped_fungus
+
+key minecraft:warped_wart_block
+
+key minecraft:warped_roots
+
+key minecraft:nether_sprouts
+
+key minecraft:crimson_stem
+property axis x y z
+default_values y
+
+key minecraft:stripped_crimson_stem
+property axis x y z
+default_values y
+
+key minecraft:crimson_hyphae
+property axis x y z
+default_values y
+
+key minecraft:stripped_crimson_hyphae
+property axis x y z
+default_values y
+
+key minecraft:crimson_nylium
+
+key minecraft:crimson_fungus
+
+key minecraft:shroomlight
+
+key minecraft:weeping_vines
+property age 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25
+default_values 0
+
+key minecraft:weeping_vines_plant
+
+key minecraft:twisting_vines
+property age 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25
+default_values 0
+
+key minecraft:twisting_vines_plant
+
+key minecraft:crimson_roots
+
+key minecraft:crimson_planks
+
+key minecraft:warped_planks
+
+key minecraft:crimson_slab
+property type top bottom double
+property waterlogged true false
+default_values bottom false
+
+key minecraft:warped_slab
+property type top bottom double
+property waterlogged true false
+default_values bottom false
+
+key minecraft:crimson_pressure_plate
+property powered true false
+default_values false
+
+key minecraft:warped_pressure_plate
+property powered true false
+default_values false
+
+key minecraft:crimson_fence
+property east true false
+property north true false
+property south true false
+property waterlogged true false
+property west true false
+default_values false false false false false
+
+key minecraft:warped_fence
+property east true false
+property north true false
+property south true false
+property waterlogged true false
+property west true false
+default_values false false false false false
+
+key minecraft:crimson_trapdoor
+property facing north south west east
+property half top bottom
+property open true false
+property powered true false
+property waterlogged true false
+default_values north bottom false false false
+
+key minecraft:warped_trapdoor
+property facing north south west east
+property half top bottom
+property open true false
+property powered true false
+property waterlogged true false
+default_values north bottom false false false
+
+key minecraft:crimson_fence_gate
+property facing north south west east
+property in_wall true false
+property open true false
+property powered true false
+default_values north false false false
+
+key minecraft:warped_fence_gate
+property facing north south west east
+property in_wall true false
+property open true false
+property powered true false
+default_values north false false false
+
+key minecraft:crimson_stairs
+property facing north south west east
+property half top bottom
+property shape straight inner_left inner_right outer_left outer_right
+property waterlogged true false
+default_values north bottom straight false
+
+key minecraft:warped_stairs
+property facing north south west east
+property half top bottom
+property shape straight inner_left inner_right outer_left outer_right
+property waterlogged true false
+default_values north bottom straight false
+
+key minecraft:crimson_button
+property face floor wall ceiling
+property facing north south west east
+property powered true false
+default_values wall north false
+
+key minecraft:warped_button
+property face floor wall ceiling
+property facing north south west east
+property powered true false
+default_values wall north false
+
+key minecraft:crimson_door
+property facing north south west east
+property half upper lower
+property hinge left right
+property open true false
+property powered true false
+default_values north lower left false false
+
+key minecraft:warped_door
+property facing north south west east
+property half upper lower
+property hinge left right
+property open true false
+property powered true false
+default_values north lower left false false
+
+key minecraft:crimson_sign
+property rotation 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
+property waterlogged true false
+default_values 0 false
+
+key minecraft:warped_sign
+property rotation 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
+property waterlogged true false
+default_values 0 false
+
+key minecraft:crimson_wall_sign
+property facing north south west east
+property waterlogged true false
+default_values north false
+
+key minecraft:warped_wall_sign
+property facing north south west east
+property waterlogged true false
+default_values north false
+
 key minecraft:structure_block
 property mode save load corner data
 default_values save
 
 key minecraft:jigsaw
-property facing north east south west up down
-default_values up
+property orientation down_east down_north down_south down_west up_east up_north up_south up_west west_up east_up north_up south_up
+default_values north_up
 
 key minecraft:composter
 property level 0 1 2 3 4 5 6 7 8
+default_values 0
+
+key minecraft:target
+property power 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
 default_values 0
 
 key minecraft:bee_nest
@@ -2738,3 +2969,114 @@ default_values north 0
 key minecraft:honey_block
 
 key minecraft:honeycomb_block
+
+key minecraft:netherite_block
+
+key minecraft:ancient_debris
+
+key minecraft:crying_obsidian
+
+key minecraft:respawn_anchor
+property charges 0 1 2 3 4
+default_values 0
+
+key minecraft:potted_crimson_fungus
+
+key minecraft:potted_warped_fungus
+
+key minecraft:potted_crimson_roots
+
+key minecraft:potted_warped_roots
+
+key minecraft:lodestone
+
+key minecraft:blackstone
+
+key minecraft:blackstone_stairs
+property facing north south west east
+property half top bottom
+property shape straight inner_left inner_right outer_left outer_right
+property waterlogged true false
+default_values north bottom straight false
+
+key minecraft:blackstone_wall
+property east none low tall
+property north none low tall
+property south none low tall
+property up true false
+property waterlogged true false
+property west none low tall
+default_values none none none true false none
+
+key minecraft:blackstone_slab
+property type top bottom double
+property waterlogged true false
+default_values bottom false
+
+key minecraft:polished_blackstone
+
+key minecraft:polished_blackstone_bricks
+
+key minecraft:cracked_polished_blackstone_bricks
+
+key minecraft:chiseled_polished_blackstone
+
+key minecraft:polished_blackstone_brick_slab
+property type top bottom double
+property waterlogged true false
+default_values bottom false
+
+key minecraft:polished_blackstone_brick_stairs
+property facing north south west east
+property half top bottom
+property shape straight inner_left inner_right outer_left outer_right
+property waterlogged true false
+default_values north bottom straight false
+
+key minecraft:polished_blackstone_brick_wall
+property east none low tall
+property north none low tall
+property south none low tall
+property up true false
+property waterlogged true false
+property west none low tall
+default_values none none none true false none
+
+key minecraft:gilded_blackstone
+
+key minecraft:polished_blackstone_stairs
+property facing north south west east
+property half top bottom
+property shape straight inner_left inner_right outer_left outer_right
+property waterlogged true false
+default_values north bottom straight false
+
+key minecraft:polished_blackstone_slab
+property type top bottom double
+property waterlogged true false
+default_values bottom false
+
+key minecraft:polished_blackstone_pressure_plate
+property powered true false
+default_values false
+
+key minecraft:polished_blackstone_button
+property face floor wall ceiling
+property facing north south west east
+property powered true false
+default_values wall north false
+
+key minecraft:polished_blackstone_wall
+property east none low tall
+property north none low tall
+property south none low tall
+property up true false
+property waterlogged true false
+property west none low tall
+default_values none none none true false none
+
+key minecraft:chiseled_nether_bricks
+
+key minecraft:cracked_nether_bricks
+
+key minecraft:quartz_bricks

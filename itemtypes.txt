@@ -34,6 +34,12 @@ max_stack_size 64
 key minecraft:podzol
 max_stack_size 64
 
+key minecraft:crimson_nylium
+max_stack_size 64
+
+key minecraft:warped_nylium
+max_stack_size 64
+
 key minecraft:cobblestone
 max_stack_size 64
 
@@ -53,6 +59,12 @@ key minecraft:acacia_planks
 max_stack_size 64
 
 key minecraft:dark_oak_planks
+max_stack_size 64
+
+key minecraft:crimson_planks
+max_stack_size 64
+
+key minecraft:warped_planks
 max_stack_size 64
 
 key minecraft:oak_sapling
