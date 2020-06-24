@@ -69,10 +69,12 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_level) {
 
     for (;;) {
         if (cur_tape_index >= max_entries - 10) {
+            logs("Max NBT tape index reached");
             cursor->error = 1;
             goto bail;
         }
         if (cur_level == max_level + 1) {
+            logs("Max NBT level reached");
             cursor->error = 1;
             goto bail;
         }

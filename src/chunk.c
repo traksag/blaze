@@ -385,8 +385,8 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
         .limit = zstream.total_out
     };
 
-    // @TODO(traks) more appropriate max level, currently 64
-    nbt_tape_entry * tape = load_nbt(&cursor, scratch_arena, 64);
+    // @TODO(traks) more appropriate max level
+    nbt_tape_entry * tape = load_nbt(&cursor, scratch_arena, 1024);
 
     if (cursor.error) {
         logs("Failed to load NBT data");
