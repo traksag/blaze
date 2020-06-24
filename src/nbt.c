@@ -34,6 +34,8 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_level) {
     // over subtrees a lot less (depending on the block size) when iterating
     // through the keys, and that we don't need to track these jumps as is done
     // when constructing the tape.
+    begin_timed_block("load nbt");
+
     int max_entries = 65536;
     nbt_tape_entry * tape = alloc_in_arena(arena, max_entries * sizeof *tape);
     memory_arena scratch_arena = {
@@ -51,28 +53,28 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_level) {
 
     if (tag == NBT_TAG_END) {
         // no nbt data
-        goto exit;
+        goto bail;
     } else if (tag != NBT_TAG_COMPOUND) {
         cursor->error = 1;
-        goto exit;
+        goto bail;
     }
 
     // skip key of root compound
     mc_ushort key_size = net_read_ushort(cursor);
     if (key_size > cursor->limit - cursor->index) {
         cursor->error = 1;
-        goto exit;
+        goto bail;
     }
     cursor->index += key_size;
 
     for (;;) {
         if (cur_tape_index >= max_entries - 10) {
             cursor->error = 1;
-            goto exit;
+            goto bail;
         }
         if (cur_level == max_level + 1) {
             cursor->error = 1;
-            goto exit;
+            goto bail;
         }
         if (!level_info[cur_level].is_list) {
             // compound
@@ -91,7 +93,7 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_level) {
                 cur_level--;
 
                 if (cur_level == -1) {
-                    goto exit;
+                    goto bail;
                 } else {
                     continue;
                 }
@@ -101,7 +103,7 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_level) {
             key_size = net_read_ushort(cursor);
             if (key_size > cursor->limit - cursor->index) {
                 cursor->error = 1;
-                goto exit;
+                goto bail;
             }
             cursor->index += key_size;
 
@@ -145,7 +147,7 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_level) {
         case NBT_TAG_END:
             // Minecraft uses this sometimes for empty lists even if the
             // element tag differs if the list is non-empty... why...?
-            goto exit;
+            goto bail;
         case NBT_TAG_BYTE:
         case NBT_TAG_SHORT:
         case NBT_TAG_INT:
@@ -155,7 +157,7 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_level) {
             int bytes = elem_bytes[tag];
             if (cursor->index > cursor->limit - bytes) {
                 cursor->error = 1;
-                goto exit;
+                goto bail;
             } else {
                 cursor->index += bytes;
             }
@@ -169,7 +171,7 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_level) {
             if (cursor->index > (mc_long) cursor->limit
                     - elem_bytes * array_size) {
                 cursor->error = 1;
-                goto exit;
+                goto bail;
             } else {
                 cursor->index += elem_bytes * array_size;
             }
@@ -208,10 +210,11 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_level) {
             };
             break;
         default:
-            goto exit;
+            goto bail;
         }
     }
 
-exit:
+bail:
+    end_timed_block();
     return tape;
 }

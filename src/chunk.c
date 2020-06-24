@@ -385,10 +385,8 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
         .limit = zstream.total_out
     };
 
-    // begin_timed_block("load nbt");
     // @TODO(traks) more appropriate max level, currently 64
     nbt_tape_entry * tape = load_nbt(&cursor, scratch_arena, 64);
-    // end_timed_block();
 
     if (cursor.error) {
         logs("Failed to read uncompressed NBT data");
@@ -596,18 +594,19 @@ get_chunk_if_loaded(chunk_pos pos) {
     int hash = hash_chunk_pos(pos);
     chunk_bucket * bucket = chunk_map + hash;
     int bucket_size = bucket->size;
+    chunk * res = NULL;
 
     for (int i = 0; i < bucket_size; i++) {
         if (chunk_pos_equal(bucket->positions[i], pos)) {
             chunk * ch = bucket->chunks + i;
             if (ch->flags & CHUNK_LOADED) {
-                return ch;
+                res = ch;
             }
-            return NULL;
+            break;
         }
     }
 
-    return NULL;
+    return res;
 }
 
 chunk *
@@ -615,14 +614,16 @@ get_chunk_if_available(chunk_pos pos) {
     int hash = hash_chunk_pos(pos);
     chunk_bucket * bucket = chunk_map + hash;
     int bucket_size = bucket->size;
+    chunk * res = NULL;
 
     for (int i = 0; i < bucket_size; i++) {
         if (chunk_pos_equal(bucket->positions[i], pos)) {
-            return bucket->chunks + i;
+            res = bucket->chunks + i;
+            break;
         }
     }
 
-    return NULL;
+    return res;
 }
 
 void

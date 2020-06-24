@@ -53,6 +53,8 @@ chunk_cache_index(chunk_pos pos) {
 
 static void
 send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch) {
+    begin_timed_block("send chunk fully");
+
     // bit mask for included chunk sections; bottom section in least
     // significant bit
     mc_ushort section_mask = 0;
@@ -187,6 +189,8 @@ send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch) {
     // Presumably this was a chunk packet the client tried to read but somehow
     // they ended up outside the packet buffer.
     assert(out_size == send_cursor->index - packet_start);
+
+    end_timed_block();
 }
 
 static void
@@ -194,6 +198,8 @@ send_light_update(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch) {
     // There are 18 chunk sections from 1 section below the world to 1 section
     // above the world. The lowest chunk section comes first (and is the least
     // significant bit).
+
+    begin_timed_block("send light update");
 
     // @TODO(traks) send the real lighting data
 
@@ -245,6 +251,8 @@ send_light_update(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch) {
             net_write_ubyte(send_cursor, light);
         }
     }
+
+    end_timed_block();
 }
 
 static void
@@ -271,6 +279,8 @@ disconnect_player_now(player_brain * brain, server * serv) {
 
 void
 tick_player_brain(player_brain * brain, server * serv) {
+    begin_timed_block("tick player");
+
     entity_data * entity = resolve_entity(serv, brain->eid);
     assert(entity->type == ENTITY_PLAYER);
     int sock = brain->sock;
@@ -931,7 +941,7 @@ tick_player_brain(player_brain * brain, server * serv) {
     // occurs above. Eventually we should handle errors more gracefully.
     // Then this check shouldn't be necessary anymore.
     if (!(brain->flags & PLAYER_BRAIN_IN_USE)) {
-        return;
+        goto bail;
     }
 
     if (!(entity->flags & ENTITY_TELEPORTING)) {
@@ -942,10 +952,15 @@ tick_player_brain(player_brain * brain, server * serv) {
         // @TODO(traks) rotate player body depending on head rotation and
         // direction the player is moving to
     }
+
+bail:
+    end_timed_block();
 }
 
 void
 send_packets_to_player(player_brain * brain, server * serv) {
+    begin_timed_block("send packets");
+
     entity_data * player = resolve_entity(serv, brain->eid);
 
     // first write all the new packets to our own outgoing packet buffer
@@ -985,6 +1000,8 @@ send_packets_to_player(player_brain * brain, server * serv) {
 
         brain->flags |= PLAYER_BRAIN_SENT_TELEPORT;
     }
+
+    begin_timed_block("update chunk cache");
 
     mc_short chunk_cache_min_x = brain->chunk_cache_centre_x - brain->chunk_cache_radius;
     mc_short chunk_cache_min_z = brain->chunk_cache_centre_z - brain->chunk_cache_radius;
@@ -1115,7 +1132,11 @@ send_packets_to_player(player_brain * brain, server * serv) {
     brain->chunk_cache_centre_x = new_chunk_cache_centre_x;
     brain->chunk_cache_centre_z = new_chunk_cache_centre_z;
 
+    end_timed_block();
+
     // load and send tracked chunks
+    begin_timed_block("load and send chunks");
+
     // We iterate in a spiral around the player, so chunks near the player
     // are processed first. This shortens server join times (since players
     // don't need to wait for the chunk they are in to load) and allows
@@ -1170,7 +1191,10 @@ send_packets_to_player(player_brain * brain, server * serv) {
         }
     }
 
+    end_timed_block();
+
     // send updates in player's own inventory
+    begin_timed_block("send inventory");
 
     for (int i = 0; i < PLAYER_SLOTS; i++) {
         if (!(player->player.slots_needing_update & ((mc_ulong) 1 << i))) {
@@ -1206,7 +1230,10 @@ send_packets_to_player(player_brain * brain, server * serv) {
     memcpy(player->player.slots_prev_tick, player->player.slots,
             sizeof player->player.slots);
 
+    end_timed_block();
+
     // tab list updates
+    begin_timed_block("send tab list");
 
     if (!(brain->flags & PLAYER_BRAIN_INITIALISED_TAB_LIST)) {
         brain->flags |= PLAYER_BRAIN_INITIALISED_TAB_LIST;
@@ -1308,7 +1335,10 @@ send_packets_to_player(player_brain * brain, server * serv) {
         }
     }
 
+    end_timed_block();
+
     // entity tracking
+    begin_timed_block("track entities");
 
     entity_id removed_entities[64];
     int removed_entity_count = 0;
@@ -1470,7 +1500,10 @@ send_packets_to_player(player_brain * brain, server * serv) {
         }
     }
 
+    end_timed_block();
+
     // send chat messages
+    begin_timed_block("send chat");
 
     for (int i = 0; i < serv->global_msg_count; i++) {
         global_msg * msg = serv->global_msgs + i;
@@ -1506,14 +1539,19 @@ send_packets_to_player(player_brain * brain, server * serv) {
         net_write_ubyte(&send_cursor, 0); // chat box position
     }
 
+    end_timed_block();
+
     // try to write everything to the socket buffer
 
     assert(send_cursor.error == 0);
     brain->send_cursor = send_cursor.index;
 
     int sock = brain->sock;
+
+    begin_timed_block("send()");
     ssize_t send_size = send(sock, brain->send_buf,
             brain->send_cursor, 0);
+    end_timed_block();
 
     if (send_size == -1) {
         // EAGAIN means no data sent
@@ -1526,4 +1564,6 @@ send_packets_to_player(player_brain * brain, server * serv) {
                 brain->send_cursor - send_size);
         brain->send_cursor -= send_size;
     }
+
+    end_timed_block();
 }

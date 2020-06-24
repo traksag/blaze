@@ -84,7 +84,7 @@ static int block_type_count;
 static block_property_spec block_property_specs[128];
 static int block_property_spec_count;
 
-static timed_block timed_blocks[1000];
+static timed_block timed_blocks[1 << 16];
 static int timed_block_count;
 static int timed_block_depth_stack[64];
 static int cur_timed_block_depth;
@@ -100,9 +100,9 @@ init_program_nano_time() {
     program_start_time = mach_absolute_time();
 }
 
-static unsigned long long
+static long long
 program_nano_time() {
-    unsigned long long diff = mach_absolute_time() - program_start_time;
+    long long diff = mach_absolute_time() - program_start_time;
     return diff * timebase_info.numer / timebase_info.denom;
 }
 
@@ -1098,6 +1098,8 @@ main(void) {
             if (connect(profiler_sock, profiler_addr_ptr, sizeof profiler_addr)) {
                 close(profiler_sock);
                 profiler_sock = -1;
+            } else {
+                logs("Connected to profiler");
             }
         }
         if (profiler_sock != -1) {
@@ -1107,7 +1109,7 @@ main(void) {
             };
 
             // fill in length after writing all the data
-            cursor.index += 2;
+            cursor.index += 4;
 
             net_write_int(&cursor, timed_block_count);
             for (int i = 0; i < timed_block_count; i++) {
@@ -1116,13 +1118,14 @@ main(void) {
                 net_write_ubyte(&cursor, name_size);
                 net_write_data(&cursor, block->name, name_size);
                 net_write_ulong(&cursor, block->start_time);
-                net_write_ulong(&cursor, block->end_time);
+                net_write_uint(&cursor, block->end_time - block->start_time);
                 assert(block->start_time < block->end_time);
             }
 
+            logs("Packet size %d, blocks %d", cursor.index, timed_block_count);
             int end = cursor.index;
             cursor.index = 0;
-            net_write_ushort(&cursor, end - 2);
+            net_write_uint(&cursor, end - 4);
             cursor.index = end;
 
             int write_index = 0;
@@ -1130,7 +1133,13 @@ main(void) {
                 ssize_t send_size = send(profiler_sock,
                         cursor.buf + write_index,
                         cursor.index - write_index, 0);
-                if (send_size == -1 || send_size == 0) {
+                if (send_size == -1) {
+                    logs_errno("Disconnected from profiler: %s");
+                    close(profiler_sock);
+                    profiler_sock = -1;
+                    break;
+                } else if (send_size == 0) {
+                    logs_errno("Profiler closed connection");
                     close(profiler_sock);
                     profiler_sock = -1;
                     break;
