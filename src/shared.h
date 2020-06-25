@@ -342,6 +342,37 @@ typedef struct {
 } tab_list_entry;
 
 typedef struct {
+    // index into string buffer for name size + value
+    int name_index;
+    int value_count;
+    // index into value id buffer for array of values
+    int values_index;
+} tag_spec;
+
+typedef struct {
+    int size;
+    tag_spec tags[128];
+} tag_list;
+
+#define RESOURCE_LOC_SIZE_BITS (7)
+
+#define RESOURCE_LOC_MAX_SIZE ((1 << RESOURCE_LOC_SIZE_BITS) - 1)
+
+typedef struct {
+    mc_uint size:RESOURCE_LOC_SIZE_BITS;
+    mc_uint buf_index:14;
+    mc_uint id:11;
+} resource_loc_entry;
+
+typedef struct {
+    mc_int size_mask;
+    mc_int string_buf_size;
+    resource_loc_entry * entries;
+    unsigned char * string_buf;
+    mc_int last_string_buf_index;
+} resource_loc_table;
+
+typedef struct {
     unsigned long long current_tick;
 
     entity_data entities[MAX_ENTITIES];
@@ -373,6 +404,19 @@ typedef struct {
     int tab_list_removed_count;
     tab_list_entry tab_list[MAX_PLAYERS];
     int tab_list_size;
+
+    tag_list block_tags;
+    tag_list entity_tags;
+    tag_list fluid_tags;
+    tag_list item_tags;
+    int tag_name_count;
+    int tag_value_id_count;
+    unsigned char tag_name_buf[1 << 12];
+    mc_ushort tag_value_id_buf[1 << 10];
+
+    resource_loc_table block_resource_table;
+    resource_loc_table item_resource_table;
+    resource_loc_table entity_resource_table;
 } server;
 
 void
@@ -466,9 +510,6 @@ begin_timed_block(char * name);
 void
 end_timed_block();
 
-mc_short
-resolve_block_type_id(net_string resource_loc);
-
 int
 find_property_value_index(block_property_spec * prop_spec, net_string val);
 
@@ -491,7 +532,8 @@ void
 try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
         memory_arena * scratch_arena,
         block_properties * block_properties_table,
-        block_property_spec * block_property_specs);
+        block_property_spec * block_property_specs,
+        resource_loc_table * block_resource_table);
 
 chunk_section *
 alloc_chunk_section(void);
@@ -518,5 +560,8 @@ tick_player_brain(player_brain * brain, server * serv);
 
 void
 send_packets_to_player(player_brain * brain, server * serv);
+
+mc_short
+resolve_resource_loc_id(net_string resource_loc, resource_loc_table * table);
 
 #endif

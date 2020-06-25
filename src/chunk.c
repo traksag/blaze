@@ -229,7 +229,8 @@ void
 try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
         memory_arena * scratch_arena,
         block_properties * block_properties_table,
-        block_property_spec * block_property_specs) {
+        block_property_spec * block_property_specs,
+        resource_loc_table * block_resource_table) {
     begin_timed_block("read chunk");
 
     // @TODO(traks) error handling and/or error messages for all failure cases
@@ -469,7 +470,8 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
                         .size = resource_loc_size,
                         .ptr = cursor.buf + cursor.index
                     };
-                    type_id = resolve_block_type_id(resource_loc);
+                    type_id = resolve_resource_loc_id(resource_loc,
+                            block_resource_table);
                     if (type_id == -1) {
                         // @TODO(traks) should probably just error out
                         type_id = 2;

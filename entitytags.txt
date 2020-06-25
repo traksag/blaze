@@ -1,0 +1,30 @@
+key minecraft:raiders
+value minecraft:evoker
+value minecraft:pillager
+value minecraft:ravager
+value minecraft:vindicator
+value minecraft:illusioner
+value minecraft:witch
+
+key minecraft:skeletons
+value minecraft:skeleton
+value minecraft:stray
+value minecraft:wither_skeleton
+
+key minecraft:impact_projectiles
+value #minecraft:arrows
+value minecraft:snowball
+value minecraft:fireball
+value minecraft:small_fireball
+value minecraft:egg
+value minecraft:trident
+value minecraft:dragon_fireball
+value minecraft:wither_skull
+
+key minecraft:beehive_inhabitors
+value minecraft:bee
+
+key minecraft:arrows
+value minecraft:arrow
+value minecraft:spectral_arrow
+

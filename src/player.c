@@ -1182,22 +1182,57 @@ send_packets_to_player(player_brain * brain, server * serv) {
         net_write_ubyte(&send_cursor, player->player.selected_slot
                 - PLAYER_FIRST_HOTBAR_SLOT);
 
+        /*
         // send update tags packet
-        // out_size = net_varint_size(91)
-        //         + net_varint_size(0)
-        //         + net_varint_size(0)
-        //         + net_varint_size(0)
-        //         + net_varint_size(0);
-        // net_write_varint(&send_cursor, out_size);
-        // net_write_varint(&send_cursor, 91);
-        // // block tags
-        // net_write_varint(&send_cursor, 0);
-        // // item tags
-        // net_write_varint(&send_cursor, 0);
-        // // entity tags
-        // net_write_varint(&send_cursor, 0);
-        // // fluid tags
-        // net_write_varint(&send_cursor, 0);
+        out_size = net_varint_size(91);
+
+        // Note that the order of the elements in the array has to match the
+        // order of the tag lists in the packet.
+        tag_list * tag_lists[] = {
+            &serv->block_tags,
+            &serv->item_tags,
+            &serv->entity_tags,
+            &serv->fluid_tags,
+        };
+
+        for (int tagsi = 0; tagsi < ARRAY_SIZE(tag_lists); tagsi++) {
+            tag_list * tags = tag_lists[tagsi];
+            out_size += net_varint_size(tags->size);
+            for (int i = 0; i < tags->size; i++) {
+                tag_spec * tag = tags->tags + i;
+                int name_size = serv->tag_name_buf[tag->name_index];
+                out_size += net_varint_size(name_size) + name_size
+                        + net_varint_size(tag->value_count);
+
+                for (int vali = 0; vali < tag->value_count; vali++) {
+                    mc_int val = serv->tag_value_id_buf[tag->values_index + vali];
+                    out_size += net_varint_size(val);
+                }
+            }
+        }
+
+        net_write_varint(&send_cursor, out_size);
+        net_write_varint(&send_cursor, 91);
+
+        for (int tagsi = 0; tagsi < ARRAY_SIZE(tag_lists); tagsi++) {
+            tag_list * tags = tag_lists[tagsi];
+            net_write_varint(&send_cursor, tags->size);
+
+            for (int i = 0; i < tags->size; i++) {
+                tag_spec * tag = tags->tags + i;
+                unsigned char * name_size = serv->tag_name_buf + tag->name_index;
+
+                net_write_varint(&send_cursor, *name_size);
+                net_write_data(&send_cursor, name_size + 1, *name_size);
+                net_write_varint(&send_cursor, tag->value_count);
+
+                for (int vali = 0; vali < tag->value_count; vali++) {
+                    mc_int val = serv->tag_value_id_buf[tag->values_index + vali];
+                    net_write_varint(&send_cursor, val);
+                }
+            }
+        }
+        */
 
         // send custom payload packet
         net_string brand_str = NET_STRING("minecraft:brand");

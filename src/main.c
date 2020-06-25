@@ -63,12 +63,6 @@ typedef struct {
 } initial_connection;
 
 typedef struct {
-    unsigned char resource_loc_size;
-    unsigned char resource_loc[44];
-    mc_ushort id;
-} block_type_spec;
-
-typedef struct {
     long long start_time;
     long long end_time;
     char * name;
@@ -77,7 +71,6 @@ typedef struct {
 static initial_connection initial_connections[32];
 static int initial_connection_count;
 
-static block_type_spec block_type_table[1000];
 static block_properties block_properties_table[1000];
 static int block_type_count;
 static int block_state_count;
@@ -227,35 +220,71 @@ net_string_equal(net_string a, net_string b) {
 }
 
 static mc_ushort
-hash_block_resource_location(net_string resource_loc) {
+hash_resource_loc(net_string resource_loc, resource_loc_table * table) {
     mc_ushort res = 0;
     unsigned char * string = resource_loc.ptr;
     for (int i = 0; i < resource_loc.size; i++) {
         res = res * 31 + string[i];
     }
-    return res % ARRAY_SIZE(block_type_table);
+    return res & table->size_mask;
+}
+
+static void
+register_resource_loc(net_string resource_loc, mc_short id,
+        resource_loc_table * table) {
+    mc_ushort hash = hash_resource_loc(resource_loc, table);
+
+    for (mc_ushort i = hash; ; i = (i + 1) & table->size_mask) {
+        assert(((i + 1) & table->size_mask) != hash);
+        resource_loc_entry * entry = table->entries + i;
+
+        if (entry->size == 0) {
+            assert(resource_loc.size <= RESOURCE_LOC_MAX_SIZE);
+            entry->size = resource_loc.size;
+            mc_int string_buf_index = table->last_string_buf_index;
+            entry->buf_index = string_buf_index;
+            entry->id = id;
+
+            assert(string_buf_index + resource_loc.size <= table->string_buf_size);
+            memcpy(table->string_buf + string_buf_index, resource_loc.ptr,
+                    resource_loc.size);
+            table->last_string_buf_index += resource_loc.size;
+            break;
+        }
+    }
+}
+
+static void
+alloc_resource_loc_table(resource_loc_table * table, mc_int size,
+        mc_int string_buf_size) {
+    *table = (resource_loc_table) {
+        .size_mask = size - 1,
+        .string_buf_size = string_buf_size,
+        .entries = calloc(size, sizeof *table->entries),
+        .string_buf = calloc(string_buf_size, 1),
+    };
+    assert(table->entries != NULL);
+    assert(table->string_buf != NULL);
 }
 
 mc_short
-resolve_block_type_id(net_string resource_loc) {
-    mc_ushort hash = hash_block_resource_location(resource_loc);
+resolve_resource_loc_id(net_string resource_loc, resource_loc_table * table) {
+    mc_ushort hash = hash_resource_loc(resource_loc, table);
     mc_ushort i = hash;
     for (;;) {
-        block_type_spec * spec = block_type_table + i;
-        net_string entry = {
-            .ptr = spec->resource_loc,
-            .size = spec->resource_loc_size
+        resource_loc_entry * entry = table->entries + i;
+        net_string name = {
+            .ptr = table->string_buf + entry->buf_index,
+            .size = entry->size
         };
-        if (net_string_equal(resource_loc, entry)) {
-            return spec->id;
+        if (net_string_equal(resource_loc, name)) {
+            return entry->id;
         }
 
-        i = (i + 1) % ARRAY_SIZE(block_type_table);
+        i = (i + 1) & table->size_mask;
         if (i == hash) {
             // @TODO(traks) instead of returning -1 on error, perhaps we should
-            // return some special value that also points into
-            // block type id -> something tables to some default unknown block
-            // type value. Could e.g. use sponge for that.
+            // return some default resource location in the table.
             return -1;
         }
     }
@@ -733,7 +762,8 @@ server_tick(server * serv) {
             .size = serv->short_lived_scratch_size
         };
         try_read_chunk_from_storage(pos, ch, &scratch_arena,
-                block_properties_table, block_property_specs);
+                block_properties_table, block_property_specs,
+                &serv->block_resource_table);
 
         if (!(ch->flags & CHUNK_LOADED)) {
             // @TODO(traks) fall back to stone plateau at y = 0 for now
@@ -850,7 +880,7 @@ load_item_types(server * serv) {
 }
 
 static void
-load_block_types(void) {
+load_block_types(server * serv) {
     int fd = open("blocktypes.txt", O_RDONLY);
     if (fd == -1) {
         return;
@@ -877,7 +907,7 @@ load_block_types(void) {
     net_string args[32];
     mc_ushort base_state = 0;
     mc_ushort states_for_type = 0;
-    block_type_spec * type_spec;
+    mc_ushort type_id;
 
     for (;;) {
         int arg_count = parse_database_line(&cursor, args);
@@ -890,21 +920,9 @@ load_block_types(void) {
             }
         } else if (net_string_equal(args[0], NET_STRING("key"))) {
             net_string key = args[1];
-            mc_ushort hash = hash_block_resource_location(key);
-            mc_ushort type_id = block_type_count;
+            type_id = block_type_count;
             block_type_count++;
-
-            for (mc_ushort i = hash; ;
-                    i = (i + 1) % ARRAY_SIZE(block_type_table)) {
-                type_spec = block_type_table + i;
-                if (type_spec->resource_loc_size == 0) {
-                    assert(key.size <= sizeof type_spec->resource_loc);
-                    type_spec->resource_loc_size = key.size;
-                    memcpy(type_spec->resource_loc, key.ptr, key.size);
-                    type_spec->id = type_id;
-                    break;
-                }
-            }
+            register_resource_loc(key, type_id, &serv->block_resource_table);
 
             base_state += states_for_type;
             block_properties_table[type_id].base_state = base_state;
@@ -925,7 +943,7 @@ load_block_types(void) {
                 speci += args[i].size;
             }
 
-            block_properties * props = block_properties_table + type_spec->id;
+            block_properties * props = block_properties_table + type_id;
 
             int i;
             for (i = 0; i < block_property_spec_count; i++) {
@@ -944,7 +962,7 @@ load_block_types(void) {
                 block_property_spec_count++;
             }
         } else if (net_string_equal(args[0], NET_STRING("default_values"))) {
-            block_properties * props = block_properties_table + type_spec->id;
+            block_properties * props = block_properties_table + type_id;
 
             for (int i = 1; i < arg_count; i++) {
                 assert(i - 1 < props->property_count);
@@ -954,6 +972,70 @@ load_block_types(void) {
                 assert(value_index != -1);
                 props->default_value_indices[i - 1] = value_index;
             }
+        }
+    }
+}
+
+static void
+load_tags(char * file_name, tag_list * tags, server * serv) {
+    tags->size = 0;
+    int fd = open(file_name, O_RDONLY);
+    if (fd == -1) {
+        return;
+    }
+
+    struct stat stat;
+    if (fstat(fd, &stat)) {
+        close(fd);
+        return;
+    }
+
+    // @TODO(traks) should we unmap this or something?
+    unsigned char * fmmap = mmap(NULL, stat.st_size, PROT_READ,
+            MAP_PRIVATE, fd, 0);
+    if (fmmap == MAP_FAILED) {
+        close(fd);
+        return;
+    }
+
+    // after mmaping we can close the file descriptor
+    close(fd);
+
+    buffer_cursor cursor = {.buf = fmmap, .limit = stat.st_size};
+    net_string args[16];
+    int tag_index = 0;
+    int name_buf_index = serv->tag_name_count;
+    tag_spec * tag;
+
+    for (;;) {
+        int arg_count = parse_database_line(&cursor, args);
+        if (arg_count == 0) {
+            // empty line
+            tag_index++;
+
+            if (cursor.index == cursor.limit) {
+                break;
+            }
+        } else if (net_string_equal(args[0], NET_STRING("key"))) {
+            assert(tag_index < ARRAY_SIZE(tags->tags));
+
+            tags->size++;
+            tag = tags->tags + tag_index;
+            *tag = (tag_spec) {0};
+            tag->name_index = name_buf_index;
+
+            int name_size = args[1].size;
+            assert(name_size <= UCHAR_MAX);
+            assert(name_buf_index + 1 + name_size <= ARRAY_SIZE(serv->tag_name_buf));
+
+            serv->tag_name_buf[name_buf_index] = name_size;
+            name_buf_index++;
+            memcpy(serv->tag_name_buf + name_buf_index, args[1].ptr, name_size);
+            name_buf_index += name_size;
+        } else if (net_string_equal(args[0], NET_STRING("value"))) {
+            tag->value_count++;
+
+
         }
     }
 }
@@ -1044,8 +1126,11 @@ main(void) {
         exit(1);
     }
 
+    // @TODO(traks) better sizes
+    alloc_resource_loc_table(&serv->block_resource_table, 1 << 10, 1 << 16);
+
     load_item_types(serv);
-    load_block_types();
+    load_block_types(serv);
 
     int profiler_sock = -1;
 
