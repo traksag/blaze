@@ -354,14 +354,12 @@ typedef struct {
     tag_spec tags[128];
 } tag_list;
 
-#define RESOURCE_LOC_SIZE_BITS (7)
-
-#define RESOURCE_LOC_MAX_SIZE ((1 << RESOURCE_LOC_SIZE_BITS) - 1)
+#define RESOURCE_LOC_MAX_SIZE (256)
 
 typedef struct {
-    mc_uint size:RESOURCE_LOC_SIZE_BITS;
-    mc_uint buf_index:14;
-    mc_uint id:11;
+    unsigned char size;
+    mc_ushort id;
+    mc_uint buf_index;
 } resource_loc_entry;
 
 typedef struct {
@@ -412,11 +410,12 @@ typedef struct {
     int tag_name_count;
     int tag_value_id_count;
     unsigned char tag_name_buf[1 << 12];
-    mc_ushort tag_value_id_buf[1 << 10];
+    mc_ushort tag_value_id_buf[1 << 12];
 
     resource_loc_table block_resource_table;
     resource_loc_table item_resource_table;
     resource_loc_table entity_resource_table;
+    resource_loc_table fluid_resource_table;
 } server;
 
 void

@@ -1,0 +1,9 @@
+key minecraft:empty
+
+key minecraft:flowing_water
+
+key minecraft:water
+
+key minecraft:flowing_lava
+
+key minecraft:lava

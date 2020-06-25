@@ -866,13 +866,20 @@ load_item_types(server * serv) {
     net_string args[16];
     item_type * it;
 
-    while (cursor.index != cursor.limit) {
+    for (;;) {
         int arg_count = parse_database_line(&cursor, args);
         if (arg_count == 0) {
             // empty line
+            if (cursor.index == cursor.limit) {
+                break;
+            }
         } else if (net_string_equal(args[0], NET_STRING("key"))) {
+            mc_ushort id = serv->item_type_count;
             it = serv->item_types + serv->item_type_count;
+            *it = (item_type) {0};
             serv->item_type_count++;
+
+            register_resource_loc(args[1], id, &serv->item_resource_table);
         } else if (net_string_equal(args[0], NET_STRING("max_stack_size"))) {
             it->max_stack_size = atoi(args[1].ptr);
         }
@@ -977,7 +984,94 @@ load_block_types(server * serv) {
 }
 
 static void
-load_tags(char * file_name, tag_list * tags, server * serv) {
+load_entity_types(server * serv) {
+    int fd = open("entitytypes.txt", O_RDONLY);
+    if (fd == -1) {
+        return;
+    }
+
+    struct stat stat;
+    if (fstat(fd, &stat)) {
+        close(fd);
+        return;
+    }
+
+    // @TODO(traks) should we unmap this or something?
+    unsigned char * fmmap = mmap(NULL, stat.st_size, PROT_READ,
+            MAP_PRIVATE, fd, 0);
+    if (fmmap == MAP_FAILED) {
+        close(fd);
+        return;
+    }
+
+    // after mmaping we can close the file descriptor
+    close(fd);
+
+    buffer_cursor cursor = {.buf = fmmap, .limit = stat.st_size};
+    net_string args[16];
+    mc_ushort entity_types = 0;
+
+    for (;;) {
+        int arg_count = parse_database_line(&cursor, args);
+        if (arg_count == 0) {
+            // empty line
+            if (cursor.index == cursor.limit) {
+                break;
+            }
+        } else if (net_string_equal(args[0], NET_STRING("key"))) {
+            mc_ushort id = entity_types;
+            entity_types++;
+            register_resource_loc(args[1], id, &serv->entity_resource_table);
+        }
+    }
+}
+
+static void
+load_fluid_types(server * serv) {
+    int fd = open("fluidtypes.txt", O_RDONLY);
+    if (fd == -1) {
+        return;
+    }
+
+    struct stat stat;
+    if (fstat(fd, &stat)) {
+        close(fd);
+        return;
+    }
+
+    // @TODO(traks) should we unmap this or something?
+    unsigned char * fmmap = mmap(NULL, stat.st_size, PROT_READ,
+            MAP_PRIVATE, fd, 0);
+    if (fmmap == MAP_FAILED) {
+        close(fd);
+        return;
+    }
+
+    // after mmaping we can close the file descriptor
+    close(fd);
+
+    buffer_cursor cursor = {.buf = fmmap, .limit = stat.st_size};
+    net_string args[16];
+    mc_ushort fluid_types = 0;
+
+    for (;;) {
+        int arg_count = parse_database_line(&cursor, args);
+        if (arg_count == 0) {
+            // empty line
+            if (cursor.index == cursor.limit) {
+                break;
+            }
+        } else if (net_string_equal(args[0], NET_STRING("key"))) {
+            mc_ushort id = fluid_types;
+            fluid_types++;
+            register_resource_loc(args[1], id, &serv->fluid_resource_table);
+        }
+    }
+}
+
+static void
+load_tags(char * file_name, tag_list * tags,
+        resource_loc_table * table, server * serv) {
     tags->size = 0;
     int fd = open(file_name, O_RDONLY);
     if (fd == -1) {
@@ -1003,39 +1097,45 @@ load_tags(char * file_name, tag_list * tags, server * serv) {
 
     buffer_cursor cursor = {.buf = fmmap, .limit = stat.st_size};
     net_string args[16];
-    int tag_index = 0;
-    int name_buf_index = serv->tag_name_count;
     tag_spec * tag;
 
     for (;;) {
         int arg_count = parse_database_line(&cursor, args);
         if (arg_count == 0) {
             // empty line
-            tag_index++;
-
             if (cursor.index == cursor.limit) {
                 break;
             }
         } else if (net_string_equal(args[0], NET_STRING("key"))) {
-            assert(tag_index < ARRAY_SIZE(tags->tags));
+            assert(tags->size < ARRAY_SIZE(tags->tags));
 
+            tag = tags->tags + tags->size;
             tags->size++;
-            tag = tags->tags + tag_index;
+
             *tag = (tag_spec) {0};
-            tag->name_index = name_buf_index;
+            tag->name_index = serv->tag_name_count;
+            tag->value_count = 0;
+            tag->values_index = serv->tag_value_id_count;
 
             int name_size = args[1].size;
             assert(name_size <= UCHAR_MAX);
-            assert(name_buf_index + 1 + name_size <= ARRAY_SIZE(serv->tag_name_buf));
+            assert(serv->tag_name_count + 1 + name_size
+                    <= ARRAY_SIZE(serv->tag_name_buf));
 
-            serv->tag_name_buf[name_buf_index] = name_size;
-            name_buf_index++;
-            memcpy(serv->tag_name_buf + name_buf_index, args[1].ptr, name_size);
-            name_buf_index += name_size;
+            serv->tag_name_buf[serv->tag_name_count] = name_size;
+            serv->tag_name_count++;
+            memcpy(serv->tag_name_buf + serv->tag_name_count, args[1].ptr, name_size);
+            serv->tag_name_count += name_size;
         } else if (net_string_equal(args[0], NET_STRING("value"))) {
+            mc_short id = resolve_resource_loc_id(args[1], table);
+            assert(id != -1);
+
+            assert(tag->values_index + tag->value_count
+                    <= ARRAY_SIZE(serv->tag_value_id_buf));
+            serv->tag_value_id_buf[tag->values_index + tag->value_count] = id;
+            serv->tag_value_id_count++;
+
             tag->value_count++;
-
-
         }
     }
 }
@@ -1128,9 +1228,18 @@ main(void) {
 
     // @TODO(traks) better sizes
     alloc_resource_loc_table(&serv->block_resource_table, 1 << 10, 1 << 16);
+    alloc_resource_loc_table(&serv->item_resource_table, 1 << 10, 1 << 16);
+    alloc_resource_loc_table(&serv->entity_resource_table, 1 << 10, 1 << 12);
+    alloc_resource_loc_table(&serv->fluid_resource_table, 1 << 10, 1 << 10);
 
     load_item_types(serv);
     load_block_types(serv);
+    load_entity_types(serv);
+    load_fluid_types(serv);
+    load_tags("blocktags.txt", &serv->block_tags, &serv->block_resource_table, serv);
+    load_tags("itemtags.txt", &serv->item_tags, &serv->item_resource_table, serv);
+    load_tags("entitytags.txt", &serv->entity_tags, &serv->entity_resource_table, serv);
+    load_tags("fluidtags.txt", &serv->fluid_tags, &serv->fluid_resource_table, serv);
 
     int profiler_sock = -1;
 

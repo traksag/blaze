@@ -12,7 +12,8 @@ value minecraft:stray
 value minecraft:wither_skeleton
 
 key minecraft:impact_projectiles
-value #minecraft:arrows
+value minecraft:arrow
+value minecraft:spectral_arrow
 value minecraft:snowball
 value minecraft:fireball
 value minecraft:small_fireball
@@ -27,4 +28,3 @@ value minecraft:bee
 key minecraft:arrows
 value minecraft:arrow
 value minecraft:spectral_arrow
-

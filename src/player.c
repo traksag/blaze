@@ -1182,7 +1182,6 @@ send_packets_to_player(player_brain * brain, server * serv) {
         net_write_ubyte(&send_cursor, player->player.selected_slot
                 - PLAYER_FIRST_HOTBAR_SLOT);
 
-        /*
         // send update tags packet
         out_size = net_varint_size(91);
 
@@ -1191,8 +1190,8 @@ send_packets_to_player(player_brain * brain, server * serv) {
         tag_list * tag_lists[] = {
             &serv->block_tags,
             &serv->item_tags,
-            &serv->entity_tags,
             &serv->fluid_tags,
+            &serv->entity_tags,
         };
 
         for (int tagsi = 0; tagsi < ARRAY_SIZE(tag_lists); tagsi++) {
@@ -1232,7 +1231,6 @@ send_packets_to_player(player_brain * brain, server * serv) {
                 }
             }
         }
-        */
 
         // send custom payload packet
         net_string brand_str = NET_STRING("minecraft:brand");
