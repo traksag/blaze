@@ -981,6 +981,255 @@ send_packets_to_player(player_brain * brain, server * serv) {
         .index = brain->send_cursor
     };
 
+    if (!(brain->flags & PLAYER_BRAIN_DID_INIT_PACKETS)) {
+        brain->flags |= PLAYER_BRAIN_DID_INIT_PACKETS;
+
+        // send game profile packet
+        net_string username = {
+            .size = player->player.username_size,
+            .ptr = player->player.username
+        };
+        int out_size = net_varint_size(2) + 16
+                + net_varint_size(username.size) + username.size;
+        net_write_varint(&send_cursor, out_size);
+        net_write_varint(&send_cursor, 2);
+        net_write_ulong(&send_cursor, 0x0123456789abcdef);
+        net_write_ulong(&send_cursor, 0x0123456789abcdef);
+        net_write_string(&send_cursor, username);
+
+        // send login packet
+        net_string level_name = NET_STRING("blaze:main");
+        net_string dimension_type = NET_STRING("minecraft:overworld");
+        out_size = net_varint_size(37) + 4 + 1 + 1
+                + net_varint_size(1)
+                + net_varint_size(level_name.size) + level_name.size;
+
+        // dimension type nbt
+        out_size += 1 + 2;
+        net_string dimension_str = NET_STRING("dimension");
+        out_size += 1 + 2 + dimension_str.size + 1 + 4;
+
+        net_string name_str = NET_STRING("name");
+        out_size += 1 + 2 + name_str.size + 2 + dimension_type.size;
+        net_string has_skylight = NET_STRING("has_skylight");
+        out_size += 1 + 2 + has_skylight.size + 1;
+        net_string has_ceiling = NET_STRING("has_ceiling");
+        out_size += 1 + 2 + has_ceiling.size + 1;
+        net_string ultrawarm = NET_STRING("ultrawarm");
+        out_size += 1 + 2 + ultrawarm.size + 1;
+        net_string natural = NET_STRING("natural");
+        out_size += 1 + 2 + natural.size + 1;
+        net_string shrunk = NET_STRING("shrunk");
+        out_size += 1 + 2 + shrunk.size + 1;
+        net_string piglin_safe = NET_STRING("piglin_safe");
+        out_size += 1 + 2 + piglin_safe.size + 1;
+        net_string bed_works = NET_STRING("bed_works");
+        out_size += 1 + 2 + bed_works.size + 1;
+        net_string respawn_anchor_works = NET_STRING("respawn_anchor_works");
+        out_size += 1 + 2 + respawn_anchor_works.size + 1;
+        net_string has_raids = NET_STRING("has_raids");
+        out_size += 1 + 2 + has_raids.size + 1;
+        net_string logical_height = NET_STRING("logical_height");
+        out_size += 1 + 2 + logical_height.size + 4;
+        net_string infiniburn = NET_STRING("infiniburn");
+        net_string infiniburn_tag = NET_STRING("minecraft:infiniburn_overworld");
+        out_size += 1 + 2 + infiniburn.size + 2 + infiniburn_tag.size;
+        net_string ambient_light = NET_STRING("ambient_light");
+        out_size += 1 + 2 + ambient_light.size + 4;
+
+        out_size += 1 + 1; // end tags
+
+        out_size += net_varint_size(dimension_type.size) + dimension_type.size
+                + net_varint_size(level_name.size) + level_name.size
+                + 8 + 1
+                + net_varint_size(brain->new_chunk_cache_radius - 1)
+                + 1 + 1 + 1 + 1;
+
+        net_write_varint(&send_cursor, out_size);
+        int start = send_cursor.index;
+        net_write_varint(&send_cursor, 37);
+        net_write_uint(&send_cursor, player->eid);
+        net_write_ubyte(&send_cursor, player->player.gamemode); // current gamemode
+        net_write_ubyte(&send_cursor, player->player.gamemode); // previous gamemode
+
+        // all levels/worlds currently available on the server
+        net_write_varint(&send_cursor, 1); // number of levels
+        net_write_string(&send_cursor, level_name);
+
+        // All dimension types on the server. Currently dimension types
+        // have the following configurable properties:
+        //
+        //  - fixed_time (optional long): time of day always equals this
+        //  - has_skylight (bool): sky light levels, whether it can
+        //    thunder, whether daylight sensors work, etc.
+        //  - has_ceiling (bool): affects thunder, map rendering, mob
+        //    spawning algorithm
+        //  - ultrawarm (bool): whether water can be placed and how far
+        //    and how fast lava flows
+        //  - natural (bool): whether players can sleep and whether
+        //    zombified piglin can spawn from portals
+        //  - shrunk (bool): nether coordinates or overworld coordinates
+        //    (to determine new coordinates when moving between worlds)
+        //  - piglin_safe (bool): false if piglins convert to zombified
+        //    piglins as in the vanilla overworld
+        //  - bed_works (bool): true if beds can set spawn point
+        //  - respawn_anchor_works (bool): true if respawn anchors can
+        //    set spawn point
+        //  - has_raids (bool): whether raids spawn
+        //  - logical_height (int in [0, 256]): seems to only affect
+        //    chorus fruit teleportation and nether portal spawning, not
+        //    the actual maximum world height
+        //  - infiniburn (resource loc): the resource location of a
+        //    block tag that is used to check whether fire should keep
+        //    burning forever on tagged blocks
+        //  - ambient_light (float): not used
+        //
+        // None seem to affect anything client-side.
+
+        net_write_ubyte(&send_cursor, NBT_TAG_COMPOUND);
+        net_write_ushort(&send_cursor, 0); // 0-length name
+
+        net_write_ubyte(&send_cursor, NBT_TAG_LIST);
+        net_write_ushort(&send_cursor, dimension_str.size);
+        net_write_data(&send_cursor, dimension_str.ptr, dimension_str.size);
+        net_write_ubyte(&send_cursor, NBT_TAG_COMPOUND); // element type
+        net_write_int(&send_cursor, 1); // number of elements
+
+        net_write_ubyte(&send_cursor, NBT_TAG_STRING);
+        net_write_ushort(&send_cursor, name_str.size);
+        net_write_data(&send_cursor, name_str.ptr, name_str.size);
+        net_write_ushort(&send_cursor, dimension_type.size);
+        net_write_data(&send_cursor, dimension_type.ptr, dimension_type.size);
+
+        net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
+        net_write_ushort(&send_cursor, has_skylight.size);
+        net_write_data(&send_cursor, has_skylight.ptr, has_skylight.size);
+        net_write_ubyte(&send_cursor, 1);
+
+        net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
+        net_write_ushort(&send_cursor, has_ceiling.size);
+        net_write_data(&send_cursor, has_ceiling.ptr, has_ceiling.size);
+        net_write_ubyte(&send_cursor, 0);
+
+        net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
+        net_write_ushort(&send_cursor, ultrawarm.size);
+        net_write_data(&send_cursor, ultrawarm.ptr, ultrawarm.size);
+        net_write_ubyte(&send_cursor, 0);
+
+        net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
+        net_write_ushort(&send_cursor, natural.size);
+        net_write_data(&send_cursor, natural.ptr, natural.size);
+        net_write_ubyte(&send_cursor, 1);
+
+        net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
+        net_write_ushort(&send_cursor, shrunk.size);
+        net_write_data(&send_cursor, shrunk.ptr, shrunk.size);
+        net_write_ubyte(&send_cursor, 0);
+
+        net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
+        net_write_ushort(&send_cursor, piglin_safe.size);
+        net_write_data(&send_cursor, piglin_safe.ptr, piglin_safe.size);
+        net_write_ubyte(&send_cursor, 0);
+
+        net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
+        net_write_ushort(&send_cursor, bed_works.size);
+        net_write_data(&send_cursor, bed_works.ptr, bed_works.size);
+        net_write_ubyte(&send_cursor, 1);
+
+        net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
+        net_write_ushort(&send_cursor, respawn_anchor_works.size);
+        net_write_data(&send_cursor, respawn_anchor_works.ptr, respawn_anchor_works.size);
+        net_write_ubyte(&send_cursor, 0);
+
+        net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
+        net_write_ushort(&send_cursor, has_raids.size);
+        net_write_data(&send_cursor, has_raids.ptr, has_raids.size);
+        net_write_ubyte(&send_cursor, 0);
+
+        net_write_ubyte(&send_cursor, NBT_TAG_INT);
+        net_write_ushort(&send_cursor, logical_height.size);
+        net_write_data(&send_cursor, logical_height.ptr, logical_height.size);
+        net_write_int(&send_cursor, 256);
+
+        net_write_ubyte(&send_cursor, NBT_TAG_STRING);
+        net_write_ushort(&send_cursor, infiniburn.size);
+        net_write_data(&send_cursor, infiniburn.ptr, infiniburn.size);
+        net_write_ushort(&send_cursor, infiniburn_tag.size);
+        net_write_data(&send_cursor, infiniburn_tag.ptr, infiniburn_tag.size);
+
+        net_write_ubyte(&send_cursor, NBT_TAG_FLOAT);
+        net_write_ushort(&send_cursor, ambient_light.size);
+        net_write_data(&send_cursor, ambient_light.ptr, ambient_light.size);
+        net_write_float(&send_cursor, 0);
+
+        net_write_ubyte(&send_cursor, NBT_TAG_END); // end of element compound
+        net_write_ubyte(&send_cursor, NBT_TAG_END); // end of root compound
+
+        net_write_string(&send_cursor, dimension_type);
+        net_write_string(&send_cursor, level_name);
+
+        net_write_ulong(&send_cursor, 0); // seed
+        net_write_ubyte(&send_cursor, 0); // max players (ignored by client)
+        net_write_varint(&send_cursor, brain->new_chunk_cache_radius - 1);
+        net_write_ubyte(&send_cursor, 0); // reduced debug info
+        net_write_ubyte(&send_cursor, 1); // show death screen on death
+        net_write_ubyte(&send_cursor, 0); // is debug
+        net_write_ubyte(&send_cursor, 0); // is flat
+
+        // send set carried item packet
+        net_write_varint(&send_cursor, net_varint_size(63) + 1);
+        net_write_varint(&send_cursor, 63);
+        net_write_ubyte(&send_cursor, player->player.selected_slot
+                - PLAYER_FIRST_HOTBAR_SLOT);
+
+        // send update tags packet
+        // out_size = net_varint_size(91)
+        //         + net_varint_size(0)
+        //         + net_varint_size(0)
+        //         + net_varint_size(0)
+        //         + net_varint_size(0);
+        // net_write_varint(&send_cursor, out_size);
+        // net_write_varint(&send_cursor, 91);
+        // // block tags
+        // net_write_varint(&send_cursor, 0);
+        // // item tags
+        // net_write_varint(&send_cursor, 0);
+        // // entity tags
+        // net_write_varint(&send_cursor, 0);
+        // // fluid tags
+        // net_write_varint(&send_cursor, 0);
+
+        // send custom payload packet
+        net_string brand_str = NET_STRING("minecraft:brand");
+        net_string brand = NET_STRING("blaze");
+        out_size = net_varint_size(24)
+                + net_varint_size(brand_str.size) + brand_str.size
+                + net_varint_size(brand.size) + brand.size;
+        net_write_varint(&send_cursor, out_size);
+        net_write_varint(&send_cursor, 24);
+        net_write_string(&send_cursor, brand_str);
+        net_write_string(&send_cursor, brand);
+
+        // send change difficulty packet
+        out_size = net_varint_size(13) + 1 + 1;
+        net_write_varint(&send_cursor, out_size);
+        net_write_varint(&send_cursor, 13);
+        net_write_ubyte(&send_cursor, 2); // difficulty normal
+        net_write_ubyte(&send_cursor, 0); // locked
+
+        // send player abilities packet
+        out_size = net_varint_size(49) + 1 + 4 + 4;
+        net_write_varint(&send_cursor, out_size);
+        net_write_varint(&send_cursor, 49);
+        // @NOTE(traks) actually need abilities to make creative mode players
+        // be able to fly
+        // bitmap: invulnerable, (is flying), can fly, instabuild
+        mc_ubyte ability_flags = 0x4;
+        net_write_ubyte(&send_cursor, ability_flags);
+        net_write_float(&send_cursor, 0.05); // flying speed
+        net_write_float(&send_cursor, 0.1); // walking speed
+    }
+
     // send keep alive packet every so often
     if (serv->current_tick - brain->last_keep_alive_sent_tick >= KEEP_ALIVE_SPACING
             && (brain->flags & PLAYER_BRAIN_GOT_ALIVE_RESPONSE)) {

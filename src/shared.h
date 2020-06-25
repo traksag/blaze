@@ -280,6 +280,8 @@ typedef struct {
 
 #define PLAYER_BRAIN_IN_USE ((unsigned) (1 << 0))
 
+#define PLAYER_BRAIN_DID_INIT_PACKETS ((unsigned) (1 << 1))
+
 #define PLAYER_BRAIN_SENT_TELEPORT ((unsigned) (1 << 2))
 
 #define PLAYER_BRAIN_GOT_ALIVE_RESPONSE ((unsigned) (1 << 3))
