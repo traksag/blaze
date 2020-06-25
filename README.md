@@ -10,6 +10,25 @@ Some side effects of these goals are the following: we don't implement world gen
 
 All files in this repository are in the public domain. You can do whatever you want with them. No warranty is implied; use files in this repository at your own risk.
 
+## Usage
+
+Build the server by running `./build.sh` if you're on Unix. On other systems, modify the single line inside 'build.sh' to suit your needs. Currently you need to have zlib installed. We also use some Intel intrinsics that may not be available on every machine.
+
+To run the server, simply run `./blaze`. Currently the 'blaze' binary needs to be in the repository's root directory so it can read the data from the data files such as 'blocktypes.txt' and 'itemtags.txt'. The server listens on localhost port 25565. Alter this in the code if you want.
+
+Blaze can load chunks from Anvil region files. Create a folder called 'world' in the repository root and copy paste the 'region' folder from some other place into it. Note that Blaze only loads chunks from the latest Minecraft version, hence you may need to optimise your world before copy pasting the 'region' folder.
+
+As of writing this, Blaze only runs in offline mode and has the following features:
+
+1. Load chunks from region files with support for all block states.
+2. Chunk streaming to clients.
+3. Players can see each other in the world and in the tab list.
+4. Chat messages.
+5. Very basic inventory management.
+6. In-memory block placing and breaking, and sending changes to clients.
+7. Spawning items in from the creative mode inventory.
+8. Server list ping with a sample of the online players.
+
 ## Contributing
 
 Contributions are welcome, provided you agree to put your contribution in the public domain.
