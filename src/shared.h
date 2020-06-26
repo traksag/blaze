@@ -555,10 +555,12 @@ teleport_player(player_brain * brain, entity_data * entity,
         mc_float new_rot_x, mc_float new_rot_y);
 
 void
-tick_player_brain(player_brain * brain, server * serv);
+tick_player_brain(player_brain * brain, server * serv,
+        memory_arena * tick_arena);
 
 void
-send_packets_to_player(player_brain * brain, server * serv);
+send_packets_to_player(player_brain * brain, server * serv,
+        memory_arena * tick_arena);
 
 mc_short
 resolve_resource_loc_id(net_string resource_loc, resource_loc_table * table);

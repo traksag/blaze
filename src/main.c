@@ -696,7 +696,12 @@ server_tick(server * serv) {
         if ((brain->flags & PLAYER_BRAIN_IN_USE) == 0) {
             continue;
         }
-        tick_player_brain(brain, serv);
+
+        memory_arena tick_arena = {
+            .ptr = serv->short_lived_scratch,
+            .size = serv->short_lived_scratch_size
+        };
+        tick_player_brain(brain, serv, &tick_arena);
     }
 
     // remove players from tab list if necessary
@@ -730,7 +735,12 @@ server_tick(server * serv) {
         if ((brain->flags & PLAYER_BRAIN_IN_USE) == 0) {
             continue;
         }
-        send_packets_to_player(brain, serv);
+
+        memory_arena tick_arena = {
+            .ptr = serv->short_lived_scratch,
+            .size = serv->short_lived_scratch_size
+        };
+        send_packets_to_player(brain, serv, &tick_arena);
     }
 
     // clear global messages
