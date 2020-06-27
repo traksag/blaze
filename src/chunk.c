@@ -387,7 +387,8 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     };
 
     // @TODO(traks) more appropriate max level
-    nbt_tape_entry * tape = load_nbt(&cursor, scratch_arena, 1024);
+    int max_levels = 1024;
+    nbt_tape_entry * tape = load_nbt(&cursor, scratch_arena, max_levels);
 
     if (cursor.error) {
         logs("Failed to load NBT data");
@@ -415,12 +416,17 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     mc_uint sections_start = nbt_move_to_key(NET_STRING("Sections"),
             tape, level_start, &cursor);
     mc_uint section_count = tape[sections_start + 2].list_size;
-    mc_uint section_start = sections_start + 4;
+    mc_uint section_start = sections_start + 3;
 
     // maximum amount of memory the palette will ever use
     int max_palette_map_size = 4096;
     mc_ushort * palette_map = alloc_in_arena(scratch_arena,
             max_palette_map_size * sizeof (mc_ushort));
+
+    if (section_count > 18) {
+        logs("Too many chunk sections: %ju", (uintmax_t) section_count);
+        goto bail;
+    }
 
     for (mc_uint sectioni = 0; sectioni < section_count; sectioni++) {
         nbt_move_to_key(NET_STRING("Y"), tape, section_start, &cursor);
@@ -452,7 +458,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
             ch->sections[section_y] = section;
 
             mc_uint palette_size = tape[palette_start + 2].list_size;
-            mc_uint palettei_start = palette_start + 4;
+            mc_uint palettei_start = palette_start + 3;
 
             if (palette_size == 0 || palette_size > max_palette_map_size) {
                 logs("Invalid palette size %ju", (uintmax_t) palette_size);
@@ -518,7 +524,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
                 while (tape[i].tag != NBT_TAG_END) {
                     i = tape[i + 1].next_compound_entry;
                 }
-                palettei_start = i + 2;
+                palettei_start = i + 1;
             }
 
             nbt_move_to_key(NET_STRING("BlockStates"),
@@ -564,13 +570,14 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
         while (tape[i].tag != NBT_TAG_END) {
             i = tape[i + 1].next_compound_entry;
         }
-        section_start = i + 2;
+        section_start = i + 1;
     }
 
     recalculate_chunk_motion_blocking_height_map(ch);
 
     if (cursor.error) {
         logs("Failed to decipher NBT data");
+        print_nbt(tape, &cursor, scratch_arena, max_levels);
         goto bail;
     }
 

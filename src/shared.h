@@ -504,6 +504,10 @@ nbt_tape_entry *
 load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_level);
 
 void
+print_nbt(nbt_tape_entry * tape, buffer_cursor * cursor,
+        memory_arena * arena, int max_levels);
+
+void
 begin_timed_block(char * name);
 
 void
