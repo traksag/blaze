@@ -321,7 +321,7 @@ resolve_entity(server * serv, entity_id eid) {
     return entity;
 }
 
-static entity_data *
+entity_data *
 try_reserve_entity(server * serv, unsigned type) {
     for (uint32_t i = 0; i < MAX_ENTITIES; i++) {
         entity_data * entity = serv->entities + i;
@@ -1227,6 +1227,7 @@ main(void) {
 
     // reserve null entity
     serv->entities[0].flags |= ENTITY_IN_USE;
+    serv->entities[0].type = ENTITY_NULL;
 
     // allocate memory for arenas
     serv->short_lived_scratch_size = 4194304;

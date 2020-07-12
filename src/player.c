@@ -479,13 +479,27 @@ process_packet(entity_data * entity, player_brain * brain,
             break;
         }
         case 4: { // drop item
-            // @TODO(traks) create item entity
             int sel_slot = entity->player.selected_slot;
             item_stack * is = entity->player.slots + sel_slot;
+
+            // @NOTE(traks) client updates its view of the item stack size
+            // itself, so no need to send updates for the slot if nothing
+            // special happens
             if (is->size > 0) {
+                entity_data * item = try_reserve_entity(serv, ENTITY_ITEM);
+                if (item->type == ENTITY_NULL) {
+                    entity->player.slots_needing_update |= (mc_ulong) 1 << sel_slot;
+                    break;
+                }
+
+                // @TODO(traks) higher spawn position
+                item->x = entity->x;
+                item->y = entity->y;
+                item->z = entity->z;
+                item->item.contents = *is;
+                item->item.contents.size = 1;
+
                 is->size--;
-            } else {
-                *is = (item_stack) {0};
             }
             break;
         }
@@ -686,7 +700,7 @@ process_packet(entity_data * entity, player_brain * brain,
         break;
     }
     case SBP_SWING: {
-        logs("Packet swing");
+        // logs("Packet swing");
         mc_int hand = net_read_varint(rec_cursor);
         break;
     }
@@ -1702,6 +1716,13 @@ send_packets_to_player(player_brain * brain, server * serv,
                 case ENTITY_PLAYER:
                     rot_x = candidate->player.head_rot_x;
                     rot_y = candidate->player.head_rot_y;
+
+                    begin_packet(&send_cursor, CBP_ROTATE_HEAD);
+                    net_write_varint(&send_cursor, candidate_eid);
+                    // @TODO(traks) make sure signed cast to mc_ubyte works
+                    net_write_ubyte(&send_cursor, (int)
+                            (candidate->player.head_rot_y * 256.0f / 360.0f));
+                    finish_packet_and_send(&send_cursor, brain);
                     break;
                 }
 
@@ -1715,13 +1736,6 @@ send_packets_to_player(player_brain * brain, server * serv,
                     net_write_ubyte(&send_cursor, (int) (rot_y * 256.0f / 360.0f));
                     net_write_ubyte(&send_cursor, (int) (rot_x * 256.0f / 360.0f));
                     net_write_ubyte(&send_cursor, !!(candidate->flags & ENTITY_ON_GROUND));
-                    finish_packet_and_send(&send_cursor, brain);
-
-                    begin_packet(&send_cursor, CBP_ROTATE_HEAD);
-                    net_write_varint(&send_cursor, candidate_eid);
-                    // @TODO(traks) make sure signed cast to mc_ubyte works
-                    net_write_ubyte(&send_cursor, (int)
-                            (candidate->player.head_rot_y * 256.0f / 360.0f));
                     finish_packet_and_send(&send_cursor, brain);
                     continue;
                 }
@@ -1751,38 +1765,11 @@ send_packets_to_player(player_brain * brain, server * serv,
 
             switch (candidate->type) {
             case ENTITY_PLAYER: {
-                // // send add mob packet
-                // int out_size = net_varint_size(2)
-                //         + net_varint_size(candidate_eid)
-                //         + 16 + net_varint_size(5)
-                //         + 3 * 8 + 3 * 1 + 3 * 2;
-                // net_write_varint(&send_cursor, out_size);
-                // net_write_varint(&send_cursor, 2);
-                // net_write_varint(&send_cursor, candidate_eid);
-                // // @TODO(traks) appropriate UUID
-                // net_write_ulong(&send_cursor, 0);
-                // net_write_ulong(&send_cursor, 0);
-                // // @TODO(traks) network entity type
-                // net_write_varint(&send_cursor, 5);
-                // net_write_double(&send_cursor, candidate->x);
-                // net_write_double(&send_cursor, candidate->y);
-                // net_write_double(&send_cursor, candidate->z);
-                // // @TODO(traks) make sure signed cast to mc_ubyte works
-                // net_write_ubyte(&send_cursor, (int) (candidate->rot_y * 256.0f / 360.0f));
-                // net_write_ubyte(&send_cursor, (int) (candidate->rot_x * 256.0f / 360.0f));
-                // // @TODO(traks) y head rotation (what is that?)
-                // net_write_ubyte(&send_cursor, 0);
-                // // @TODO(traks) entity velocity
-                // net_write_ushort(&send_cursor, 0);
-                // net_write_ushort(&send_cursor, 0);
-                // net_write_ushort(&send_cursor, 0);
-
                 begin_packet(&send_cursor, CBP_ADD_PLAYER);
                 net_write_varint(&send_cursor, candidate_eid);
                 // @TODO(traks) appropriate UUID
                 net_write_ulong(&send_cursor, 0);
                 net_write_ulong(&send_cursor, candidate_eid);
-                // @TODO(traks) network entity type
                 net_write_double(&send_cursor, candidate->x);
                 net_write_double(&send_cursor, candidate->y);
                 net_write_double(&send_cursor, candidate->z);
@@ -1800,6 +1787,63 @@ send_packets_to_player(player_brain * brain, server * serv,
                         (candidate->player.head_rot_y * 256.0f / 360.0f));
                 finish_packet_and_send(&send_cursor, brain);
                 break;
+            case ENTITY_ITEM: {
+                // begin_packet(&send_cursor, CBP_ADD_MOB);
+                // net_write_varint(&send_cursor, candidate_eid);
+                // // @TODO(traks) appropriate UUID
+                // net_write_ulong(&send_cursor, 0);
+                // net_write_ulong(&send_cursor, 0);
+                // net_write_varint(&send_cursor, ENTITY_SQUID);
+                // net_write_double(&send_cursor, candidate->x);
+                // net_write_double(&send_cursor, candidate->y);
+                // net_write_double(&send_cursor, candidate->z);
+                // // @TODO(traks) make sure signed cast to mc_ubyte works
+                // net_write_ubyte(&send_cursor, 0);
+                // net_write_ubyte(&send_cursor, 0);
+                // // @TODO(traks) y head rotation (what is that?)
+                // net_write_ubyte(&send_cursor, 0);
+                // // @TODO(traks) entity velocity
+                // net_write_short(&send_cursor, 0);
+                // net_write_short(&send_cursor, 0);
+                // net_write_short(&send_cursor, 0);
+                // finish_packet_and_send(&send_cursor, brain);
+                begin_packet(&send_cursor, CBP_ADD_ENTITY);
+                net_write_varint(&send_cursor, candidate_eid);
+                // @TODO(traks) appropriate UUID
+                net_write_ulong(&send_cursor, 0);
+                net_write_ulong(&send_cursor, candidate_eid);
+                net_write_varint(&send_cursor, candidate->type);
+                net_write_double(&send_cursor, candidate->x);
+                net_write_double(&send_cursor, candidate->y);
+                net_write_double(&send_cursor, candidate->z);
+                // @TODO(traks) x and y rotation
+                net_write_ubyte(&send_cursor, 0);
+                net_write_ubyte(&send_cursor, 0);
+                // @TODO(traks) entity data
+                net_write_int(&send_cursor, 0);
+                // @TODO(traks) velocity
+                net_write_short(&send_cursor, 0);
+                net_write_short(&send_cursor, 0);
+                net_write_short(&send_cursor, 0);
+                finish_packet_and_send(&send_cursor, brain);
+
+                begin_packet(&send_cursor, CBP_SET_ENTITY_DATA);
+                net_write_varint(&send_cursor, candidate_eid);
+
+                net_write_ubyte(&send_cursor, 7); // set item contents
+                net_write_varint(&send_cursor, 6); // data type: item stack
+
+                net_write_ubyte(&send_cursor, 1); // has item
+                item_stack * is = &candidate->item.contents;
+                net_write_varint(&send_cursor, is->type);
+                net_write_ubyte(&send_cursor, is->size);
+                // @TODO(traks) write NBT (currently just a single end tag)
+                net_write_ubyte(&send_cursor, 0);
+
+                net_write_ubyte(&send_cursor, 0xff); // end of entity data
+                finish_packet_and_send(&send_cursor, brain);
+                break;
+            }
             default:
                 continue;
             }

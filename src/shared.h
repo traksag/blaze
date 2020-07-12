@@ -222,9 +222,116 @@ typedef struct {
     mc_ubyte size;
 } item_stack;
 
+// in network id order
 enum entity_type {
-    ENTITY_NULL,
+    ENTITY_AREA_EFFECT_CLOUD,
+    ENTITY_ARMOR_STAND,
+    ENTITY_ARROW,
+    ENTITY_BAT,
+    ENTITY_BEE,
+    ENTITY_BLAZE,
+    ENTITY_BOAT,
+    ENTITY_CAT,
+    ENTITY_CAVE_SPIDER,
+    ENTITY_CHICKEN,
+    ENTITY_COD,
+    ENTITY_COW,
+    ENTITY_CREEPER,
+    ENTITY_DOLPHIN,
+    ENTITY_DONKEY,
+    ENTITY_DRAGON_FIREBALL,
+    ENTITY_DROWNED,
+    ENTITY_ELDER_GUARDIAN,
+    ENTITY_END_CRYSTAL,
+    ENTITY_ENDER_DRAGON,
+    ENTITY_ENDERMAN,
+    ENTITY_ENDERMITE,
+    ENTITY_EVOKER,
+    ENTITY_EVOKER_FANGS,
+    ENTITY_EXPERIENCE_ORB,
+    ENTITY_EYE_OF_ENDER,
+    ENTITY_FALLING_BLOCK,
+    ENTITY_FIREWORK_ROCKET,
+    ENTITY_FOX,
+    ENTITY_GHAST,
+    ENTITY_GIANT,
+    ENTITY_GUARDIAN,
+    ENTITY_HOGLIN,
+    ENTITY_HORSE,
+    ENTITY_HUSK,
+    ENTITY_ILLUSIONER,
+    ENTITY_IRON_GOLEM,
+    ENTITY_ITEM,
+    ENTITY_ITEM_FRAME,
+    ENTITY_FIREBALL,
+    ENTITY_LEASH_KNOT,
+    ENTITY_LIGHTNING_BOLT,
+    ENTITY_LLAMA,
+    ENTITY_LLAMA_SPIT,
+    ENTITY_MAGMA_CUBE,
+    ENTITY_MINECART,
+    ENTITY_CHEST_MINECART,
+    ENTITY_COMMAND_BLOCK_MINECART,
+    ENTITY_FURNACE_MINECART,
+    ENTITY_HOPPER_MINECART,
+    ENTITY_SPAWNER_MINECART,
+    ENTITY_TNT_MINECART,
+    ENTITY_MULE,
+    ENTITY_MOOSHROOM,
+    ENTITY_OCELOT,
+    ENTITY_PAINTING,
+    ENTITY_PANDA,
+    ENTITY_PARROT,
+    ENTITY_PHANTOM,
+    ENTITY_PIG,
+    ENTITY_PIGLIN,
+    ENTITY_PILLAGER,
+    ENTITY_POLAR_BEAR,
+    ENTITY_TNT,
+    ENTITY_PUFFERFISH,
+    ENTITY_RABBIT,
+    ENTITY_RAVAGER,
+    ENTITY_SALMON,
+    ENTITY_SHEEP,
+    ENTITY_SHULKER,
+    ENTITY_SHULKER_BULLET,
+    ENTITY_SILVERFISH,
+    ENTITY_SKELETON,
+    ENTITY_SKELETON_HORSE,
+    ENTITY_SLIME,
+    ENTITY_SMALL_FIREBALL,
+    ENTITY_SNOW_GOLEM,
+    ENTITY_SNOWBALL,
+    ENTITY_SPECTRAL_ARROW,
+    ENTITY_SPIDER,
+    ENTITY_SQUID,
+    ENTITY_STRAY,
+    ENTITY_STRIDER,
+    ENTITY_EGG,
+    ENTITY_ENDER_PEARL,
+    ENTITY_EXPERIENCE_BOTTLE,
+    ENTITY_POTION,
+    ENTITY_TRIDENT,
+    ENTITY_TRADER_LLAMA,
+    ENTITY_TROPICAL_FISH,
+    ENTITY_TURTLE,
+    ENTITY_VEX,
+    ENTITY_VILLAGER,
+    ENTITY_VINDICATOR,
+    ENTITY_WANDERING_TRADER,
+    ENTITY_WITCH,
+    ENTITY_WITHER,
+    ENTITY_WITHER_SKELETON,
+    ENTITY_WITHER_SKULL,
+    ENTITY_WOLF,
+    ENTITY_ZOGLIN,
+    ENTITY_ZOMBIE,
+    ENTITY_ZOMBIE_HORSE,
+    ENTITY_ZOMBIE_VILLAGER,
+    ENTITY_ZOMBIFIED_PIGLIN,
     ENTITY_PLAYER,
+    ENTITY_FISHING_BOBBER,
+    ENTITY_NULL, // not used in vanilla
 };
 
 #define ENTITY_INDEX_MASK (MAX_ENTITIES - 1)
@@ -270,6 +377,10 @@ typedef struct {
     mc_float head_rot_y;
 } player_data;
 
+typedef struct {
+    item_stack contents;
+} item_data;
+
 #define ENTITY_IN_USE ((unsigned) (1 << 0))
 
 #define ENTITY_TELEPORTING ((unsigned) (1 << 1))
@@ -286,6 +397,7 @@ typedef struct {
 
     union {
         player_data player;
+        item_data item;
     };
 } entity_data;
 
@@ -453,6 +565,12 @@ net_read_int(buffer_cursor * cursor);
 void
 net_write_int(buffer_cursor * cursor, mc_int val);
 
+mc_short
+net_read_short(buffer_cursor * cursor);
+
+void
+net_write_short(buffer_cursor * cursor, mc_short val);
+
 mc_byte
 net_read_byte(buffer_cursor * cursor);
 
@@ -560,6 +678,9 @@ clean_up_unused_chunks(void);
 
 entity_data *
 resolve_entity(server * serv, entity_id eid);
+
+entity_data *
+try_reserve_entity(server * serv, unsigned type);
 
 void
 evict_entity(server * serv, entity_id eid);
