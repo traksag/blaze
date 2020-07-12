@@ -171,7 +171,6 @@ teleport_player(player_brain * brain, entity_data * entity,
     entity->z = new_z;
     entity->player.head_rot_x = new_rot_x;
     entity->player.head_rot_y = new_rot_y;
-    entity->player.body_rot_y = new_rot_y;
 }
 
 static void
@@ -181,6 +180,9 @@ process_move_player_packet(entity_data * entity,
     if ((entity->flags & ENTITY_TELEPORTING) != 0) {
         return;
     }
+
+    // @TODO(traks) if new x, y, z out of certain bounds, don't update entity
+    // x, y, z to prevent NaN errors and extreme precision loss, etc.
 
     entity->x = new_x;
     entity->y = new_y;
@@ -838,6 +840,7 @@ finish_packet_and_send(buffer_cursor * send_cursor, player_brain * brain) {
         .index = brain->send_cursor
     };
 
+    // @TODO(traks) should check somewhere that no error occurs
     net_write_data(&packet_cursor, send_cursor->buf + start_index,
             packet_size + 5 - start_index);
     brain->send_cursor = packet_cursor.index;
@@ -1045,6 +1048,14 @@ disconnect_player_now(player_brain * brain, server * serv) {
     }
 }
 
+static mc_float
+degree_diff(mc_float to, mc_float from) {
+    mc_float div = (to - from) / 360 + 0.5f;
+    mc_float mod = div - floor(div);
+    mc_float res = mod * 360 - 180;
+    return res;
+}
+
 void
 tick_player_brain(player_brain * brain, server * serv,
         memory_arena * tick_arena) {
@@ -1056,9 +1067,9 @@ tick_player_brain(player_brain * brain, server * serv,
     ssize_t rec_size = recv(sock, brain->rec_buf + brain->rec_cursor,
             sizeof brain->rec_buf - brain->rec_cursor, 0);
 
-    mc_double start_move_x = entity->x;
-    mc_double start_move_y = entity->y;
-    mc_double start_move_z = entity->z;
+    mc_double initial_x = entity->x;
+    mc_double initial_y = entity->y;
+    mc_double initial_z = entity->z;
 
     if (rec_size == 0) {
         disconnect_player_now(brain, serv);
@@ -1123,12 +1134,9 @@ tick_player_brain(player_brain * brain, server * serv,
     }
 
     if (!(entity->flags & ENTITY_TELEPORTING)) {
-        mc_double move_dx = entity->x - start_move_x;
-        mc_double move_dy = entity->y - start_move_y;
-        mc_double move_dz = entity->z - start_move_z;
-
-        // @TODO(traks) rotate player body depending on head rotation and
-        // direction the player is moving to
+        mc_double move_dx = entity->x - initial_x;
+        mc_double move_dy = entity->y - initial_y;
+        mc_double move_dz = entity->z - initial_z;
     }
 
 bail:
@@ -1693,7 +1701,7 @@ send_packets_to_player(player_brain * brain, server * serv,
                 switch (candidate->type) {
                 case ENTITY_PLAYER:
                     rot_x = candidate->player.head_rot_x;
-                    rot_y = candidate->player.body_rot_y;
+                    rot_y = candidate->player.head_rot_y;
                     break;
                 }
 
@@ -1780,7 +1788,7 @@ send_packets_to_player(player_brain * brain, server * serv,
                 net_write_double(&send_cursor, candidate->z);
                 // @TODO(traks) make sure signed cast to mc_ubyte works
                 net_write_ubyte(&send_cursor, (int)
-                        (candidate->player.body_rot_y * 256.0f / 360.0f));
+                        (candidate->player.head_rot_y * 256.0f / 360.0f));
                 net_write_ubyte(&send_cursor, (int)
                         (candidate->player.head_rot_x * 256.0f / 360.0f));
                 finish_packet_and_send(&send_cursor, brain);

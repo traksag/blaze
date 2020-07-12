@@ -11,6 +11,14 @@
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
+#define ABS(a) ((a) < 0 ? -(a) : (a))
+
+#define CLAMP(x, l, u) (MAX(MIN((x), (u)), (l)))
+
+#define PI (3.141592653589f)
+
+#define DEGREES_PER_RADIAN (360 / (2 * PI))
+
 typedef int8_t mc_byte;
 typedef int16_t mc_short;
 typedef int32_t mc_int;
@@ -254,9 +262,12 @@ typedef struct {
 
     unsigned char gamemode;
 
+    // @NOTE(traks) the server doesn't tell clients the body rotation of
+    // players. The client determines the body rotation based on the player's
+    // movement and their head rotation. However, we do need to send a players
+    // head rotation using the designated packet, otherwise heads won't rotate.
     mc_float head_rot_x;
     mc_float head_rot_y;
-    mc_float body_rot_y;
 } player_data;
 
 #define ENTITY_IN_USE ((unsigned) (1 << 0))
