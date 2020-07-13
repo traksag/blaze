@@ -475,7 +475,26 @@ process_packet(entity_data * entity, player_brain * brain,
         case 3: { // drop all items
             // @TODO(traks) create item entities
             int sel_slot = entity->player.selected_slot;
-            entity->player.slots[sel_slot] = (item_stack) {0};
+            item_stack * is = entity->player.slots + sel_slot;
+
+            // @NOTE(traks) client updates its view of the item stack size
+            // itself, so no need to send updates for the slot if nothing
+            // special happens
+            if (is->size > 0) {
+                entity_data * item = try_reserve_entity(serv, ENTITY_ITEM);
+                if (item->type == ENTITY_NULL) {
+                    entity->player.slots_needing_update |= (mc_ulong) 1 << sel_slot;
+                    break;
+                }
+
+                // @TODO(traks) higher spawn position
+                item->x = entity->x;
+                item->y = entity->y;
+                item->z = entity->z;
+                item->item.contents = *is;
+
+                is->size = 0;
+            }
             break;
         }
         case 4: { // drop item
