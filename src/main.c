@@ -356,7 +356,9 @@ evict_entity(server * serv, entity_id eid) {
 static void
 server_tick(server * serv) {
     begin_timed_block("server tick");
+
     // accept new connections
+    begin_timed_block("accept initial connections");
 
     for (;;) {
         int accepted = accept(server_sock, NULL, NULL);
@@ -400,7 +402,10 @@ server_tick(server * serv) {
         logs("Created initial connection");
     }
 
+    end_timed_block();
+
     // update initial connections
+    begin_timed_block("update initial connections");
 
     for (int i = 0; i < ARRAY_SIZE(initial_connections); i++) {
         initial_connection * init_con = initial_connections + i;
@@ -608,6 +613,10 @@ server_tick(server * serv) {
         }
     }
 
+    end_timed_block();
+
+    begin_timed_block("send initial connections");
+
     for (int i = 0; i < ARRAY_SIZE(initial_connections); i++) {
         initial_connection * init_con = initial_connections + i;
         if ((init_con->flags & INITIAL_CONNECTION_IN_USE) == 0) {
@@ -689,7 +698,10 @@ server_tick(server * serv) {
         }
     }
 
+    end_timed_block();
+
     // update players
+    begin_timed_block("tick players");
 
     for (int i = 0; i < ARRAY_SIZE(serv->player_brains); i++) {
         player_brain * brain = serv->player_brains + i;
@@ -703,6 +715,10 @@ server_tick(server * serv) {
         };
         tick_player_brain(brain, serv, &tick_arena);
     }
+
+    end_timed_block();
+
+    begin_timed_block("update tab list");
 
     // remove players from tab list if necessary
     for (int i = 0; i < serv->tab_list_size; i++) {
@@ -730,6 +746,10 @@ server_tick(server * serv) {
         serv->tab_list_size++;
     }
 
+    end_timed_block();
+
+    begin_timed_block("send players");
+
     for (int i = 0; i < ARRAY_SIZE(serv->player_brains); i++) {
         player_brain * brain = serv->player_brains + i;
         if ((brain->flags & PLAYER_BRAIN_IN_USE) == 0) {
@@ -743,6 +763,8 @@ server_tick(server * serv) {
         send_packets_to_player(brain, serv, &tick_arena);
     }
 
+    end_timed_block();
+
     // clear global messages
     serv->global_msg_count = 0;
 
@@ -751,6 +773,7 @@ server_tick(server * serv) {
     serv->tab_list_removed_count = 0;
 
     // load chunks from requests
+    begin_timed_block("load chunks");
 
     for (int i = 0; i < serv->chunk_load_request_count; i++) {
         chunk_pos pos = serv->chunk_load_requests[i];
@@ -811,8 +834,12 @@ server_tick(server * serv) {
 
     serv->chunk_load_request_count = 0;
 
+    end_timed_block();
+
     // update chunks
+    begin_timed_block("update chunks");
     clean_up_unused_chunks();
+    end_timed_block();
 
     serv->current_tick++;
     end_timed_block();
