@@ -246,6 +246,19 @@ process_packet(entity_data * entity, player_brain * brain,
     case SBP_CLIENT_COMMAND: {
         logs("Packet client command");
         mc_int action = net_read_varint(rec_cursor);
+        switch (action) {
+        case 0: { // perform respawn
+            // @TODO(traks) implement
+            break;
+        }
+        case 1: { // request statistics
+            // @TODO(traks) implement
+            break;
+        }
+        default: {
+            rec_cursor->error = 1;
+        }
+        }
         break;
     }
     case SBP_CLIENT_INFORMATION: {
@@ -296,7 +309,37 @@ process_packet(entity_data * entity, player_brain * brain,
         mc_ubyte button = net_read_ubyte(rec_cursor);
         mc_ushort uid = net_read_ushort(rec_cursor);
         mc_int click_type = net_read_varint(rec_cursor);
-        // @TODO(traks) read item
+
+        // @NOTE(traks) the item is only used for comparing against some result
+        // computed by the server
+        mc_ubyte has_item = net_read_ubyte(rec_cursor);
+        item_stack iss = {0};
+        item_stack * is = &iss;
+
+        if (has_item) {
+            is->type = net_read_varint(rec_cursor);
+            is->size = net_read_ubyte(rec_cursor);
+
+            if (is->type < 0 || is->type >= serv->item_type_count) {
+                is->type = 0;
+                // @TODO(traks) handle error (send slot updates?)
+            }
+            item_type * type = serv->item_types + is->type;
+            if (is->size > type->max_stack_size) {
+                is->size = type->max_stack_size;
+                // @TODO(traks) handle error (send slot updates?)
+            }
+
+            // @TODO(traks) better value than 64 for the max level
+            nbt_tape_entry * tape = load_nbt(rec_cursor, process_arena, 64);
+            if (rec_cursor->error) {
+                break;
+            }
+
+            // @TODO(traks) use NBT data to construct item stack
+        }
+
+        // @TODO(traks) actually handle the event
         break;
     }
     case SBP_CONTAINER_CLOSE: {
@@ -322,7 +365,36 @@ process_packet(entity_data * entity, player_brain * brain,
     }
     case SBP_EDIT_BOOK: {
         logs("Packet edit book");
-        // @TODO(traks) read packet
+        mc_ubyte has_item = net_read_ubyte(rec_cursor);
+        item_stack iss = {0};
+        item_stack * is = &iss;
+
+        if (has_item) {
+            is->type = net_read_varint(rec_cursor);
+            is->size = net_read_ubyte(rec_cursor);
+
+            if (is->type < 0 || is->type >= serv->item_type_count) {
+                is->type = 0;
+                // @TODO(traks) handle error
+            }
+            item_type * type = serv->item_types + is->type;
+            if (is->size > type->max_stack_size) {
+                is->size = type->max_stack_size;
+                // @TODO(traks) handle error
+            }
+
+            // @TODO(traks) better value than 64 for the max level
+            nbt_tape_entry * tape = load_nbt(rec_cursor, process_arena, 64);
+            if (rec_cursor->error) {
+                break;
+            }
+
+            // @TODO(traks) use NBT data to construct item stack
+        }
+
+        mc_ubyte signing = net_read_ubyte(rec_cursor);
+        mc_int hand = net_read_varint(rec_cursor);
+        // @TODO(traks) handle the event
         break;
     }
     case SBP_ENTITY_TAG_QUERY: {
@@ -335,7 +407,31 @@ process_packet(entity_data * entity, player_brain * brain,
         logs("Packet interact");
         mc_int entity_id = net_read_varint(rec_cursor);
         mc_int action = net_read_varint(rec_cursor);
-        // @TODO further reading
+
+        switch (action) {
+        case 0: { // interact
+            mc_int hand = net_read_varint(rec_cursor);
+            mc_ubyte secondary_action = net_read_ubyte(rec_cursor);
+            // @TODO(traks) implement
+            break;
+        }
+        case 1: { // attack
+            mc_ubyte secondary_action = net_read_ubyte(rec_cursor);
+            // @TODO(traks) implement
+            break;
+        }
+        case 2: { // interact at
+            mc_float x = net_read_float(rec_cursor);
+            mc_float y = net_read_float(rec_cursor);
+            mc_float z = net_read_float(rec_cursor);
+            mc_int hand = net_read_varint(rec_cursor);
+            mc_ubyte secondary_action = net_read_ubyte(rec_cursor);
+            // @TODO(traks) implement
+            break;
+        }
+        default:
+            rec_cursor->error = 1;
+        }
         break;
     }
     case SBP_JIGSAW_GENERATE: {
@@ -398,7 +494,12 @@ process_packet(entity_data * entity, player_brain * brain,
     }
     case SBP_MOVE_VEHICLE: {
         logs("Packet move vehicle");
-        // @TODO(traks) read packet
+        mc_double x = net_read_double(rec_cursor);
+        mc_double y = net_read_double(rec_cursor);
+        mc_double z = net_read_double(rec_cursor);
+        mc_float rot_y = net_read_float(rec_cursor);
+        mc_float rot_x = net_read_float(rec_cursor);
+        // @TODO(traks) handle packet
         break;
     }
     case SBP_PADDLE_BOAT: {
@@ -415,8 +516,9 @@ process_packet(entity_data * entity, player_brain * brain,
     case SBP_PLACE_RECIPE: {
         logs("Packet place recipe");
         mc_ubyte container_id = net_read_ubyte(rec_cursor);
-        // @TODO read recipe
+        net_string recipe = net_read_string(rec_cursor, 32767);
         mc_ubyte shift_down = net_read_ubyte(rec_cursor);
+        // @TODO(traks) handle packet
         break;
     }
     case SBP_PLAYER_ABILITIES: {
@@ -687,7 +789,12 @@ process_packet(entity_data * entity, player_brain * brain,
     case SBP_SET_JIGSAW_BLOCK: {
         logs("Packet set jigsaw block");
         mc_ulong block_pos = net_read_ulong(rec_cursor);
-        // @TODO(traks) further reading
+        net_string name = net_read_string(rec_cursor, 32767);
+        net_string target = net_read_string(rec_cursor, 32767);
+        net_string pool = net_read_string(rec_cursor, 32767);
+        net_string final_state = net_read_string(rec_cursor, 32767);
+        net_string joint = net_read_string(rec_cursor, 32767);
+        // @TODO(traks) handle packet
         break;
     }
     case SBP_SET_STRUCTURE_BLOCK: {
