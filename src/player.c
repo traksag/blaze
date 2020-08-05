@@ -3,7 +3,6 @@
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
-#include <x86intrin.h>
 #include <math.h>
 #include "shared.h"
 
@@ -542,11 +541,11 @@ process_packet(entity_data * entity, player_brain * brain,
             if (entity->player.gamemode == GAMEMODE_CREATIVE) {
                 // @TODO(traks) ensure block pos is close to the
                 // player and the chunk is sent to the player
-                __m128i xz = _mm_set_epi32(0, 0, block_pos.z, block_pos.x);
-                __m128i chunk_xz = _mm_srai_epi32(xz, 4);
+
+                // @TODO(traks) let's hope this signed shift works fine
                 chunk_pos pos = {
-                    .x = _mm_extract_epi32(chunk_xz, 0),
-                    .z = _mm_extract_epi32(chunk_xz, 1)
+                    .x = block_pos.x >> 4,
+                    .z = block_pos.z >> 4
                 };
                 chunk * ch = get_chunk_if_loaded(pos);
                 if (ch == NULL) {
@@ -906,11 +905,10 @@ process_packet(entity_data * entity, player_brain * brain,
         // @TODO(traks) check if target pos is in chunk visible to
         // the player
 
-        __m128i xz = _mm_set_epi32(0, 0, target_pos.z, target_pos.x);
-        __m128i chunk_xz = _mm_srai_epi32(xz, 4);
+        // @TODO(traks) let's hope this signed shift works fine
         chunk_pos pos = {
-            .x = _mm_extract_epi32(chunk_xz, 0),
-            .z = _mm_extract_epi32(chunk_xz, 1)
+            .x = target_pos.x >> 4,
+            .z = target_pos.z >> 4
         };
         chunk * ch = get_chunk_if_loaded(pos);
         if (ch == NULL) {
@@ -1549,16 +1547,9 @@ send_packets_to_player(player_brain * brain, server * serv,
     mc_short chunk_cache_max_x = brain->chunk_cache_centre_x + brain->chunk_cache_radius;
     mc_short chunk_cache_max_z = brain->chunk_cache_centre_z + brain->chunk_cache_radius;
 
-    // @TODO(traks) there's also an intrinsic for flooring multiple doubles
-    // at once. Figure out what systems can use that and perhaps move all
-    // this intrinsics stuff into vector math functions with fallback to
-    // stdlib scalar operations. Although shifting negative numbers is
-    // undefined...
-    __m128d floored_xz = _mm_set_pd(floor(player->z), floor(player->x));
-    __m128i floored_int_xz = _mm_cvtpd_epi32(floored_xz);
-    __m128i new_centre = _mm_srai_epi32(floored_int_xz, 4);
-    mc_short new_chunk_cache_centre_x = _mm_extract_epi32(new_centre, 0);
-    mc_short new_chunk_cache_centre_z = _mm_extract_epi32(new_centre, 1);
+    // @TODO(traks) let's hope this signed shift works fine
+    mc_short new_chunk_cache_centre_x = (mc_int) floor(player->x) >> 4;
+    mc_short new_chunk_cache_centre_z = (mc_int) floor(player->z) >> 4;
     assert(brain->new_chunk_cache_radius <= MAX_CHUNK_CACHE_RADIUS);
     mc_short new_chunk_cache_min_x = new_chunk_cache_centre_x - brain->new_chunk_cache_radius;
     mc_short new_chunk_cache_min_z = new_chunk_cache_centre_z - brain->new_chunk_cache_radius;

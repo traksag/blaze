@@ -1,6 +1,6 @@
 # Blaze
 
-Handmade game server for Minecraft Java Edition. 
+Handmade game server for Minecraft Java Edition.
 
 Currently a principal goal of this project is to make it easy to update it to newer versions of the game. Other goals are speed and stability: the server shouldn't have CPU spikes, memory spikes, a very slow and expensive start up, and should contain as little failure cases as possible (i.e. stuff Java can't). Users should be able to determine and control the maximum memory usage easily in advance.
 
@@ -12,7 +12,7 @@ All files in this repository are in the public domain. You can do whatever you w
 
 ## Usage
 
-Build the server by running `./build.sh` if you're on Unix. On other systems, modify the single line inside 'build.sh' to suit your needs. Currently you need to have zlib installed. We also use some Intel intrinsics that may not be available on every machine.
+Build the server by running `./build.sh` if you're on Unix. On other systems, modify the single line inside 'build.sh' to suit your needs. Currently you need to have zlib installed.
 
 To run the server, simply run `./blaze`. Currently the 'blaze' binary needs to be in the repository's root directory so it can read the data from the data files such as 'blocktypes.txt' and 'itemtags.txt'. The server listens on localhost port 25565. Alter this in the code if you want.
 

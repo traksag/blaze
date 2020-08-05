@@ -11,7 +11,6 @@
 #include <fcntl.h>
 #include <string.h>
 #include <limits.h>
-#include <x86intrin.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <stdalign.h>

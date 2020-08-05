@@ -1,1 +1,1 @@
-cc -o blaze -lz -lm -march=native src/*.c
+cc -o blaze -lz -lm src/*.c

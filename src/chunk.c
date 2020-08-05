@@ -1,7 +1,6 @@
 #include <assert.h>
 #include <sys/mman.h>
 #include <stdlib.h>
-#include <x86intrin.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <zlib.h>
@@ -225,6 +224,39 @@ chunk_set_block_state(chunk * ch, int x, int y, int z, mc_ushort block_state) {
     }
 }
 
+static int
+ceil_log2u(mc_uint x) {
+    assert(x != 0);
+    // @TODO(traks) use lzcnt if available. Maybe not necessary with -O3.
+    // @NOTE(traks) based on floor log2 from
+    // https://graphics.stanford.edu/~seander/bithacks.html
+    x--;
+
+    int res;
+    int shift;
+
+    res = (x > 0xffff) << 4;
+    x >>= res;
+
+    shift = (x > 0xff) << 3;
+    x >>= shift;
+    res |= shift;
+
+    shift = (x > 0xf) << 2;
+    x >>= shift;
+    res |= shift;
+
+    shift = (x > 0x3) << 1;
+    x >>= shift;
+    res |= shift;
+
+    res |= (x >> 1);
+
+    res++;
+
+    return res;
+}
+
 void
 try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
         memory_arena * scratch_arena,
@@ -236,10 +268,9 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     // @TODO(traks) error handling and/or error messages for all failure cases
     // in this entire function?
 
-    __m128i chunk_xz = _mm_set_epi32(0, 0, pos.z, pos.x);
-    __m128i region_xz = _mm_srai_epi32(chunk_xz, 5);
-    int region_x = _mm_extract_epi32(region_xz, 0);
-    int region_z = _mm_extract_epi32(region_xz, 1);
+    // @TODO(traks) let's hope this signed shift works fine
+    int region_x = pos.x >> 5;
+    int region_z = pos.z >> 5;
 
     unsigned char file_name[64];
     int file_name_size = sprintf((void *) file_name,
@@ -537,7 +568,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
             }
 
             // @TODO(traks) lzcnt is not always available
-            int palette_size_ceil_log2 = 32 - _lzcnt_u32(palette_size - 1);
+            int palette_size_ceil_log2 = ceil_log2u(palette_size);
             int bits_per_id = MAX(4, palette_size_ceil_log2);
             mc_uint id_mask = (1 << bits_per_id) - 1;
             int offset = 0;
