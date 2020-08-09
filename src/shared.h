@@ -86,7 +86,7 @@ typedef union {
         mc_uint tag:5;
         mc_uint element_tag:5;
     };
-    mc_uint next_compound_entry;
+    mc_uint next_compound_entry_offset;
     mc_uint list_size;
 } nbt_tape_entry;
 
@@ -625,9 +625,17 @@ net_read_block_pos(buffer_cursor * cursor);
 void
 net_write_data(buffer_cursor * cursor, void * restrict src, size_t size);
 
-mc_uint
+nbt_tape_entry *
 nbt_move_to_key(net_string matcher, nbt_tape_entry * tape,
-        mc_uint start_index, buffer_cursor * cursor);
+        buffer_cursor * cursor);
+
+net_string
+nbt_get_string(net_string matcher, nbt_tape_entry * tape,
+        buffer_cursor * cursor);
+
+nbt_tape_entry *
+nbt_get_compound(net_string matcher, nbt_tape_entry * tape,
+        buffer_cursor * cursor);
 
 nbt_tape_entry *
 load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_level);
@@ -700,5 +708,8 @@ send_packets_to_player(player_brain * brain, server * serv,
 
 mc_short
 resolve_resource_loc_id(net_string resource_loc, resource_loc_table * table);
+
+int
+net_string_equal(net_string a, net_string b);
 
 #endif

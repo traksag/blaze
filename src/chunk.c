@@ -419,7 +419,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
 
     // @TODO(traks) more appropriate max level
     int max_levels = 1024;
-    nbt_tape_entry * tape = load_nbt(&cursor, scratch_arena, max_levels);
+    nbt_tape_entry * chunk_nbt = load_nbt(&cursor, scratch_arena, max_levels);
 
     if (cursor.error) {
         logs("Failed to load NBT data");
@@ -430,24 +430,37 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
         assert(ch->sections[section_y] == NULL);
     }
 
-    nbt_move_to_key(NET_STRING("DataVersion"), tape, 0, &cursor);
+    nbt_move_to_key(NET_STRING("DataVersion"), chunk_nbt, &cursor);
     mc_int data_version = net_read_int(&cursor);
     if (data_version != 2567) {
         logs("Unknown data version %jd", (intmax_t) data_version);
         goto bail;
     }
 
-    mc_uint level_start = nbt_move_to_key(NET_STRING("Level"), tape, 0, &cursor);
-    if (tape[level_start].tag != NBT_TAG_COMPOUND) {
-        logs("NBT Level tag not a compound");
+    nbt_tape_entry * level_nbt = nbt_get_compound(NET_STRING("Level"),
+            chunk_nbt, &cursor);
+
+    net_string status = nbt_get_string(NET_STRING("Status"), level_nbt, &cursor);
+    if (!net_string_equal(status, NET_STRING("full"))) {
+        // @TODO(traks) this message gets spammed on the edges of pregenerated
+        // terrain. Maybe turn it into a debug message.
+        logs("Chunk not fully generated");
         goto bail;
     }
-    level_start += 2;
 
-    mc_uint sections_start = nbt_move_to_key(NET_STRING("Sections"),
-            tape, level_start, &cursor);
-    mc_uint section_count = tape[sections_start + 2].list_size;
-    mc_uint section_start = sections_start + 3;
+    nbt_tape_entry * section_start = nbt_move_to_key(NET_STRING("Sections"),
+            level_nbt, &cursor);
+
+    mc_uint section_count;
+    nbt_tape_entry * section_nbt;
+
+    if (section_start->tag != NBT_TAG_LIST) {
+        section_count = 0;
+        section_nbt = NULL;
+    } else {
+        section_count = section_start[2].list_size;
+        section_nbt = section_start + 3;
+    }
 
     // maximum amount of memory the palette will ever use
     int max_palette_map_size = 4096;
@@ -460,13 +473,13 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     }
 
     for (mc_uint sectioni = 0; sectioni < section_count; sectioni++) {
-        nbt_move_to_key(NET_STRING("Y"), tape, section_start, &cursor);
+        nbt_move_to_key(NET_STRING("Y"), section_nbt, &cursor);
         mc_byte section_y = net_read_byte(&cursor);
 
-        int palette_start = nbt_move_to_key(NET_STRING("Palette"),
-                tape, section_start, &cursor);
+        nbt_tape_entry * palette_start = nbt_move_to_key(NET_STRING("Palette"),
+                section_nbt, &cursor);
 
-        if (tape[palette_start].tag != NBT_TAG_END) {
+        if (palette_start->tag != NBT_TAG_END) {
             if (section_y < 0 || section_y >= 16) {
                 logs("Section Y %d with palette", (int) section_y);
                 goto bail;
@@ -488,8 +501,8 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
             // gets removed somewhere else in the code base.
             ch->sections[section_y] = section;
 
-            mc_uint palette_size = tape[palette_start + 2].list_size;
-            mc_uint palettei_start = palette_start + 3;
+            mc_uint palette_size = palette_start[2].list_size;
+            nbt_tape_entry * palette_entry = palette_start + 3;
 
             if (palette_size == 0 || palette_size > max_palette_map_size) {
                 logs("Invalid palette size %ju", (uintmax_t) palette_size);
@@ -497,31 +510,19 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
             }
 
             for (uint palettei = 0; palettei < palette_size; palettei++) {
-                mc_short type_id = 0;
-
-                mc_uint name_start = nbt_move_to_key(NET_STRING("Name"),
-                        tape, palettei_start, &cursor);
-                if (tape[name_start].tag != NBT_TAG_END) {
-                    mc_ushort resource_loc_size = net_read_ushort(&cursor);
-                    net_string resource_loc = {
-                        .size = resource_loc_size,
-                        .ptr = cursor.buf + cursor.index
-                    };
-                    type_id = resolve_resource_loc_id(resource_loc,
-                            block_resource_table);
-                    if (type_id == -1) {
-                        // @TODO(traks) should probably just error out
-                        type_id = 2;
-                    }
+                net_string resource_loc = nbt_get_string(NET_STRING("Name"),
+                        palette_entry, &cursor);
+                mc_short type_id = resolve_resource_loc_id(resource_loc,
+                        block_resource_table);
+                if (type_id == -1) {
+                    // @TODO(traks) should probably just error out
+                    type_id = 2;
                 }
 
                 mc_ushort stride = 0;
 
-                mc_uint props_start = nbt_move_to_key(NET_STRING("Properties"),
-                        tape, palettei_start, &cursor);
-                if (tape[props_start].tag == NBT_TAG_COMPOUND) {
-                    props_start += 2;
-                }
+                nbt_tape_entry * props_nbt = nbt_get_compound(
+                        NET_STRING("Properties"), palette_entry, &cursor);
 
                 block_properties * props = block_properties_table + type_id;
                 for (int propi = 0; propi < props->property_count; propi++) {
@@ -531,35 +532,29 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
                         .size = prop_spec->tape[0],
                         .ptr = prop_spec->tape + 1
                     };
-                    mc_uint val_start = nbt_move_to_key(prop_name,
-                            tape, props_start, &cursor);
-                    int val_index = -1;
-                    if (tape[val_start].tag != NBT_TAG_END) {
-                        mc_ushort val_size = net_read_ushort(&cursor);
-                        net_string val = {
-                            .size = val_size,
-                            .ptr = cursor.buf + cursor.index
-                        };
-                        val_index = find_property_value_index(prop_spec, val);
-                    }
+
+                    net_string prop_val = nbt_get_string(prop_name,
+                            props_nbt, &cursor);
+
+                    int val_index = find_property_value_index(prop_spec, prop_val);
                     if (val_index == -1) {
                         val_index = props->default_value_indices[propi];
                     }
+
                     stride = stride * prop_spec->value_count + val_index;
                 }
 
                 palette_map[palettei] = props->base_state + stride;
 
                 // move to end of palette entry compound
-                mc_uint i = palettei_start;
-                while (tape[i].tag != NBT_TAG_END) {
-                    i = tape[i + 1].next_compound_entry;
+                while (palette_entry->tag != NBT_TAG_END) {
+                    palette_entry++;
+                    palette_entry += palette_entry->next_compound_entry_offset;
                 }
-                palettei_start = i + 1;
+                palette_entry += 1;
             }
 
-            nbt_move_to_key(NET_STRING("BlockStates"),
-                    tape, section_start, &cursor);
+            nbt_move_to_key(NET_STRING("BlockStates"), section_nbt, &cursor);
             mc_uint entry_count = net_read_uint(&cursor);
 
             if (entry_count > 4096) {
@@ -567,7 +562,6 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
                 goto bail;
             }
 
-            // @TODO(traks) lzcnt is not always available
             int palette_size_ceil_log2 = ceil_log2u(palette_size);
             int bits_per_id = MAX(4, palette_size_ceil_log2);
             mc_uint id_mask = (1 << bits_per_id) - 1;
@@ -597,18 +591,18 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
         }
 
         // move to end of section compound
-        mc_uint i = section_start;
-        while (tape[i].tag != NBT_TAG_END) {
-            i = tape[i + 1].next_compound_entry;
+        while (section_nbt->tag != NBT_TAG_END) {
+            section_nbt++;
+            section_nbt += section_nbt->next_compound_entry_offset;
         }
-        section_start = i + 1;
+        section_nbt += 1;
     }
 
     recalculate_chunk_motion_blocking_height_map(ch);
 
     if (cursor.error) {
         logs("Failed to decipher NBT data");
-        print_nbt(tape, &cursor, scratch_arena, max_levels);
+        print_nbt(chunk_nbt, &cursor, scratch_arena, max_levels);
         goto bail;
     }
 

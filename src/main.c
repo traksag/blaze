@@ -213,7 +213,7 @@ handle_sigint(int sig) {
     got_sigint = 1;
 }
 
-static int
+int
 net_string_equal(net_string a, net_string b) {
     return a.size == b.size && memcmp(a.ptr, b.ptr, a.size) == 0;
 }

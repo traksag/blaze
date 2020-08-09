@@ -17,12 +17,11 @@ typedef struct {
     mc_uint entry_index;
 } printer_level_info;
 
-mc_uint
+nbt_tape_entry *
 nbt_move_to_key(net_string matcher, nbt_tape_entry * tape,
-        mc_uint start_index, buffer_cursor * cursor) {
-    mc_uint i = start_index;
-    while (tape[i].tag != NBT_TAG_END) {
-        cursor->index = tape[i].buffer_index;
+        buffer_cursor * cursor) {
+    while (tape->tag != NBT_TAG_END) {
+        cursor->index = tape->buffer_index;
         mc_ushort key_size = net_read_ushort(cursor);
         unsigned char * key = cursor->buf + cursor->index;
         if (key_size == matcher.size
@@ -30,9 +29,45 @@ nbt_move_to_key(net_string matcher, nbt_tape_entry * tape,
             cursor->index += key_size;
             break;
         }
-        i = tape[i + 1].next_compound_entry;
+        tape++;
+        tape += tape->next_compound_entry_offset;
     }
-    return i;
+    return tape;
+}
+
+net_string
+nbt_get_string(net_string matcher, nbt_tape_entry * tape,
+        buffer_cursor * cursor) {
+    nbt_tape_entry * string_tape = nbt_move_to_key(matcher, tape, cursor);
+
+    if (string_tape->tag != NBT_TAG_STRING) {
+        net_string res = {0};
+        return res;
+    }
+
+    // @NOTE(traks) already validated string length during NBT load
+    mc_ushort str_len = net_read_ushort(cursor);
+    net_string res = {
+        .size = str_len,
+        .ptr = cursor->buf + cursor->index
+    };
+    return res;
+}
+
+nbt_tape_entry *
+nbt_get_compound(net_string matcher, nbt_tape_entry * tape,
+        buffer_cursor * cursor) {
+    nbt_tape_entry * found = nbt_move_to_key(matcher, tape, cursor);
+
+    if (found->tag != NBT_TAG_COMPOUND) {
+        // @NOTE(traks) we could also search all the way to the end of the
+        // compound and return the closing END tag entry, but this is easier
+        static nbt_tape_entry end_tape = {.tag = NBT_TAG_END};
+        return &end_tape;
+    }
+
+    // skip header entries
+    return found + 2;
 }
 
 nbt_tape_entry *
@@ -45,11 +80,11 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_levels) {
     //    element tag is set.
     //  * Every compounds ends with an end tag (without no buffer index).
     //  * After non-end tags inside a compound, there's a tape entry with
-    //    next_compound_entry set to the absolute index of the next compound
-    //    entry in the tape.
+    //    next_compound_entry_offset set to the relative index of the next
+    //    compound entry in the tape.
     //  * After list tags inside a compound, there's of course first a
-    //    next_compound_entry tape entry, but after that there's also a tape
-    //    entry with list_size set.
+    //    next_compound_entry_offset tape entry, but after that there's also a
+    //    tape entry with list_size set.
     //  * A list containing only 'primitive' (non-compound and non-list)
     //    elements doesn't have any additional tape entries. The contents can
     //    simply be read linearly from the buffer.
@@ -126,8 +161,8 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_levels) {
             // entry yet. Currently the previous entry is just the current entry
             // for the first one, so we write to the next tape entry. This is of
             // course not a problem (and circumvents if-statements and such).
-            tape[level_info[cur_level].prev_compound_entry + 1]
-                    .next_compound_entry = cur_tape_index;
+            mc_uint prev = level_info[cur_level].prev_compound_entry + 1;
+            tape[prev].next_compound_entry_offset = cur_tape_index - prev;
 
             if (tag == NBT_TAG_END) {
                 tape[cur_tape_index] = (nbt_tape_entry) {.tag = NBT_TAG_END};
@@ -315,7 +350,7 @@ print_nbt(nbt_tape_entry * tape, buffer_cursor * cursor,
             cursor->index += key_size;
             printf("\"%.*s\":", (int) key_size, key);
 
-            // skip the tape entry with next_compound_entry set
+            // skip the tape entry with next_compound_entry_offset set
             cur_tape_index++;
         } else {
             // inside list
