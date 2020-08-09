@@ -463,17 +463,17 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
         nbt_move_to_key(NET_STRING("Y"), tape, section_start, &cursor);
         mc_byte section_y = net_read_byte(&cursor);
 
-        if (ch->sections[section_y] != NULL) {
-            logs("Duplicate section Y %d", (int) section_y);
-            goto bail;
-        }
-
         int palette_start = nbt_move_to_key(NET_STRING("Palette"),
                 tape, section_start, &cursor);
 
         if (tape[palette_start].tag != NBT_TAG_END) {
             if (section_y < 0 || section_y >= 16) {
                 logs("Section Y %d with palette", (int) section_y);
+                goto bail;
+            }
+
+            if (ch->sections[section_y] != NULL) {
+                logs("Duplicate section Y %d", (int) section_y);
                 goto bail;
             }
 
