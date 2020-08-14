@@ -27,8 +27,6 @@ typedef uint8_t mc_ubyte;
 typedef uint16_t mc_ushort;
 typedef uint32_t mc_uint;
 typedef uint64_t mc_ulong;
-typedef float mc_float;
-typedef double mc_double;
 
 typedef struct {
     unsigned char * ptr;
@@ -382,8 +380,8 @@ typedef struct {
     // head rotation using the designated packet, otherwise heads won't rotate.
     // @NOTE(traks) these values shouldn't exceed the range [0, 360] by too
     // much, otherwise float -> integer conversion errors may occur.
-    mc_float head_rot_x;
-    mc_float head_rot_y;
+    float head_rot_x;
+    float head_rot_y;
 } player_data;
 
 typedef struct {
@@ -397,9 +395,9 @@ typedef struct {
 #define ENTITY_ON_GROUND ((unsigned) (1 << 2))
 
 typedef struct {
-    mc_double x;
-    mc_double y;
-    mc_double z;
+    double x;
+    double y;
+    double z;
     entity_id eid;
     unsigned flags;
     unsigned type;
@@ -554,13 +552,13 @@ typedef struct {
     unsigned char name_size;
     mc_long fixed_time; // -1 if not used
     unsigned flags;
-    mc_double coordinate_scale;
+    double coordinate_scale;
     mc_int logical_height;
     unsigned char infiniburn[128];
     unsigned char infiniburn_size;
     unsigned char effects[128];
     unsigned char effects_size;
-    mc_float ambient_light;
+    float ambient_light;
 } dimension_type;
 
 enum biome_precipitation {
@@ -607,11 +605,11 @@ typedef struct {
     unsigned char name_size;
     unsigned char precipitation;
     unsigned char category;
-    mc_float temperature;
-    mc_float downfall;
+    float temperature;
+    float downfall;
     unsigned temperature_mod;
-    mc_float depth;
-    mc_float scale;
+    float depth;
+    float scale;
 
     mc_int fog_colour;
     mc_int water_colour;
@@ -630,11 +628,11 @@ typedef struct {
     unsigned char mood_sound_size;
     mc_int mood_sound_tick_delay;
     mc_int mood_sound_block_search_extent;
-    mc_double mood_sound_offset;
+    double mood_sound_offset;
 
     unsigned char additions_sound[64];
     unsigned char additions_sound_size;
-    mc_double additions_sound_tick_chance;
+    double additions_sound_tick_chance;
 
     unsigned char music_sound[64];
     unsigned char music_sound_size;
@@ -769,17 +767,17 @@ net_read_string(buffer_cursor * cursor, mc_int max_size);
 void
 net_write_string(buffer_cursor * cursor, net_string val);
 
-mc_float
+float
 net_read_float(buffer_cursor * cursor);
 
 void
-net_write_float(buffer_cursor * cursor, mc_float val);
+net_write_float(buffer_cursor * cursor, float val);
 
-mc_double
+double
 net_read_double(buffer_cursor * cursor);
 
 void
-net_write_double(buffer_cursor * cursor, mc_double val);
+net_write_double(buffer_cursor * cursor, double val);
 
 net_block_pos
 net_read_block_pos(buffer_cursor * cursor);
@@ -857,8 +855,8 @@ evict_entity(server * serv, entity_id eid);
 
 void
 teleport_player(player_brain * brain, entity_data * entity,
-        mc_double new_x, mc_double new_y, mc_double new_z,
-        mc_float new_rot_x, mc_float new_rot_y);
+        double new_x, double new_y, double new_z,
+        float new_rot_x, float new_rot_y);
 
 void
 tick_player_brain(player_brain * brain, server * serv,

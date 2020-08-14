@@ -172,8 +172,8 @@ nbt_write_string(buffer_cursor * cursor, net_string val) {
 
 void
 teleport_player(player_brain * brain, entity_data * entity,
-        mc_double new_x, mc_double new_y, mc_double new_z,
-        mc_float new_rot_x, mc_float new_rot_y) {
+        double new_x, double new_y, double new_z,
+        float new_rot_x, float new_rot_y) {
     brain->current_teleport_id++;
     entity->flags |= ENTITY_TELEPORTING;
     entity->x = new_x;
@@ -185,8 +185,8 @@ teleport_player(player_brain * brain, entity_data * entity,
 
 static void
 process_move_player_packet(entity_data * entity,
-        mc_double new_x, mc_double new_y, mc_double new_z,
-        mc_float new_head_rot_x, mc_float new_head_rot_y, int on_ground) {
+        double new_x, double new_y, double new_z,
+        float new_head_rot_x, float new_head_rot_y, int on_ground) {
     if ((entity->flags & ENTITY_TELEPORTING) != 0) {
         return;
     }
@@ -429,9 +429,9 @@ process_packet(entity_data * entity, player_brain * brain,
             break;
         }
         case 2: { // interact at
-            mc_float x = net_read_float(rec_cursor);
-            mc_float y = net_read_float(rec_cursor);
-            mc_float z = net_read_float(rec_cursor);
+            float x = net_read_float(rec_cursor);
+            float y = net_read_float(rec_cursor);
+            float z = net_read_float(rec_cursor);
             mc_int hand = net_read_varint(rec_cursor);
             mc_ubyte secondary_action = net_read_ubyte(rec_cursor);
             // @TODO(traks) implement
@@ -463,9 +463,9 @@ process_packet(entity_data * entity, player_brain * brain,
         break;
     }
     case SBP_MOVE_PLAYER_POS: {
-        mc_double x = net_read_double(rec_cursor);
-        mc_double y = net_read_double(rec_cursor);
-        mc_double z = net_read_double(rec_cursor);
+        double x = net_read_double(rec_cursor);
+        double y = net_read_double(rec_cursor);
+        double z = net_read_double(rec_cursor);
         int on_ground = net_read_ubyte(rec_cursor);
         process_move_player_packet(entity, x, y, z,
                 entity->player.head_rot_x,
@@ -473,19 +473,19 @@ process_packet(entity_data * entity, player_brain * brain,
         break;
     }
     case SBP_MOVE_PLAYER_POS_ROT: {
-        mc_double x = net_read_double(rec_cursor);
-        mc_double y = net_read_double(rec_cursor);
-        mc_double z = net_read_double(rec_cursor);
-        mc_float head_rot_y = net_read_float(rec_cursor);
-        mc_float head_rot_x = net_read_float(rec_cursor);
+        double x = net_read_double(rec_cursor);
+        double y = net_read_double(rec_cursor);
+        double z = net_read_double(rec_cursor);
+        float head_rot_y = net_read_float(rec_cursor);
+        float head_rot_x = net_read_float(rec_cursor);
         int on_ground = net_read_ubyte(rec_cursor);
         process_move_player_packet(entity, x, y, z,
                 head_rot_x, head_rot_y, on_ground);
         break;
     }
     case SBP_MOVE_PLAYER_ROT: {
-        mc_float head_rot_y = net_read_float(rec_cursor);
-        mc_float head_rot_x = net_read_float(rec_cursor);
+        float head_rot_y = net_read_float(rec_cursor);
+        float head_rot_x = net_read_float(rec_cursor);
         int on_ground = net_read_ubyte(rec_cursor);
         process_move_player_packet(entity,
                 entity->x, entity->y, entity->z,
@@ -502,11 +502,11 @@ process_packet(entity_data * entity, player_brain * brain,
     }
     case SBP_MOVE_VEHICLE: {
         logs("Packet move vehicle");
-        mc_double x = net_read_double(rec_cursor);
-        mc_double y = net_read_double(rec_cursor);
-        mc_double z = net_read_double(rec_cursor);
-        mc_float rot_y = net_read_float(rec_cursor);
-        mc_float rot_x = net_read_float(rec_cursor);
+        double x = net_read_double(rec_cursor);
+        double y = net_read_double(rec_cursor);
+        double z = net_read_double(rec_cursor);
+        float rot_y = net_read_float(rec_cursor);
+        float rot_x = net_read_float(rec_cursor);
         // @TODO(traks) handle packet
         break;
     }
@@ -852,9 +852,9 @@ process_packet(entity_data * entity, player_brain * brain,
         mc_int hand = net_read_varint(rec_cursor);
         net_block_pos clicked_pos = net_read_block_pos(rec_cursor);
         mc_int clicked_face = net_read_varint(rec_cursor);
-        mc_float click_offset_x = net_read_float(rec_cursor);
-        mc_float click_offset_y = net_read_float(rec_cursor);
-        mc_float click_offset_z = net_read_float(rec_cursor);
+        float click_offset_x = net_read_float(rec_cursor);
+        float click_offset_y = net_read_float(rec_cursor);
+        float click_offset_z = net_read_float(rec_cursor);
         // @TODO(traks) figure out what this is used for
         mc_ubyte is_inside = net_read_ubyte(rec_cursor);
 
@@ -1188,11 +1188,11 @@ disconnect_player_now(player_brain * brain, server * serv) {
     }
 }
 
-static mc_float
-degree_diff(mc_float to, mc_float from) {
-    mc_float div = (to - from) / 360 + 0.5f;
-    mc_float mod = div - floor(div);
-    mc_float res = mod * 360 - 180;
+static float
+degree_diff(float to, float from) {
+    float div = (to - from) / 360 + 0.5f;
+    float mod = div - floor(div);
+    float res = mod * 360 - 180;
     return res;
 }
 
@@ -1207,9 +1207,9 @@ tick_player_brain(player_brain * brain, server * serv,
     ssize_t rec_size = recv(sock, brain->rec_buf + brain->rec_cursor,
             sizeof brain->rec_buf - brain->rec_cursor, 0);
 
-    mc_double initial_x = entity->x;
-    mc_double initial_y = entity->y;
-    mc_double initial_z = entity->z;
+    double initial_x = entity->x;
+    double initial_y = entity->y;
+    double initial_z = entity->z;
 
     if (rec_size == 0) {
         disconnect_player_now(brain, serv);
@@ -1278,9 +1278,9 @@ tick_player_brain(player_brain * brain, server * serv,
     }
 
     if (!(entity->flags & ENTITY_TELEPORTING)) {
-        mc_double move_dx = entity->x - initial_x;
-        mc_double move_dy = entity->y - initial_y;
-        mc_double move_dz = entity->z - initial_z;
+        double move_dx = entity->x - initial_x;
+        double move_dy = entity->y - initial_y;
+        double move_dz = entity->z - initial_z;
     }
 
 bail:
@@ -2076,11 +2076,11 @@ send_packets_to_player(player_brain * brain, server * serv,
             if ((candidate->flags & ENTITY_IN_USE)
                     && candidate_eid == tracked_eid) {
                 // entity is still there
-                mc_double dx = candidate->x - player->x;
-                mc_double dy = candidate->y - player->y;
-                mc_double dz = candidate->z - player->z;
-                mc_float rot_x = 0;
-                mc_float rot_y = 0;
+                double dx = candidate->x - player->x;
+                double dy = candidate->y - player->y;
+                double dz = candidate->z - player->z;
+                float rot_x = 0;
+                float rot_y = 0;
 
                 switch (candidate->type) {
                 case ENTITY_PLAYER:
@@ -2125,9 +2125,9 @@ send_packets_to_player(player_brain * brain, server * serv,
 
         if ((candidate->flags & ENTITY_IN_USE) && candidate_eid != brain->eid) {
             // candidate is valid for being newly tracked
-            mc_double dx = candidate->x - player->x;
-            mc_double dy = candidate->y - player->y;
-            mc_double dz = candidate->z - player->z;
+            double dx = candidate->x - player->x;
+            double dy = candidate->y - player->y;
+            double dz = candidate->z - player->z;
 
             if (dx * dx + dy * dy + dz * dz > 40 * 40) {
                 continue;

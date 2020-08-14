@@ -382,7 +382,7 @@ net_write_string(buffer_cursor * cursor, net_string val) {
     cursor->index += val.size;
 }
 
-mc_float
+float
 net_read_float(buffer_cursor * cursor) {
     mc_uint in = net_read_uint(cursor);
     int encoded_e = (in >> 23) & 0xff;
@@ -422,7 +422,7 @@ net_write_float_inf(buffer_cursor * cursor, int neg) {
 }
 
 void
-net_write_float(buffer_cursor * cursor, mc_float val) {
+net_write_float(buffer_cursor * cursor, float val) {
     switch (fpclassify(val)) {
     case FP_NORMAL:
     case FP_SUBNORMAL: {
@@ -431,7 +431,7 @@ net_write_float(buffer_cursor * cursor, mc_float val) {
         // becomes "0.5 * 2^1". However, the significand in the IEEE 754
         // specification is "1.xxxx...", i.e. the exponent "e" is one higher
         // than the one we need for the IEEE 754 representation.
-        mc_float normalised = frexpf(val, &e);
+        float normalised = frexpf(val, &e);
         int encoded_e = e - 1 + 127;
 
         if (encoded_e >= 0xff) {
@@ -483,7 +483,7 @@ net_write_float(buffer_cursor * cursor, mc_float val) {
     }
 }
 
-mc_double
+double
 net_read_double(buffer_cursor * cursor) {
     mc_ulong in = net_read_ulong(cursor);
     int encoded_e = (in >> 52) & 0x7ff;
@@ -523,8 +523,8 @@ net_write_double_inf(buffer_cursor * cursor, int neg) {
 }
 
 void
-net_write_double(buffer_cursor * cursor, mc_double val) {
-    // @TODO We use functions that depend on the actual type mc_double is.
+net_write_double(buffer_cursor * cursor, double val) {
+    // @TODO We use functions that depend on the actual type double is.
     switch (fpclassify(val)) {
     case FP_NORMAL:
     case FP_SUBNORMAL: {
@@ -533,7 +533,7 @@ net_write_double(buffer_cursor * cursor, mc_double val) {
         // becomes "0.5 * 2^1". However, the significand in the IEEE 754
         // specification is "1.xxxx...", i.e. the exponent "e" is one higher
         // than the one we need for the IEEE 754 representation.
-        mc_double normalised = frexp(val, &e);
+        double normalised = frexp(val, &e);
         int encoded_e = e - 1 + 1023;
 
         if (encoded_e >= 0x7ff) {

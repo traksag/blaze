@@ -400,12 +400,12 @@ print_nbt(nbt_tape_entry * tape, buffer_cursor * cursor,
             break;
         }
         case NBT_TAG_FLOAT: {
-            mc_float val = net_read_float(cursor);
+            float val = net_read_float(cursor);
             printf("%f", val);
             break;
         }
         case NBT_TAG_DOUBLE: {
-            mc_double val = net_read_double(cursor);
+            double val = net_read_double(cursor);
             printf("%f", val);
             break;
         }
