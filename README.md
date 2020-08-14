@@ -10,9 +10,20 @@ Some side effects of these goals are the following: we don't implement world gen
 
 All files in this repository are in the public domain. You can do whatever you want with them. No warranty is implied; use files in this repository at your own risk.
 
+## System Requirements
+
+This software is developed on macOS, but it should work fine on most UNIX systems. Maybe it works fine on Windows too. You must have zlib installed to build and run this program.
+
+Your compiler must satisfy the following:
+
+* Integers are represented using two's complement representation and bitwise operations such as AND, work as expected on signed integers.
+* Signed right shift works by sign extension.
+
+GCC satisfies these requirements as can be seen [here](https://gcc.gnu.org/onlinedocs/gcc/Integers-implementation.html). Hence Clang likely does as well (there is no accessible documentation of implementation-defined behaviour though).
+
 ## Usage
 
-Build the server by running `./build.sh` if you're on Unix. On other systems, modify the single line inside 'build.sh' to suit your needs. Currently you need to have zlib installed.
+Build the server by running `./build.sh` if you're on Unix. On other systems, modify the single line inside 'build.sh' to suit your needs.
 
 To run the server, simply run `./blaze`. Currently the 'blaze' binary needs to be in the repository's root directory so it can read the data from the data files such as 'blocktypes.txt' and 'itemtags.txt'. The server listens on localhost port 25565. Alter this in the code if you want.
 

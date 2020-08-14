@@ -380,6 +380,8 @@ typedef struct {
     // players. The client determines the body rotation based on the player's
     // movement and their head rotation. However, we do need to send a players
     // head rotation using the designated packet, otherwise heads won't rotate.
+    // @NOTE(traks) these values shouldn't exceed the range [0, 360] by too
+    // much, otherwise float -> integer conversion errors may occur.
     mc_float head_rot_x;
     mc_float head_rot_y;
 } player_data;

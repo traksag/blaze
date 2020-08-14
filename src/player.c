@@ -551,7 +551,6 @@ process_packet(entity_data * entity, player_brain * brain,
                 // @TODO(traks) ensure block pos is close to the
                 // player and the chunk is sent to the player
 
-                // @TODO(traks) let's hope this signed shift works fine
                 chunk_pos pos = {
                     .x = block_pos.x >> 4,
                     .z = block_pos.z >> 4
@@ -564,7 +563,6 @@ process_packet(entity_data * entity, player_brain * brain,
                     break;
                 }
 
-                // @TODO(traks) ANDing signed integers better work
                 int in_chunk_x = block_pos.x & 0xf;
                 int in_chunk_z = block_pos.z & 0xf;
                 chunk_set_block_state(ch, in_chunk_x, block_pos.y,
@@ -919,7 +917,6 @@ process_packet(entity_data * entity, player_brain * brain,
         // @TODO(traks) check if target pos is in chunk visible to
         // the player
 
-        // @TODO(traks) let's hope this signed shift works fine
         chunk_pos pos = {
             .x = target_pos.x >> 4,
             .z = target_pos.z >> 4
@@ -929,7 +926,6 @@ process_packet(entity_data * entity, player_brain * brain,
             break;
         }
 
-        // @TODO(traks) ANDing signed integers better work
         int in_chunk_x = target_pos.x & 0xf;
         int in_chunk_z = target_pos.z & 0xf;
         chunk_set_block_state(ch, in_chunk_x, target_pos.y,
@@ -1780,7 +1776,6 @@ send_packets_to_player(player_brain * brain, server * serv,
     mc_short chunk_cache_max_x = brain->chunk_cache_centre_x + brain->chunk_cache_radius;
     mc_short chunk_cache_max_z = brain->chunk_cache_centre_z + brain->chunk_cache_radius;
 
-    // @TODO(traks) let's hope this signed shift works fine
     mc_short new_chunk_cache_centre_x = (mc_int) floor(player->x) >> 4;
     mc_short new_chunk_cache_centre_z = (mc_int) floor(player->z) >> 4;
     assert(brain->new_chunk_cache_radius <= MAX_CHUNK_CACHE_RADIUS);
@@ -1841,12 +1836,10 @@ send_packets_to_player(player_brain * brain, server * serv,
                     }
 
                     begin_packet(&send_cursor, CBP_SECTION_BLOCKS_UPDATE);
-                    // @TODO(traks) do these casts always work as intended
-                    // for negative values?
                     mc_ulong section_pos =
-                            (((mc_ulong) x & 0x3fffff) << 42)
-                            | (((mc_ulong) z & 0x3fffff) << 20)
-                            | ((mc_ulong) section & 0xfffff);
+                            ((mc_ulong) (x & 0x3fffff) << 42)
+                            | ((mc_ulong) (z & 0x3fffff) << 20)
+                            | (mc_ulong) (section & 0xfffff);
                     net_write_ulong(&send_cursor, section_pos);
                     // @TODO(traks) appropriate value for this
                     net_write_ubyte(&send_cursor, 1); // suppress light updates
@@ -2096,9 +2089,8 @@ send_packets_to_player(player_brain * brain, server * serv,
 
                     begin_packet(&send_cursor, CBP_ROTATE_HEAD);
                     net_write_varint(&send_cursor, candidate_eid);
-                    // @TODO(traks) make sure signed cast to mc_ubyte works
-                    net_write_ubyte(&send_cursor, (int)
-                            (candidate->player.head_rot_y * 256.0f / 360.0f));
+                    net_write_ubyte(&send_cursor,
+                            (int) (candidate->player.head_rot_y * 256.0f / 360.0f) & 0xff);
                     finish_packet_and_send(&send_cursor, brain);
                     break;
                 }
@@ -2109,9 +2101,10 @@ send_packets_to_player(player_brain * brain, server * serv,
                     net_write_double(&send_cursor, candidate->x);
                     net_write_double(&send_cursor, candidate->y);
                     net_write_double(&send_cursor, candidate->z);
-                    // @TODO(traks) make sure signed cast to mc_ubyte works
-                    net_write_ubyte(&send_cursor, (int) (rot_y * 256.0f / 360.0f));
-                    net_write_ubyte(&send_cursor, (int) (rot_x * 256.0f / 360.0f));
+                    net_write_ubyte(&send_cursor,
+                            (int) (rot_y * 256.0f / 360.0f) & 0xff);
+                    net_write_ubyte(&send_cursor,
+                            (int) (rot_x * 256.0f / 360.0f) & 0xff);
                     net_write_ubyte(&send_cursor, !!(candidate->flags & ENTITY_ON_GROUND));
                     finish_packet_and_send(&send_cursor, brain);
                     continue;
@@ -2150,18 +2143,16 @@ send_packets_to_player(player_brain * brain, server * serv,
                 net_write_double(&send_cursor, candidate->x);
                 net_write_double(&send_cursor, candidate->y);
                 net_write_double(&send_cursor, candidate->z);
-                // @TODO(traks) make sure signed cast to mc_ubyte works
-                net_write_ubyte(&send_cursor, (int)
-                        (candidate->player.head_rot_y * 256.0f / 360.0f));
-                net_write_ubyte(&send_cursor, (int)
-                        (candidate->player.head_rot_x * 256.0f / 360.0f));
+                net_write_ubyte(&send_cursor,
+                        (int) (candidate->player.head_rot_y * 256.0f / 360.0f) & 0xff);
+                net_write_ubyte(&send_cursor,
+                        (int) (candidate->player.head_rot_x * 256.0f / 360.0f) & 0xff);
                 finish_packet_and_send(&send_cursor, brain);
 
                 begin_packet(&send_cursor, CBP_ROTATE_HEAD);
                 net_write_varint(&send_cursor, candidate_eid);
-                // @TODO(traks) make sure signed cast to mc_ubyte works
-                net_write_ubyte(&send_cursor, (int)
-                        (candidate->player.head_rot_y * 256.0f / 360.0f));
+                net_write_ubyte(&send_cursor,
+                        (int) (candidate->player.head_rot_y * 256.0f / 360.0f) & 0xff);
                 finish_packet_and_send(&send_cursor, brain);
                 break;
             case ENTITY_ITEM: {
@@ -2174,7 +2165,6 @@ send_packets_to_player(player_brain * brain, server * serv,
                 // net_write_double(&send_cursor, candidate->x);
                 // net_write_double(&send_cursor, candidate->y);
                 // net_write_double(&send_cursor, candidate->z);
-                // // @TODO(traks) make sure signed cast to mc_ubyte works
                 // net_write_ubyte(&send_cursor, 0);
                 // net_write_ubyte(&send_cursor, 0);
                 // // @TODO(traks) y head rotation (what is that?)

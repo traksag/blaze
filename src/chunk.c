@@ -121,8 +121,7 @@ chunk_pos_equal(chunk_pos a, chunk_pos b) {
 
 static int
 hash_chunk_pos(chunk_pos pos) {
-    // @TODO(traks) this signed-to-unsigned cast better work
-    return (((unsigned) pos.x & 0x1f) << 5) | ((unsigned) pos.z & 0x1f);
+    return ((pos.x & 0x1f) << 5) | (pos.z & 0x1f);
 }
 
 mc_ushort
@@ -267,7 +266,6 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     // @TODO(traks) error handling and/or error messages for all failure cases
     // in this entire function?
 
-    // @TODO(traks) let's hope this signed shift works fine
     int region_x = pos.x >> 5;
     int region_z = pos.z >> 5;
 
@@ -309,7 +307,6 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
 
     // First read from the chunk location table at which sector (4096 byte
     // block) the chunk data starts.
-    // @TODO(traks) this & better work for negative values
     int index = ((pos.z & 0x1f) << 5) | (pos.x & 0x1f);
     cursor.index = index << 2;
     mc_uint loc = net_read_uint(&cursor);
