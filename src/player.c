@@ -1824,8 +1824,19 @@ send_packets_to_player(player_brain * brain, server * serv,
                 }
 
                 for (int section = 0; section < 16; section++) {
-                    if (!(ch->sections_with_changes
-                            & ((mc_ushort) 1 << section))) {
+                    int changed_blocks_size = ARRAY_SIZE(ch->changed_blocks);
+                    compact_chunk_block_pos sec_changed_blocks[changed_blocks_size];
+                    int sec_changed_block_count = 0;
+
+                    for (int i = 0; i < ch->changed_block_count; i++) {
+                        compact_chunk_block_pos pos = ch->changed_blocks[i];
+                        if ((pos.y >> 4) == section) {
+                            sec_changed_blocks[sec_changed_block_count] = pos;
+                            sec_changed_block_count++;
+                        }
+                    }
+
+                    if (sec_changed_block_count == 0) {
                         continue;
                     }
 
@@ -1839,13 +1850,14 @@ send_packets_to_player(player_brain * brain, server * serv,
                     net_write_ulong(&send_cursor, section_pos);
                     // @TODO(traks) appropriate value for this
                     net_write_ubyte(&send_cursor, 1); // suppress light updates
-                    net_write_varint(&send_cursor, ch->changed_block_count);
+                    net_write_varint(&send_cursor, sec_changed_block_count);
 
-                    for (int i = 0; i < ch->changed_block_count; i++) {
-                        mc_ushort pos = ch->changed_blocks[i];
+                    for (int i = 0; i < sec_changed_block_count; i++) {
+                        compact_chunk_block_pos pos = sec_changed_blocks[i];
                         mc_long block_state = chunk_get_block_state(ch,
-                                pos >> 12, pos & 0xff, (pos >> 8) & 0xf);
-                        mc_long encoded = (block_state << 12) | (mc_long) pos;
+                                pos.x, pos.y, pos.z);
+                        mc_long encoded = (block_state << 12)
+                                | (pos.x << 8) | (pos.z << 4) | (pos.y & 0xf);
                         net_write_varlong(&send_cursor, encoded);
                     }
                     finish_packet_and_send(&send_cursor, brain);

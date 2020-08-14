@@ -169,11 +169,9 @@ chunk_set_block_state(chunk * ch, int x, int y, int z, mc_ushort block_state) {
     // to a chunk per tick.
     assert(ch->changed_block_count < ARRAY_SIZE(ch->changed_blocks));
 
-    // format is that of the chunk blocks update packet
-    ch->changed_blocks[ch->changed_block_count] =
-            ((mc_ushort) x << 12) | (z << 8) | y;
+    compact_chunk_block_pos pos = {.x = x, .y = y, .z = z};
+    ch->changed_blocks[ch->changed_block_count] = pos;
     ch->changed_block_count++;
-    ch->sections_with_changes |= (mc_ushort) 1 << (y >> 4);
 
     int section_y = y >> 4;
     chunk_section * section = ch->sections[section_y];
@@ -680,7 +678,6 @@ clean_up_unused_chunks(void) {
         for (int chunki = 0; chunki < bucket->size; chunki++) {
             chunk * ch = bucket->chunks + chunki;
             ch->changed_block_count = 0;
-            ch->sections_with_changes = 0;
 
             if (ch->available_interest == 0) {
                 for (int sectioni = 0; sectioni < 16; sectioni++) {

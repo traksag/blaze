@@ -168,6 +168,12 @@ struct chunk_section_bucket {
 };
 
 typedef struct {
+    mc_ushort x:4;
+    mc_ushort y:8;
+    mc_ushort z:4;
+} compact_chunk_block_pos;
+
+typedef struct {
     chunk_section * sections[16];
     mc_ushort non_air_count[16];
     // need shorts to store 257 different heights
@@ -183,10 +189,8 @@ typedef struct {
     // this limit can be exceeded. I highly doubt more than 16 blocks will be
     // changed per chunk per tick due to players except if player density is
     // very high.
-    mc_ushort changed_blocks[16];
+    compact_chunk_block_pos changed_blocks[16];
     mc_ubyte changed_block_count;
-    // bit mask of sections with changes
-    mc_ushort sections_with_changes;
 } chunk;
 
 #define CHUNKS_PER_BUCKET (32)

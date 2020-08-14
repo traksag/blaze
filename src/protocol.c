@@ -596,10 +596,10 @@ net_read_block_pos(buffer_cursor * cursor) {
     mc_int z = (val >> 12) & 0x3ffffff;
 
     if (x >= 0x2000000) {
-        x -= 0x3ffffff;
+        x = x - 0x3ffffff - 1;
     }
     if (z >= 0x2000000) {
-        z -= 0x3ffffff;
+        z = z - 0x3ffffff - 1;
     }
 
     net_block_pos res = {
