@@ -1,7 +1,3 @@
-key minecraft:furnace_materials
-value minecraft:cobblestone
-value minecraft:blackstone
-
 key minecraft:fishes
 value minecraft:cod
 value minecraft:cooked_cod
@@ -476,6 +472,10 @@ value minecraft:acacia_door
 value minecraft:dark_oak_door
 value minecraft:crimson_door
 value minecraft:warped_door
+
+key minecraft:stone_crafting_materials
+value minecraft:cobblestone
+value minecraft:blackstone
 
 key minecraft:piglin_loved
 value minecraft:gold_ore

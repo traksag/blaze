@@ -97,6 +97,74 @@ net_varint_size(mc_int val) {
     return res;
 }
 
+mc_long
+net_read_varlong(buffer_cursor * cursor) {
+    mc_ulong in = 0;
+    unsigned char * data = cursor->buf + cursor->index;
+    int remaining = cursor->limit - cursor->index;
+    // first decode the first 1-9 bytes
+    int end = MIN(remaining, 9);
+    int i;
+    for (i = 0; i < end; i++) {
+        unsigned char b = data[i];
+        in |= (mc_ulong) (b & 0x7f) << (i * 7);
+
+        if ((b & 0x80) == 0) {
+            // final byte marker found
+            goto exit;
+        }
+    }
+
+    // The first bytes were decoded. If we reached the end of the buffer, it is
+    // missing the final 10th byte.
+    if (remaining < 10) {
+        cursor->error = 1;
+        return 0;
+    }
+    unsigned char final = data[9];
+    in |= (mc_ulong) (final & 0x1) << 63;
+
+exit:
+    cursor->index += i + 1;
+    if (in <= 0x7fffffffffffffff) {
+        return in;
+    } else {
+        return (mc_long) (in - 0x8000000000000000) + (-0x7fffffffffffffff - 1);
+    }
+}
+
+void
+net_write_varlong(buffer_cursor * cursor, mc_long val) {
+    mc_ulong out;
+    // convert to two's complement representation
+    if (val >= 0) {
+        out = val;
+    } else {
+        out = (mc_ulong) (val + 0x7fffffffffffffff + 1) + 0x8000000000000000;
+    }
+
+    int remaining = cursor->limit - cursor->index;
+    unsigned char * data = cursor->buf + cursor->index;
+
+    // write each block of 7 bits until no more are necessary
+    int i = 0;
+    for (;;) {
+        if (i >= remaining) {
+            cursor->error = 1;
+            return;
+        }
+        if (out <= 0x7f) {
+            data[i] = out;
+            cursor->index += i + 1;
+            break;
+        } else {
+            data[i] = 0x80 | (out & 0x7f);
+            out >>= 7;
+            i++;
+        }
+    }
+}
+
 mc_int
 net_read_int(buffer_cursor * cursor) {
     mc_uint in = net_read_uint(cursor);

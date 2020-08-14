@@ -509,7 +509,7 @@ server_tick(server * serv) {
                     response_size += sprintf((char *) response + response_size,
                             "{\"version\":{\"name\":\"%s\",\"protocol\":%d},"
                             "\"players\":{\"max\":%d,\"online\":%d,\"sample\":[",
-                            "1.16.1", 736,
+                            "1.16.2", 751,
                             (int) MAX_PLAYERS, (int) list_size);
 
                     for (int i = 0; i < sample_size; i++) {
@@ -1176,6 +1176,91 @@ load_tags(char * file_name, tag_list * tags,
     }
 }
 
+static void
+init_dimension_types(server * serv) {
+    dimension_type * overworld = serv->dimension_types + serv->dimension_type_count;
+    serv->dimension_type_count++;
+
+    *overworld = (dimension_type) {
+        .fixed_time = -1,
+        .coordinate_scale = 1,
+        .logical_height = 256,
+        .ambient_light = 0
+    };
+
+    net_string overworld_name = NET_STRING("minecraft:overworld");
+    memcpy(overworld->name, overworld_name.ptr, overworld_name.size);
+    overworld->name_size = overworld_name.size;
+
+    net_string overworld_infiniburn = NET_STRING("minecraft:infiniburn_overworld");
+    memcpy(overworld->infiniburn, overworld_infiniburn.ptr, overworld_infiniburn.size);
+    overworld->infiniburn_size = overworld_infiniburn.size;
+
+    net_string overworld_effects = NET_STRING("minecraft:overworld");
+    memcpy(overworld->effects, overworld_effects.ptr, overworld_effects.size);
+    overworld->effects_size = overworld_effects.size;
+
+    overworld->flags |= DIMENSION_HAS_SKYLIGHT | DIMENSION_NATURAL
+            | DIMENSION_BED_WORKS | DIMENSION_HAS_RAIDS;
+
+    // @TODO(traks) add all the vanilla dimension types
+}
+
+static void
+init_biomes(server * serv) {
+    biome * ocean = serv->biomes + serv->biome_count;
+    serv->biome_count++;
+
+    *ocean = (biome) {
+        .precipitation = BIOME_PRECIPITATION_RAIN,
+        .category = BIOME_CATEGORY_OCEAN,
+        .temperature = 0.5,
+        .downfall = 0.5,
+        .temperature_mod = BIOME_TEMPERATURE_MOD_NONE,
+        .depth = -1,
+        .scale = 0.1,
+
+        .fog_colour = 12638463,
+        .water_colour = 4159204,
+        .water_fog_colour = 329011,
+        .sky_colour = 8103167,
+        .foliage_colour_override = -1,
+        .grass_colour_override = -1,
+        .grass_colour_mod = BIOME_GRASS_COLOUR_MOD_NONE,
+    };
+
+    net_string ocean_name = NET_STRING("minecraft:ocean");
+    memcpy(ocean->name, ocean_name.ptr, ocean_name.size);
+    ocean->name_size = ocean_name.size;
+
+    biome * plains = serv->biomes + serv->biome_count;
+    serv->biome_count++;
+
+    *plains = (biome) {
+        .precipitation = BIOME_PRECIPITATION_RAIN,
+        .category = BIOME_CATEGORY_PLAINS,
+        .temperature = 0.8,
+        .downfall = 0.4,
+        .temperature_mod = BIOME_TEMPERATURE_MOD_NONE,
+        .depth = 0.125,
+        .scale = 0.05,
+
+        .fog_colour = 12638463,
+        .water_colour = 4159204,
+        .water_fog_colour = 329011,
+        .sky_colour = 7907327,
+        .foliage_colour_override = -1,
+        .grass_colour_override = -1,
+        .grass_colour_mod = BIOME_GRASS_COLOUR_MOD_NONE,
+    };
+
+    net_string plains_name = NET_STRING("minecraft:plains");
+    memcpy(plains->name, plains_name.ptr, plains_name.size);
+    plains->name_size = plains_name.size;
+
+    // @TODO(traks) add all the vanilla biomes
+}
+
 int
 main(void) {
     init_program_nano_time();
@@ -1277,6 +1362,9 @@ main(void) {
     load_tags("itemtags.txt", &serv->item_tags, &serv->item_resource_table, serv);
     load_tags("entitytags.txt", &serv->entity_tags, &serv->entity_resource_table, serv);
     load_tags("fluidtags.txt", &serv->fluid_tags, &serv->fluid_resource_table, serv);
+
+    init_dimension_types(serv);
+    init_biomes(serv);
 
     int profiler_sock = -1;
 

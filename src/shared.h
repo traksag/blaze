@@ -179,12 +179,14 @@ typedef struct {
     mc_uint available_interest;
     unsigned flags;
 
-    // @TODO(traks) more changed blocks, better compression, store it per chunk
-    // section perhaps. Figure out when this limit can be exceeded. I highly
-    // doubt more than 16 blocks will be changed per chunk due to players except
-    // if very high player density.
+    // @TODO(traks) more changed blocks, better compression. Figure out when
+    // this limit can be exceeded. I highly doubt more than 16 blocks will be
+    // changed per chunk per tick due to players except if player density is
+    // very high.
     mc_ushort changed_blocks[16];
     mc_ubyte changed_block_count;
+    // bit mask of sections with changes
+    mc_ushort sections_with_changes;
 } chunk;
 
 #define CHUNKS_PER_BUCKET (32)
@@ -285,6 +287,7 @@ enum entity_type {
     ENTITY_PHANTOM,
     ENTITY_PIG,
     ENTITY_PIGLIN,
+    ENTITY_PIGLIN_BRUTE,
     ENTITY_PILLAGER,
     ENTITY_POLAR_BEAR,
     ENTITY_TNT,
@@ -493,6 +496,147 @@ typedef struct {
     mc_int last_string_buf_index;
 } resource_loc_table;
 
+// Currently dimension types have the following configurable properties that are
+// shared with the client. These have the effects:
+//
+//  - fixed_time (optional long): time of day always equals this
+//  - has_skylight (bool): sky light levels, whether it can
+//    thunder, whether daylight sensors work, phantom spawning
+//  - has_ceiling (bool): affects thunder, map rendering, mob
+//    spawning algorithm, respawn logic
+//  - ultrawarm (bool): whether water can be placed, affects ice
+//    melting, and how far and how fast lava flows
+//  - natural (bool): whether players can sleep and whether
+//    zombified piglin can spawn from portals
+//  - coordinate_scale (double): vanilla overworld has 1 and vanilla
+//    nether has 8. affects teleporting between worlds
+//  - piglin_safe (bool): false if piglins convert to zombified
+//    piglins as in the vanilla overworld
+//  - bed_works (bool): true if beds can set spawn point. else beds will
+//    explode when used
+//  - respawn_anchor_works (bool): true if respawn anchors can
+//    set spawn point. else they explode when used
+//  - has_raids (bool): whether raids spawn
+//  - logical_height (int in [0, 256]): seems to only affect
+//    chorus fruit teleportation and nether portal spawning, not
+//    the actual maximum world height
+//  - infiniburn (resource loc): the resource location of a
+//    block tag that is used to check whether fire should keep
+//    burning forever on tagged blocks
+//  - effects (resource loc): affects cloud height, fog, sky colour, etc. for
+//    the client
+//  - ambient_light (float): affects brightness visually and some mob AI
+
+#define DIMENSION_HAS_SKYLIGHT ((unsigned) (0x1 << 0))
+
+#define DIMENSION_HAS_CEILING ((unsigned) (0x1 << 1))
+
+#define DIMENSION_ULTRAWARM ((unsigned) (0x1 << 2))
+
+#define DIMENSION_NATURAL ((unsigned) (0x1 << 3))
+
+#define DIMENSION_PIGLIN_SAFE ((unsigned) (0x1 << 4))
+
+#define DIMENSION_BED_WORKS ((unsigned) (0x1 << 5))
+
+#define DIMENSION_RESPAWN_ANCHOR_WORKS ((unsigned) (0x1 << 6))
+
+#define DIMENSION_HAS_RAIDS ((unsigned) (0x1 << 7))
+
+typedef struct {
+    unsigned char name[64];
+    unsigned char name_size;
+    mc_long fixed_time; // -1 if not used
+    unsigned flags;
+    mc_double coordinate_scale;
+    mc_int logical_height;
+    unsigned char infiniburn[128];
+    unsigned char infiniburn_size;
+    unsigned char effects[128];
+    unsigned char effects_size;
+    mc_float ambient_light;
+} dimension_type;
+
+enum biome_precipitation {
+    BIOME_PRECIPITATION_NONE,
+    BIOME_PRECIPITATION_RAIN,
+    BIOME_PRECIPITATION_SNOW,
+};
+
+enum biome_category {
+    BIOME_CATEGORY_NONE,
+    BIOME_CATEGORY_TAIGA,
+    BIOME_CATEGORY_EXTREME_HILLS,
+    BIOME_CATEGORY_JUNGLE,
+    BIOME_CATEGORY_MESA,
+    BIOME_CATEGORY_PLAINS,
+    BIOME_CATEGORY_SAVANNA,
+    BIOME_CATEGORY_ICY,
+    BIOME_CATEGORY_THE_END,
+    BIOME_CATEGORY_BEACH,
+    BIOME_CATEGORY_FOREST,
+    BIOME_CATEGORY_OCEAN,
+    BIOME_CATEGORY_DESERT,
+    BIOME_CATEGORY_RIVER,
+    BIOME_CATEGORY_SWAMP,
+    BIOME_CATEGORY_MUSHROOM,
+    BIOME_CATEGORY_NETHER,
+};
+
+enum biome_temperature_modifier {
+    BIOME_TEMPERATURE_MOD_NONE,
+    BIOME_TEMPERATURE_MOD_FROZEN,
+};
+
+enum biome_grass_colour_modifier {
+    BIOME_GRASS_COLOUR_MOD_NONE,
+    BIOME_GRASS_COLOUR_MOD_DARK_FOREST,
+    BIOME_GRASS_COLOUR_MOD_SWAMP,
+};
+
+// @TODO(traks) description of all fields in the biome struct
+
+typedef struct {
+    unsigned char name[64];
+    unsigned char name_size;
+    unsigned char precipitation;
+    unsigned char category;
+    mc_float temperature;
+    mc_float downfall;
+    unsigned temperature_mod;
+    mc_float depth;
+    mc_float scale;
+
+    mc_int fog_colour;
+    mc_int water_colour;
+    mc_int water_fog_colour;
+    mc_int sky_colour;
+    mc_int foliage_colour_override; // -1 if not used
+    mc_int grass_colour_override; // -1 if not used
+    unsigned char grass_colour_mod;
+
+    // @TODO(traks) complex ambient particle settings
+
+    unsigned char ambient_sound[64];
+    unsigned char ambient_sound_size;
+
+    unsigned char mood_sound[64];
+    unsigned char mood_sound_size;
+    mc_int mood_sound_tick_delay;
+    mc_int mood_sound_block_search_extent;
+    mc_double mood_sound_offset;
+
+    unsigned char additions_sound[64];
+    unsigned char additions_sound_size;
+    mc_double additions_sound_tick_chance;
+
+    unsigned char music_sound[64];
+    unsigned char music_sound_size;
+    mc_int music_min_delay;
+    mc_int music_max_delay;
+    mc_ubyte music_replace_current_music;
+} biome;
+
 typedef struct {
     unsigned long long current_tick;
 
@@ -539,6 +683,12 @@ typedef struct {
     resource_loc_table item_resource_table;
     resource_loc_table entity_resource_table;
     resource_loc_table fluid_resource_table;
+
+    dimension_type dimension_types[32];
+    int dimension_type_count;
+
+    biome biomes[128];
+    int biome_count;
 } server;
 
 void
@@ -558,6 +708,12 @@ net_write_varint(buffer_cursor * cursor, mc_int val);
 
 int
 net_varint_size(mc_int val);
+
+mc_long
+net_read_varlong(buffer_cursor * cursor);
+
+void
+net_write_varlong(buffer_cursor * cursor, mc_long val);
 
 mc_int
 net_read_int(buffer_cursor * cursor);

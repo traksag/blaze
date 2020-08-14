@@ -1175,12 +1175,6 @@ key minecraft:turtle_helmet
 
 key minecraft:scute
 
-key minecraft:iron_shovel
-
-key minecraft:iron_pickaxe
-
-key minecraft:iron_axe
-
 key minecraft:flint_and_steel
 
 key minecraft:apple
@@ -1203,8 +1197,6 @@ key minecraft:netherite_ingot
 
 key minecraft:netherite_scrap
 
-key minecraft:iron_sword
-
 key minecraft:wooden_sword
 
 key minecraft:wooden_shovel
@@ -1212,6 +1204,8 @@ key minecraft:wooden_shovel
 key minecraft:wooden_pickaxe
 
 key minecraft:wooden_axe
+
+key minecraft:wooden_hoe
 
 key minecraft:stone_sword
 
@@ -1221,19 +1215,7 @@ key minecraft:stone_pickaxe
 
 key minecraft:stone_axe
 
-key minecraft:diamond_sword
-
-key minecraft:diamond_shovel
-
-key minecraft:diamond_pickaxe
-
-key minecraft:diamond_axe
-
-key minecraft:stick
-
-key minecraft:bowl
-
-key minecraft:mushroom_stew
+key minecraft:stone_hoe
 
 key minecraft:golden_sword
 
@@ -1243,6 +1225,28 @@ key minecraft:golden_pickaxe
 
 key minecraft:golden_axe
 
+key minecraft:golden_hoe
+
+key minecraft:iron_sword
+
+key minecraft:iron_shovel
+
+key minecraft:iron_pickaxe
+
+key minecraft:iron_axe
+
+key minecraft:iron_hoe
+
+key minecraft:diamond_sword
+
+key minecraft:diamond_shovel
+
+key minecraft:diamond_pickaxe
+
+key minecraft:diamond_axe
+
+key minecraft:diamond_hoe
+
 key minecraft:netherite_sword
 
 key minecraft:netherite_shovel
@@ -1251,23 +1255,19 @@ key minecraft:netherite_pickaxe
 
 key minecraft:netherite_axe
 
+key minecraft:netherite_hoe
+
+key minecraft:stick
+
+key minecraft:bowl
+
+key minecraft:mushroom_stew
+
 key minecraft:string
 
 key minecraft:feather
 
 key minecraft:gunpowder
-
-key minecraft:wooden_hoe
-
-key minecraft:stone_hoe
-
-key minecraft:iron_hoe
-
-key minecraft:diamond_hoe
-
-key minecraft:golden_hoe
-
-key minecraft:netherite_hoe
 
 key minecraft:wheat_seeds
 
@@ -1419,43 +1419,43 @@ key minecraft:cooked_salmon
 
 key minecraft:ink_sac
 
-key minecraft:red_dye
-
-key minecraft:green_dye
-
 key minecraft:cocoa_beans
 
 key minecraft:lapis_lazuli
 
-key minecraft:purple_dye
-
-key minecraft:cyan_dye
-
-key minecraft:light_gray_dye
-
-key minecraft:gray_dye
-
-key minecraft:pink_dye
-
-key minecraft:lime_dye
-
-key minecraft:yellow_dye
-
-key minecraft:light_blue_dye
-
-key minecraft:magenta_dye
+key minecraft:white_dye
 
 key minecraft:orange_dye
 
-key minecraft:bone_meal
+key minecraft:magenta_dye
+
+key minecraft:light_blue_dye
+
+key minecraft:yellow_dye
+
+key minecraft:lime_dye
+
+key minecraft:pink_dye
+
+key minecraft:gray_dye
+
+key minecraft:light_gray_dye
+
+key minecraft:cyan_dye
+
+key minecraft:purple_dye
 
 key minecraft:blue_dye
 
 key minecraft:brown_dye
 
+key minecraft:green_dye
+
+key minecraft:red_dye
+
 key minecraft:black_dye
 
-key minecraft:white_dye
+key minecraft:bone_meal
 
 key minecraft:bone
 
@@ -1612,6 +1612,8 @@ key minecraft:phantom_spawn_egg
 key minecraft:pig_spawn_egg
 
 key minecraft:piglin_spawn_egg
+
+key minecraft:piglin_brute_spawn_egg
 
 key minecraft:pillager_spawn_egg
 

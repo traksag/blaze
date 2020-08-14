@@ -173,6 +173,7 @@ chunk_set_block_state(chunk * ch, int x, int y, int z, mc_ushort block_state) {
     ch->changed_blocks[ch->changed_block_count] =
             ((mc_ushort) x << 12) | (z << 8) | y;
     ch->changed_block_count++;
+    ch->sections_with_changes |= (mc_ushort) 1 << (y >> 4);
 
     int section_y = y >> 4;
     chunk_section * section = ch->sections[section_y];
@@ -432,7 +433,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
 
     nbt_move_to_key(NET_STRING("DataVersion"), chunk_nbt, &cursor);
     mc_int data_version = net_read_int(&cursor);
-    if (data_version != 2567) {
+    if (data_version != 2578) {
         logs("Unknown data version %jd", (intmax_t) data_version);
         goto bail;
     }
@@ -679,6 +680,7 @@ clean_up_unused_chunks(void) {
         for (int chunki = 0; chunki < bucket->size; chunki++) {
             chunk * ch = bucket->chunks + chunki;
             ch->changed_block_count = 0;
+            ch->sections_with_changes = 0;
 
             if (ch->available_interest == 0) {
                 for (int sectioni = 0; sectioni < 16; sectioni++) {

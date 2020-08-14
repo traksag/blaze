@@ -877,8 +877,9 @@ property west true false
 default_values false false false false false
 
 key minecraft:chain
+property axis x y z
 property waterlogged true false
-default_values false
+default_values y false
 
 key minecraft:glass_pane
 property east true false
@@ -2724,11 +2725,13 @@ default_values floor north false
 
 key minecraft:lantern
 property hanging true false
-default_values false
+property waterlogged true false
+default_values false false
 
 key minecraft:soul_lantern
 property hanging true false
-default_values false
+property waterlogged true false
+default_values false false
 
 key minecraft:campfire
 property facing north south west east

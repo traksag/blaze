@@ -40,7 +40,8 @@ enum serverbound_packet_type {
     SBP_PLAYER_ACTION,
     SBP_PLAYER_COMMAND,
     SBP_PLAYER_INPUT,
-    SBP_RECIPE_BOOK_UPDATE,
+    SBP_RECIPE_BOOK_CHANGE_SETTINGS,
+    SBP_RECIPE_BOOK_SEEN_RECIPE,
     SBP_RENAME_ITEM,
     SBP_RESOURCE_PACK,
     SBP_SEEN_ADVANCEMENTS,
@@ -76,7 +77,6 @@ enum clientbound_packet_type {
     CBP_BOSS_EVENT,
     CBP_CHANGE_DIFFICULTY,
     CBP_CHAT,
-    CBP_CHUNK_BLOCKS_UPDATE,
     CBP_COMMANDS,
     CBP_COMMAND_SUGGESTIONS,
     CBP_CONTAINER_ACK,
@@ -121,6 +121,7 @@ enum clientbound_packet_type {
     CBP_RESOURCE_PACK,
     CBP_RESPAWN,
     CBP_ROTATE_HEAD,
+    CBP_SECTION_BLOCKS_UPDATE,
     CBP_SELECT_ADVANCEMENTS,
     CBP_SET_BORDER,
     CBP_SET_CAMERA,
@@ -156,8 +157,18 @@ enum clientbound_packet_type {
     CLIENTBOUND_PACKET_COUNT,
 };
 
-static_assert(SERVERBOUND_PACKET_COUNT == 47, "Packet count mismatch");
-static_assert(CLIENTBOUND_PACKET_COUNT == 92, "Packet count mismatch");
+static void
+nbt_write_key(buffer_cursor * cursor, mc_ubyte tag, net_string key) {
+    net_write_ubyte(cursor, tag);
+    net_write_ushort(cursor, key.size);
+    net_write_data(cursor, key.ptr, key.size);
+}
+
+static void
+nbt_write_string(buffer_cursor * cursor, net_string val) {
+    net_write_ushort(cursor, val.size);
+    net_write_data(cursor, val.ptr, val.size);
+}
 
 void
 teleport_player(player_brain * brain, entity_data * entity,
@@ -197,9 +208,8 @@ process_move_player_packet(entity_data * entity,
 
 static void
 process_packet(entity_data * entity, player_brain * brain,
-        buffer_cursor * rec_cursor, server * serv, mc_int packet_size,
+        buffer_cursor * rec_cursor, server * serv,
         memory_arena * process_arena) {
-    int packet_start = rec_cursor->index;
     mc_int packet_id = net_read_varint(rec_cursor);
 
     switch (packet_id) {
@@ -350,8 +360,7 @@ process_packet(entity_data * entity, player_brain * brain,
         logs("Packet custom payload");
         net_string id = net_read_string(rec_cursor, 32767);
         unsigned char * payload = rec_cursor->buf + rec_cursor->index;
-        mc_int payload_size = packet_start + packet_size
-                - rec_cursor->index;
+        mc_int payload_size = rec_cursor->limit - rec_cursor->index;
 
         if (payload_size > 32767) {
             // custom payload size too large
@@ -688,8 +697,13 @@ process_packet(entity_data * entity, player_brain * brain,
         // @TODO(traks) read packet
         break;
     }
-    case SBP_RECIPE_BOOK_UPDATE: {
-        logs("Packet recipe book update");
+    case SBP_RECIPE_BOOK_CHANGE_SETTINGS: {
+        logs("Packet recipe book change settings");
+        // @TODO(traks) read packet
+        break;
+    }
+    case SBP_RECIPE_BOOK_SEEN_RECIPE: {
+        logs("Packet recipe book seen recipe");
         // @TODO(traks) read packet
         break;
     }
@@ -1019,25 +1033,16 @@ send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch,
         section_data_size += longs * 8;
     }
 
-    net_string height_map_name = NET_STRING("MOTION_BLOCKING");
-
     begin_packet(send_cursor, CBP_LEVEL_CHUNK);
     net_write_int(send_cursor, pos.x);
     net_write_int(send_cursor, pos.z);
     net_write_ubyte(send_cursor, 1); // full chunk
-    net_write_ubyte(send_cursor, 1); // forget old data
     net_write_varint(send_cursor, section_mask);
 
     // height map NBT
-    net_write_ubyte(send_cursor, 10);
-    // use a zero length string as name for the root compound
-    net_write_ushort(send_cursor, 0);
+    nbt_write_key(send_cursor, NBT_TAG_COMPOUND, NET_STRING(""));
 
-    net_write_ubyte(send_cursor, 12);
-    // write name
-    net_write_ushort(send_cursor, height_map_name.size);
-    net_write_data(send_cursor, height_map_name.ptr, height_map_name.size);
-
+    nbt_write_key(send_cursor, NBT_TAG_LONG_ARRAY, NET_STRING("MOTION_BLOCKING"));
     // number of elements in long array
     net_write_int(send_cursor, 36);
     mc_ulong compacted_map[36] = {0};
@@ -1067,13 +1072,14 @@ send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch,
         net_write_ulong(send_cursor, compacted_map[i]);
     }
 
-    // end of compound
-    net_write_ubyte(send_cursor, 0);
+    net_write_ubyte(send_cursor, NBT_TAG_END);
+    // end of height map
 
     // Biome data. Currently we just set all biome blocks (4x4x4 cubes)
     // to the plains biome.
+    net_write_varint(send_cursor, 1024);
     for (int i = 0; i < 1024; i++) {
-        net_write_int(send_cursor, 1);
+        net_write_varint(send_cursor, 1);
     }
 
     net_write_varint(send_cursor, section_data_size);
@@ -1226,36 +1232,40 @@ tick_player_brain(player_brain * brain, server * serv,
         };
 
         for (;;) {
-            mc_int packet_size = net_read_varint(&rec_cursor);
+            buffer_cursor packet_cursor = rec_cursor;
+            mc_int packet_size = net_read_varint(&packet_cursor);
 
-            if (rec_cursor.error != 0) {
+            if (packet_cursor.error != 0) {
                 // packet size not fully received yet
                 break;
             }
-            if (packet_size <= 0 || packet_size > sizeof brain->rec_buf) {
+            if (packet_size > sizeof brain->rec_buf - 5 || packet_size <= 0) {
                 disconnect_player_now(brain, serv);
                 break;
             }
-            if (packet_size > rec_cursor.limit) {
+            if (packet_size > packet_cursor.limit - packet_cursor.index) {
                 // packet not fully received yet
                 break;
             }
 
-            int packet_start = rec_cursor.index;
             memory_arena process_arena = *tick_arena;
+            packet_cursor.limit = packet_cursor.index + packet_size;
 
-            process_packet(entity, brain, &rec_cursor, serv, packet_size,
-                    &process_arena);
+            process_packet(entity, brain, &packet_cursor, serv, &process_arena);
 
-            if (packet_size != rec_cursor.index - packet_start) {
-                rec_cursor.error = 1;
-            }
-
-            if (rec_cursor.error != 0) {
+            if (packet_cursor.error != 0) {
                 logs("Player protocol error occurred");
                 disconnect_player_now(brain, serv);
                 break;
             }
+
+            if (packet_cursor.index != packet_cursor.limit) {
+                logs("Player protocol packet not fully read");
+                disconnect_player_now(brain, serv);
+                break;
+            }
+
+            rec_cursor.index = packet_cursor.index;
         }
 
         memmove(rec_cursor.buf, rec_cursor.buf + rec_cursor.index,
@@ -1279,6 +1289,277 @@ tick_player_brain(player_brain * brain, server * serv,
 
 bail:
     end_timed_block();
+}
+
+static void
+nbt_write_dimension_type(buffer_cursor * send_cursor,
+        dimension_type * dim_type) {
+    if (dim_type->fixed_time != -1) {
+        nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("fixed_time"));
+        net_write_int(send_cursor, dim_type->fixed_time);
+    }
+
+    nbt_write_key(send_cursor, NBT_TAG_BYTE, NET_STRING("has_skylight"));
+    net_write_ubyte(send_cursor, !!(dim_type->flags & DIMENSION_HAS_SKYLIGHT));
+
+    nbt_write_key(send_cursor, NBT_TAG_BYTE, NET_STRING("has_ceiling"));
+    net_write_ubyte(send_cursor, !!(dim_type->flags & DIMENSION_HAS_CEILING));
+
+    nbt_write_key(send_cursor, NBT_TAG_BYTE, NET_STRING("ultrawarm"));
+    net_write_ubyte(send_cursor, !!(dim_type->flags & DIMENSION_ULTRAWARM));
+
+    nbt_write_key(send_cursor, NBT_TAG_BYTE, NET_STRING("natural"));
+    net_write_ubyte(send_cursor, !!(dim_type->flags & DIMENSION_NATURAL));
+
+    nbt_write_key(send_cursor, NBT_TAG_DOUBLE, NET_STRING("coordinate_scale"));
+    net_write_double(send_cursor, dim_type->coordinate_scale);
+
+    nbt_write_key(send_cursor, NBT_TAG_BYTE, NET_STRING("piglin_safe"));
+    net_write_ubyte(send_cursor, !!(dim_type->flags & DIMENSION_PIGLIN_SAFE));
+
+    nbt_write_key(send_cursor, NBT_TAG_BYTE, NET_STRING("bed_works"));
+    net_write_ubyte(send_cursor, !!(dim_type->flags & DIMENSION_BED_WORKS));
+
+    nbt_write_key(send_cursor, NBT_TAG_BYTE, NET_STRING("respawn_anchor_works"));
+    net_write_ubyte(send_cursor, !!(dim_type->flags & DIMENSION_RESPAWN_ANCHOR_WORKS));
+
+    nbt_write_key(send_cursor, NBT_TAG_BYTE, NET_STRING("has_raids"));
+    net_write_ubyte(send_cursor, !!(dim_type->flags & DIMENSION_HAS_RAIDS));
+
+    nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("logical_height"));
+    net_write_int(send_cursor, dim_type->logical_height);
+
+    nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("infiniburn"));
+    net_string infiniburn = {
+        .ptr = dim_type->infiniburn,
+        .size = dim_type->infiniburn_size
+    };
+    nbt_write_string(send_cursor, infiniburn);
+
+    nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("effects"));
+    net_string effects = {
+        .ptr = dim_type->effects,
+        .size = dim_type->effects_size
+    };
+    nbt_write_string(send_cursor, effects);
+
+    nbt_write_key(send_cursor, NBT_TAG_FLOAT, NET_STRING("ambient_light"));
+    net_write_float(send_cursor, dim_type->ambient_light);
+}
+
+static void
+nbt_write_biome(buffer_cursor * send_cursor, biome * b) {
+    nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("precipitation"));
+    switch (b->precipitation) {
+    case BIOME_PRECIPITATION_NONE:
+        nbt_write_string(send_cursor, NET_STRING("none"));
+        break;
+    case BIOME_PRECIPITATION_RAIN:
+        nbt_write_string(send_cursor, NET_STRING("rain"));
+        break;
+    case BIOME_PRECIPITATION_SNOW:
+        nbt_write_string(send_cursor, NET_STRING("snow"));
+        break;
+    default:
+        assert(0);
+    }
+
+    nbt_write_key(send_cursor, NBT_TAG_FLOAT, NET_STRING("temperature"));
+    net_write_float(send_cursor, b->temperature);
+
+    if (b->temperature_mod != BIOME_TEMPERATURE_MOD_NONE) {
+        nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("temperature_modifier"));
+        switch (b->temperature_mod) {
+        case BIOME_TEMPERATURE_MOD_FROZEN:
+            nbt_write_string(send_cursor, NET_STRING("frozen"));
+            break;
+        default:
+            assert(0);
+        }
+    }
+
+    nbt_write_key(send_cursor, NBT_TAG_FLOAT, NET_STRING("downfall"));
+    net_write_float(send_cursor, b->downfall);
+
+    nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("category"));
+    switch (b->category) {
+    case BIOME_CATEGORY_NONE:
+        nbt_write_string(send_cursor, NET_STRING("none"));
+        break;
+    case BIOME_CATEGORY_TAIGA:
+        nbt_write_string(send_cursor, NET_STRING("taiga"));
+        break;
+    case BIOME_CATEGORY_EXTREME_HILLS:
+        nbt_write_string(send_cursor, NET_STRING("extreme_hills"));
+        break;
+    case BIOME_CATEGORY_JUNGLE:
+        nbt_write_string(send_cursor, NET_STRING("jungle"));
+        break;
+    case BIOME_CATEGORY_MESA:
+        nbt_write_string(send_cursor, NET_STRING("mesa"));
+        break;
+    case BIOME_CATEGORY_PLAINS:
+        nbt_write_string(send_cursor, NET_STRING("plains"));
+        break;
+    case BIOME_CATEGORY_SAVANNA:
+        nbt_write_string(send_cursor, NET_STRING("savanna"));
+        break;
+    case BIOME_CATEGORY_ICY:
+        nbt_write_string(send_cursor, NET_STRING("icy"));
+        break;
+    case BIOME_CATEGORY_THE_END:
+        nbt_write_string(send_cursor, NET_STRING("the_end"));
+        break;
+    case BIOME_CATEGORY_BEACH:
+        nbt_write_string(send_cursor, NET_STRING("beach"));
+        break;
+    case BIOME_CATEGORY_FOREST:
+        nbt_write_string(send_cursor, NET_STRING("forest"));
+        break;
+    case BIOME_CATEGORY_OCEAN:
+        nbt_write_string(send_cursor, NET_STRING("ocean"));
+        break;
+    case BIOME_CATEGORY_DESERT:
+        nbt_write_string(send_cursor, NET_STRING("desert"));
+        break;
+    case BIOME_CATEGORY_RIVER:
+        nbt_write_string(send_cursor, NET_STRING("river"));
+        break;
+    case BIOME_CATEGORY_SWAMP:
+        nbt_write_string(send_cursor, NET_STRING("swamp"));
+        break;
+    case BIOME_CATEGORY_MUSHROOM:
+        nbt_write_string(send_cursor, NET_STRING("mushroom"));
+        break;
+    case BIOME_CATEGORY_NETHER:
+        nbt_write_string(send_cursor, NET_STRING("nether"));
+        break;
+    }
+
+    nbt_write_key(send_cursor, NBT_TAG_FLOAT, NET_STRING("depth"));
+    net_write_float(send_cursor, b->depth);
+
+    nbt_write_key(send_cursor, NBT_TAG_FLOAT, NET_STRING("scale"));
+    net_write_float(send_cursor, b->scale);
+
+    // special effects
+    nbt_write_key(send_cursor, NBT_TAG_COMPOUND, NET_STRING("effects"));
+
+    nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("fog_color"));
+    net_write_int(send_cursor, b->fog_colour);
+
+    nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("water_color"));
+    net_write_int(send_cursor, b->water_colour);
+
+    nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("water_fog_color"));
+    net_write_int(send_cursor, b->water_fog_colour);
+
+    nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("sky_color"));
+    net_write_int(send_cursor, b->sky_colour);
+
+    if (b->foliage_colour_override != -1) {
+        nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("foliage_color"));
+        net_write_int(send_cursor, b->foliage_colour_override);
+    }
+
+    if (b->grass_colour_override != -1) {
+        nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("grass_color"));
+        net_write_int(send_cursor, b->grass_colour_override);
+    }
+
+    if (b->grass_colour_mod != BIOME_GRASS_COLOUR_MOD_NONE) {
+        nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("grass_color_modifier"));
+        switch (b->grass_colour_mod) {
+        case BIOME_GRASS_COLOUR_MOD_DARK_FOREST:
+            nbt_write_string(send_cursor, NET_STRING("dark_forest"));
+            break;
+        case BIOME_GRASS_COLOUR_MOD_SWAMP:
+            nbt_write_string(send_cursor, NET_STRING("swamp"));
+            break;
+        default:
+            assert(0);
+        }
+    }
+
+    // @TODO(traks) ambient particle effects
+
+    if (b->ambient_sound_size > 0) {
+        nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("ambient_sound"));
+        net_string ambient_sound = {
+            .ptr = b->ambient_sound,
+            .size = b->ambient_sound_size
+        };
+        nbt_write_string(send_cursor, ambient_sound);
+    }
+
+    if (b->mood_sound_size > 0) {
+        // mood sound
+        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, NET_STRING("mood_sound"));
+
+        nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("sound"));
+        net_string mood_sound = {
+            .ptr = b->mood_sound,
+            .size = b->mood_sound_size
+        };
+        nbt_write_string(send_cursor, mood_sound);
+
+        nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("tick_delay"));
+        net_write_int(send_cursor, b->mood_sound_tick_delay);
+
+        nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("block_search_extent"));
+        net_write_int(send_cursor, b->mood_sound_block_search_extent);
+
+        nbt_write_key(send_cursor, NBT_TAG_DOUBLE, NET_STRING("offset"));
+        net_write_int(send_cursor, b->mood_sound_offset);
+
+        net_write_ubyte(send_cursor, NBT_TAG_END);
+        // mood sound end
+    }
+
+    if (b->additions_sound_size > 0) {
+        // additions sound
+        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, NET_STRING("additions_sound"));
+
+        nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("sound"));
+        net_string additions_sound = {
+            .ptr = b->additions_sound,
+            .size = b->additions_sound_size
+        };
+        nbt_write_string(send_cursor, additions_sound);
+
+        nbt_write_key(send_cursor, NBT_TAG_DOUBLE, NET_STRING("tick_chance"));
+        net_write_int(send_cursor, b->additions_sound_tick_chance);
+
+        net_write_ubyte(send_cursor, NBT_TAG_END);
+        // additions sound end
+    }
+
+    if (b->music_sound_size > 0) {
+        // music
+        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, NET_STRING("music"));
+
+        nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("sound"));
+        net_string music_sound = {
+            .ptr = b->music_sound,
+            .size = b->music_sound_size
+        };
+        nbt_write_string(send_cursor, music_sound);
+
+        nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("min_delay"));
+        net_write_int(send_cursor, b->music_min_delay);
+
+        nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("max_delay"));
+        net_write_int(send_cursor, b->music_max_delay);
+
+        nbt_write_key(send_cursor, NBT_TAG_BYTE, NET_STRING("replace_current_music"));
+        net_write_ubyte(send_cursor, b->music_replace_current_music);
+
+        net_write_ubyte(send_cursor, NBT_TAG_END);
+        // music end
+    }
+
+    net_write_ubyte(send_cursor, NBT_TAG_END);
+    // special effects end
 }
 
 void
@@ -1308,146 +1589,98 @@ send_packets_to_player(player_brain * brain, server * serv,
         finish_packet_and_send(&send_cursor, brain);
 
         net_string level_name = NET_STRING("blaze:main");
-        net_string dimension_type = NET_STRING("minecraft:overworld");
-        net_string dimension_str = NET_STRING("dimension");
-        net_string name_str = NET_STRING("name");
-        net_string has_skylight = NET_STRING("has_skylight");
-        net_string has_ceiling = NET_STRING("has_ceiling");
-        net_string ultrawarm = NET_STRING("ultrawarm");
-        net_string natural = NET_STRING("natural");
-        net_string shrunk = NET_STRING("shrunk");
-        net_string piglin_safe = NET_STRING("piglin_safe");
-        net_string bed_works = NET_STRING("bed_works");
-        net_string respawn_anchor_works = NET_STRING("respawn_anchor_works");
-        net_string has_raids = NET_STRING("has_raids");
-        net_string logical_height = NET_STRING("logical_height");
-        net_string infiniburn = NET_STRING("infiniburn");
-        net_string infiniburn_tag = NET_STRING("minecraft:infiniburn_overworld");
-        net_string ambient_light = NET_STRING("ambient_light");
 
         begin_packet(&send_cursor, CBP_LOGIN);
         net_write_uint(&send_cursor, player->eid);
+        net_write_ubyte(&send_cursor, 0); // hardcore
         net_write_ubyte(&send_cursor, player->player.gamemode); // current gamemode
         net_write_ubyte(&send_cursor, player->player.gamemode); // previous gamemode
 
         // all levels/worlds currently available on the server
+        // @NOTE(traks) This list is used for tab completions
         net_write_varint(&send_cursor, 1); // number of levels
         net_write_string(&send_cursor, level_name);
 
-        // All dimension types on the server. Currently dimension types
-        // have the following configurable properties:
-        //
-        //  - fixed_time (optional long): time of day always equals this
-        //  - has_skylight (bool): sky light levels, whether it can
-        //    thunder, whether daylight sensors work, etc.
-        //  - has_ceiling (bool): affects thunder, map rendering, mob
-        //    spawning algorithm
-        //  - ultrawarm (bool): whether water can be placed and how far
-        //    and how fast lava flows
-        //  - natural (bool): whether players can sleep and whether
-        //    zombified piglin can spawn from portals
-        //  - shrunk (bool): nether coordinates or overworld coordinates
-        //    (to determine new coordinates when moving between worlds)
-        //  - piglin_safe (bool): false if piglins convert to zombified
-        //    piglins as in the vanilla overworld
-        //  - bed_works (bool): true if beds can set spawn point
-        //  - respawn_anchor_works (bool): true if respawn anchors can
-        //    set spawn point
-        //  - has_raids (bool): whether raids spawn
-        //  - logical_height (int in [0, 256]): seems to only affect
-        //    chorus fruit teleportation and nether portal spawning, not
-        //    the actual maximum world height
-        //  - infiniburn (resource loc): the resource location of a
-        //    block tag that is used to check whether fire should keep
-        //    burning forever on tagged blocks
-        //  - ambient_light (float): not used
-        //
-        // None seem to affect anything client-side.
+        // Send all dimension-related NBT data
 
+        nbt_write_key(&send_cursor, NBT_TAG_COMPOUND, NET_STRING(""));
+
+        // write dimension types
+        nbt_write_key(&send_cursor, NBT_TAG_COMPOUND, NET_STRING("minecraft:dimension_type"));
+
+        nbt_write_key(&send_cursor, NBT_TAG_STRING, NET_STRING("type"));
+        nbt_write_string(&send_cursor, NET_STRING("minecraft:dimension_type"));
+
+        nbt_write_key(&send_cursor, NBT_TAG_LIST, NET_STRING("value"));
         net_write_ubyte(&send_cursor, NBT_TAG_COMPOUND);
-        net_write_ushort(&send_cursor, 0); // 0-length name
+        net_write_int(&send_cursor, serv->dimension_type_count);
+        for (int i = 0; i < serv->dimension_type_count; i++) {
+            dimension_type * dim_type = serv->dimension_types + i;
 
-        net_write_ubyte(&send_cursor, NBT_TAG_LIST);
-        net_write_ushort(&send_cursor, dimension_str.size);
-        net_write_data(&send_cursor, dimension_str.ptr, dimension_str.size);
-        net_write_ubyte(&send_cursor, NBT_TAG_COMPOUND); // element type
-        net_write_int(&send_cursor, 1); // number of elements
+            nbt_write_key(&send_cursor, NBT_TAG_STRING, NET_STRING("name"));
+            net_string name = {
+                .ptr = dim_type->name,
+                .size = dim_type->name_size
+            };
+            nbt_write_string(&send_cursor, name);
 
-        net_write_ubyte(&send_cursor, NBT_TAG_STRING);
-        net_write_ushort(&send_cursor, name_str.size);
-        net_write_data(&send_cursor, name_str.ptr, name_str.size);
-        net_write_ushort(&send_cursor, dimension_type.size);
-        net_write_data(&send_cursor, dimension_type.ptr, dimension_type.size);
+            nbt_write_key(&send_cursor, NBT_TAG_INT, NET_STRING("id"));
+            net_write_int(&send_cursor, i);
 
-        net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
-        net_write_ushort(&send_cursor, has_skylight.size);
-        net_write_data(&send_cursor, has_skylight.ptr, has_skylight.size);
-        net_write_ubyte(&send_cursor, 1);
+            nbt_write_key(&send_cursor, NBT_TAG_COMPOUND, NET_STRING("element"));
+            nbt_write_dimension_type(&send_cursor, dim_type);
+            net_write_ubyte(&send_cursor, NBT_TAG_END);
 
-        net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
-        net_write_ushort(&send_cursor, has_ceiling.size);
-        net_write_data(&send_cursor, has_ceiling.ptr, has_ceiling.size);
-        net_write_ubyte(&send_cursor, 0);
+            net_write_ubyte(&send_cursor, NBT_TAG_END);
+        }
 
-        net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
-        net_write_ushort(&send_cursor, ultrawarm.size);
-        net_write_data(&send_cursor, ultrawarm.ptr, ultrawarm.size);
-        net_write_ubyte(&send_cursor, 0);
+        net_write_ubyte(&send_cursor, NBT_TAG_END);
+        // end of dimension types
 
-        net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
-        net_write_ushort(&send_cursor, natural.size);
-        net_write_data(&send_cursor, natural.ptr, natural.size);
-        net_write_ubyte(&send_cursor, 1);
+        // write biomes
+        nbt_write_key(&send_cursor, NBT_TAG_COMPOUND, NET_STRING("minecraft:worldgen/biome"));
 
-        net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
-        net_write_ushort(&send_cursor, shrunk.size);
-        net_write_data(&send_cursor, shrunk.ptr, shrunk.size);
-        net_write_ubyte(&send_cursor, 0);
+        nbt_write_key(&send_cursor, NBT_TAG_STRING, NET_STRING("type"));
+        nbt_write_string(&send_cursor, NET_STRING("minecraft:worldgen/biome"));
 
-        net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
-        net_write_ushort(&send_cursor, piglin_safe.size);
-        net_write_data(&send_cursor, piglin_safe.ptr, piglin_safe.size);
-        net_write_ubyte(&send_cursor, 0);
+        nbt_write_key(&send_cursor, NBT_TAG_LIST, NET_STRING("value"));
+        net_write_ubyte(&send_cursor, NBT_TAG_COMPOUND);
+        net_write_int(&send_cursor, serv->biome_count);
+        for (int i = 0; i < serv->biome_count; i++) {
+            biome * b = serv->biomes + i;
 
-        net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
-        net_write_ushort(&send_cursor, bed_works.size);
-        net_write_data(&send_cursor, bed_works.ptr, bed_works.size);
-        net_write_ubyte(&send_cursor, 1);
+            nbt_write_key(&send_cursor, NBT_TAG_STRING, NET_STRING("name"));
+            net_string name = {
+                .ptr = b->name,
+                .size = b->name_size
+            };
+            nbt_write_string(&send_cursor, name);
 
-        net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
-        net_write_ushort(&send_cursor, respawn_anchor_works.size);
-        net_write_data(&send_cursor, respawn_anchor_works.ptr, respawn_anchor_works.size);
-        net_write_ubyte(&send_cursor, 0);
+            nbt_write_key(&send_cursor, NBT_TAG_INT, NET_STRING("id"));
+            net_write_int(&send_cursor, i);
 
-        net_write_ubyte(&send_cursor, NBT_TAG_BYTE);
-        net_write_ushort(&send_cursor, has_raids.size);
-        net_write_data(&send_cursor, has_raids.ptr, has_raids.size);
-        net_write_ubyte(&send_cursor, 0);
+            nbt_write_key(&send_cursor, NBT_TAG_COMPOUND, NET_STRING("element"));
+            nbt_write_biome(&send_cursor, b);
+            net_write_ubyte(&send_cursor, NBT_TAG_END);
 
-        net_write_ubyte(&send_cursor, NBT_TAG_INT);
-        net_write_ushort(&send_cursor, logical_height.size);
-        net_write_data(&send_cursor, logical_height.ptr, logical_height.size);
-        net_write_int(&send_cursor, 256);
+            net_write_ubyte(&send_cursor, NBT_TAG_END);
+        }
 
-        net_write_ubyte(&send_cursor, NBT_TAG_STRING);
-        net_write_ushort(&send_cursor, infiniburn.size);
-        net_write_data(&send_cursor, infiniburn.ptr, infiniburn.size);
-        net_write_ushort(&send_cursor, infiniburn_tag.size);
-        net_write_data(&send_cursor, infiniburn_tag.ptr, infiniburn_tag.size);
+        net_write_ubyte(&send_cursor, NBT_TAG_END);
+        // end of biomes
 
-        net_write_ubyte(&send_cursor, NBT_TAG_FLOAT);
-        net_write_ushort(&send_cursor, ambient_light.size);
-        net_write_data(&send_cursor, ambient_light.ptr, ambient_light.size);
-        net_write_float(&send_cursor, 0);
+        net_write_ubyte(&send_cursor, NBT_TAG_END);
 
-        net_write_ubyte(&send_cursor, NBT_TAG_END); // end of element compound
-        net_write_ubyte(&send_cursor, NBT_TAG_END); // end of root compound
+        // dimension type NBT data of level player is joining
+        nbt_write_key(&send_cursor, NBT_TAG_COMPOUND, NET_STRING(""));
+        nbt_write_dimension_type(&send_cursor, serv->dimension_types);
+        net_write_ubyte(&send_cursor, NBT_TAG_END);
 
-        net_write_string(&send_cursor, dimension_type);
+        // level name the player is joining
         net_write_string(&send_cursor, level_name);
 
         net_write_ulong(&send_cursor, 0); // seed
-        net_write_ubyte(&send_cursor, 0); // max players (ignored by client)
+        net_write_varint(&send_cursor, 0); // max players (ignored by client)
         net_write_varint(&send_cursor, brain->new_chunk_cache_radius - 1);
         net_write_ubyte(&send_cursor, 0); // reduced debug info
         net_write_ubyte(&send_cursor, 1); // show death screen on death
@@ -1590,19 +1823,34 @@ send_packets_to_player(player_brain * brain, server * serv,
                     continue;
                 }
 
-                begin_packet(&send_cursor, CBP_CHUNK_BLOCKS_UPDATE);
-                net_write_int(&send_cursor, x);
-                net_write_int(&send_cursor, z);
-                net_write_varint(&send_cursor, ch->changed_block_count);
+                for (int section = 0; section < 16; section++) {
+                    if (!(ch->sections_with_changes
+                            & ((mc_ushort) 1 << section))) {
+                        continue;
+                    }
 
-                for (int i = 0; i < ch->changed_block_count; i++) {
-                    mc_ushort pos = ch->changed_blocks[i];
-                    net_write_ushort(&send_cursor, pos);
-                    mc_ushort block_state = chunk_get_block_state(ch,
-                            pos >> 12, pos & 0xff, (pos >> 8) & 0xf);
-                    net_write_varint(&send_cursor, block_state);
+                    begin_packet(&send_cursor, CBP_SECTION_BLOCKS_UPDATE);
+                    // @TODO(traks) do these casts always work as intended
+                    // for negative values?
+                    mc_ulong section_pos =
+                            (((mc_ulong) x & 0x3fffff) << 42)
+                            | (((mc_ulong) z & 0x3fffff) << 20)
+                            | ((mc_ulong) section & 0xfffff);
+                    net_write_ulong(&send_cursor, section_pos);
+                    // @TODO(traks) appropriate value for this
+                    net_write_ubyte(&send_cursor, 1); // suppress light updates
+                    net_write_varint(&send_cursor, ch->changed_block_count);
+
+                    for (int i = 0; i < ch->changed_block_count; i++) {
+                        mc_ushort pos = ch->changed_blocks[i];
+                        mc_long block_state = chunk_get_block_state(ch,
+                                pos >> 12, pos & 0xff, (pos >> 8) & 0xf);
+                        mc_long encoded = (block_state << 12) | (mc_long) pos;
+                        net_write_varlong(&send_cursor, encoded);
+                    }
+                    finish_packet_and_send(&send_cursor, brain);
                 }
-                finish_packet_and_send(&send_cursor, brain);
+
                 continue;
             }
 

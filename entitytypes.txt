@@ -120,6 +120,8 @@ key minecraft:pig
 
 key minecraft:piglin
 
+key minecraft:piglin_brute
+
 key minecraft:pillager
 
 key minecraft:polar_bear

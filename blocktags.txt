@@ -1,3 +1,9 @@
+key minecraft:base_stone_overworld
+value minecraft:stone
+value minecraft:granite
+value minecraft:diorite
+value minecraft:andesite
+
 key minecraft:pressure_plates
 value minecraft:light_weighted_pressure_plate
 value minecraft:heavy_weighted_pressure_plate
@@ -289,6 +295,12 @@ value minecraft:mycelium
 key minecraft:infiniburn_nether
 value minecraft:netherrack
 value minecraft:magma_block
+
+key minecraft:mushroom_grow_block
+value minecraft:mycelium
+value minecraft:podzol
+value minecraft:crimson_nylium
+value minecraft:warped_nylium
 
 key minecraft:gold_ores
 value minecraft:gold_ore
@@ -837,6 +849,11 @@ value minecraft:diorite_wall
 value minecraft:blackstone_wall
 value minecraft:polished_blackstone_brick_wall
 value minecraft:polished_blackstone_wall
+
+key minecraft:base_stone_nether
+value minecraft:netherrack
+value minecraft:basalt
+value minecraft:blackstone
 
 key minecraft:wooden_doors
 value minecraft:oak_door
