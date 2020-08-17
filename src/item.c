@@ -1,5 +1,20 @@
 #include "shared.h"
 
+static net_block_pos
+get_relative_block_pos(net_block_pos pos, int face) {
+    switch (face) {
+    case DIRECTION_NEG_Y: pos.y--; break;
+    case DIRECTION_POS_Y: pos.y++; break;
+    case DIRECTION_NEG_Z: pos.z--; break;
+    case DIRECTION_POS_Z: pos.z++; break;
+    case DIRECTION_NEG_X: pos.x--; break;
+    case DIRECTION_POS_X: pos.x++; break;
+    default:
+        assert(0);
+    }
+    return pos;
+}
+
 static void
 place_simple_block(net_block_pos clicked_pos, mc_int clicked_face,
         mc_ushort place_block_state) {
@@ -27,14 +42,7 @@ place_simple_block(net_block_pos clicked_pos, mc_int clicked_face,
     }
 
     if (!can_replace) {
-        switch (clicked_face) {
-        case DIRECTION_NEG_Y: target_pos.y--; break;
-        case DIRECTION_POS_Y: target_pos.y++; break;
-        case DIRECTION_NEG_Z: target_pos.z--; break;
-        case DIRECTION_POS_Z: target_pos.z++; break;
-        case DIRECTION_NEG_X: target_pos.x--; break;
-        case DIRECTION_POS_X: target_pos.x++; break;
-        }
+        target_pos = get_relative_block_pos(target_pos, clicked_face);
 
         target_chunk_pos = (chunk_pos) {
             .x = target_pos.x >> 4,
@@ -2058,6 +2066,19 @@ process_use_item_on_packet(entity_data * entity, player_brain * brain,
     default:
         assert(0);
     }
+
+    // @TODO(traks) perhaps don't send these packets if we do everything as the
+    // client expects
+    // @TODO(traks) we shouldn't assert here
+    net_block_pos changed_pos = clicked_pos;
+    assert(brain->changed_block_count < ARRAY_SIZE(brain->changed_blocks));
+    brain->changed_blocks[brain->changed_block_count] = changed_pos;
+    brain->changed_block_count++;
+
+    changed_pos = get_relative_block_pos(clicked_pos, clicked_face);
+    assert(brain->changed_block_count < ARRAY_SIZE(brain->changed_blocks));
+    brain->changed_blocks[brain->changed_block_count] = changed_pos;
+    brain->changed_block_count++;
 }
 
 mc_ubyte

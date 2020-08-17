@@ -1437,6 +1437,9 @@ typedef struct {
 
     // @TODO(traks) this feels a bit silly, but very simple
     entity_id tracked_entities[MAX_ENTITIES];
+
+    net_block_pos changed_blocks[8];
+    mc_ubyte changed_block_count;
 } player_brain;
 
 typedef struct {
@@ -1761,6 +1764,9 @@ net_write_double(buffer_cursor * cursor, double val);
 
 net_block_pos
 net_read_block_pos(buffer_cursor * cursor);
+
+void
+net_write_block_pos(buffer_cursor * cursor, net_block_pos val);
 
 void
 net_write_data(buffer_cursor * cursor, void * restrict src, size_t size);

@@ -1723,6 +1723,28 @@ send_packets_to_player(player_brain * brain, server * serv,
         brain->flags |= PLAYER_BRAIN_SENT_TELEPORT;
     }
 
+    // send block changes for this player only
+    for (int i = 0; i < brain->changed_block_count; i++) {
+        net_block_pos pos = brain->changed_blocks[i];
+        chunk_pos ch_pos = {
+            .x = pos.x >> 4,
+            .z = pos.z >> 4
+        };
+        chunk * ch = get_chunk_if_loaded(ch_pos);
+        if (ch == NULL) {
+            continue;
+        }
+
+        mc_ushort block_state = chunk_get_block_state(ch,
+                pos.x & 0xf, pos.y, pos.z & 0xf);
+
+        begin_packet(&send_cursor, CBP_BLOCK_UPDATE);
+        net_write_block_pos(&send_cursor, pos);
+        net_write_varint(&send_cursor, block_state);
+        finish_packet_and_send(&send_cursor, brain);
+    }
+    brain->changed_block_count = 0;
+
     begin_timed_block("update chunk cache");
 
     mc_short chunk_cache_min_x = brain->chunk_cache_centre_x - brain->chunk_cache_radius;

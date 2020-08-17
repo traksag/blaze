@@ -611,6 +611,16 @@ net_read_block_pos(buffer_cursor * cursor) {
 }
 
 void
+net_write_block_pos(buffer_cursor * cursor, net_block_pos val) {
+    mc_ulong x = val.x < 0 ? val.x + 0x3ffffff + 1 : val.x;
+    mc_ulong y = val.y;
+    mc_ulong z = val.z < 0 ? val.z + 0x3ffffff + 1 : val.z;
+
+    mc_ulong out = (x << 38) | (z << 12) | y;
+    net_write_ulong(cursor, out);
+}
+
+void
 net_write_data(buffer_cursor * cursor, void * restrict src, size_t size) {
     if (cursor->limit - cursor->index < size) {
         cursor->error = 1;
