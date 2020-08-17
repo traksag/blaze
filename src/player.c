@@ -210,6 +210,14 @@ static void
 process_packet(entity_data * entity, player_brain * brain,
         buffer_cursor * rec_cursor, server * serv,
         memory_arena * process_arena) {
+    // @NOTE(traks) we need to handle packets in the order in which they arive,
+    // so e.g. the client can move the player to a position, perform some
+    // action, and then move the player a bit further, all in the same tick.
+    //
+    // This seems the most natural way to do it, and gives us e.g. as much
+    // information about the player's position when they perform a certain
+    // action.
+
     mc_int packet_id = net_read_varint(rec_cursor);
 
     switch (packet_id) {
@@ -329,13 +337,13 @@ process_packet(entity_data * entity, player_brain * brain,
             is->type = net_read_varint(rec_cursor);
             is->size = net_read_ubyte(rec_cursor);
 
-            if (is->type < 0 || is->type >= serv->item_type_count) {
+            if (is->type < 0 || is->type >= ITEM_TYPE_COUNT || is->size == 0) {
                 is->type = 0;
                 // @TODO(traks) handle error (send slot updates?)
             }
-            item_type * type = serv->item_types + is->type;
-            if (is->size > type->max_stack_size) {
-                is->size = type->max_stack_size;
+            mc_ubyte max_size = get_max_stack_size(is->type);
+            if (is->size > max_size) {
+                is->size = max_size;
                 // @TODO(traks) handle error (send slot updates?)
             }
 
@@ -381,13 +389,13 @@ process_packet(entity_data * entity, player_brain * brain,
             is->type = net_read_varint(rec_cursor);
             is->size = net_read_ubyte(rec_cursor);
 
-            if (is->type < 0 || is->type >= serv->item_type_count) {
+            if (is->type < 0 || is->type >= ITEM_TYPE_COUNT || is->size == 0) {
                 is->type = 0;
                 // @TODO(traks) handle error
             }
-            item_type * type = serv->item_types + is->type;
-            if (is->size > type->max_stack_size) {
-                is->size = type->max_stack_size;
+            mc_ubyte max_size = get_max_stack_size(is->type);
+            if (is->size > max_size) {
+                is->size = max_size;
                 // @TODO(traks) handle error
             }
 
@@ -601,7 +609,7 @@ process_packet(entity_data * entity, player_brain * brain,
                 item->z = entity->z;
                 item->item.contents = *is;
 
-                is->size = 0;
+                *is = (item_stack) {0};
             }
             break;
         }
@@ -627,6 +635,10 @@ process_packet(entity_data * entity, player_brain * brain,
                 item->item.contents.size = 1;
 
                 is->size--;
+
+                if (is->size == 0) {
+                    *is = (item_stack) {0};
+                }
             }
             break;
         }
@@ -775,14 +787,14 @@ process_packet(entity_data * entity, player_brain * brain,
             is->type = net_read_varint(rec_cursor);
             is->size = net_read_ubyte(rec_cursor);
 
-            if (is->type < 0 || is->type >= serv->item_type_count) {
+            if (is->type < 0 || is->type >= ITEM_TYPE_COUNT || is->size == 0) {
                 is->type = 0;
                 entity->player.slots_needing_update |=
                         (mc_ulong) 1 << slot;
             }
-            item_type * type = serv->item_types + is->type;
-            if (is->size > type->max_stack_size) {
-                is->size = type->max_stack_size;
+            mc_ubyte max_size = get_max_stack_size(is->type);
+            if (is->size > max_size) {
+                is->size = max_size;
                 entity->player.slots_needing_update |=
                         (mc_ulong) 1 << slot;
             }
@@ -877,59 +889,9 @@ process_packet(entity_data * entity, player_brain * brain,
             break;
         }
 
-        if (entity->flags & ENTITY_TELEPORTING) {
-            // ignore
-            break;
-        }
-
-        // @TODO(traks) special handling depending on gamemode
-
-        // @TODO(traks) ensure clicked block is in one of the sent
-        // chunks inside the player's chunk cache
-
-        int sel_slot = entity->player.selected_slot;
-        item_stack * sel = entity->player.slots + sel_slot;
-        item_stack * off = entity->player.slots + PLAYER_OFF_HAND_SLOT;
-        item_stack * used = hand == 0 ? sel : off;
-
-        if (!(brain->flags & PLAYER_BRAIN_SHIFTING)
-                || (sel->type == 0 && off->type == 0)) {
-            // @TODO(traks) use clicked block (button, door, etc.)
-        }
-
-        // @TODO(traks) check for cooldowns (ender pearls,
-        // chorus fruits)
-
-        // @TODO(traks) use item type to determine which place
-        // handler to fire
-        item_type * used_type = serv->item_types + used->type;
-
-        net_block_pos target_pos = clicked_pos;
-        switch (clicked_face) {
-        case DIRECTION_NEG_Y: target_pos.y--; break;
-        case DIRECTION_POS_Y: target_pos.y++; break;
-        case DIRECTION_NEG_Z: target_pos.z--; break;
-        case DIRECTION_POS_Z: target_pos.z++; break;
-        case DIRECTION_NEG_X: target_pos.x--; break;
-        case DIRECTION_POS_X: target_pos.x++; break;
-        }
-
-        // @TODO(traks) check if target pos is in chunk visible to
-        // the player
-
-        chunk_pos pos = {
-            .x = target_pos.x >> 4,
-            .z = target_pos.z >> 4
-        };
-        chunk * ch = get_chunk_if_loaded(pos);
-        if (ch == NULL) {
-            break;
-        }
-
-        int in_chunk_x = target_pos.x & 0xf;
-        int in_chunk_z = target_pos.z & 0xf;
-        chunk_set_block_state(ch, in_chunk_x, target_pos.y,
-                in_chunk_z, 2);
+        process_use_item_on_packet(entity, brain, hand, clicked_pos,
+                clicked_face, click_offset_x, click_offset_y, click_offset_z,
+                is_inside);
         break;
     }
     case SBP_USE_ITEM: {
@@ -1207,10 +1169,6 @@ tick_player_brain(player_brain * brain, server * serv,
     ssize_t rec_size = recv(sock, brain->rec_buf + brain->rec_cursor,
             sizeof brain->rec_buf - brain->rec_cursor, 0);
 
-    double initial_x = entity->x;
-    double initial_y = entity->y;
-    double initial_z = entity->z;
-
     if (rec_size == 0) {
         disconnect_player_now(brain, serv);
     } else if (rec_size == -1) {
@@ -1226,6 +1184,8 @@ tick_player_brain(player_brain * brain, server * serv,
             .buf = brain->rec_buf,
             .limit = brain->rec_cursor
         };
+
+        // @TODO(traks) rate limit incoming packets per player
 
         for (;;) {
             buffer_cursor packet_cursor = rec_cursor;
@@ -1275,12 +1235,6 @@ tick_player_brain(player_brain * brain, server * serv,
     // Then this check shouldn't be necessary anymore.
     if (!(brain->flags & PLAYER_BRAIN_IN_USE)) {
         goto bail;
-    }
-
-    if (!(entity->flags & ENTITY_TELEPORTING)) {
-        double move_dx = entity->x - initial_x;
-        double move_dy = entity->y - initial_y;
-        double move_dz = entity->z - initial_z;
     }
 
 bail:

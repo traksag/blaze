@@ -900,7 +900,7 @@ load_item_types(server * serv) {
 
     buffer_cursor cursor = {.buf = fmmap, .limit = stat.st_size};
     net_string args[16];
-    item_type * it;
+    mc_ushort id = 0;
 
     for (;;) {
         int arg_count = parse_database_line(&cursor, args);
@@ -910,14 +910,8 @@ load_item_types(server * serv) {
                 break;
             }
         } else if (net_string_equal(args[0], NET_STRING("key"))) {
-            mc_ushort id = serv->item_type_count;
-            it = serv->item_types + serv->item_type_count;
-            *it = (item_type) {0};
-            serv->item_type_count++;
-
             register_resource_loc(args[1], id, &serv->item_resource_table);
-        } else if (net_string_equal(args[0], NET_STRING("max_stack_size"))) {
-            it->max_stack_size = atoi(args[1].ptr);
+            id++;
         }
     }
 }

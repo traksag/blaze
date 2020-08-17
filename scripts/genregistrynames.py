@@ -8,15 +8,15 @@ import collections
 #
 # to generate all the data files into a folder called 'generated'. Provide the
 # path to the file 'reports/registries.json' to this program to generate a list
-# of in-code names of entity types.
+# of in-code names of registry entries.
 
-if len(sys.argv) < 2:
-    print("Please specify registries.json")
+if len(sys.argv) < 3:
+    print("Please specify registries.json and a registry")
     sys.exit(0)
 
 f = open(sys.argv[1])
 registries = json.load(f, object_pairs_hook=collections.OrderedDict)
-registry = registries["minecraft:entity_type"]
+registry = registries["minecraft:" + sys.argv[2]]
 
 for key in registry["entries"].keys():
-    print("ENTITY_" + key[10:].upper() + ",")
+    print(key[10:].upper() + ",")
