@@ -950,6 +950,13 @@ load_block_types(server * serv) {
         int arg_count = parse_database_line(&cursor, args);
         if (arg_count == 0) {
             // empty line
+
+            assert(block_state_count + states_for_type
+                    <= ARRAY_SIZE(serv->block_type_by_state));
+            for (int i = 0; i < states_for_type; i++) {
+                serv->block_type_by_state[block_state_count + i] = type_id;
+            }
+
             block_state_count += states_for_type;
 
             if (cursor.index == cursor.limit) {

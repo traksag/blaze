@@ -15,11 +15,62 @@ get_relative_block_pos(net_block_pos pos, int face) {
     return pos;
 }
 
-static void
-place_simple_block(net_block_pos clicked_pos, mc_int clicked_face,
-        mc_ushort place_block_state) {
-    int can_replace = 0;
+static int
+can_replace(server * serv, mc_ushort place_state, mc_ushort cur_state) {
+    mc_int place_type = serv->block_type_by_state[place_state];
+    mc_int cur_type = serv->block_type_by_state[cur_state];
 
+    // @TODO(traks) this is probably not OK for things like flint and steel,
+    // water buckets, etc., for which there is no clear correspondence between
+    // the item type and the placed state
+    if (place_type == cur_type) {
+        return 0;
+    }
+
+    switch (cur_type) {
+    // air
+    case BLOCK_AIR:
+    case BLOCK_VOID_AIR:
+    case BLOCK_CAVE_AIR:
+        // @TODO(traks) this allows players to place blocks in mid-air. This is
+        // needed for placing water lilies on top of water. Perhaps we should
+        // disallow it for other blocks depending on whether this is the clicked
+        // block or the relative block?
+    // replaceable plants
+    case BLOCK_GRASS:
+    case BLOCK_FERN:
+    case BLOCK_DEAD_BUSH:
+    case BLOCK_VINE:
+    case BLOCK_SUNFLOWER:
+    case BLOCK_LILAC:
+    case BLOCK_ROSE_BUSH:
+    case BLOCK_PEONY:
+    case BLOCK_TALL_GRASS:
+    case BLOCK_LARGE_FERN:
+    case BLOCK_WARPED_ROOTS:
+    case BLOCK_NETHER_SPROUTS:
+    case BLOCK_CRIMSON_ROOTS:
+    case BLOCK_SEAGRASS:
+    case BLOCK_TALL_SEAGRASS:
+    // fluids
+    case BLOCK_WATER:
+    case BLOCK_BUBBLE_COLUMN:
+    case BLOCK_LAVA:
+    // fire
+    case BLOCK_FIRE:
+    case BLOCK_SOUL_FIRE:
+    // misc
+    case BLOCK_SNOW:
+    case BLOCK_STRUCTURE_VOID:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static void
+place_simple_block(server * serv, net_block_pos clicked_pos,
+        mc_int clicked_face, mc_ushort place_state) {
     net_block_pos target_pos = clicked_pos;
     chunk_pos target_chunk_pos = {
         .x = target_pos.x >> 4,
@@ -30,18 +81,10 @@ place_simple_block(net_block_pos clicked_pos, mc_int clicked_face,
         return;
     }
 
-    mc_ushort cur_block_state = chunk_get_block_state(ch,
+    mc_ushort cur_state = chunk_get_block_state(ch,
             target_pos.x & 0xf, target_pos.y, target_pos.z & 0xf);
 
-    if (cur_block_state == 0) {
-        // @TODO(traks) this allows players to place blocks in mid-air. Is
-        // there a reason one might want to allow this?
-        can_replace = 1;
-    } else {
-        // @TODO(traks) check for all the other things
-    }
-
-    if (!can_replace) {
+    if (!can_replace(serv, place_state, cur_state)) {
         target_pos = get_relative_block_pos(target_pos, clicked_face);
 
         target_chunk_pos = (chunk_pos) {
@@ -52,15 +95,22 @@ place_simple_block(net_block_pos clicked_pos, mc_int clicked_face,
         if (ch == NULL) {
             return;
         }
+        cur_state = chunk_get_block_state(ch,
+                target_pos.x & 0xf, target_pos.y, target_pos.z & 0xf);
+
+        if (!can_replace(serv, place_state, cur_state)) {
+            return;
+        }
     }
 
     chunk_set_block_state(ch, target_pos.x & 0xf, target_pos.y,
-            target_pos.z & 0xf, place_block_state);
+            target_pos.z & 0xf, place_state);
 }
 
 void
-process_use_item_on_packet(entity_data * entity, player_brain * brain,
-        mc_int hand, net_block_pos clicked_pos, mc_int clicked_face,
+process_use_item_on_packet(server * serv, entity_data * entity,
+        player_brain * brain, mc_int hand, net_block_pos clicked_pos,
+        mc_int clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
         mc_ubyte is_inside) {
     if (entity->flags & ENTITY_TELEPORTING) {
@@ -107,33 +157,33 @@ process_use_item_on_packet(entity_data * entity, player_brain * brain,
         // nothing to do
         break;
     case ITEM_STONE:
-        place_simple_block(clicked_pos, clicked_face, 1);
+        place_simple_block(serv, clicked_pos, clicked_face, 1);
         break;
     case ITEM_GRANITE:
-        place_simple_block(clicked_pos, clicked_face, 2);
+        place_simple_block(serv, clicked_pos, clicked_face, 2);
         break;
     case ITEM_POLISHED_GRANITE:
-        place_simple_block(clicked_pos, clicked_face, 3);
+        place_simple_block(serv, clicked_pos, clicked_face, 3);
         break;
     case ITEM_DIORITE:
-        place_simple_block(clicked_pos, clicked_face, 4);
+        place_simple_block(serv, clicked_pos, clicked_face, 4);
         break;
     case ITEM_POLISHED_DIORITE:
-        place_simple_block(clicked_pos, clicked_face, 5);
+        place_simple_block(serv, clicked_pos, clicked_face, 5);
         break;
     case ITEM_ANDESITE:
-        place_simple_block(clicked_pos, clicked_face, 6);
+        place_simple_block(serv, clicked_pos, clicked_face, 6);
         break;
     case ITEM_POLISHED_ANDESITE:
-        place_simple_block(clicked_pos, clicked_face, 7);
+        place_simple_block(serv, clicked_pos, clicked_face, 7);
         break;
     case ITEM_GRASS_BLOCK:
         break;
     case ITEM_DIRT:
-        place_simple_block(clicked_pos, clicked_face, 10);
+        place_simple_block(serv, clicked_pos, clicked_face, 10);
         break;
     case ITEM_COARSE_DIRT:
-        place_simple_block(clicked_pos, clicked_face, 11);
+        place_simple_block(serv, clicked_pos, clicked_face, 11);
         break;
     case ITEM_PODZOL:
         break;

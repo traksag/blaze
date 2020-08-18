@@ -889,7 +889,7 @@ process_packet(entity_data * entity, player_brain * brain,
             break;
         }
 
-        process_use_item_on_packet(entity, brain, hand, clicked_pos,
+        process_use_item_on_packet(serv, entity, brain, hand, clicked_pos,
                 clicked_face, click_offset_x, click_offset_y, click_offset_z,
                 is_inside);
         break;
