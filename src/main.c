@@ -70,13 +70,6 @@ typedef struct {
 static initial_connection initial_connections[32];
 static int initial_connection_count;
 
-static block_properties block_properties_table[1000];
-static int block_type_count;
-static int block_state_count;
-
-static block_property_spec block_property_specs[128];
-static int block_property_spec_count;
-
 static timed_block timed_blocks[1 << 16];
 static int timed_block_count;
 static int timed_block_depth_stack[64];
@@ -248,6 +241,9 @@ register_resource_loc(net_string resource_loc, mc_short id,
             memcpy(table->string_buf + string_buf_index, resource_loc.ptr,
                     resource_loc.size);
             table->last_string_buf_index += resource_loc.size;
+
+            assert(id < table->max_ids);
+            table->by_id[id] = i;
             break;
         }
     }
@@ -255,12 +251,14 @@ register_resource_loc(net_string resource_loc, mc_short id,
 
 static void
 alloc_resource_loc_table(resource_loc_table * table, mc_int size,
-        mc_int string_buf_size) {
+        mc_int string_buf_size, mc_ushort max_ids) {
     *table = (resource_loc_table) {
         .size_mask = size - 1,
         .string_buf_size = string_buf_size,
         .entries = calloc(size, sizeof *table->entries),
         .string_buf = calloc(string_buf_size, 1),
+        .by_id = calloc(max_ids, 2),
+        .max_ids = max_ids
     };
     assert(table->entries != NULL);
     assert(table->string_buf != NULL);
@@ -287,6 +285,17 @@ resolve_resource_loc_id(net_string resource_loc, resource_loc_table * table) {
             return -1;
         }
     }
+}
+
+net_string
+get_resource_loc(mc_ushort id, resource_loc_table * table) {
+    assert(id < table->max_ids);
+    resource_loc_entry * entry = table->entries + table->by_id[id];
+    net_string res = {
+        .ptr = table->string_buf + entry->buf_index,
+        .size = entry->size
+    };
+    return res;
 }
 
 int
@@ -793,9 +802,7 @@ server_tick(server * serv) {
             .ptr = serv->short_lived_scratch,
             .size = serv->short_lived_scratch_size
         };
-        try_read_chunk_from_storage(pos, ch, &scratch_arena,
-                block_properties_table, block_property_specs,
-                &serv->block_resource_table);
+        try_read_chunk_from_storage(pos, ch, &scratch_arena, serv);
 
         if (!(ch->flags & CHUNK_LOADED)) {
             // @TODO(traks) fall back to stone plateau at y = 0 for now
@@ -946,6 +953,13 @@ load_block_types(server * serv) {
     mc_ushort states_for_type = 0;
     mc_ushort type_id;
 
+    block_properties * block_properties_table = serv->block_properties_table;
+    block_property_spec * block_property_specs = serv->block_property_specs;
+    int max_block_property_specs = ARRAY_SIZE(serv->block_property_specs);
+    int block_property_spec_count = 0;
+    int block_state_count = 0;
+    int block_type_count = 0;
+
     for (;;) {
         int arg_count = parse_database_line(&cursor, args);
         if (arg_count == 0) {
@@ -999,7 +1013,7 @@ load_block_types(server * serv) {
                 }
             }
             if (i == block_property_spec_count) {
-                assert(block_property_spec_count < ARRAY_SIZE(block_property_specs));
+                assert(block_property_spec_count < max_block_property_specs);
                 props->property_specs[props->property_count] = block_property_spec_count;
                 props->property_count++;
                 block_property_specs[block_property_spec_count] = prop_spec;
@@ -1018,6 +1032,10 @@ load_block_types(server * serv) {
             }
         }
     }
+
+    serv->block_state_count = block_state_count;
+    serv->block_property_spec_count = block_property_spec_count;
+    assert(block_type_count == BLOCK_TYPE_COUNT);
 }
 
 static void
@@ -1350,10 +1368,10 @@ main(void) {
     }
 
     // @TODO(traks) better sizes
-    alloc_resource_loc_table(&serv->block_resource_table, 1 << 10, 1 << 16);
-    alloc_resource_loc_table(&serv->item_resource_table, 1 << 10, 1 << 16);
-    alloc_resource_loc_table(&serv->entity_resource_table, 1 << 10, 1 << 12);
-    alloc_resource_loc_table(&serv->fluid_resource_table, 1 << 10, 1 << 10);
+    alloc_resource_loc_table(&serv->block_resource_table, 1 << 10, 1 << 16, BLOCK_TYPE_COUNT);
+    alloc_resource_loc_table(&serv->item_resource_table, 1 << 10, 1 << 16, ITEM_TYPE_COUNT);
+    alloc_resource_loc_table(&serv->entity_resource_table, 1 << 10, 1 << 12, ENTITY_TYPE_COUNT);
+    alloc_resource_loc_table(&serv->fluid_resource_table, 1 << 10, 1 << 10, 10);
 
     load_item_types(serv);
     load_block_types(serv);

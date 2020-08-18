@@ -792,6 +792,10 @@ process_packet(entity_data * entity, player_brain * brain,
                 entity->player.slots_needing_update |=
                         (mc_ulong) 1 << slot;
             }
+
+            net_string type_name = get_resource_loc(is->type, &serv->item_resource_table);
+            logs("Set creative slot: %.*s", (int) type_name.size, type_name.ptr);
+
             mc_ubyte max_size = get_max_stack_size(is->type);
             if (is->size > max_size) {
                 is->size = max_size;

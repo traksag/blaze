@@ -1557,9 +1557,6 @@ enum item_type {
     ITEM_JIGSAW,
     ITEM_TURTLE_HELMET,
     ITEM_SCUTE,
-    ITEM_IRON_SHOVEL,
-    ITEM_IRON_PICKAXE,
-    ITEM_IRON_AXE,
     ITEM_FLINT_AND_STEEL,
     ITEM_APPLE,
     ITEM_BOW,
@@ -1571,39 +1568,42 @@ enum item_type {
     ITEM_GOLD_INGOT,
     ITEM_NETHERITE_INGOT,
     ITEM_NETHERITE_SCRAP,
-    ITEM_IRON_SWORD,
     ITEM_WOODEN_SWORD,
     ITEM_WOODEN_SHOVEL,
     ITEM_WOODEN_PICKAXE,
     ITEM_WOODEN_AXE,
+    ITEM_WOODEN_HOE,
     ITEM_STONE_SWORD,
     ITEM_STONE_SHOVEL,
     ITEM_STONE_PICKAXE,
     ITEM_STONE_AXE,
-    ITEM_DIAMOND_SWORD,
-    ITEM_DIAMOND_SHOVEL,
-    ITEM_DIAMOND_PICKAXE,
-    ITEM_DIAMOND_AXE,
-    ITEM_STICK,
-    ITEM_BOWL,
-    ITEM_MUSHROOM_STEW,
+    ITEM_STONE_HOE,
     ITEM_GOLDEN_SWORD,
     ITEM_GOLDEN_SHOVEL,
     ITEM_GOLDEN_PICKAXE,
     ITEM_GOLDEN_AXE,
+    ITEM_GOLDEN_HOE,
+    ITEM_IRON_SWORD,
+    ITEM_IRON_SHOVEL,
+    ITEM_IRON_PICKAXE,
+    ITEM_IRON_AXE,
+    ITEM_IRON_HOE,
+    ITEM_DIAMOND_SWORD,
+    ITEM_DIAMOND_SHOVEL,
+    ITEM_DIAMOND_PICKAXE,
+    ITEM_DIAMOND_AXE,
+    ITEM_DIAMOND_HOE,
     ITEM_NETHERITE_SWORD,
     ITEM_NETHERITE_SHOVEL,
     ITEM_NETHERITE_PICKAXE,
     ITEM_NETHERITE_AXE,
+    ITEM_NETHERITE_HOE,
+    ITEM_STICK,
+    ITEM_BOWL,
+    ITEM_MUSHROOM_STEW,
     ITEM_STRING,
     ITEM_FEATHER,
     ITEM_GUNPOWDER,
-    ITEM_WOODEN_HOE,
-    ITEM_STONE_HOE,
-    ITEM_IRON_HOE,
-    ITEM_DIAMOND_HOE,
-    ITEM_GOLDEN_HOE,
-    ITEM_NETHERITE_HOE,
     ITEM_WHEAT_SEEDS,
     ITEM_WHEAT,
     ITEM_BREAD,
@@ -1679,25 +1679,25 @@ enum item_type {
     ITEM_COOKED_COD,
     ITEM_COOKED_SALMON,
     ITEM_INK_SAC,
-    ITEM_RED_DYE,
-    ITEM_GREEN_DYE,
     ITEM_COCOA_BEANS,
     ITEM_LAPIS_LAZULI,
-    ITEM_PURPLE_DYE,
-    ITEM_CYAN_DYE,
-    ITEM_LIGHT_GRAY_DYE,
-    ITEM_GRAY_DYE,
-    ITEM_PINK_DYE,
-    ITEM_LIME_DYE,
-    ITEM_YELLOW_DYE,
-    ITEM_LIGHT_BLUE_DYE,
-    ITEM_MAGENTA_DYE,
+    ITEM_WHITE_DYE,
     ITEM_ORANGE_DYE,
-    ITEM_BONE_MEAL,
+    ITEM_MAGENTA_DYE,
+    ITEM_LIGHT_BLUE_DYE,
+    ITEM_YELLOW_DYE,
+    ITEM_LIME_DYE,
+    ITEM_PINK_DYE,
+    ITEM_GRAY_DYE,
+    ITEM_LIGHT_GRAY_DYE,
+    ITEM_CYAN_DYE,
+    ITEM_PURPLE_DYE,
     ITEM_BLUE_DYE,
     ITEM_BROWN_DYE,
+    ITEM_GREEN_DYE,
+    ITEM_RED_DYE,
     ITEM_BLACK_DYE,
-    ITEM_WHITE_DYE,
+    ITEM_BONE_MEAL,
     ITEM_BONE,
     ITEM_SUGAR,
     ITEM_CAKE,
@@ -1776,6 +1776,7 @@ enum item_type {
     ITEM_PHANTOM_SPAWN_EGG,
     ITEM_PIG_SPAWN_EGG,
     ITEM_PIGLIN_SPAWN_EGG,
+    ITEM_PIGLIN_BRUTE_SPAWN_EGG,
     ITEM_PILLAGER_SPAWN_EGG,
     ITEM_POLAR_BEAR_SPAWN_EGG,
     ITEM_PUFFERFISH_SPAWN_EGG,
@@ -2081,6 +2082,7 @@ enum entity_type {
     ENTITY_PLAYER,
     ENTITY_FISHING_BOBBER,
     ENTITY_NULL, // not used in vanilla
+    ENTITY_TYPE_COUNT,
 };
 
 #define ENTITY_INDEX_MASK (MAX_ENTITIES - 1)
@@ -2245,6 +2247,9 @@ typedef struct {
     resource_loc_entry * entries;
     unsigned char * string_buf;
     mc_int last_string_buf_index;
+
+    mc_ushort * by_id;
+    mc_ushort max_ids;
 } resource_loc_table;
 
 // Currently dimension types have the following configurable properties that are
@@ -2432,6 +2437,12 @@ typedef struct {
     resource_loc_table entity_resource_table;
     resource_loc_table fluid_resource_table;
 
+    block_properties block_properties_table[BLOCK_TYPE_COUNT];
+    int block_state_count;
+
+    block_property_spec block_property_specs[128];
+    int block_property_spec_count;
+
     dimension_type dimension_types[32];
     int dimension_type_count;
 
@@ -2586,10 +2597,7 @@ chunk_get_block_state(chunk * ch, int x, int y, int z);
 
 void
 try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
-        memory_arena * scratch_arena,
-        block_properties * block_properties_table,
-        block_property_spec * block_property_specs,
-        resource_loc_table * block_resource_table);
+        memory_arena * scratch_arena, server * serv);
 
 chunk_section *
 alloc_chunk_section(void);
@@ -2624,6 +2632,9 @@ send_packets_to_player(player_brain * brain, server * serv,
 
 mc_short
 resolve_resource_loc_id(net_string resource_loc, resource_loc_table * table);
+
+net_string
+get_resource_loc(mc_ushort id, resource_loc_table * table);
 
 int
 net_string_equal(net_string a, net_string b);

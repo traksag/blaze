@@ -257,10 +257,7 @@ ceil_log2u(mc_uint x) {
 
 void
 try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
-        memory_arena * scratch_arena,
-        block_properties * block_properties_table,
-        block_property_spec * block_property_specs,
-        resource_loc_table * block_resource_table) {
+        memory_arena * scratch_arena, server * serv) {
     begin_timed_block("read chunk");
 
     // @TODO(traks) error handling and/or error messages for all failure cases
@@ -509,7 +506,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
                 net_string resource_loc = nbt_get_string(NET_STRING("Name"),
                         palette_entry, &cursor);
                 mc_short type_id = resolve_resource_loc_id(resource_loc,
-                        block_resource_table);
+                        &serv->block_resource_table);
                 if (type_id == -1) {
                     // @TODO(traks) should probably just error out
                     type_id = 2;
@@ -520,9 +517,9 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
                 nbt_tape_entry * props_nbt = nbt_get_compound(
                         NET_STRING("Properties"), palette_entry, &cursor);
 
-                block_properties * props = block_properties_table + type_id;
+                block_properties * props = serv->block_properties_table + type_id;
                 for (int propi = 0; propi < props->property_count; propi++) {
-                    block_property_spec * prop_spec = block_property_specs
+                    block_property_spec * prop_spec = serv->block_property_specs
                             + props->property_specs[propi];
                     net_string prop_name = {
                         .size = prop_spec->tape[0],
