@@ -213,3 +213,5 @@ key minecraft:zombified_piglin
 key minecraft:player
 
 key minecraft:fishing_bobber
+
+key blaze:null

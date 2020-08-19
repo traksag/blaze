@@ -921,6 +921,8 @@ load_item_types(server * serv) {
             id++;
         }
     }
+
+    assert(id == serv->item_resource_table.max_ids);
 }
 
 static void
@@ -1035,7 +1037,7 @@ load_block_types(server * serv) {
 
     serv->block_state_count = block_state_count;
     serv->block_property_spec_count = block_property_spec_count;
-    assert(block_type_count == BLOCK_TYPE_COUNT);
+    assert(block_type_count == serv->block_resource_table.max_ids);
 }
 
 static void
@@ -1079,6 +1081,8 @@ load_entity_types(server * serv) {
             register_resource_loc(args[1], id, &serv->entity_resource_table);
         }
     }
+
+    assert(entity_types == serv->entity_resource_table.max_ids);
 }
 
 static void
@@ -1122,6 +1126,8 @@ load_fluid_types(server * serv) {
             register_resource_loc(args[1], id, &serv->fluid_resource_table);
         }
     }
+
+    assert(fluid_types == serv->fluid_resource_table.max_ids);
 }
 
 static void
@@ -1371,7 +1377,7 @@ main(void) {
     alloc_resource_loc_table(&serv->block_resource_table, 1 << 10, 1 << 16, BLOCK_TYPE_COUNT);
     alloc_resource_loc_table(&serv->item_resource_table, 1 << 10, 1 << 16, ITEM_TYPE_COUNT);
     alloc_resource_loc_table(&serv->entity_resource_table, 1 << 10, 1 << 12, ENTITY_TYPE_COUNT);
-    alloc_resource_loc_table(&serv->fluid_resource_table, 1 << 10, 1 << 10, 10);
+    alloc_resource_loc_table(&serv->fluid_resource_table, 1 << 10, 1 << 10, 5);
 
     load_item_types(serv);
     load_block_types(serv);
