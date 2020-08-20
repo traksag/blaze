@@ -1,5 +1,13 @@
 #include "shared.h"
 
+typedef struct {
+    chunk * ch;
+    chunk_pos ch_pos;
+    net_block_pos pos;
+    mc_ushort cur_state;
+    mc_int cur_type;
+} place_target;
+
 static net_block_pos
 get_relative_block_pos(net_block_pos pos, int face) {
     switch (face) {
@@ -16,10 +24,7 @@ get_relative_block_pos(net_block_pos pos, int face) {
 }
 
 static int
-can_replace(server * serv, mc_ushort place_state, mc_ushort cur_state) {
-    mc_int place_type = serv->block_type_by_state[place_state];
-    mc_int cur_type = serv->block_type_by_state[cur_state];
-
+can_replace(mc_int place_type, mc_int cur_type) {
     // @TODO(traks) this is probably not OK for things like flint and steel,
     // water buckets, etc., for which there is no clear correspondence between
     // the item type and the placed state
@@ -68,44 +73,146 @@ can_replace(server * serv, mc_ushort place_state, mc_ushort cur_state) {
     }
 }
 
-static void
-place_simple_block(server * serv, net_block_pos clicked_pos,
+static place_target
+determine_place_target(server * serv, net_block_pos clicked_pos,
         mc_int clicked_face, mc_int place_type) {
+    place_target res = {0};
     net_block_pos target_pos = clicked_pos;
-    chunk_pos target_chunk_pos = {
+    chunk_pos ch_pos = {
         .x = target_pos.x >> 4,
         .z = target_pos.z >> 4
     };
-    chunk * ch = get_chunk_if_loaded(target_chunk_pos);
+    chunk * ch = get_chunk_if_loaded(ch_pos);
     if (ch == NULL) {
-        return;
+        return res;
     }
 
     mc_ushort cur_state = chunk_get_block_state(ch,
             target_pos.x & 0xf, target_pos.y, target_pos.z & 0xf);
-    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    mc_int cur_type = serv->block_type_by_state[cur_state];
 
-    if (!can_replace(serv, place_state, cur_state)) {
+    if (!can_replace(place_type, cur_type)) {
         target_pos = get_relative_block_pos(target_pos, clicked_face);
-
-        target_chunk_pos = (chunk_pos) {
+        ch_pos = (chunk_pos) {
             .x = target_pos.x >> 4,
             .z = target_pos.z >> 4
         };
-        ch = get_chunk_if_loaded(target_chunk_pos);
+        ch = get_chunk_if_loaded(ch_pos);
         if (ch == NULL) {
-            return;
+            return res;
         }
+
         cur_state = chunk_get_block_state(ch,
                 target_pos.x & 0xf, target_pos.y, target_pos.z & 0xf);
+        cur_type = serv->block_type_by_state[cur_state];
 
-        if (!can_replace(serv, place_state, cur_state)) {
-            return;
+        if (!can_replace(place_type, cur_type)) {
+            return res;
         }
     }
 
-    chunk_set_block_state(ch, target_pos.x & 0xf, target_pos.y,
-            target_pos.z & 0xf, place_state);
+    res = (place_target) {
+        .ch = ch,
+        .ch_pos = ch_pos,
+        .pos = target_pos,
+        .cur_state = cur_state,
+        .cur_type = cur_type
+    };
+    return res;
+}
+
+static void
+place_simple_block(server * serv, net_block_pos clicked_pos,
+        mc_int clicked_face, mc_int place_type) {
+    place_target target = determine_place_target(serv,
+            clicked_pos, clicked_face, place_type);
+    if (target.ch == NULL) {
+        return;
+    }
+
+    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
+            target.pos.z & 0xf, place_state);
+}
+
+static void
+place_snowy_grassy_block(server * serv, net_block_pos clicked_pos,
+        mc_int clicked_face, mc_int place_type) {
+    place_target target = determine_place_target(serv,
+            clicked_pos, clicked_face, place_type);
+    if (target.ch == NULL) {
+        return;
+    }
+
+    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    mc_ushort state_above = chunk_get_block_state(target.ch,
+            target.pos.x & 0xf, target.pos.y + 1, target.pos.z & 0xf);
+    mc_int type_above = serv->block_type_by_state[state_above];
+
+    if (type_above == BLOCK_SNOW_BLOCK || type_above == BLOCK_SNOW) {
+        place_state += 0;
+    } else {
+        place_state += 1;
+    }
+
+    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
+            target.pos.z & 0xf, place_state);
+}
+
+static void
+place_sapling(server * serv, net_block_pos clicked_pos,
+        mc_int clicked_face, mc_int place_type) {
+    place_target target = determine_place_target(serv,
+            clicked_pos, clicked_face, place_type);
+    if (target.ch == NULL) {
+        return;
+    }
+
+    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    mc_ushort state_below = chunk_get_block_state(target.ch,
+            target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
+    mc_int type_below = serv->block_type_by_state[state_below];
+
+    if (!(type_below == BLOCK_GRASS_BLOCK
+            || type_below == BLOCK_DIRT
+            || type_below == BLOCK_COARSE_DIRT
+            || type_below == BLOCK_PODZOL
+            || type_below == BLOCK_FARMLAND)) {
+        return;
+    }
+
+    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
+            target.pos.z & 0xf, place_state);
+}
+
+static void
+place_simple_pillar(server * serv, net_block_pos clicked_pos,
+        mc_int clicked_face, mc_int place_type) {
+    place_target target = determine_place_target(serv,
+            clicked_pos, clicked_face, place_type);
+    if (target.ch == NULL) {
+        return;
+    }
+
+    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+
+    switch (clicked_face) {
+    case DIRECTION_NEG_X:
+    case DIRECTION_POS_X:
+        place_state += 0;
+        break;
+    case DIRECTION_NEG_Y:
+    case DIRECTION_POS_Y:
+        place_state += 1;
+        break;
+    case DIRECTION_NEG_Z:
+    case DIRECTION_POS_Z:
+        place_state += 2;
+        break;
+    }
+
+    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
+            target.pos.z & 0xf, place_state);
 }
 
 void
@@ -199,6 +306,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_POLISHED_ANDESITE);
         break;
     case ITEM_GRASS_BLOCK:
+        place_snowy_grassy_block(serv, clicked_pos, clicked_face, BLOCK_GRASS_BLOCK);
         break;
     case ITEM_DIRT:
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_DIRT);
@@ -207,10 +315,13 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_COARSE_DIRT);
         break;
     case ITEM_PODZOL:
+        place_snowy_grassy_block(serv, clicked_pos, clicked_face, BLOCK_PODZOL);
         break;
     case ITEM_CRIMSON_NYLIUM:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CRIMSON_NYLIUM);
         break;
     case ITEM_WARPED_NYLIUM:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_WARPED_NYLIUM);
         break;
     case ITEM_COBBLESTONE:
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_COBBLESTONE);
@@ -240,16 +351,22 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_WARPED_PLANKS);
         break;
     case ITEM_OAK_SAPLING:
+        place_sapling(serv, clicked_pos, clicked_face, BLOCK_OAK_SAPLING);
         break;
     case ITEM_SPRUCE_SAPLING:
+        place_sapling(serv, clicked_pos, clicked_face, BLOCK_SPRUCE_SAPLING);
         break;
     case ITEM_BIRCH_SAPLING:
+        place_sapling(serv, clicked_pos, clicked_face, BLOCK_BIRCH_SAPLING);
         break;
     case ITEM_JUNGLE_SAPLING:
+        place_sapling(serv, clicked_pos, clicked_face, BLOCK_JUNGLE_SAPLING);
         break;
     case ITEM_ACACIA_SAPLING:
+        place_sapling(serv, clicked_pos, clicked_face, BLOCK_ACACIA_SAPLING);
         break;
     case ITEM_DARK_OAK_SAPLING:
+        place_sapling(serv, clicked_pos, clicked_face, BLOCK_DARK_OAK_SAPLING);
         break;
     case ITEM_BEDROCK:
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BEDROCK);
@@ -273,68 +390,100 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_NETHER_GOLD_ORE);
         break;
     case ITEM_OAK_LOG:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_OAK_LOG);
         break;
     case ITEM_SPRUCE_LOG:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_SPRUCE_LOG);
         break;
     case ITEM_BIRCH_LOG:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_BIRCH_LOG);
         break;
     case ITEM_JUNGLE_LOG:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_JUNGLE_LOG);
         break;
     case ITEM_ACACIA_LOG:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_ACACIA_LOG);
         break;
     case ITEM_DARK_OAK_LOG:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_DARK_OAK_LOG);
         break;
     case ITEM_CRIMSON_STEM:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_CRIMSON_STEM);
         break;
     case ITEM_WARPED_STEM:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_WARPED_STEM);
         break;
     case ITEM_STRIPPED_OAK_LOG:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_OAK_LOG);
         break;
     case ITEM_STRIPPED_SPRUCE_LOG:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_SPRUCE_LOG);
         break;
     case ITEM_STRIPPED_BIRCH_LOG:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_BIRCH_LOG);
         break;
     case ITEM_STRIPPED_JUNGLE_LOG:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_JUNGLE_LOG);
         break;
     case ITEM_STRIPPED_ACACIA_LOG:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_ACACIA_LOG);
         break;
     case ITEM_STRIPPED_DARK_OAK_LOG:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_DARK_OAK_LOG);
         break;
     case ITEM_STRIPPED_CRIMSON_STEM:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_CRIMSON_STEM);
         break;
     case ITEM_STRIPPED_WARPED_STEM:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_WARPED_STEM);
         break;
     case ITEM_STRIPPED_OAK_WOOD:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_OAK_WOOD);
         break;
     case ITEM_STRIPPED_SPRUCE_WOOD:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_SPRUCE_WOOD);
         break;
     case ITEM_STRIPPED_BIRCH_WOOD:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_BIRCH_WOOD);
         break;
     case ITEM_STRIPPED_JUNGLE_WOOD:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_JUNGLE_WOOD);
         break;
     case ITEM_STRIPPED_ACACIA_WOOD:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_ACACIA_WOOD);
         break;
     case ITEM_STRIPPED_DARK_OAK_WOOD:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_DARK_OAK_WOOD);
         break;
     case ITEM_STRIPPED_CRIMSON_HYPHAE:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_CRIMSON_HYPHAE);
         break;
     case ITEM_STRIPPED_WARPED_HYPHAE:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_WARPED_HYPHAE);
         break;
     case ITEM_OAK_WOOD:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_OAK_WOOD);
         break;
     case ITEM_SPRUCE_WOOD:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_SPRUCE_WOOD);
         break;
     case ITEM_BIRCH_WOOD:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_BIRCH_WOOD);
         break;
     case ITEM_JUNGLE_WOOD:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_JUNGLE_WOOD);
         break;
     case ITEM_ACACIA_WOOD:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_ACACIA_WOOD);
         break;
     case ITEM_DARK_OAK_WOOD:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_DARK_OAK_WOOD);
         break;
     case ITEM_CRIMSON_HYPHAE:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_CRIMSON_HYPHAE);
         break;
     case ITEM_WARPED_HYPHAE:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_WARPED_HYPHAE);
         break;
     case ITEM_OAK_LEAVES:
         break;
@@ -353,6 +502,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
     case ITEM_WET_SPONGE:
         break;
     case ITEM_GLASS:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_GLASS);
         break;
     case ITEM_LAPIS_ORE:
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_LAPIS_ORE);
@@ -380,6 +530,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
     case ITEM_STICKY_PISTON:
         break;
     case ITEM_COBWEB:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_COBWEB);
         break;
     case ITEM_GRASS:
         break;
@@ -561,6 +712,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BRICKS);
         break;
     case ITEM_TNT:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_TNT);
         break;
     case ITEM_BOOKSHELF:
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BOOKSHELF);
@@ -583,6 +735,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_PURPUR_BLOCK);
         break;
     case ITEM_PURPUR_PILLAR:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_PURPUR_PILLAR);
         break;
     case ITEM_PURPUR_STAIRS:
         break;
@@ -678,8 +831,10 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_SOUL_SOIL);
         break;
     case ITEM_BASALT:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_BASALT);
         break;
     case ITEM_POLISHED_BASALT:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_POLISHED_BASALT);
         break;
     case ITEM_SOUL_TORCH:
         break;
@@ -905,6 +1060,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_QUARTZ_BRICKS);
         break;
     case ITEM_QUARTZ_PILLAR:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_QUARTZ_PILLAR);
         break;
     case ITEM_QUARTZ_STAIRS:
         break;
@@ -965,6 +1121,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
     case ITEM_IRON_TRAPDOOR:
         break;
     case ITEM_HAY_BLOCK:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_HAY_BLOCK);
         break;
     case ITEM_WHITE_CARPET:
         break;
@@ -1028,36 +1185,52 @@ process_use_item_on_packet(server * serv, entity_data * entity,
     case ITEM_LARGE_FERN:
         break;
     case ITEM_WHITE_STAINED_GLASS:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_WHITE_STAINED_GLASS);
         break;
     case ITEM_ORANGE_STAINED_GLASS:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_ORANGE_STAINED_GLASS);
         break;
     case ITEM_MAGENTA_STAINED_GLASS:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_MAGENTA_STAINED_GLASS);
         break;
     case ITEM_LIGHT_BLUE_STAINED_GLASS:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_LIGHT_BLUE_STAINED_GLASS);
         break;
     case ITEM_YELLOW_STAINED_GLASS:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_YELLOW_STAINED_GLASS);
         break;
     case ITEM_LIME_STAINED_GLASS:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_LIME_STAINED_GLASS);
         break;
     case ITEM_PINK_STAINED_GLASS:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_PINK_STAINED_GLASS);
         break;
     case ITEM_GRAY_STAINED_GLASS:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_GRAY_STAINED_GLASS);
         break;
     case ITEM_LIGHT_GRAY_STAINED_GLASS:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_LIGHT_GRAY_STAINED_GLASS);
         break;
     case ITEM_CYAN_STAINED_GLASS:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CYAN_STAINED_GLASS);
         break;
     case ITEM_PURPLE_STAINED_GLASS:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_PURPLE_STAINED_GLASS);
         break;
     case ITEM_BLUE_STAINED_GLASS:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BLUE_STAINED_GLASS);
         break;
     case ITEM_BROWN_STAINED_GLASS:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BROWN_STAINED_GLASS);
         break;
     case ITEM_GREEN_STAINED_GLASS:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_GREEN_STAINED_GLASS);
         break;
     case ITEM_RED_STAINED_GLASS:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_RED_STAINED_GLASS);
         break;
     case ITEM_BLACK_STAINED_GLASS:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BLACK_STAINED_GLASS);
         break;
     case ITEM_WHITE_STAINED_GLASS_PANE:
         break;
@@ -1125,6 +1298,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
     case ITEM_CHAIN_COMMAND_BLOCK:
         break;
     case ITEM_MAGMA_BLOCK:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_MAGMA_BLOCK);
         break;
     case ITEM_NETHER_WART_BLOCK:
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_NETHER_WART_BLOCK);
@@ -1136,6 +1310,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_RED_NETHER_BRICKS);
         break;
     case ITEM_BONE_BLOCK:
+        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_BONE_BLOCK);
         break;
     case ITEM_STRUCTURE_VOID:
         break;
