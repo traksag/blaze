@@ -971,6 +971,12 @@ enum block_type {
     BLOCK_TYPE_COUNT,
 };
 
+enum slab_type {
+    SLAB_TOP,
+    SLAB_BOTTOM,
+    SLAB_DOUBLE,
+};
+
 typedef struct {
     unsigned char value_count;
     // name size, name, value size, value, value size, value, etc.

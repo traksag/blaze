@@ -893,6 +893,10 @@ process_packet(entity_data * entity, player_brain * brain,
             break;
         }
 
+        // @TODO(traks) ensure clicked pos is inside the world and the eventual
+        // target position as well, so no assertions fire when setting the block
+        // in the chunk (e.g. because of negative y)
+
         process_use_item_on_packet(serv, entity, brain, hand, clicked_pos,
                 clicked_face, click_offset_x, click_offset_y, click_offset_z,
                 is_inside);

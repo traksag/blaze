@@ -215,6 +215,89 @@ place_simple_pillar(server * serv, net_block_pos clicked_pos,
             target.pos.z & 0xf, place_state);
 }
 
+static void
+place_slab(server * serv, net_block_pos clicked_pos, float click_offset_y,
+        mc_int clicked_face, mc_int place_type) {
+    net_block_pos target_pos = clicked_pos;
+    chunk_pos ch_pos = {
+        .x = target_pos.x >> 4,
+        .z = target_pos.z >> 4
+    };
+    chunk * ch = get_chunk_if_loaded(ch_pos);
+    if (ch == NULL) {
+        return;
+    }
+
+    mc_ushort cur_state = chunk_get_block_state(ch,
+            target_pos.x & 0xf, target_pos.y, target_pos.z & 0xf);
+    mc_int cur_type = serv->block_type_by_state[cur_state];
+
+    int replace_cur = 0;
+    if (cur_type == place_type) {
+        int cur_slab = (cur_state - serv->block_properties_table[cur_type].base_state) / 2;
+        if (cur_slab == SLAB_TOP) {
+            replace_cur = clicked_face == DIRECTION_NEG_Y
+                    || (clicked_face != DIRECTION_POS_Y && click_offset_y <= 0.5f);
+        } else if  (cur_slab == SLAB_BOTTOM) {
+            replace_cur = clicked_face == DIRECTION_POS_Y
+                    || (clicked_face != DIRECTION_NEG_Y && click_offset_y > 0.5f);
+        }
+    } else {
+        replace_cur = can_replace(place_type, cur_type);
+    }
+
+    if (!replace_cur) {
+        target_pos = get_relative_block_pos(target_pos, clicked_face);
+        ch_pos = (chunk_pos) {
+            .x = target_pos.x >> 4,
+            .z = target_pos.z >> 4
+        };
+        ch = get_chunk_if_loaded(ch_pos);
+        if (ch == NULL) {
+            return;
+        }
+
+        cur_state = chunk_get_block_state(ch,
+                target_pos.x & 0xf, target_pos.y, target_pos.z & 0xf);
+        cur_type = serv->block_type_by_state[cur_state];
+
+        if (cur_type != place_type && !can_replace(place_type, cur_type)) {
+            return;
+        }
+    }
+
+    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+
+    if (place_type == cur_type) {
+        place_state += 4;
+    } else {
+        if (clicked_face == DIRECTION_POS_Y) {
+            place_state += 2;
+        } else if (clicked_face == DIRECTION_NEG_Y) {
+            place_state += 0;
+        } else if (click_offset_y <= 0.5f) {
+            place_state += 2;
+        } else {
+            place_state += 0;
+        }
+    }
+
+    if (cur_type == BLOCK_WATER) {
+        int water_level = cur_state - serv->block_properties_table[cur_type].base_state;
+        if (water_level == 0) {
+            // waterlogged slab
+            place_state += 0;
+        } else {
+            place_state += 1;
+        }
+    } else {
+        place_state += 1;
+    }
+
+    chunk_set_block_state(ch, target_pos.x & 0xf, target_pos.y,
+            target_pos.z & 0xf, place_state);
+}
+
 void
 process_use_item_on_packet(server * serv, entity_data * entity,
         player_brain * brain, mc_int hand, net_block_pos clicked_pos,
@@ -649,52 +732,76 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_IRON_BLOCK);
         break;
     case ITEM_OAK_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_OAK_SLAB);
         break;
     case ITEM_SPRUCE_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_SPRUCE_SLAB);
         break;
     case ITEM_BIRCH_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_BIRCH_SLAB);
         break;
     case ITEM_JUNGLE_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_JUNGLE_SLAB);
         break;
     case ITEM_ACACIA_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_ACACIA_SLAB);
         break;
     case ITEM_DARK_OAK_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_DARK_OAK_SLAB);
         break;
     case ITEM_CRIMSON_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_CRIMSON_SLAB);
         break;
     case ITEM_WARPED_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_WARPED_SLAB);
         break;
     case ITEM_STONE_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_STONE_SLAB);
         break;
     case ITEM_SMOOTH_STONE_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_SMOOTH_STONE_SLAB);
         break;
     case ITEM_SANDSTONE_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_SANDSTONE_SLAB);
         break;
     case ITEM_CUT_SANDSTONE_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_CUT_SANDSTONE_SLAB);
         break;
     case ITEM_PETRIFIED_OAK_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_PETRIFIED_OAK_SLAB);
         break;
     case ITEM_COBBLESTONE_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_COBBLESTONE_SLAB);
         break;
     case ITEM_BRICK_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_BRICK_SLAB);
         break;
     case ITEM_STONE_BRICK_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_STONE_BRICK_SLAB);
         break;
     case ITEM_NETHER_BRICK_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_NETHER_BRICK_SLAB);
         break;
     case ITEM_QUARTZ_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_QUARTZ_SLAB);
         break;
     case ITEM_RED_SANDSTONE_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_RED_SANDSTONE_SLAB);
         break;
     case ITEM_CUT_RED_SANDSTONE_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_CUT_RED_SANDSTONE_SLAB);
         break;
     case ITEM_PURPUR_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_PURPUR_SLAB);
         break;
     case ITEM_PRISMARINE_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_PRISMARINE_SLAB);
         break;
     case ITEM_PRISMARINE_BRICK_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_PRISMARINE_BRICK_SLAB);
         break;
     case ITEM_DARK_PRISMARINE_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_DARK_PRISMARINE_SLAB);
         break;
     case ITEM_SMOOTH_QUARTZ:
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_SMOOTH_QUARTZ);
@@ -786,12 +893,14 @@ process_use_item_on_packet(server * serv, entity_data * entity,
     case ITEM_POLISHED_BLACKSTONE_PRESSURE_PLATE:
         break;
     case ITEM_REDSTONE_ORE:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_REDSTONE_ORE);
         break;
     case ITEM_REDSTONE_TORCH:
         break;
     case ITEM_SNOW:
         break;
     case ITEM_ICE:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_ICE);
         break;
     case ITEM_SNOW_BLOCK:
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_SNOW_BLOCK);
@@ -824,6 +933,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
     case ITEM_CARVED_PUMPKIN:
         break;
     case ITEM_NETHERRACK:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_NETHERRACK);
         break;
     case ITEM_SOUL_SAND:
         break;
@@ -1562,30 +1672,43 @@ process_use_item_on_packet(server * serv, entity_data * entity,
     case ITEM_DIORITE_STAIRS:
         break;
     case ITEM_POLISHED_GRANITE_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_POLISHED_GRANITE_SLAB);
         break;
     case ITEM_SMOOTH_RED_SANDSTONE_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_SMOOTH_RED_SANDSTONE_SLAB);
         break;
     case ITEM_MOSSY_STONE_BRICK_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_MOSSY_STONE_BRICK_SLAB);
         break;
     case ITEM_POLISHED_DIORITE_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_POLISHED_DIORITE_SLAB);
         break;
     case ITEM_MOSSY_COBBLESTONE_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_MOSSY_COBBLESTONE_SLAB);
         break;
     case ITEM_END_STONE_BRICK_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_END_STONE_BRICK_SLAB);
         break;
     case ITEM_SMOOTH_SANDSTONE_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_SMOOTH_SANDSTONE_SLAB);
         break;
     case ITEM_SMOOTH_QUARTZ_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_SMOOTH_QUARTZ_SLAB);
         break;
     case ITEM_GRANITE_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_GRANITE_SLAB);
         break;
     case ITEM_ANDESITE_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_ANDESITE_SLAB);
         break;
     case ITEM_RED_NETHER_BRICK_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_RED_NETHER_BRICK_SLAB);
         break;
     case ITEM_POLISHED_ANDESITE_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_POLISHED_ANDESITE_SLAB);
         break;
     case ITEM_DIORITE_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_DIORITE_SLAB);
         break;
     case ITEM_SCAFFOLDING:
         break;
@@ -2411,6 +2534,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BLACKSTONE);
         break;
     case ITEM_BLACKSTONE_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_BLACKSTONE_SLAB);
         break;
     case ITEM_BLACKSTONE_STAIRS:
         break;
@@ -2421,6 +2545,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_POLISHED_BLACKSTONE);
         break;
     case ITEM_POLISHED_BLACKSTONE_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_POLISHED_BLACKSTONE_SLAB);
         break;
     case ITEM_POLISHED_BLACKSTONE_STAIRS:
         break;
@@ -2431,6 +2556,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_POLISHED_BLACKSTONE_BRICKS);
         break;
     case ITEM_POLISHED_BLACKSTONE_BRICK_SLAB:
+        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_POLISHED_BLACKSTONE_BRICK_SLAB);
         break;
     case ITEM_POLISHED_BLACKSTONE_BRICK_STAIRS:
         break;
