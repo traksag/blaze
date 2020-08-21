@@ -159,8 +159,22 @@ place_snowy_grassy_block(server * serv, net_block_pos clicked_pos,
             target.pos.z & 0xf, place_state);
 }
 
+static int
+can_place_plant_on(mc_int type_below) {
+    switch (type_below) {
+    case BLOCK_GRASS_BLOCK:
+    case BLOCK_DIRT:
+    case BLOCK_COARSE_DIRT:
+    case BLOCK_PODZOL:
+    case BLOCK_FARMLAND:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
 static void
-place_sapling(server * serv, net_block_pos clicked_pos,
+place_plant(server * serv, net_block_pos clicked_pos,
         mc_int clicked_face, mc_int place_type) {
     place_target target = determine_place_target(serv,
             clicked_pos, clicked_face, place_type);
@@ -173,12 +187,83 @@ place_sapling(server * serv, net_block_pos clicked_pos,
             target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
     mc_int type_below = serv->block_type_by_state[state_below];
 
-    if (!(type_below == BLOCK_GRASS_BLOCK
-            || type_below == BLOCK_DIRT
-            || type_below == BLOCK_COARSE_DIRT
-            || type_below == BLOCK_PODZOL
-            || type_below == BLOCK_FARMLAND)) {
+    if (!can_place_plant_on(type_below)) {
         return;
+    }
+
+    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
+            target.pos.z & 0xf, place_state);
+}
+
+static void
+place_dead_bush(server * serv, net_block_pos clicked_pos,
+        mc_int clicked_face, mc_int place_type) {
+    place_target target = determine_place_target(serv,
+            clicked_pos, clicked_face, place_type);
+    if (target.ch == NULL) {
+        return;
+    }
+
+    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    mc_ushort state_below = chunk_get_block_state(target.ch,
+            target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
+    mc_int type_below = serv->block_type_by_state[state_below];
+
+    switch (type_below) {
+    case BLOCK_SAND:
+    case BLOCK_RED_SAND:
+    case BLOCK_TERRACOTTA:
+    case BLOCK_WHITE_TERRACOTTA:
+    case BLOCK_ORANGE_TERRACOTTA:
+    case BLOCK_MAGENTA_TERRACOTTA:
+    case BLOCK_LIGHT_BLUE_TERRACOTTA:
+    case BLOCK_YELLOW_TERRACOTTA:
+    case BLOCK_LIME_TERRACOTTA:
+    case BLOCK_PINK_TERRACOTTA:
+    case BLOCK_GRAY_TERRACOTTA:
+    case BLOCK_LIGHT_GRAY_TERRACOTTA:
+    case BLOCK_CYAN_TERRACOTTA:
+    case BLOCK_PURPLE_TERRACOTTA:
+    case BLOCK_BLUE_TERRACOTTA:
+    case BLOCK_BROWN_TERRACOTTA:
+    case BLOCK_GREEN_TERRACOTTA:
+    case BLOCK_RED_TERRACOTTA:
+    case BLOCK_BLACK_TERRACOTTA:
+    case BLOCK_DIRT:
+    case BLOCK_COARSE_DIRT:
+    case BLOCK_PODZOL:
+        break;
+    default:
+        return;
+    }
+
+    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
+            target.pos.z & 0xf, place_state);
+}
+
+static void
+place_wither_rose(server * serv, net_block_pos clicked_pos,
+        mc_int clicked_face, mc_int place_type) {
+    place_target target = determine_place_target(serv,
+            clicked_pos, clicked_face, place_type);
+    if (target.ch == NULL) {
+        return;
+    }
+
+    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    mc_ushort state_below = chunk_get_block_state(target.ch,
+            target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
+    mc_int type_below = serv->block_type_by_state[state_below];
+
+    switch (type_below) {
+    case BLOCK_NETHERRACK:
+    case BLOCK_SOUL_SAND:
+    case BLOCK_SOUL_SOIL:
+        break;
+    default:
+        if (!can_place_plant_on(type_below)) {
+            return;
+        }
     }
 
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
@@ -296,6 +381,24 @@ place_slab(server * serv, net_block_pos clicked_pos, float click_offset_y,
 
     chunk_set_block_state(ch, target_pos.x & 0xf, target_pos.y,
             target_pos.z & 0xf, place_state);
+}
+
+static void
+place_leaves(server * serv, net_block_pos clicked_pos,
+        mc_int clicked_face, mc_int place_type) {
+    place_target target = determine_place_target(serv,
+            clicked_pos, clicked_face, place_type);
+    if (target.ch == NULL) {
+        return;
+    }
+
+    // @TODO(traks) calculate distance to nearest log block and modify block
+    // state with that information
+    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    place_state += 0; // persistent = true
+
+    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
+            target.pos.z & 0xf, place_state);
 }
 
 void
@@ -434,22 +537,22 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_WARPED_PLANKS);
         break;
     case ITEM_OAK_SAPLING:
-        place_sapling(serv, clicked_pos, clicked_face, BLOCK_OAK_SAPLING);
+        place_plant(serv, clicked_pos, clicked_face, BLOCK_OAK_SAPLING);
         break;
     case ITEM_SPRUCE_SAPLING:
-        place_sapling(serv, clicked_pos, clicked_face, BLOCK_SPRUCE_SAPLING);
+        place_plant(serv, clicked_pos, clicked_face, BLOCK_SPRUCE_SAPLING);
         break;
     case ITEM_BIRCH_SAPLING:
-        place_sapling(serv, clicked_pos, clicked_face, BLOCK_BIRCH_SAPLING);
+        place_plant(serv, clicked_pos, clicked_face, BLOCK_BIRCH_SAPLING);
         break;
     case ITEM_JUNGLE_SAPLING:
-        place_sapling(serv, clicked_pos, clicked_face, BLOCK_JUNGLE_SAPLING);
+        place_plant(serv, clicked_pos, clicked_face, BLOCK_JUNGLE_SAPLING);
         break;
     case ITEM_ACACIA_SAPLING:
-        place_sapling(serv, clicked_pos, clicked_face, BLOCK_ACACIA_SAPLING);
+        place_plant(serv, clicked_pos, clicked_face, BLOCK_ACACIA_SAPLING);
         break;
     case ITEM_DARK_OAK_SAPLING:
-        place_sapling(serv, clicked_pos, clicked_face, BLOCK_DARK_OAK_SAPLING);
+        place_plant(serv, clicked_pos, clicked_face, BLOCK_DARK_OAK_SAPLING);
         break;
     case ITEM_BEDROCK:
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BEDROCK);
@@ -569,16 +672,22 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_WARPED_HYPHAE);
         break;
     case ITEM_OAK_LEAVES:
+        place_leaves(serv, clicked_pos, clicked_face, BLOCK_OAK_LEAVES);
         break;
     case ITEM_SPRUCE_LEAVES:
+        place_leaves(serv, clicked_pos, clicked_face, BLOCK_SPRUCE_LEAVES);
         break;
     case ITEM_BIRCH_LEAVES:
+        place_leaves(serv, clicked_pos, clicked_face, BLOCK_BIRCH_LEAVES);
         break;
     case ITEM_JUNGLE_LEAVES:
+        place_leaves(serv, clicked_pos, clicked_face, BLOCK_JUNGLE_LEAVES);
         break;
     case ITEM_ACACIA_LEAVES:
+        place_leaves(serv, clicked_pos, clicked_face, BLOCK_ACACIA_LEAVES);
         break;
     case ITEM_DARK_OAK_LEAVES:
+        place_leaves(serv, clicked_pos, clicked_face, BLOCK_DARK_OAK_LEAVES);
         break;
     case ITEM_SPONGE:
         break;
@@ -616,10 +725,13 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_COBWEB);
         break;
     case ITEM_GRASS:
+        place_plant(serv, clicked_pos, clicked_face, BLOCK_GRASS);
         break;
     case ITEM_FERN:
+        place_plant(serv, clicked_pos, clicked_face, BLOCK_FERN);
         break;
     case ITEM_DEAD_BUSH:
+        place_dead_bush(serv, clicked_pos, clicked_face, BLOCK_DEAD_BUSH);
         break;
     case ITEM_SEAGRASS:
         break;
@@ -676,30 +788,43 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BLACK_WOOL);
         break;
     case ITEM_DANDELION:
+        place_plant(serv, clicked_pos, clicked_face, BLOCK_DANDELION);
         break;
     case ITEM_POPPY:
+        place_plant(serv, clicked_pos, clicked_face, BLOCK_POPPY);
         break;
     case ITEM_BLUE_ORCHID:
+        place_plant(serv, clicked_pos, clicked_face, BLOCK_BLUE_ORCHID);
         break;
     case ITEM_ALLIUM:
+        place_plant(serv, clicked_pos, clicked_face, BLOCK_ALLIUM);
         break;
     case ITEM_AZURE_BLUET:
+        place_plant(serv, clicked_pos, clicked_face, BLOCK_AZURE_BLUET);
         break;
     case ITEM_RED_TULIP:
+        place_plant(serv, clicked_pos, clicked_face, BLOCK_RED_TULIP);
         break;
     case ITEM_ORANGE_TULIP:
+        place_plant(serv, clicked_pos, clicked_face, BLOCK_ORANGE_TULIP);
         break;
     case ITEM_WHITE_TULIP:
+        place_plant(serv, clicked_pos, clicked_face, BLOCK_WHITE_TULIP);
         break;
     case ITEM_PINK_TULIP:
+        place_plant(serv, clicked_pos, clicked_face, BLOCK_PINK_TULIP);
         break;
     case ITEM_OXEYE_DAISY:
+        place_plant(serv, clicked_pos, clicked_face, BLOCK_OXEYE_DAISY);
         break;
     case ITEM_CORNFLOWER:
+        place_plant(serv, clicked_pos, clicked_face, BLOCK_CORNFLOWER);
         break;
     case ITEM_LILY_OF_THE_VALLEY:
+        place_plant(serv, clicked_pos, clicked_face, BLOCK_LILY_OF_THE_VALLEY);
         break;
     case ITEM_WITHER_ROSE:
+        place_plant(serv, clicked_pos, clicked_face, BLOCK_WITHER_ROSE);
         break;
     case ITEM_BROWN_MUSHROOM:
         break;
