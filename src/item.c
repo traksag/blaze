@@ -1863,91 +1863,33 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         break;
     case ITEM_JIGSAW:
         break;
-    case ITEM_TURTLE_HELMET:
-        break;
-    case ITEM_SCUTE:
-        break;
     case ITEM_IRON_SHOVEL:
-        break;
-    case ITEM_IRON_PICKAXE:
         break;
     case ITEM_IRON_AXE:
         break;
     case ITEM_FLINT_AND_STEEL:
         break;
-    case ITEM_APPLE:
-        break;
-    case ITEM_BOW:
-        break;
-    case ITEM_ARROW:
-        break;
-    case ITEM_COAL:
-        break;
-    case ITEM_CHARCOAL:
-        break;
-    case ITEM_DIAMOND:
-        break;
-    case ITEM_IRON_INGOT:
-        break;
-    case ITEM_GOLD_INGOT:
-        break;
-    case ITEM_NETHERITE_INGOT:
-        break;
-    case ITEM_NETHERITE_SCRAP:
-        break;
-    case ITEM_IRON_SWORD:
-        break;
-    case ITEM_WOODEN_SWORD:
-        break;
     case ITEM_WOODEN_SHOVEL:
-        break;
-    case ITEM_WOODEN_PICKAXE:
         break;
     case ITEM_WOODEN_AXE:
         break;
-    case ITEM_STONE_SWORD:
-        break;
     case ITEM_STONE_SHOVEL:
-        break;
-    case ITEM_STONE_PICKAXE:
         break;
     case ITEM_STONE_AXE:
         break;
-    case ITEM_DIAMOND_SWORD:
-        break;
     case ITEM_DIAMOND_SHOVEL:
-        break;
-    case ITEM_DIAMOND_PICKAXE:
         break;
     case ITEM_DIAMOND_AXE:
         break;
-    case ITEM_STICK:
-        break;
-    case ITEM_BOWL:
-        break;
-    case ITEM_MUSHROOM_STEW:
-        break;
-    case ITEM_GOLDEN_SWORD:
-        break;
     case ITEM_GOLDEN_SHOVEL:
-        break;
-    case ITEM_GOLDEN_PICKAXE:
         break;
     case ITEM_GOLDEN_AXE:
         break;
-    case ITEM_NETHERITE_SWORD:
-        break;
     case ITEM_NETHERITE_SHOVEL:
-        break;
-    case ITEM_NETHERITE_PICKAXE:
         break;
     case ITEM_NETHERITE_AXE:
         break;
     case ITEM_STRING:
-        break;
-    case ITEM_FEATHER:
-        break;
-    case ITEM_GUNPOWDER:
         break;
     case ITEM_WOODEN_HOE:
         break;
@@ -1963,69 +1905,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         break;
     case ITEM_WHEAT_SEEDS:
         break;
-    case ITEM_WHEAT:
-        break;
-    case ITEM_BREAD:
-        break;
-    case ITEM_LEATHER_HELMET:
-        break;
-    case ITEM_LEATHER_CHESTPLATE:
-        break;
-    case ITEM_LEATHER_LEGGINGS:
-        break;
-    case ITEM_LEATHER_BOOTS:
-        break;
-    case ITEM_CHAINMAIL_HELMET:
-        break;
-    case ITEM_CHAINMAIL_CHESTPLATE:
-        break;
-    case ITEM_CHAINMAIL_LEGGINGS:
-        break;
-    case ITEM_CHAINMAIL_BOOTS:
-        break;
-    case ITEM_IRON_HELMET:
-        break;
-    case ITEM_IRON_CHESTPLATE:
-        break;
-    case ITEM_IRON_LEGGINGS:
-        break;
-    case ITEM_IRON_BOOTS:
-        break;
-    case ITEM_DIAMOND_HELMET:
-        break;
-    case ITEM_DIAMOND_CHESTPLATE:
-        break;
-    case ITEM_DIAMOND_LEGGINGS:
-        break;
-    case ITEM_DIAMOND_BOOTS:
-        break;
-    case ITEM_GOLDEN_HELMET:
-        break;
-    case ITEM_GOLDEN_CHESTPLATE:
-        break;
-    case ITEM_GOLDEN_LEGGINGS:
-        break;
-    case ITEM_GOLDEN_BOOTS:
-        break;
-    case ITEM_NETHERITE_HELMET:
-        break;
-    case ITEM_NETHERITE_CHESTPLATE:
-        break;
-    case ITEM_NETHERITE_LEGGINGS:
-        break;
-    case ITEM_NETHERITE_BOOTS:
-        break;
-    case ITEM_FLINT:
-        break;
-    case ITEM_PORKCHOP:
-        break;
-    case ITEM_COOKED_PORKCHOP:
-        break;
     case ITEM_PAINTING:
-        break;
-    case ITEM_GOLDEN_APPLE:
-        break;
-    case ITEM_ENCHANTED_GOLDEN_APPLE:
         break;
     case ITEM_OAK_SIGN:
         break;
@@ -2043,116 +1923,22 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         break;
     case ITEM_WARPED_SIGN:
         break;
-    case ITEM_BUCKET:
-        break;
-    case ITEM_WATER_BUCKET:
-        break;
-    case ITEM_LAVA_BUCKET:
-        break;
     case ITEM_MINECART:
-        break;
-    case ITEM_SADDLE:
         break;
     case ITEM_REDSTONE:
         break;
-    case ITEM_SNOWBALL:
-        break;
-    case ITEM_OAK_BOAT:
-        break;
-    case ITEM_LEATHER:
-        break;
-    case ITEM_MILK_BUCKET:
-        break;
-    case ITEM_PUFFERFISH_BUCKET:
-        break;
-    case ITEM_SALMON_BUCKET:
-        break;
-    case ITEM_COD_BUCKET:
-        break;
-    case ITEM_TROPICAL_FISH_BUCKET:
-        break;
-    case ITEM_BRICK:
-        break;
-    case ITEM_CLAY_BALL:
-        break;
     case ITEM_DRIED_KELP_BLOCK:
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_DRIED_KELP_BLOCK);
-        break;
-    case ITEM_PAPER:
-        break;
-    case ITEM_BOOK:
-        break;
-    case ITEM_SLIME_BALL:
         break;
     case ITEM_CHEST_MINECART:
         break;
     case ITEM_FURNACE_MINECART:
         break;
-    case ITEM_EGG:
-        break;
     case ITEM_COMPASS:
-        break;
-    case ITEM_FISHING_ROD:
-        break;
-    case ITEM_CLOCK:
-        break;
-    case ITEM_GLOWSTONE_DUST:
-        break;
-    case ITEM_COD:
-        break;
-    case ITEM_SALMON:
-        break;
-    case ITEM_TROPICAL_FISH:
-        break;
-    case ITEM_PUFFERFISH:
-        break;
-    case ITEM_COOKED_COD:
-        break;
-    case ITEM_COOKED_SALMON:
-        break;
-    case ITEM_INK_SAC:
-        break;
-    case ITEM_RED_DYE:
-        break;
-    case ITEM_GREEN_DYE:
         break;
     case ITEM_COCOA_BEANS:
         break;
-    case ITEM_LAPIS_LAZULI:
-        break;
-    case ITEM_PURPLE_DYE:
-        break;
-    case ITEM_CYAN_DYE:
-        break;
-    case ITEM_LIGHT_GRAY_DYE:
-        break;
-    case ITEM_GRAY_DYE:
-        break;
-    case ITEM_PINK_DYE:
-        break;
-    case ITEM_LIME_DYE:
-        break;
-    case ITEM_YELLOW_DYE:
-        break;
-    case ITEM_LIGHT_BLUE_DYE:
-        break;
-    case ITEM_MAGENTA_DYE:
-        break;
-    case ITEM_ORANGE_DYE:
-        break;
     case ITEM_BONE_MEAL:
-        break;
-    case ITEM_BLUE_DYE:
-        break;
-    case ITEM_BROWN_DYE:
-        break;
-    case ITEM_BLACK_DYE:
-        break;
-    case ITEM_WHITE_DYE:
-        break;
-    case ITEM_BONE:
-        break;
-    case ITEM_SUGAR:
         break;
     case ITEM_CAKE:
         break;
@@ -2188,59 +1974,19 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         break;
     case ITEM_BLACK_BED:
         break;
-    case ITEM_COOKIE:
-        break;
     case ITEM_FILLED_MAP:
-        break;
-    case ITEM_SHEARS:
-        break;
-    case ITEM_MELON_SLICE:
-        break;
-    case ITEM_DRIED_KELP:
         break;
     case ITEM_PUMPKIN_SEEDS:
         break;
     case ITEM_MELON_SEEDS:
         break;
-    case ITEM_BEEF:
-        break;
-    case ITEM_COOKED_BEEF:
-        break;
-    case ITEM_CHICKEN:
-        break;
-    case ITEM_COOKED_CHICKEN:
-        break;
-    case ITEM_ROTTEN_FLESH:
-        break;
-    case ITEM_ENDER_PEARL:
-        break;
-    case ITEM_BLAZE_ROD:
-        break;
-    case ITEM_GHAST_TEAR:
-        break;
-    case ITEM_GOLD_NUGGET:
-        break;
     case ITEM_NETHER_WART:
-        break;
-    case ITEM_POTION:
-        break;
-    case ITEM_GLASS_BOTTLE:
-        break;
-    case ITEM_SPIDER_EYE:
-        break;
-    case ITEM_FERMENTED_SPIDER_EYE:
-        break;
-    case ITEM_BLAZE_POWDER:
-        break;
-    case ITEM_MAGMA_CREAM:
         break;
     case ITEM_BREWING_STAND:
         break;
     case ITEM_CAULDRON:
         break;
     case ITEM_ENDER_EYE:
-        break;
-    case ITEM_GLISTERING_MELON_SLICE:
         break;
     case ITEM_BAT_SPAWN_EGG:
         break;
@@ -2370,15 +2116,11 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         break;
     case ITEM_ZOMBIFIED_PIGLIN_SPAWN_EGG:
         break;
-    case ITEM_EXPERIENCE_BOTTLE:
-        break;
     case ITEM_FIRE_CHARGE:
         break;
     case ITEM_WRITABLE_BOOK:
         break;
     case ITEM_WRITTEN_BOOK:
-        break;
-    case ITEM_EMERALD:
         break;
     case ITEM_ITEM_FRAME:
         break;
@@ -2387,14 +2129,6 @@ process_use_item_on_packet(server * serv, entity_data * entity,
     case ITEM_CARROT:
         break;
     case ITEM_POTATO:
-        break;
-    case ITEM_BAKED_POTATO:
-        break;
-    case ITEM_POISONOUS_POTATO:
-        break;
-    case ITEM_MAP:
-        break;
-    case ITEM_GOLDEN_CARROT:
         break;
     case ITEM_SKELETON_SKULL:
         break;
@@ -2408,61 +2142,17 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         break;
     case ITEM_DRAGON_HEAD:
         break;
-    case ITEM_CARROT_ON_A_STICK:
-        break;
-    case ITEM_WARPED_FUNGUS_ON_A_STICK:
-        break;
-    case ITEM_NETHER_STAR:
-        break;
-    case ITEM_PUMPKIN_PIE:
-        break;
     case ITEM_FIREWORK_ROCKET:
-        break;
-    case ITEM_FIREWORK_STAR:
-        break;
-    case ITEM_ENCHANTED_BOOK:
-        break;
-    case ITEM_NETHER_BRICK:
-        break;
-    case ITEM_QUARTZ:
         break;
     case ITEM_TNT_MINECART:
         break;
     case ITEM_HOPPER_MINECART:
         break;
-    case ITEM_PRISMARINE_SHARD:
-        break;
-    case ITEM_PRISMARINE_CRYSTALS:
-        break;
-    case ITEM_RABBIT:
-        break;
-    case ITEM_COOKED_RABBIT:
-        break;
-    case ITEM_RABBIT_STEW:
-        break;
-    case ITEM_RABBIT_FOOT:
-        break;
-    case ITEM_RABBIT_HIDE:
-        break;
     case ITEM_ARMOR_STAND:
-        break;
-    case ITEM_IRON_HORSE_ARMOR:
-        break;
-    case ITEM_GOLDEN_HORSE_ARMOR:
-        break;
-    case ITEM_DIAMOND_HORSE_ARMOR:
-        break;
-    case ITEM_LEATHER_HORSE_ARMOR:
         break;
     case ITEM_LEAD:
         break;
-    case ITEM_NAME_TAG:
-        break;
     case ITEM_COMMAND_BLOCK_MINECART:
-        break;
-    case ITEM_MUTTON:
-        break;
-    case ITEM_COOKED_MUTTON:
         break;
     case ITEM_WHITE_BANNER:
         break;
@@ -2498,47 +2188,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         break;
     case ITEM_END_CRYSTAL:
         break;
-    case ITEM_CHORUS_FRUIT:
-        break;
-    case ITEM_POPPED_CHORUS_FRUIT:
-        break;
-    case ITEM_BEETROOT:
-        break;
     case ITEM_BEETROOT_SEEDS:
-        break;
-    case ITEM_BEETROOT_SOUP:
-        break;
-    case ITEM_DRAGON_BREATH:
-        break;
-    case ITEM_SPLASH_POTION:
-        break;
-    case ITEM_SPECTRAL_ARROW:
-        break;
-    case ITEM_TIPPED_ARROW:
-        break;
-    case ITEM_LINGERING_POTION:
-        break;
-    case ITEM_SHIELD:
-        break;
-    case ITEM_ELYTRA:
-        break;
-    case ITEM_SPRUCE_BOAT:
-        break;
-    case ITEM_BIRCH_BOAT:
-        break;
-    case ITEM_JUNGLE_BOAT:
-        break;
-    case ITEM_ACACIA_BOAT:
-        break;
-    case ITEM_DARK_OAK_BOAT:
-        break;
-    case ITEM_TOTEM_OF_UNDYING:
-        break;
-    case ITEM_SHULKER_SHELL:
-        break;
-    case ITEM_IRON_NUGGET:
-        break;
-    case ITEM_KNOWLEDGE_BOOK:
         break;
     case ITEM_DEBUG_STICK:
         break;
@@ -2568,31 +2218,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         break;
     case ITEM_MUSIC_DISC_PIGSTEP:
         break;
-    case ITEM_TRIDENT:
-        break;
-    case ITEM_PHANTOM_MEMBRANE:
-        break;
-    case ITEM_NAUTILUS_SHELL:
-        break;
-    case ITEM_HEART_OF_THE_SEA:
-        break;
-    case ITEM_CROSSBOW:
-        break;
-    case ITEM_SUSPICIOUS_STEW:
-        break;
     case ITEM_LOOM:
-        break;
-    case ITEM_FLOWER_BANNER_PATTERN:
-        break;
-    case ITEM_CREEPER_BANNER_PATTERN:
-        break;
-    case ITEM_SKULL_BANNER_PATTERN:
-        break;
-    case ITEM_MOJANG_BANNER_PATTERN:
-        break;
-    case ITEM_GLOBE_BANNER_PATTERN:
-        break;
-    case ITEM_PIGLIN_BANNER_PATTERN:
         break;
     case ITEM_COMPOSTER:
         break;
@@ -2629,18 +2255,14 @@ process_use_item_on_packet(server * serv, entity_data * entity,
     case ITEM_SHROOMLIGHT:
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_SHROOMLIGHT);
         break;
-    case ITEM_HONEYCOMB:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_HONEYCOMB_BLOCK);
-        break;
     case ITEM_BEE_NEST:
         break;
     case ITEM_BEEHIVE:
         break;
-    case ITEM_HONEY_BOTTLE:
-        break;
     case ITEM_HONEY_BLOCK:
         break;
     case ITEM_HONEYCOMB_BLOCK:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_HONEYCOMB_BLOCK);
         break;
     case ITEM_LODESTONE:
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_LODESTONE);
@@ -2691,11 +2313,14 @@ process_use_item_on_packet(server * serv, entity_data * entity,
     case ITEM_RESPAWN_ANCHOR:
         break;
     default:
-        assert(0);
+        // no use-on action for the remaining item types
+        return;
     }
 
     // @TODO(traks) perhaps don't send these packets if we do everything as the
-    // client expects
+    // client expects. Although a nice benefit of these packets is that clients
+    // can update a desynced block by clicking on it.
+
     // @TODO(traks) we shouldn't assert here
     net_block_pos changed_pos = clicked_pos;
     assert(brain->changed_block_count < ARRAY_SIZE(brain->changed_blocks));

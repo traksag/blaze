@@ -865,6 +865,7 @@ process_packet(entity_data * entity, player_brain * brain,
         break;
     }
     case SBP_USE_ITEM_ON: {
+        logs("Packet use item on");
         mc_int hand = net_read_varint(rec_cursor);
         net_block_pos clicked_pos = net_read_block_pos(rec_cursor);
         mc_int clicked_face = net_read_varint(rec_cursor);
