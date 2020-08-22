@@ -1,3 +1,4 @@
+#include <math.h>
 #include "shared.h"
 
 typedef struct {
@@ -301,6 +302,48 @@ place_simple_pillar(server * serv, net_block_pos clicked_pos,
 }
 
 static void
+place_chain(server * serv, net_block_pos clicked_pos,
+        mc_int clicked_face, mc_int place_type) {
+    place_target target = determine_place_target(serv,
+            clicked_pos, clicked_face, place_type);
+    if (target.ch == NULL) {
+        return;
+    }
+
+    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+
+    switch (clicked_face) {
+    case DIRECTION_NEG_X:
+    case DIRECTION_POS_X:
+        place_state += 0 * 2;
+        break;
+    case DIRECTION_NEG_Y:
+    case DIRECTION_POS_Y:
+        place_state += 1 * 2;
+        break;
+    case DIRECTION_NEG_Z:
+    case DIRECTION_POS_Z:
+        place_state += 2 * 2;
+        break;
+    }
+
+    if (target.cur_type == BLOCK_WATER) {
+        int water_level = target.cur_state - serv->block_properties_table[target.cur_type].base_state;
+        if (water_level == 0) {
+            // waterlogged
+            place_state += 0;
+        } else {
+            place_state += 1;
+        }
+    } else {
+        place_state += 1;
+    }
+
+    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
+            target.pos.z & 0xf, place_state);
+}
+
+static void
 place_slab(server * serv, net_block_pos clicked_pos, float click_offset_y,
         mc_int clicked_face, mc_int place_type) {
     net_block_pos target_pos = clicked_pos;
@@ -397,6 +440,373 @@ place_leaves(server * serv, net_block_pos clicked_pos,
     mc_ushort place_state = serv->block_properties_table[place_type].base_state;
     place_state += 0; // persistent = true
 
+    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
+            target.pos.z & 0xf, place_state);
+}
+
+static void
+place_horizontal_facing(server * serv, entity_data * entity,
+        net_block_pos clicked_pos, mc_int clicked_face, mc_int place_type) {
+    place_target target = determine_place_target(serv,
+            clicked_pos, clicked_face, place_type);
+    if (target.ch == NULL) {
+        return;
+    }
+
+    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+
+    // facing direction is opposite of player facing direction
+    float rot_y = entity->player.head_rot_y;
+    int int_rot = (int) floor(rot_y / 90.0f + 0.5f) & 0x3;
+    switch (int_rot) {
+    case 0: // +Z = south
+        place_state += 0;
+        break;
+    case 1: // -X = west
+        place_state += 3;
+        break;
+    case 2: // -Z = north
+        place_state += 1;
+        break;
+    case 3: // +X = east
+        place_state += 2;
+        break;
+    }
+
+    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
+            target.pos.z & 0xf, place_state);
+}
+
+static void
+place_end_portal_frame(server * serv, entity_data * entity,
+        net_block_pos clicked_pos, mc_int clicked_face, mc_int place_type) {
+    place_target target = determine_place_target(serv,
+            clicked_pos, clicked_face, place_type);
+    if (target.ch == NULL) {
+        return;
+    }
+
+    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+
+    // facing direction is opposite of player facing direction
+    float rot_y = entity->player.head_rot_y;
+    int int_rot = (int) floor(rot_y / 90.0f + 0.5f) & 0x3;
+    switch (int_rot) {
+    case 0: // +Z = south
+        place_state += 0;
+        break;
+    case 1: // -X = west
+        place_state += 3;
+        break;
+    case 2: // -Z = north
+        place_state += 1;
+        break;
+    case 3: // +X = east
+        place_state += 2;
+        break;
+    }
+
+    // no eye
+    place_state += 4;
+
+    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
+            target.pos.z & 0xf, place_state);
+}
+
+static void
+place_crop(server * serv, net_block_pos clicked_pos,
+        mc_int clicked_face, mc_int place_type) {
+    place_target target = determine_place_target(serv,
+            clicked_pos, clicked_face, place_type);
+    if (target.ch == NULL) {
+        return;
+    }
+
+    // base state has age 0
+    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    mc_ushort state_below = chunk_get_block_state(target.ch,
+            target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
+    mc_int type_below = serv->block_type_by_state[state_below];
+
+    switch (type_below) {
+    case BLOCK_FARMLAND:
+        break;
+    default:
+        return;
+    }
+
+    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
+            target.pos.z & 0xf, place_state);
+}
+
+static void
+place_nether_wart(server * serv, net_block_pos clicked_pos,
+        mc_int clicked_face, mc_int place_type) {
+    place_target target = determine_place_target(serv,
+            clicked_pos, clicked_face, place_type);
+    if (target.ch == NULL) {
+        return;
+    }
+
+    // base state has age 0
+    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    mc_ushort state_below = chunk_get_block_state(target.ch,
+            target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
+    mc_int type_below = serv->block_type_by_state[state_below];
+
+    switch (type_below) {
+    case BLOCK_SOUL_SAND:
+        break;
+    default:
+        return;
+    }
+
+    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
+            target.pos.z & 0xf, place_state);
+}
+
+static void
+place_carpet(server * serv, net_block_pos clicked_pos,
+        mc_int clicked_face, mc_int place_type) {
+    place_target target = determine_place_target(serv,
+            clicked_pos, clicked_face, place_type);
+    if (target.ch == NULL) {
+        return;
+    }
+
+    // base state has age 0
+    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    mc_ushort state_below = chunk_get_block_state(target.ch,
+            target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
+    mc_int type_below = serv->block_type_by_state[state_below];
+
+    switch (type_below) {
+    case BLOCK_AIR:
+    case BLOCK_VOID_AIR:
+    case BLOCK_CAVE_AIR:
+        return;
+    default:
+        break;
+    }
+
+    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
+            target.pos.z & 0xf, place_state);
+}
+
+static void
+place_mushroom_block(server * serv, net_block_pos clicked_pos,
+        mc_int clicked_face, mc_int place_type) {
+    place_target target = determine_place_target(serv,
+            clicked_pos, clicked_face, place_type);
+    if (target.ch == NULL) {
+        return;
+    }
+
+    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+
+    net_block_pos neighbour_pos[6];
+    for (int i = 0; i < 6; i++) {
+        neighbour_pos[i] = target.pos;
+    }
+    neighbour_pos[DIRECTION_NEG_Y].y--;
+    neighbour_pos[DIRECTION_POS_Y].y++;
+    neighbour_pos[DIRECTION_NEG_Z].z--;
+    neighbour_pos[DIRECTION_POS_Z].z++;
+    neighbour_pos[DIRECTION_NEG_X].x--;
+    neighbour_pos[DIRECTION_POS_X].x++;
+
+    mc_int neighbour_types[6];
+    for (int i = 0; i < 6; i++) {
+        net_block_pos pos = neighbour_pos[i];
+        chunk_pos ch_pos = {
+            .x = pos.x >> 4,
+            .z = pos.z >> 4
+        };
+        chunk * ch = get_chunk_if_loaded(ch_pos);
+        if (ch == NULL) {
+            return;
+        }
+
+        mc_ushort state = chunk_get_block_state(ch,
+                pos.x & 0xf, pos.y, pos.z & 0xf);
+        neighbour_types[i] = serv->block_type_by_state[state];
+    }
+
+    // connect to neighbouring mushroom blocks of the same type by setting the
+    // six facing properties to true if connected
+    if (neighbour_types[DIRECTION_NEG_Y] == place_type) {
+        place_state += 32;
+    }
+    if (neighbour_types[DIRECTION_POS_X] == place_type) {
+        place_state += 16;
+    }
+    if (neighbour_types[DIRECTION_NEG_Z] == place_type) {
+        place_state += 8;
+    }
+    if (neighbour_types[DIRECTION_POS_Z] == place_type) {
+        place_state += 4;
+    }
+    if (neighbour_types[DIRECTION_POS_Y] == place_type) {
+        place_state += 2;
+    }
+    if (neighbour_types[DIRECTION_NEG_X] == place_type) {
+        place_state += 1;
+    }
+
+    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
+            target.pos.z & 0xf, place_state);
+}
+
+static void
+place_end_rod(server * serv, net_block_pos clicked_pos,
+        mc_int clicked_face, mc_int place_type) {
+    place_target target = determine_place_target(serv,
+            clicked_pos, clicked_face, place_type);
+    if (target.ch == NULL) {
+        return;
+    }
+
+    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+
+    int opposite_face;
+    switch (clicked_face) {
+    case DIRECTION_NEG_Y: opposite_face = DIRECTION_POS_Y; break;
+    case DIRECTION_POS_Y: opposite_face = DIRECTION_NEG_Y; break;
+    case DIRECTION_NEG_Z: opposite_face = DIRECTION_POS_Z; break;
+    case DIRECTION_POS_Z: opposite_face = DIRECTION_NEG_Z; break;
+    case DIRECTION_NEG_X: opposite_face = DIRECTION_POS_X; break;
+    case DIRECTION_POS_X: opposite_face = DIRECTION_NEG_X; break;
+    }
+
+    net_block_pos opposite_pos = get_relative_block_pos(target.pos, opposite_face);
+    chunk_pos opposite_ch_pos = {
+        .x = opposite_pos.x >> 4,
+        .z = opposite_pos.z >> 4
+    };
+    chunk * opposite_ch = get_chunk_if_loaded(opposite_ch_pos);
+    if (opposite_ch == NULL) {
+        return;
+    }
+
+    mc_ushort opposite_state = chunk_get_block_state(opposite_ch,
+            opposite_pos.x & 0xf, opposite_pos.y, opposite_pos.z & 0xf);
+    mc_int opposite_type = serv->block_type_by_state[opposite_state];
+
+    if (opposite_type == place_type) {
+        int facing = opposite_state - serv->block_properties_table[opposite_type].base_state;
+        int facing_direction;
+        switch (facing) {
+        case 0: facing_direction = DIRECTION_NEG_Z; break;
+        case 1: facing_direction = DIRECTION_POS_X; break;
+        case 2: facing_direction = DIRECTION_POS_Z; break;
+        case 3: facing_direction = DIRECTION_NEG_X; break;
+        case 4: facing_direction = DIRECTION_POS_Y; break;
+        case 5: facing_direction = DIRECTION_NEG_Y; break;
+        }
+
+        if (facing_direction == clicked_face) {
+            // set placed block facing to opposite of clicked face
+            switch (clicked_face) {
+            case DIRECTION_NEG_Y: place_state += 4; break;
+            case DIRECTION_POS_Y: place_state += 5; break;
+            case DIRECTION_NEG_Z: place_state += 2; break;
+            case DIRECTION_POS_Z: place_state += 0; break;
+            case DIRECTION_NEG_X: place_state += 1; break;
+            case DIRECTION_POS_X: place_state += 3; break;
+            }
+        } else {
+            // set placed block facing to clicked face
+            switch (clicked_face) {
+            case DIRECTION_NEG_Y: place_state += 5; break;
+            case DIRECTION_POS_Y: place_state += 4; break;
+            case DIRECTION_NEG_Z: place_state += 0; break;
+            case DIRECTION_POS_Z: place_state += 2; break;
+            case DIRECTION_NEG_X: place_state += 3; break;
+            case DIRECTION_POS_X: place_state += 1; break;
+            }
+        }
+    } else {
+        // set placed block facing to clicked face
+        switch (clicked_face) {
+        case DIRECTION_NEG_Y: place_state += 5; break;
+        case DIRECTION_POS_Y: place_state += 4; break;
+        case DIRECTION_NEG_Z: place_state += 0; break;
+        case DIRECTION_POS_Z: place_state += 2; break;
+        case DIRECTION_NEG_X: place_state += 3; break;
+        case DIRECTION_POS_X: place_state += 1; break;
+        }
+    }
+
+    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
+            target.pos.z & 0xf, place_state);
+}
+
+static void
+place_sugar_cane(server * serv, net_block_pos clicked_pos,
+        mc_int clicked_face, mc_int place_type) {
+    place_target target = determine_place_target(serv,
+            clicked_pos, clicked_face, place_type);
+    if (target.ch == NULL) {
+        return;
+    }
+
+    // base state has age 0
+    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    mc_ushort state_below = chunk_get_block_state(target.ch,
+            target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
+    mc_int type_below = serv->block_type_by_state[state_below];
+
+    switch (type_below) {
+    case BLOCK_SUGAR_CANE:
+        break;
+    case BLOCK_GRASS_BLOCK:
+    case BLOCK_DIRT:
+    case BLOCK_COARSE_DIRT:
+    case BLOCK_PODZOL:
+    case BLOCK_SAND:
+    case BLOCK_RED_SAND: {
+        net_block_pos neighbour_pos[4];
+        for (int i = 0; i < 4; i++) {
+            net_block_pos pos = target.pos;
+            pos.y--;
+            neighbour_pos[i] = pos;
+        }
+        neighbour_pos[0].x--;
+        neighbour_pos[1].x++;
+        neighbour_pos[2].z--;
+        neighbour_pos[3].z++;
+
+        for (int i = 0; i < 6; i++) {
+            net_block_pos pos = neighbour_pos[i];
+            chunk_pos ch_pos = {
+                .x = pos.x >> 4,
+                .z = pos.z >> 4
+            };
+            chunk * ch = get_chunk_if_loaded(ch_pos);
+            if (ch == NULL) {
+                return;
+            }
+
+            mc_ushort neighbour_state = chunk_get_block_state(ch,
+                    pos.x & 0xf, pos.y, pos.z & 0xf);
+            mc_int neighbour_type = serv->block_type_by_state[neighbour_state];
+            switch (neighbour_type) {
+            // @TODO(traks) use fluid state so that waterlogged blocks also
+            // allow sugar cane to be placed
+            case BLOCK_WATER:
+            case BLOCK_FROSTED_ICE:
+                goto set_block;
+            }
+        }
+
+        // no water next to ground block
+        return;
+    }
+    default:
+        return;
+    }
+
+set_block:
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
 }
@@ -845,6 +1255,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
     case ITEM_TWISTING_VINES:
         break;
     case ITEM_SUGAR_CANE:
+        place_sugar_cane(serv, clicked_pos, clicked_face, BLOCK_SUGAR_CANE);
         break;
     case ITEM_KELP:
         break;
@@ -958,6 +1369,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
     case ITEM_TORCH:
         break;
     case ITEM_END_ROD:
+        place_end_rod(serv, clicked_pos, clicked_face, BLOCK_END_ROD);
         break;
     case ITEM_CHORUS_PLANT:
         break;
@@ -984,6 +1396,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_DIAMOND_BLOCK);
         break;
     case ITEM_CRAFTING_TABLE:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CRAFTING_TABLE);
         break;
     case ITEM_FARMLAND:
         break;
@@ -1054,13 +1467,17 @@ process_use_item_on_packet(server * serv, entity_data * entity,
     case ITEM_WARPED_FENCE:
         break;
     case ITEM_PUMPKIN:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_PUMPKIN);
         break;
     case ITEM_CARVED_PUMPKIN:
+        // @TODO(traks) spawn iron golem?
+        place_horizontal_facing(serv, entity, clicked_pos, clicked_face, BLOCK_CARVED_PUMPKIN);
         break;
     case ITEM_NETHERRACK:
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_NETHERRACK);
         break;
     case ITEM_SOUL_SAND:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_SOUL_SAND);
         break;
     case ITEM_SOUL_SOIL:
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_SOUL_SOIL);
@@ -1077,6 +1494,8 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_GLOWSTONE);
         break;
     case ITEM_JACK_O_LANTERN:
+        // @TODO(traks) spawn iron golem?
+        place_horizontal_facing(serv, entity, clicked_pos, clicked_face, BLOCK_JACK_O_LANTERN);
         break;
     case ITEM_OAK_TRAPDOOR:
         break;
@@ -1095,16 +1514,22 @@ process_use_item_on_packet(server * serv, entity_data * entity,
     case ITEM_WARPED_TRAPDOOR:
         break;
     case ITEM_INFESTED_STONE:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_INFESTED_STONE);
         break;
     case ITEM_INFESTED_COBBLESTONE:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_INFESTED_COBBLESTONE);
         break;
     case ITEM_INFESTED_STONE_BRICKS:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_INFESTED_STONE_BRICKS);
         break;
     case ITEM_INFESTED_MOSSY_STONE_BRICKS:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_INFESTED_MOSSY_STONE_BRICKS);
         break;
     case ITEM_INFESTED_CRACKED_STONE_BRICKS:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_INFESTED_CRACKED_STONE_BRICKS);
         break;
     case ITEM_INFESTED_CHISELED_STONE_BRICKS:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_INFESTED_CHISELED_STONE_BRICKS);
         break;
     case ITEM_STONE_BRICKS:
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_STONE_BRICKS);
@@ -1119,18 +1544,23 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CHISELED_STONE_BRICKS);
         break;
     case ITEM_BROWN_MUSHROOM_BLOCK:
+        place_mushroom_block(serv, clicked_pos, clicked_face, BLOCK_BROWN_MUSHROOM_BLOCK);
         break;
     case ITEM_RED_MUSHROOM_BLOCK:
+        place_mushroom_block(serv, clicked_pos, clicked_face, BLOCK_RED_MUSHROOM_BLOCK);
         break;
     case ITEM_MUSHROOM_STEM:
+        place_mushroom_block(serv, clicked_pos, clicked_face, BLOCK_MUSHROOM_STEM);
         break;
     case ITEM_IRON_BARS:
         break;
     case ITEM_CHAIN:
+        place_chain(serv, clicked_pos, clicked_face, BLOCK_CHAIN);
         break;
     case ITEM_GLASS_PANE:
         break;
     case ITEM_MELON:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_MELON);
         break;
     case ITEM_VINE:
         break;
@@ -1155,8 +1585,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
     case ITEM_STONE_BRICK_STAIRS:
         break;
     case ITEM_MYCELIUM:
-        break;
-    case ITEM_LILY_PAD:
+        place_snowy_grassy_block(serv, clicked_pos, clicked_face, BLOCK_MYCELIUM);
         break;
     case ITEM_NETHER_BRICKS:
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_NETHER_BRICKS);
@@ -1174,6 +1603,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
     case ITEM_ENCHANTING_TABLE:
         break;
     case ITEM_END_PORTAL_FRAME:
+        place_end_portal_frame(serv, entity, clicked_pos, clicked_face, BLOCK_END_PORTAL_FRAME);
         break;
     case ITEM_END_STONE:
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_END_STONE);
@@ -1280,6 +1710,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
     case ITEM_DAYLIGHT_DETECTOR:
         break;
     case ITEM_REDSTONE_BLOCK:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_REDSTONE_BLOCK);
         break;
     case ITEM_NETHER_QUARTZ_ORE:
         break;
@@ -1359,36 +1790,52 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_HAY_BLOCK);
         break;
     case ITEM_WHITE_CARPET:
+        place_carpet(serv, clicked_pos, clicked_face, BLOCK_WHITE_CARPET);
         break;
     case ITEM_ORANGE_CARPET:
+        place_carpet(serv, clicked_pos, clicked_face, BLOCK_ORANGE_CARPET);
         break;
     case ITEM_MAGENTA_CARPET:
+        place_carpet(serv, clicked_pos, clicked_face, BLOCK_MAGENTA_CARPET);
         break;
     case ITEM_LIGHT_BLUE_CARPET:
+        place_carpet(serv, clicked_pos, clicked_face, BLOCK_LIGHT_BLUE_CARPET);
         break;
     case ITEM_YELLOW_CARPET:
+        place_carpet(serv, clicked_pos, clicked_face, BLOCK_YELLOW_CARPET);
         break;
     case ITEM_LIME_CARPET:
+        place_carpet(serv, clicked_pos, clicked_face, BLOCK_LIME_CARPET);
         break;
     case ITEM_PINK_CARPET:
+        place_carpet(serv, clicked_pos, clicked_face, BLOCK_PINK_CARPET);
         break;
     case ITEM_GRAY_CARPET:
+        place_carpet(serv, clicked_pos, clicked_face, BLOCK_GRAY_CARPET);
         break;
     case ITEM_LIGHT_GRAY_CARPET:
+        place_carpet(serv, clicked_pos, clicked_face, BLOCK_LIGHT_GRAY_CARPET);
         break;
     case ITEM_CYAN_CARPET:
+        place_carpet(serv, clicked_pos, clicked_face, BLOCK_CYAN_CARPET);
         break;
     case ITEM_PURPLE_CARPET:
+        place_carpet(serv, clicked_pos, clicked_face, BLOCK_PURPLE_CARPET);
         break;
     case ITEM_BLUE_CARPET:
+        place_carpet(serv, clicked_pos, clicked_face, BLOCK_BLUE_CARPET);
         break;
     case ITEM_BROWN_CARPET:
+        place_carpet(serv, clicked_pos, clicked_face, BLOCK_BROWN_CARPET);
         break;
     case ITEM_GREEN_CARPET:
+        place_carpet(serv, clicked_pos, clicked_face, BLOCK_GREEN_CARPET);
         break;
     case ITEM_RED_CARPET:
+        place_carpet(serv, clicked_pos, clicked_face, BLOCK_RED_CARPET);
         break;
     case ITEM_BLACK_CARPET:
+        place_carpet(serv, clicked_pos, clicked_face, BLOCK_BLACK_CARPET);
         break;
     case ITEM_TERRACOTTA:
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_TERRACOTTA);
@@ -1904,6 +2351,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
     case ITEM_NETHERITE_HOE:
         break;
     case ITEM_WHEAT_SEEDS:
+        place_crop(serv, clicked_pos, clicked_face, BLOCK_WHEAT);
         break;
     case ITEM_PAINTING:
         break;
@@ -1977,14 +2425,19 @@ process_use_item_on_packet(server * serv, entity_data * entity,
     case ITEM_FILLED_MAP:
         break;
     case ITEM_PUMPKIN_SEEDS:
+        place_crop(serv, clicked_pos, clicked_face, BLOCK_PUMPKIN_STEM);
         break;
     case ITEM_MELON_SEEDS:
+        place_crop(serv, clicked_pos, clicked_face, BLOCK_MELON_STEM);
         break;
     case ITEM_NETHER_WART:
+        place_nether_wart(serv, clicked_pos, clicked_face, BLOCK_NETHER_WART);
         break;
     case ITEM_BREWING_STAND:
         break;
     case ITEM_CAULDRON:
+        // base state has level 0
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CAULDRON);
         break;
     case ITEM_ENDER_EYE:
         break;
@@ -2127,8 +2580,10 @@ process_use_item_on_packet(server * serv, entity_data * entity,
     case ITEM_FLOWER_POT:
         break;
     case ITEM_CARROT:
+        place_crop(serv, clicked_pos, clicked_face, BLOCK_CARROTS);
         break;
     case ITEM_POTATO:
+        place_crop(serv, clicked_pos, clicked_face, BLOCK_POTATOES);
         break;
     case ITEM_SKELETON_SKULL:
         break;
@@ -2189,6 +2644,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
     case ITEM_END_CRYSTAL:
         break;
     case ITEM_BEETROOT_SEEDS:
+        place_crop(serv, clicked_pos, clicked_face, BLOCK_BEETROOTS);
         break;
     case ITEM_DEBUG_STICK:
         break;
@@ -2219,8 +2675,11 @@ process_use_item_on_packet(server * serv, entity_data * entity,
     case ITEM_MUSIC_DISC_PIGSTEP:
         break;
     case ITEM_LOOM:
+        place_horizontal_facing(serv, entity, clicked_pos, clicked_face, BLOCK_LOOM);
         break;
     case ITEM_COMPOSTER:
+        // base state has level 0
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_COMPOSTER);
         break;
     case ITEM_BARREL:
         break;
@@ -2229,14 +2688,17 @@ process_use_item_on_packet(server * serv, entity_data * entity,
     case ITEM_BLAST_FURNACE:
         break;
     case ITEM_CARTOGRAPHY_TABLE:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CARTOGRAPHY_TABLE);
         break;
     case ITEM_FLETCHING_TABLE:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_FLETCHING_TABLE);
         break;
     case ITEM_GRINDSTONE:
         break;
     case ITEM_LECTERN:
         break;
     case ITEM_SMITHING_TABLE:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_SMITHING_TABLE);
         break;
     case ITEM_STONECUTTER:
         break;
@@ -2247,6 +2709,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
     case ITEM_SOUL_LANTERN:
         break;
     case ITEM_SWEET_BERRIES:
+        place_plant(serv, clicked_pos, clicked_face, BLOCK_SWEET_BERRY_BUSH);
         break;
     case ITEM_CAMPFIRE:
         break;
@@ -2260,6 +2723,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
     case ITEM_BEEHIVE:
         break;
     case ITEM_HONEY_BLOCK:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_HONEY_BLOCK);
         break;
     case ITEM_HONEYCOMB_BLOCK:
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_HONEYCOMB_BLOCK);
@@ -2274,8 +2738,11 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_ANCIENT_DEBRIS);
         break;
     case ITEM_TARGET:
+        // base state has power 0
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_TARGET);
         break;
     case ITEM_CRYING_OBSIDIAN:
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CRYING_OBSIDIAN);
         break;
     case ITEM_BLACKSTONE:
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BLACKSTONE);
@@ -2311,6 +2778,8 @@ process_use_item_on_packet(server * serv, entity_data * entity,
         place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CRACKED_POLISHED_BLACKSTONE_BRICKS);
         break;
     case ITEM_RESPAWN_ANCHOR:
+        // base state has charge 0
+        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_RESPAWN_ANCHOR);
         break;
     default:
         // no use-on action for the remaining item types
