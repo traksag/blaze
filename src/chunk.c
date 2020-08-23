@@ -483,12 +483,10 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
                 goto bail;
             }
 
-            // @TODO(traks) May be fine to fail since loading the chunk can fail
-            // in all sorts of ways anyhow...
             chunk_section * section = alloc_chunk_section();
             if (section == NULL) {
                 logs_errno("Failed to allocate section: %s");
-                exit(1);
+                goto bail;
             }
             // Note that the section allocation will be freed when the chunk
             // gets removed somewhere else in the code base.
