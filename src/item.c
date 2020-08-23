@@ -445,7 +445,7 @@ place_leaves(server * serv, net_block_pos clicked_pos,
 }
 
 static void
-place_horizontal_facing(server * serv, entity_data * entity,
+place_horizontal_facing(server * serv, entity_base * entity,
         net_block_pos clicked_pos, mc_int clicked_face, mc_int place_type) {
     place_target target = determine_place_target(serv,
             clicked_pos, clicked_face, place_type);
@@ -478,7 +478,7 @@ place_horizontal_facing(server * serv, entity_data * entity,
 }
 
 static void
-place_end_portal_frame(server * serv, entity_data * entity,
+place_end_portal_frame(server * serv, entity_base * entity,
         net_block_pos clicked_pos, mc_int clicked_face, mc_int place_type) {
     place_target target = determine_place_target(serv,
             clicked_pos, clicked_face, place_type);
@@ -812,15 +812,16 @@ set_block:
 }
 
 void
-process_use_item_on_packet(server * serv, entity_data * entity,
-        player_brain * brain, mc_int hand, net_block_pos clicked_pos,
-        mc_int clicked_face,
+process_use_item_on_packet(server * serv, entity_base * entity,
+        mc_int hand, net_block_pos clicked_pos, mc_int clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
         mc_ubyte is_inside) {
     if (entity->flags & ENTITY_TELEPORTING) {
         // ignore
         return;
     }
+
+    entity_player * player = &entity->player;
 
     int sel_slot = entity->player.selected_slot;
     item_stack * main = entity->player.slots + sel_slot;
@@ -838,7 +839,7 @@ process_use_item_on_packet(server * serv, entity_data * entity,
 
     // if the player is not crouching with an item in their hands, try to use
     // the clicked block
-    if (!((brain->flags & PLAYER_BRAIN_SHIFTING)
+    if (!((entity->flags & PLAYER_SHIFTING)
             && (main->type != ITEM_AIR || off->type != ITEM_AIR))) {
         // @TODO(traks) use clicked block (button, door, etc.)
     }
@@ -2792,14 +2793,14 @@ process_use_item_on_packet(server * serv, entity_data * entity,
 
     // @TODO(traks) we shouldn't assert here
     net_block_pos changed_pos = clicked_pos;
-    assert(brain->changed_block_count < ARRAY_SIZE(brain->changed_blocks));
-    brain->changed_blocks[brain->changed_block_count] = changed_pos;
-    brain->changed_block_count++;
+    assert(player->changed_block_count < ARRAY_SIZE(player->changed_blocks));
+    player->changed_blocks[player->changed_block_count] = changed_pos;
+    player->changed_block_count++;
 
     changed_pos = get_relative_block_pos(clicked_pos, clicked_face);
-    assert(brain->changed_block_count < ARRAY_SIZE(brain->changed_blocks));
-    brain->changed_blocks[brain->changed_block_count] = changed_pos;
-    brain->changed_block_count++;
+    assert(player->changed_block_count < ARRAY_SIZE(player->changed_blocks));
+    player->changed_blocks[player->changed_block_count] = changed_pos;
+    player->changed_block_count++;
 }
 
 mc_ubyte

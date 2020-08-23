@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <stdlib.h>
 #include "shared.h"
 
 // Implicit packet IDs for ease of updating. Updating packet IDs manually is a
@@ -171,20 +172,21 @@ nbt_write_string(buffer_cursor * cursor, net_string val) {
 }
 
 void
-teleport_player(player_brain * brain, entity_data * entity,
+teleport_player(entity_base * entity,
         double new_x, double new_y, double new_z,
         float new_rot_x, float new_rot_y) {
-    brain->current_teleport_id++;
+    entity_player * player = &entity->player;
+    player->current_teleport_id++;
     entity->flags |= ENTITY_TELEPORTING;
     entity->x = new_x;
     entity->y = new_y;
     entity->z = new_z;
-    entity->player.head_rot_x = new_rot_x;
-    entity->player.head_rot_y = new_rot_y;
+    player->head_rot_x = new_rot_x;
+    player->head_rot_y = new_rot_y;
 }
 
 static void
-process_move_player_packet(entity_data * entity,
+process_move_player_packet(entity_base * entity,
         double new_x, double new_y, double new_z,
         float new_head_rot_x, float new_head_rot_y, int on_ground) {
     if ((entity->flags & ENTITY_TELEPORTING) != 0) {
@@ -194,11 +196,12 @@ process_move_player_packet(entity_data * entity,
     // @TODO(traks) if new x, y, z out of certain bounds, don't update entity
     // x, y, z to prevent NaN errors and extreme precision loss, etc.
 
+    entity_player * player = &entity->player;
     entity->x = new_x;
     entity->y = new_y;
     entity->z = new_z;
-    entity->player.head_rot_x = new_head_rot_x;
-    entity->player.head_rot_y = new_head_rot_y;
+    player->head_rot_x = new_head_rot_x;
+    player->head_rot_y = new_head_rot_y;
     if (on_ground) {
         entity->flags |= ENTITY_ON_GROUND;
     } else {
@@ -207,9 +210,8 @@ process_move_player_packet(entity_data * entity,
 }
 
 static void
-process_packet(entity_data * entity, player_brain * brain,
-        buffer_cursor * rec_cursor, server * serv,
-        memory_arena * process_arena) {
+process_packet(entity_base * entity, buffer_cursor * rec_cursor,
+        server * serv, memory_arena * process_arena) {
     // @NOTE(traks) we need to handle packets in the order in which they arive,
     // so e.g. the client can move the player to a position, perform some
     // action, and then move the player a bit further, all in the same tick.
@@ -218,6 +220,7 @@ process_packet(entity_data * entity, player_brain * brain,
     // information about the player's position when they perform a certain
     // action.
 
+    entity_player * player = &entity->player;
     mc_int packet_id = net_read_varint(rec_cursor);
 
     switch (packet_id) {
@@ -225,10 +228,10 @@ process_packet(entity_data * entity, player_brain * brain,
         mc_int teleport_id = net_read_varint(rec_cursor);
 
         if ((entity->flags & ENTITY_TELEPORTING)
-                && (brain->flags & PLAYER_BRAIN_SENT_TELEPORT)
-                && teleport_id == brain->current_teleport_id) {
+                && (entity->flags & PLAYER_SENT_TELEPORT)
+                && teleport_id == player->current_teleport_id) {
             entity->flags &= ~ENTITY_TELEPORTING;
-            brain->flags &= ~PLAYER_BRAIN_SENT_TELEPORT;
+            entity->flags &= ~PLAYER_SENT_TELEPORT;
         }
         break;
     }
@@ -253,8 +256,8 @@ process_packet(entity_data * entity, player_brain * brain,
             serv->global_msg_count++;
             int text_size = sprintf(
                     (void *) msg->text, "<%.*s> %.*s",
-                    (int) entity->player.username_size,
-                    entity->player.username,
+                    (int) player->username_size,
+                    player->username,
                     (int) chat.size, chat.ptr);
             msg->size = text_size;
         }
@@ -291,13 +294,13 @@ process_packet(entity_data * entity, player_brain * brain,
         // while chunk cache radius is with the extra border of
         // chunks. This clamps the view distance between the minimum
         // of 2 and the server maximum.
-        brain->new_chunk_cache_radius = MIN(MAX(view_distance, 2),
+        player->new_chunk_cache_radius = MIN(MAX(view_distance, 2),
                 MAX_CHUNK_CACHE_RADIUS - 1) + 1;
-        memcpy(brain->language, language.ptr, language.size);
-        brain->language_size = language.size;
-        brain->sees_chat_colours = sees_chat_colours;
-        brain->model_customisation = model_customisation;
-        brain->main_hand = main_hand;
+        memcpy(player->language, language.ptr, language.size);
+        player->language_size = language.size;
+        player->sees_chat_colours = sees_chat_colours;
+        player->model_customisation = model_customisation;
+        player->main_hand = main_hand;
         break;
     }
     case SBP_COMMAND_SUGGESTION: {
@@ -460,8 +463,8 @@ process_packet(entity_data * entity, player_brain * brain,
     }
     case SBP_KEEP_ALIVE: {
         mc_ulong id = net_read_ulong(rec_cursor);
-        if (brain->last_keep_alive_sent_tick == id) {
-            brain->flags |= PLAYER_BRAIN_GOT_ALIVE_RESPONSE;
+        if (player->last_keep_alive_sent_tick == id) {
+            entity->flags |= PLAYER_GOT_ALIVE_RESPONSE;
         }
         break;
     }
@@ -476,8 +479,7 @@ process_packet(entity_data * entity, player_brain * brain,
         double z = net_read_double(rec_cursor);
         int on_ground = net_read_ubyte(rec_cursor);
         process_move_player_packet(entity, x, y, z,
-                entity->player.head_rot_x,
-                entity->player.head_rot_y, on_ground);
+                player->head_rot_x, player->head_rot_y, on_ground);
         break;
     }
     case SBP_MOVE_PLAYER_POS_ROT: {
@@ -504,8 +506,7 @@ process_packet(entity_data * entity, player_brain * brain,
         int on_ground = net_read_ubyte(rec_cursor);
         process_move_player_packet(entity,
                 entity->x, entity->y, entity->z,
-                entity->player.head_rot_x,
-                entity->player.head_rot_y, on_ground);
+                player->head_rot_x, player->head_rot_y, on_ground);
         break;
     }
     case SBP_MOVE_VEHICLE: {
@@ -555,7 +556,7 @@ process_packet(entity_data * entity, player_brain * brain,
             // The player started mining the block. If the player is in
             // creative mode, the stop and abort packets are not sent.
             // @TODO(traks) implementation for other gamemodes
-            if (entity->player.gamemode == GAMEMODE_CREATIVE) {
+            if (player->gamemode == GAMEMODE_CREATIVE) {
                 // @TODO(traks) ensure block pos is close to the
                 // player and the chunk is sent to the player
 
@@ -590,16 +591,16 @@ process_packet(entity_data * entity, player_brain * brain,
         }
         case 3: { // drop all items
             // @TODO(traks) create item entities
-            int sel_slot = entity->player.selected_slot;
-            item_stack * is = entity->player.slots + sel_slot;
+            int sel_slot = player->selected_slot;
+            item_stack * is = player->slots + sel_slot;
 
             // @NOTE(traks) client updates its view of the item stack size
             // itself, so no need to send updates for the slot if nothing
             // special happens
             if (is->size > 0) {
-                entity_data * item = try_reserve_entity(serv, ENTITY_ITEM);
+                entity_base * item = try_reserve_entity(serv, ENTITY_ITEM);
                 if (item->type == ENTITY_NULL) {
-                    entity->player.slots_needing_update |= (mc_ulong) 1 << sel_slot;
+                    player->slots_needing_update |= (mc_ulong) 1 << sel_slot;
                     break;
                 }
 
@@ -614,16 +615,16 @@ process_packet(entity_data * entity, player_brain * brain,
             break;
         }
         case 4: { // drop item
-            int sel_slot = entity->player.selected_slot;
-            item_stack * is = entity->player.slots + sel_slot;
+            int sel_slot = player->selected_slot;
+            item_stack * is = player->slots + sel_slot;
 
             // @NOTE(traks) client updates its view of the item stack size
             // itself, so no need to send updates for the slot if nothing
             // special happens
             if (is->size > 0) {
-                entity_data * item = try_reserve_entity(serv, ENTITY_ITEM);
+                entity_base * item = try_reserve_entity(serv, ENTITY_ITEM);
                 if (item->type == ENTITY_NULL) {
-                    entity->player.slots_needing_update |= (mc_ulong) 1 << sel_slot;
+                    player->slots_needing_update |= (mc_ulong) 1 << sel_slot;
                     break;
                 }
 
@@ -647,16 +648,16 @@ process_packet(entity_data * entity, player_brain * brain,
             break;
         }
         case 6: { // swap held items
-            int sel_slot = entity->player.selected_slot;
-            item_stack * sel = entity->player.slots + sel_slot;
-            item_stack * off = entity->player.slots + PLAYER_OFF_HAND_SLOT;
+            int sel_slot = player->selected_slot;
+            item_stack * sel = player->slots + sel_slot;
+            item_stack * off = player->slots + PLAYER_OFF_HAND_SLOT;
             item_stack sel_copy = *sel;
             *sel = *off;
             *off = sel_copy;
             // client doesn't update its view of the inventory for
             // this packet, so send updates to the client
-            entity->player.slots_needing_update |= (mc_ulong) 1 << sel_slot;
-            entity->player.slots_needing_update |= (mc_ulong) 1 << PLAYER_OFF_HAND_SLOT;
+            player->slots_needing_update |= (mc_ulong) 1 << sel_slot;
+            player->slots_needing_update |= (mc_ulong) 1 << PLAYER_OFF_HAND_SLOT;
             break;
         }
         default:
@@ -671,19 +672,19 @@ process_packet(entity_data * entity, player_brain * brain,
 
         switch (action) {
         case 0: // press shift key
-            brain->flags |= PLAYER_BRAIN_SHIFTING;
+            entity->flags |= PLAYER_SHIFTING;
             break;
         case 1: // release shift key
-            brain->flags &= ~PLAYER_BRAIN_SHIFTING;
+            entity->flags &= ~PLAYER_SHIFTING;
             break;
         case 2: // stop sleeping
             // @TODO(traks)
             break;
         case 3: // start sprinting
-            brain->flags |= PLAYER_BRAIN_SPRINTING;
+            entity->flags |= PLAYER_SPRINTING;
             break;
         case 4: // stop sprinting
-            brain->flags &= ~PLAYER_BRAIN_SPRINTING;
+            entity->flags &= ~PLAYER_SPRINTING;
             break;
         case 5: // start riding jump
             // @TODO(traks)
@@ -750,7 +751,7 @@ process_packet(entity_data * entity, player_brain * brain,
             rec_cursor->error = 1;
             break;
         }
-        entity->player.selected_slot = PLAYER_FIRST_HOTBAR_SLOT + slot;
+        player->selected_slot = PLAYER_FIRST_HOTBAR_SLOT + slot;
         break;
     }
     case SBP_SET_COMMAND_BLOCK: {
@@ -780,7 +781,7 @@ process_packet(entity_data * entity, player_brain * brain,
             break;
         }
 
-        item_stack * is = entity->player.slots + slot;
+        item_stack * is = player->slots + slot;
         *is = (item_stack) {0};
 
         if (has_item) {
@@ -789,7 +790,7 @@ process_packet(entity_data * entity, player_brain * brain,
 
             if (is->type < 0 || is->type >= ITEM_TYPE_COUNT || is->size == 0) {
                 is->type = 0;
-                entity->player.slots_needing_update |=
+                player->slots_needing_update |=
                         (mc_ulong) 1 << slot;
             }
 
@@ -799,7 +800,7 @@ process_packet(entity_data * entity, player_brain * brain,
             mc_ubyte max_size = get_max_stack_size(is->type);
             if (is->size > max_size) {
                 is->size = max_size;
-                entity->player.slots_needing_update |=
+                player->slots_needing_update |=
                         (mc_ulong) 1 << slot;
             }
 
@@ -898,7 +899,7 @@ process_packet(entity_data * entity, player_brain * brain,
         // target position as well, so no assertions fire when setting the block
         // in the chunk (e.g. because of negative y)
 
-        process_use_item_on_packet(serv, entity, brain, hand, clicked_pos,
+        process_use_item_on_packet(serv, entity, hand, clicked_pos,
                 clicked_face, click_offset_x, click_offset_y, click_offset_z,
                 is_inside);
         break;
@@ -933,7 +934,7 @@ begin_packet(buffer_cursor * send_cursor, mc_int id) {
 }
 
 static void
-finish_packet_and_send(buffer_cursor * send_cursor, player_brain * brain) {
+finish_packet_and_send(buffer_cursor * send_cursor, entity_base * entity) {
     // We use the written data to determine the packet size instead of
     // calculating the packet size up front. The major benefit is that
     // calculating the packet size up front is very error prone and requires a
@@ -953,21 +954,23 @@ finish_packet_and_send(buffer_cursor * send_cursor, player_brain * brain) {
     send_cursor->index = start_index;
     net_write_varint(send_cursor, packet_size);
 
+    entity_player * player = &entity->player;
+
     buffer_cursor packet_cursor = {
-        .buf = brain->send_buf,
-        .limit = sizeof brain->send_buf,
-        .index = brain->send_cursor
+        .buf = player->send_buf,
+        .limit = player->send_buf_size,
+        .index = player->send_cursor
     };
 
     // @TODO(traks) should check somewhere that no error occurs
     net_write_data(&packet_cursor, send_cursor->buf + start_index,
             packet_size + 5 - start_index);
-    brain->send_cursor = packet_cursor.index;
+    player->send_cursor = packet_cursor.index;
 }
 
 static void
 send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch,
-        player_brain * brain) {
+        entity_base * entity) {
     begin_timed_block("send chunk fully");
 
     // bit mask for included chunk sections; bottom section in least
@@ -1085,14 +1088,14 @@ send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch,
 
     // number of block entities
     net_write_varint(send_cursor, 0);
-    finish_packet_and_send(send_cursor, brain);
+    finish_packet_and_send(send_cursor, entity);
 
     end_timed_block();
 }
 
 static void
 send_light_update(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch,
-        player_brain * brain) {
+        entity_base * entity) {
     // There are 18 chunk sections from 1 section below the world to 1 section
     // above the world. The lowest chunk section comes first (and is the least
     // significant bit).
@@ -1132,22 +1135,20 @@ send_light_update(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch,
             net_write_ubyte(send_cursor, light);
         }
     }
-    finish_packet_and_send(send_cursor, brain);
+    finish_packet_and_send(send_cursor, entity);
 
     end_timed_block();
 }
 
 static void
-disconnect_player_now(player_brain * brain, server * serv) {
-    close(brain->sock);
-    brain->flags = 0;
-    serv->player_brain_count--;
-    evict_entity(serv, brain->eid);
+disconnect_player_now(entity_base * entity, server * serv) {
+    entity_player * player = &entity->player;
+    close(player->sock);
 
-    mc_short chunk_cache_min_x = brain->chunk_cache_centre_x - brain->chunk_cache_radius;
-    mc_short chunk_cache_max_x = brain->chunk_cache_centre_x + brain->chunk_cache_radius;
-    mc_short chunk_cache_min_z = brain->chunk_cache_centre_z - brain->chunk_cache_radius;
-    mc_short chunk_cache_max_z = brain->chunk_cache_centre_z + brain->chunk_cache_radius;
+    mc_short chunk_cache_min_x = player->chunk_cache_centre_x - player->chunk_cache_radius;
+    mc_short chunk_cache_max_x = player->chunk_cache_centre_x + player->chunk_cache_radius;
+    mc_short chunk_cache_min_z = player->chunk_cache_centre_z - player->chunk_cache_radius;
+    mc_short chunk_cache_max_z = player->chunk_cache_centre_z + player->chunk_cache_radius;
 
     for (mc_short x = chunk_cache_min_x; x <= chunk_cache_max_x; x++) {
         for (mc_short z = chunk_cache_min_z; z <= chunk_cache_max_z; z++) {
@@ -1157,6 +1158,11 @@ disconnect_player_now(player_brain * brain, server * serv) {
             ch->available_interest--;
         }
     }
+
+    free(player->rec_buf);
+    free(player->send_buf);
+
+    evict_entity(serv, entity->eid);
 }
 
 static float
@@ -1168,30 +1174,30 @@ degree_diff(float to, float from) {
 }
 
 void
-tick_player_brain(player_brain * brain, server * serv,
+tick_player(entity_base * entity, server * serv,
         memory_arena * tick_arena) {
     begin_timed_block("tick player");
 
-    entity_data * entity = resolve_entity(serv, brain->eid);
+    entity_player * player = &entity->player;
     assert(entity->type == ENTITY_PLAYER);
-    int sock = brain->sock;
-    ssize_t rec_size = recv(sock, brain->rec_buf + brain->rec_cursor,
-            sizeof brain->rec_buf - brain->rec_cursor, 0);
+    int sock = player->sock;
+    ssize_t rec_size = recv(sock, player->rec_buf + player->rec_cursor,
+            player->rec_buf_size - player->rec_cursor, 0);
 
     if (rec_size == 0) {
-        disconnect_player_now(brain, serv);
+        disconnect_player_now(entity, serv);
     } else if (rec_size == -1) {
         // EAGAIN means no data received
         if (errno != EAGAIN) {
             logs_errno("Couldn't receive protocol data: %s");
-            disconnect_player_now(brain, serv);
+            disconnect_player_now(entity, serv);
         }
     } else {
-        brain->rec_cursor += rec_size;
+        player->rec_cursor += rec_size;
 
         buffer_cursor rec_cursor = {
-            .buf = brain->rec_buf,
-            .limit = brain->rec_cursor
+            .buf = player->rec_buf,
+            .limit = player->rec_cursor
         };
 
         // @TODO(traks) rate limit incoming packets per player
@@ -1204,8 +1210,8 @@ tick_player_brain(player_brain * brain, server * serv,
                 // packet size not fully received yet
                 break;
             }
-            if (packet_size > sizeof brain->rec_buf - 5 || packet_size <= 0) {
-                disconnect_player_now(brain, serv);
+            if (packet_size > player->rec_buf_size - 5 || packet_size <= 0) {
+                disconnect_player_now(entity, serv);
                 break;
             }
             if (packet_size > packet_cursor.limit - packet_cursor.index) {
@@ -1216,17 +1222,17 @@ tick_player_brain(player_brain * brain, server * serv,
             memory_arena process_arena = *tick_arena;
             packet_cursor.limit = packet_cursor.index + packet_size;
 
-            process_packet(entity, brain, &packet_cursor, serv, &process_arena);
+            process_packet(entity, &packet_cursor, serv, &process_arena);
 
             if (packet_cursor.error != 0) {
                 logs("Player protocol error occurred");
-                disconnect_player_now(brain, serv);
+                disconnect_player_now(entity, serv);
                 break;
             }
 
             if (packet_cursor.index != packet_cursor.limit) {
                 logs("Player protocol packet not fully read");
-                disconnect_player_now(brain, serv);
+                disconnect_player_now(entity, serv);
                 break;
             }
 
@@ -1235,14 +1241,14 @@ tick_player_brain(player_brain * brain, server * serv,
 
         memmove(rec_cursor.buf, rec_cursor.buf + rec_cursor.index,
                 rec_cursor.limit - rec_cursor.index);
-        brain->rec_cursor = rec_cursor.limit - rec_cursor.index;
+        player->rec_cursor = rec_cursor.limit - rec_cursor.index;
     }
 
     // @TODO(traks) only here because players could be disconnected and get
     // all their data cleaned up immediately if some packet handling error
     // occurs above. Eventually we should handle errors more gracefully.
     // Then this check shouldn't be necessary anymore.
-    if (!(brain->flags & PLAYER_BRAIN_IN_USE)) {
+    if (!(entity->flags & ENTITY_IN_USE)) {
         goto bail;
     }
 
@@ -1522,38 +1528,38 @@ nbt_write_biome(buffer_cursor * send_cursor, biome * b) {
 }
 
 void
-send_packets_to_player(player_brain * brain, server * serv,
+send_packets_to_player(entity_base * entity, server * serv,
         memory_arena * tick_arena) {
     begin_timed_block("send packets");
 
-    entity_data * player = resolve_entity(serv, brain->eid);
+    entity_player * player = &entity->player;
     size_t max_uncompressed_packet_size = 1 << 20;
     buffer_cursor send_cursor = {
         .buf = alloc_in_arena(tick_arena, max_uncompressed_packet_size),
         .limit = max_uncompressed_packet_size
     };
 
-    if (!(brain->flags & PLAYER_BRAIN_DID_INIT_PACKETS)) {
-        brain->flags |= PLAYER_BRAIN_DID_INIT_PACKETS;
+    if (!(entity->flags & PLAYER_DID_INIT_PACKETS)) {
+        entity->flags |= PLAYER_DID_INIT_PACKETS;
 
         // send game profile packet
         begin_packet(&send_cursor, 2);
         net_write_ulong(&send_cursor, 0x0123456789abcdef);
         net_write_ulong(&send_cursor, 0x0123456789abcdef);
         net_string username = {
-            .size = player->player.username_size,
-            .ptr = player->player.username
+            .size = player->username_size,
+            .ptr = player->username
         };
         net_write_string(&send_cursor, username);
-        finish_packet_and_send(&send_cursor, brain);
+        finish_packet_and_send(&send_cursor, entity);
 
         net_string level_name = NET_STRING("blaze:main");
 
         begin_packet(&send_cursor, CBP_LOGIN);
         net_write_uint(&send_cursor, player->eid);
         net_write_ubyte(&send_cursor, 0); // hardcore
-        net_write_ubyte(&send_cursor, player->player.gamemode); // current gamemode
-        net_write_ubyte(&send_cursor, player->player.gamemode); // previous gamemode
+        net_write_ubyte(&send_cursor, player->gamemode); // current gamemode
+        net_write_ubyte(&send_cursor, player->gamemode); // previous gamemode
 
         // all levels/worlds currently available on the server
         // @NOTE(traks) This list is used for tab completions
@@ -1640,17 +1646,17 @@ send_packets_to_player(player_brain * brain, server * serv,
 
         net_write_ulong(&send_cursor, 0); // seed
         net_write_varint(&send_cursor, 0); // max players (ignored by client)
-        net_write_varint(&send_cursor, brain->new_chunk_cache_radius - 1);
+        net_write_varint(&send_cursor, player->new_chunk_cache_radius - 1);
         net_write_ubyte(&send_cursor, 0); // reduced debug info
         net_write_ubyte(&send_cursor, 1); // show death screen on death
         net_write_ubyte(&send_cursor, 0); // is debug
         net_write_ubyte(&send_cursor, 0); // is flat
-        finish_packet_and_send(&send_cursor, brain);
+        finish_packet_and_send(&send_cursor, entity);
 
         begin_packet(&send_cursor, CBP_SET_CARRIED_ITEM);
-        net_write_ubyte(&send_cursor, player->player.selected_slot
-                - PLAYER_FIRST_HOTBAR_SLOT);
-        finish_packet_and_send(&send_cursor, brain);
+        net_write_ubyte(&send_cursor,
+                player->selected_slot - PLAYER_FIRST_HOTBAR_SLOT);
+        finish_packet_and_send(&send_cursor, entity);
 
         begin_packet(&send_cursor, CBP_UPDATE_TAGS);
 
@@ -1681,19 +1687,19 @@ send_packets_to_player(player_brain * brain, server * serv,
                 }
             }
         }
-        finish_packet_and_send(&send_cursor, brain);
+        finish_packet_and_send(&send_cursor, entity);
 
         begin_packet(&send_cursor, CBP_CUSTOM_PAYLOAD);
         net_string brand_str = NET_STRING("minecraft:brand");
         net_string brand = NET_STRING("blaze");
         net_write_string(&send_cursor, brand_str);
         net_write_string(&send_cursor, brand);
-        finish_packet_and_send(&send_cursor, brain);
+        finish_packet_and_send(&send_cursor, entity);
 
         begin_packet(&send_cursor, CBP_CHANGE_DIFFICULTY);
         net_write_ubyte(&send_cursor, 2); // difficulty normal
         net_write_ubyte(&send_cursor, 0); // locked
-        finish_packet_and_send(&send_cursor, brain);
+        finish_packet_and_send(&send_cursor, entity);
 
         begin_packet(&send_cursor, CBP_PLAYER_ABILITIES);
         // @NOTE(traks) actually need abilities to make creative mode players
@@ -1703,38 +1709,38 @@ send_packets_to_player(player_brain * brain, server * serv,
         net_write_ubyte(&send_cursor, ability_flags);
         net_write_float(&send_cursor, 0.05); // flying speed
         net_write_float(&send_cursor, 0.1); // walking speed
-        finish_packet_and_send(&send_cursor, brain);
+        finish_packet_and_send(&send_cursor, entity);
     }
 
     // send keep alive packet every so often
-    if (serv->current_tick - brain->last_keep_alive_sent_tick >= KEEP_ALIVE_SPACING
-            && (brain->flags & PLAYER_BRAIN_GOT_ALIVE_RESPONSE)) {
+    if (serv->current_tick - player->last_keep_alive_sent_tick >= KEEP_ALIVE_SPACING
+            && (entity->flags & PLAYER_GOT_ALIVE_RESPONSE)) {
         begin_packet(&send_cursor, CBP_KEEP_ALIVE);
         net_write_ulong(&send_cursor, serv->current_tick);
-        finish_packet_and_send(&send_cursor, brain);
+        finish_packet_and_send(&send_cursor, entity);
 
-        brain->last_keep_alive_sent_tick = serv->current_tick;
-        brain->flags &= ~PLAYER_BRAIN_GOT_ALIVE_RESPONSE;
+        player->last_keep_alive_sent_tick = serv->current_tick;
+        entity->flags &= ~PLAYER_GOT_ALIVE_RESPONSE;
     }
 
-    if ((player->flags & ENTITY_TELEPORTING)
-            && !(brain->flags & PLAYER_BRAIN_SENT_TELEPORT)) {
+    if ((entity->flags & ENTITY_TELEPORTING)
+            && !(entity->flags & PLAYER_SENT_TELEPORT)) {
         begin_packet(&send_cursor, CBP_PLAYER_POSITION);
-        net_write_double(&send_cursor, player->x);
-        net_write_double(&send_cursor, player->y);
-        net_write_double(&send_cursor, player->z);
-        net_write_float(&send_cursor, player->player.head_rot_y);
-        net_write_float(&send_cursor, player->player.head_rot_x);
+        net_write_double(&send_cursor, entity->x);
+        net_write_double(&send_cursor, entity->y);
+        net_write_double(&send_cursor, entity->z);
+        net_write_float(&send_cursor, player->head_rot_y);
+        net_write_float(&send_cursor, player->head_rot_x);
         net_write_ubyte(&send_cursor, 0); // relative arguments
-        net_write_varint(&send_cursor, brain->current_teleport_id);
-        finish_packet_and_send(&send_cursor, brain);
+        net_write_varint(&send_cursor, player->current_teleport_id);
+        finish_packet_and_send(&send_cursor, entity);
 
-        brain->flags |= PLAYER_BRAIN_SENT_TELEPORT;
+        entity->flags |= PLAYER_SENT_TELEPORT;
     }
 
     // send block changes for this player only
-    for (int i = 0; i < brain->changed_block_count; i++) {
-        net_block_pos pos = brain->changed_blocks[i];
+    for (int i = 0; i < player->changed_block_count; i++) {
+        net_block_pos pos = player->changed_blocks[i];
         chunk_pos ch_pos = {
             .x = pos.x >> 4,
             .z = pos.z >> 4
@@ -1750,37 +1756,37 @@ send_packets_to_player(player_brain * brain, server * serv,
         begin_packet(&send_cursor, CBP_BLOCK_UPDATE);
         net_write_block_pos(&send_cursor, pos);
         net_write_varint(&send_cursor, block_state);
-        finish_packet_and_send(&send_cursor, brain);
+        finish_packet_and_send(&send_cursor, entity);
     }
-    brain->changed_block_count = 0;
+    player->changed_block_count = 0;
 
     begin_timed_block("update chunk cache");
 
-    mc_short chunk_cache_min_x = brain->chunk_cache_centre_x - brain->chunk_cache_radius;
-    mc_short chunk_cache_min_z = brain->chunk_cache_centre_z - brain->chunk_cache_radius;
-    mc_short chunk_cache_max_x = brain->chunk_cache_centre_x + brain->chunk_cache_radius;
-    mc_short chunk_cache_max_z = brain->chunk_cache_centre_z + brain->chunk_cache_radius;
+    mc_short chunk_cache_min_x = player->chunk_cache_centre_x - player->chunk_cache_radius;
+    mc_short chunk_cache_min_z = player->chunk_cache_centre_z - player->chunk_cache_radius;
+    mc_short chunk_cache_max_x = player->chunk_cache_centre_x + player->chunk_cache_radius;
+    mc_short chunk_cache_max_z = player->chunk_cache_centre_z + player->chunk_cache_radius;
 
-    mc_short new_chunk_cache_centre_x = (mc_int) floor(player->x) >> 4;
-    mc_short new_chunk_cache_centre_z = (mc_int) floor(player->z) >> 4;
-    assert(brain->new_chunk_cache_radius <= MAX_CHUNK_CACHE_RADIUS);
-    mc_short new_chunk_cache_min_x = new_chunk_cache_centre_x - brain->new_chunk_cache_radius;
-    mc_short new_chunk_cache_min_z = new_chunk_cache_centre_z - brain->new_chunk_cache_radius;
-    mc_short new_chunk_cache_max_x = new_chunk_cache_centre_x + brain->new_chunk_cache_radius;
-    mc_short new_chunk_cache_max_z = new_chunk_cache_centre_z + brain->new_chunk_cache_radius;
+    mc_short new_chunk_cache_centre_x = (mc_int) floor(entity->x) >> 4;
+    mc_short new_chunk_cache_centre_z = (mc_int) floor(entity->z) >> 4;
+    assert(player->new_chunk_cache_radius <= MAX_CHUNK_CACHE_RADIUS);
+    mc_short new_chunk_cache_min_x = new_chunk_cache_centre_x - player->new_chunk_cache_radius;
+    mc_short new_chunk_cache_min_z = new_chunk_cache_centre_z - player->new_chunk_cache_radius;
+    mc_short new_chunk_cache_max_x = new_chunk_cache_centre_x + player->new_chunk_cache_radius;
+    mc_short new_chunk_cache_max_z = new_chunk_cache_centre_z + player->new_chunk_cache_radius;
 
-    if (brain->chunk_cache_centre_x != new_chunk_cache_centre_x
-            || brain->chunk_cache_centre_z != new_chunk_cache_centre_z) {
+    if (player->chunk_cache_centre_x != new_chunk_cache_centre_x
+            || player->chunk_cache_centre_z != new_chunk_cache_centre_z) {
         begin_packet(&send_cursor, CBP_SET_CHUNK_CACHE_CENTRE);
         net_write_varint(&send_cursor, new_chunk_cache_centre_x);
         net_write_varint(&send_cursor, new_chunk_cache_centre_z);
-        finish_packet_and_send(&send_cursor, brain);
+        finish_packet_and_send(&send_cursor, entity);
     }
 
-    if (brain->chunk_cache_radius != brain->new_chunk_cache_radius) {
+    if (player->chunk_cache_radius != player->new_chunk_cache_radius) {
         begin_packet(&send_cursor, CBP_SET_CHUNK_CACHE_RADIUS);
-        net_write_varint(&send_cursor, brain->new_chunk_cache_radius);
-        finish_packet_and_send(&send_cursor, brain);
+        net_write_varint(&send_cursor, player->new_chunk_cache_radius);
+        finish_packet_and_send(&send_cursor, entity);
     }
 
     // untrack old chunks
@@ -1793,7 +1799,7 @@ send_packets_to_player(player_brain * brain, server * serv,
                     && z >= new_chunk_cache_min_z && z <= new_chunk_cache_max_z) {
                 // old chunk still in new region
                 // send block changes if chunk is visible to the client
-                if (!brain->chunk_cache[index].sent) {
+                if (!player->chunk_cache[index].sent) {
                     continue;
                 }
 
@@ -1838,7 +1844,7 @@ send_packets_to_player(player_brain * brain, server * serv,
                                 | (pos.x << 8) | (pos.z << 4) | (pos.y & 0xf);
                         net_write_varlong(&send_cursor, encoded);
                     }
-                    finish_packet_and_send(&send_cursor, brain);
+                    finish_packet_and_send(&send_cursor, entity);
                 }
 
                 continue;
@@ -1849,13 +1855,13 @@ send_packets_to_player(player_brain * brain, server * serv,
             assert(ch != NULL);
             ch->available_interest--;
 
-            if (brain->chunk_cache[index].sent) {
-                brain->chunk_cache[index] = (chunk_cache_entry) {0};
+            if (player->chunk_cache[index].sent) {
+                player->chunk_cache[index] = (chunk_cache_entry) {0};
 
                 begin_packet(&send_cursor, CBP_FORGET_LEVEL_CHUNK);
                 net_write_int(&send_cursor, x);
                 net_write_int(&send_cursor, z);
-                finish_packet_and_send(&send_cursor, brain);
+                finish_packet_and_send(&send_cursor, entity);
             }
         }
     }
@@ -1876,9 +1882,9 @@ send_packets_to_player(player_brain * brain, server * serv,
         }
     }
 
-    brain->chunk_cache_radius = brain->new_chunk_cache_radius;
-    brain->chunk_cache_centre_x = new_chunk_cache_centre_x;
-    brain->chunk_cache_centre_z = new_chunk_cache_centre_z;
+    player->chunk_cache_radius = player->new_chunk_cache_radius;
+    player->chunk_cache_centre_x = new_chunk_cache_centre_x;
+    player->chunk_cache_centre_z = new_chunk_cache_centre_z;
 
     end_timed_block();
 
@@ -1891,7 +1897,7 @@ send_packets_to_player(player_brain * brain, server * serv,
     // players to move around much earlier.
     int newly_sent_chunks = 0;
     int newly_loaded_chunks = 0;
-    int chunk_cache_diam = 2 * brain->new_chunk_cache_radius + 1;
+    int chunk_cache_diam = 2 * player->new_chunk_cache_radius + 1;
     int chunk_cache_area = chunk_cache_diam * chunk_cache_diam;
     int off_x = 0;
     int off_z = 0;
@@ -1901,7 +1907,7 @@ send_packets_to_player(player_brain * brain, server * serv,
         int x = new_chunk_cache_centre_x + off_x;
         int z = new_chunk_cache_centre_z + off_z;
         int cache_index = chunk_cache_index((chunk_pos) {.x = x, .z = z});
-        chunk_cache_entry * entry = brain->chunk_cache + cache_index;
+        chunk_cache_entry * entry = player->chunk_cache + cache_index;
         chunk_pos pos = {.x = x, .z = z};
 
         if (newly_loaded_chunks < MAX_CHUNK_LOADS_PER_TICK
@@ -1921,8 +1927,8 @@ send_packets_to_player(player_brain * brain, server * serv,
             chunk * ch = get_chunk_if_loaded(pos);
             if (ch != NULL) {
                 // send chunk blocks and lighting
-                send_chunk_fully(&send_cursor, pos, ch, brain);
-                send_light_update(&send_cursor, pos, ch, brain);
+                send_chunk_fully(&send_cursor, pos, ch, entity);
+                send_light_update(&send_cursor, pos, ch, entity);
                 entry->sent = 1;
                 newly_sent_chunks++;
             }
@@ -1945,12 +1951,12 @@ send_packets_to_player(player_brain * brain, server * serv,
     begin_timed_block("send inventory");
 
     for (int i = 0; i < PLAYER_SLOTS; i++) {
-        if (!(player->player.slots_needing_update & ((mc_ulong) 1 << i))) {
+        if (!(player->slots_needing_update & ((mc_ulong) 1 << i))) {
             continue;
         }
 
         logs("Sending slot update for %d", i);
-        item_stack * is = player->player.slots + i;
+        item_stack * is = player->slots + i;
 
         begin_packet(&send_cursor, CBP_CONTAINER_SET_SLOT);
         net_write_ubyte(&send_cursor, 0); // inventory id
@@ -1965,20 +1971,19 @@ send_packets_to_player(player_brain * brain, server * serv,
             // @TODO(traks) write NBT (currently just a single end tag)
             net_write_ubyte(&send_cursor, 0);
         }
-        finish_packet_and_send(&send_cursor, brain);
+        finish_packet_and_send(&send_cursor, entity);
     }
 
-    player->player.slots_needing_update = 0;
-    memcpy(player->player.slots_prev_tick, player->player.slots,
-            sizeof player->player.slots);
+    player->slots_needing_update = 0;
+    memcpy(player->slots_prev_tick, player->slots, sizeof player->slots);
 
     end_timed_block();
 
     // tab list updates
     begin_timed_block("send tab list");
 
-    if (!(brain->flags & PLAYER_BRAIN_INITIALISED_TAB_LIST)) {
-        brain->flags |= PLAYER_BRAIN_INITIALISED_TAB_LIST;
+    if (!(entity->flags & PLAYER_INITIALISED_TAB_LIST)) {
+        entity->flags |= PLAYER_INITIALISED_TAB_LIST;
         if (serv->tab_list_size > 0) {
             begin_packet(&send_cursor, CBP_PLAYER_INFO);
             net_write_varint(&send_cursor, 0); // action: add
@@ -1986,22 +1991,22 @@ send_packets_to_player(player_brain * brain, server * serv,
 
             for (int i = 0; i < serv->tab_list_size; i++) {
                 tab_list_entry * entry = serv->tab_list + i;
-                entity_data * entity = resolve_entity(serv, entry->eid);
+                entity_base * entity = resolve_entity(serv, entry->eid);
                 assert(entity->type == ENTITY_PLAYER);
                 // @TODO(traks) write UUID
                 net_write_ulong(&send_cursor, 0);
                 net_write_ulong(&send_cursor, entry->eid);
                 net_string username = {
-                    .ptr = entity->player.username,
-                    .size = entity->player.username_size
+                    .ptr = player->username,
+                    .size = player->username_size
                 };
                 net_write_string(&send_cursor, username);
                 net_write_varint(&send_cursor, 0); // num properties
-                net_write_varint(&send_cursor, entity->player.gamemode);
+                net_write_varint(&send_cursor, player->gamemode);
                 net_write_varint(&send_cursor, 0); // latency
                 net_write_ubyte(&send_cursor, 0); // has display name
             }
-            finish_packet_and_send(&send_cursor, brain);
+            finish_packet_and_send(&send_cursor, entity);
         }
     } else {
         if (serv->tab_list_removed_count > 0) {
@@ -2015,7 +2020,7 @@ send_packets_to_player(player_brain * brain, server * serv,
                 net_write_ulong(&send_cursor, 0);
                 net_write_ulong(&send_cursor, entry->eid);
             }
-            finish_packet_and_send(&send_cursor, brain);
+            finish_packet_and_send(&send_cursor, entity);
         }
         if (serv->tab_list_added_count > 0) {
             begin_packet(&send_cursor, CBP_PLAYER_INFO);
@@ -2024,22 +2029,22 @@ send_packets_to_player(player_brain * brain, server * serv,
 
             for (int i = 0; i < serv->tab_list_added_count; i++) {
                 tab_list_entry * entry = serv->tab_list_added + i;
-                entity_data * entity = resolve_entity(serv, entry->eid);
+                entity_base * entity = resolve_entity(serv, entry->eid);
                 assert(entity->type == ENTITY_PLAYER);
                 // @TODO(traks) write UUID
                 net_write_ulong(&send_cursor, 0);
                 net_write_ulong(&send_cursor, entry->eid);
                 net_string username = {
-                    .ptr = entity->player.username,
-                    .size = entity->player.username_size
+                    .ptr = player->username,
+                    .size = player->username_size
                 };
                 net_write_string(&send_cursor, username);
                 net_write_varint(&send_cursor, 0); // num properties
-                net_write_varint(&send_cursor, entity->player.gamemode);
+                net_write_varint(&send_cursor, player->gamemode);
                 net_write_varint(&send_cursor, 0); // latency
                 net_write_ubyte(&send_cursor, 0); // has display name
             }
-            finish_packet_and_send(&send_cursor, brain);
+            finish_packet_and_send(&send_cursor, entity);
         }
     }
 
@@ -2052,8 +2057,8 @@ send_packets_to_player(player_brain * brain, server * serv,
     int removed_entity_count = 0;
 
     for (int j = 1; j < MAX_ENTITIES; j++) {
-        entity_id tracked_eid = brain->tracked_entities[j];
-        entity_data * candidate = serv->entities + j;
+        entity_id tracked_eid = player->tracked_entities[j];
+        entity_base * candidate = serv->entities + j;
         entity_id candidate_eid = candidate->eid;
 
         if (tracked_eid != 0) {
@@ -2061,9 +2066,9 @@ send_packets_to_player(player_brain * brain, server * serv,
             if ((candidate->flags & ENTITY_IN_USE)
                     && candidate_eid == tracked_eid) {
                 // entity is still there
-                double dx = candidate->x - player->x;
-                double dy = candidate->y - player->y;
-                double dz = candidate->z - player->z;
+                double dx = candidate->x - entity->x;
+                double dy = candidate->y - entity->y;
+                double dz = candidate->z - entity->z;
                 float rot_x = 0;
                 float rot_y = 0;
 
@@ -2076,7 +2081,7 @@ send_packets_to_player(player_brain * brain, server * serv,
                     net_write_varint(&send_cursor, candidate_eid);
                     net_write_ubyte(&send_cursor,
                             (int) (candidate->player.head_rot_y * 256.0f / 360.0f) & 0xff);
-                    finish_packet_and_send(&send_cursor, brain);
+                    finish_packet_and_send(&send_cursor, entity);
                     break;
                 }
 
@@ -2091,7 +2096,7 @@ send_packets_to_player(player_brain * brain, server * serv,
                     net_write_ubyte(&send_cursor,
                             (int) (rot_x * 256.0f / 360.0f) & 0xff);
                     net_write_ubyte(&send_cursor, !!(candidate->flags & ENTITY_ON_GROUND));
-                    finish_packet_and_send(&send_cursor, brain);
+                    finish_packet_and_send(&send_cursor, entity);
                     continue;
                 }
             }
@@ -2103,16 +2108,16 @@ send_packets_to_player(player_brain * brain, server * serv,
                 continue;
             }
 
-            brain->tracked_entities[j] = 0;
+            player->tracked_entities[j] = 0;
             removed_entities[removed_entity_count] = tracked_eid;
             removed_entity_count++;
         }
 
-        if ((candidate->flags & ENTITY_IN_USE) && candidate_eid != brain->eid) {
+        if ((candidate->flags & ENTITY_IN_USE) && candidate_eid != entity->eid) {
             // candidate is valid for being newly tracked
-            double dx = candidate->x - player->x;
-            double dy = candidate->y - player->y;
-            double dz = candidate->z - player->z;
+            double dx = candidate->x - entity->x;
+            double dy = candidate->y - entity->y;
+            double dz = candidate->z - entity->z;
 
             if (dx * dx + dy * dy + dz * dz > 40 * 40) {
                 continue;
@@ -2132,13 +2137,13 @@ send_packets_to_player(player_brain * brain, server * serv,
                         (int) (candidate->player.head_rot_y * 256.0f / 360.0f) & 0xff);
                 net_write_ubyte(&send_cursor,
                         (int) (candidate->player.head_rot_x * 256.0f / 360.0f) & 0xff);
-                finish_packet_and_send(&send_cursor, brain);
+                finish_packet_and_send(&send_cursor, entity);
 
                 begin_packet(&send_cursor, CBP_ROTATE_HEAD);
                 net_write_varint(&send_cursor, candidate_eid);
                 net_write_ubyte(&send_cursor,
                         (int) (candidate->player.head_rot_y * 256.0f / 360.0f) & 0xff);
-                finish_packet_and_send(&send_cursor, brain);
+                finish_packet_and_send(&send_cursor, entity);
                 break;
             case ENTITY_ITEM: {
                 // begin_packet(&send_cursor, CBP_ADD_MOB);
@@ -2158,7 +2163,7 @@ send_packets_to_player(player_brain * brain, server * serv,
                 // net_write_short(&send_cursor, 0);
                 // net_write_short(&send_cursor, 0);
                 // net_write_short(&send_cursor, 0);
-                // finish_packet_and_send(&send_cursor, brain);
+                // finish_packet_and_send(&send_cursor, entity);
                 begin_packet(&send_cursor, CBP_ADD_ENTITY);
                 net_write_varint(&send_cursor, candidate_eid);
                 // @TODO(traks) appropriate UUID
@@ -2177,7 +2182,7 @@ send_packets_to_player(player_brain * brain, server * serv,
                 net_write_short(&send_cursor, 0);
                 net_write_short(&send_cursor, 0);
                 net_write_short(&send_cursor, 0);
-                finish_packet_and_send(&send_cursor, brain);
+                finish_packet_and_send(&send_cursor, entity);
 
                 begin_packet(&send_cursor, CBP_SET_ENTITY_DATA);
                 net_write_varint(&send_cursor, candidate_eid);
@@ -2193,7 +2198,7 @@ send_packets_to_player(player_brain * brain, server * serv,
                 net_write_ubyte(&send_cursor, 0);
 
                 net_write_ubyte(&send_cursor, 0xff); // end of entity data
-                finish_packet_and_send(&send_cursor, brain);
+                finish_packet_and_send(&send_cursor, entity);
                 break;
             }
             default:
@@ -2202,7 +2207,7 @@ send_packets_to_player(player_brain * brain, server * serv,
             }
 
             mc_uint entity_index = candidate_eid & ENTITY_INDEX_MASK;
-            brain->tracked_entities[entity_index] = candidate_eid;
+            player->tracked_entities[entity_index] = candidate_eid;
         }
     }
 
@@ -2212,7 +2217,7 @@ send_packets_to_player(player_brain * brain, server * serv,
         for (int i = 0; i < removed_entity_count; i++) {
             net_write_varint(&send_cursor, removed_entities[i]);
         }
-        finish_packet_and_send(&send_cursor, brain);
+        finish_packet_and_send(&send_cursor, entity);
     }
 
     end_timed_block();
@@ -2252,7 +2257,7 @@ send_packets_to_player(player_brain * brain, server * serv,
         // regardless of client settings
         net_write_ulong(&send_cursor, 0);
         net_write_ulong(&send_cursor, 0);
-        finish_packet_and_send(&send_cursor, brain);
+        finish_packet_and_send(&send_cursor, entity);
     }
 
     end_timed_block();
@@ -2261,23 +2266,23 @@ send_packets_to_player(player_brain * brain, server * serv,
 
     assert(send_cursor.error == 0);
 
-    int sock = brain->sock;
+    int sock = player->sock;
 
     begin_timed_block("send()");
-    ssize_t send_size = send(sock, brain->send_buf,
-            brain->send_cursor, 0);
+    ssize_t send_size = send(sock, player->send_buf,
+            player->send_cursor, 0);
     end_timed_block();
 
     if (send_size == -1) {
         // EAGAIN means no data sent
         if (errno != EAGAIN) {
             logs_errno("Couldn't send protocol data: %s");
-            disconnect_player_now(brain, serv);
+            disconnect_player_now(entity, serv);
         }
     } else {
-        memmove(brain->send_buf, brain->send_buf + send_size,
-                brain->send_cursor - send_size);
-        brain->send_cursor -= send_size;
+        memmove(player->send_buf, player->send_buf + send_size,
+                player->send_cursor - send_size);
+        player->send_cursor -= send_size;
     }
 
     end_timed_block();

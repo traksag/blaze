@@ -2115,6 +2115,10 @@ typedef mc_uint entity_id;
 #define PLAYER_OFF_HAND_SLOT (45)
 
 typedef struct {
+    unsigned char sent;
+} chunk_cache_entry;
+
+typedef struct {
     unsigned char username[16];
     int username_size;
 
@@ -2134,57 +2138,14 @@ typedef struct {
     // much, otherwise float -> integer conversion errors may occur.
     float head_rot_x;
     float head_rot_y;
-} player_data;
 
-typedef struct {
-    item_stack contents;
-} item_data;
-
-#define ENTITY_IN_USE ((unsigned) (1 << 0))
-
-#define ENTITY_TELEPORTING ((unsigned) (1 << 1))
-
-#define ENTITY_ON_GROUND ((unsigned) (1 << 2))
-
-typedef struct {
-    double x;
-    double y;
-    double z;
-    entity_id eid;
-    unsigned flags;
-    unsigned type;
-
-    union {
-        player_data player;
-        item_data item;
-    };
-} entity_data;
-
-#define PLAYER_BRAIN_IN_USE ((unsigned) (1 << 0))
-
-#define PLAYER_BRAIN_DID_INIT_PACKETS ((unsigned) (1 << 1))
-
-#define PLAYER_BRAIN_SENT_TELEPORT ((unsigned) (1 << 2))
-
-#define PLAYER_BRAIN_GOT_ALIVE_RESPONSE ((unsigned) (1 << 3))
-
-#define PLAYER_BRAIN_SHIFTING ((unsigned) (1 << 4))
-
-#define PLAYER_BRAIN_SPRINTING ((unsigned) (1 << 5))
-
-#define PLAYER_BRAIN_INITIALISED_TAB_LIST ((unsigned) (1 << 6))
-
-typedef struct {
-    unsigned char sent;
-} chunk_cache_entry;
-
-typedef struct {
     int sock;
-    unsigned flags;
-    unsigned char rec_buf[65536];
+    unsigned char * rec_buf;
+    int rec_buf_size;
     int rec_cursor;
 
-    unsigned char send_buf[1048576];
+    unsigned char * send_buf;
+    int send_buf_size;
     int send_cursor;
 
     // The radius of the client's view distance, excluding the centre chunk,
@@ -2215,7 +2176,43 @@ typedef struct {
 
     net_block_pos changed_blocks[8];
     mc_ubyte changed_block_count;
-} player_brain;
+} entity_player;
+
+typedef struct {
+    item_stack contents;
+} entity_item;
+
+#define ENTITY_IN_USE ((unsigned) (1 << 0))
+
+#define ENTITY_TELEPORTING ((unsigned) (1 << 1))
+
+#define ENTITY_ON_GROUND ((unsigned) (1 << 2))
+
+#define PLAYER_DID_INIT_PACKETS ((unsigned) (1 << 16))
+
+#define PLAYER_SENT_TELEPORT ((unsigned) (1 << 17))
+
+#define PLAYER_GOT_ALIVE_RESPONSE ((unsigned) (1 << 18))
+
+#define PLAYER_SHIFTING ((unsigned) (1 << 19))
+
+#define PLAYER_SPRINTING ((unsigned) (1 << 20))
+
+#define PLAYER_INITIALISED_TAB_LIST ((unsigned) (1 << 21))
+
+typedef struct {
+    double x;
+    double y;
+    double z;
+    entity_id eid;
+    unsigned flags;
+    unsigned type;
+
+    union {
+        entity_player player;
+        entity_item item;
+    };
+} entity_base;
 
 typedef struct {
     mc_ushort size;
@@ -2402,12 +2399,9 @@ typedef struct {
 typedef struct {
     unsigned long long current_tick;
 
-    entity_data entities[MAX_ENTITIES];
+    entity_base entities[MAX_ENTITIES];
     mc_ushort next_entity_generations[MAX_ENTITIES];
     mc_int entity_count;
-
-    player_brain player_brains[MAX_PLAYERS];
-    int player_brain_count;
 
     // All chunks that should be loaded. Stored in a request list to allow for
     // ordered loads. If a
@@ -2614,26 +2608,26 @@ free_chunk_section(chunk_section * section);
 void
 clean_up_unused_chunks(void);
 
-entity_data *
+entity_base *
 resolve_entity(server * serv, entity_id eid);
 
-entity_data *
+entity_base *
 try_reserve_entity(server * serv, unsigned type);
 
 void
 evict_entity(server * serv, entity_id eid);
 
 void
-teleport_player(player_brain * brain, entity_data * entity,
+teleport_player(entity_base * entity,
         double new_x, double new_y, double new_z,
         float new_rot_x, float new_rot_y);
 
 void
-tick_player_brain(player_brain * brain, server * serv,
+tick_player(entity_base * entity, server * serv,
         memory_arena * tick_arena);
 
 void
-send_packets_to_player(player_brain * brain, server * serv,
+send_packets_to_player(entity_base * entity, server * serv,
         memory_arena * tick_arena);
 
 mc_short
@@ -2646,9 +2640,8 @@ int
 net_string_equal(net_string a, net_string b);
 
 void
-process_use_item_on_packet(server * serv, entity_data * entity,
-        player_brain * brain, mc_int hand, net_block_pos clicked_pos,
-        mc_int clicked_face,
+process_use_item_on_packet(server * serv, entity_base * entity,
+        mc_int hand, net_block_pos clicked_pos, mc_int clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
         mc_ubyte is_inside);
 

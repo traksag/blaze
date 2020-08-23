@@ -318,10 +318,10 @@ find_property_value_index(block_property_spec * prop_spec, net_string val) {
     }
 }
 
-entity_data *
+entity_base *
 resolve_entity(server * serv, entity_id eid) {
     mc_uint index = eid & ENTITY_INDEX_MASK;
-    entity_data * entity = serv->entities + index;
+    entity_base * entity = serv->entities + index;
     if (entity->eid != eid || !(entity->flags & ENTITY_IN_USE)) {
         // return the null entity
         return serv->entities;
@@ -329,17 +329,22 @@ resolve_entity(server * serv, entity_id eid) {
     return entity;
 }
 
-entity_data *
+entity_base *
 try_reserve_entity(server * serv, unsigned type) {
     for (uint32_t i = 0; i < MAX_ENTITIES; i++) {
-        entity_data * entity = serv->entities + i;
+        entity_base * entity = serv->entities + i;
         if (!(entity->flags & ENTITY_IN_USE)) {
             mc_ushort generation = serv->next_entity_generations[i];
             entity_id eid = ((mc_uint) generation << 20) | i;
-            // @TODO(traks) should we default-initialise the type-specific data
-            // as well? I think this only default-initialises the first entry
-            // in the union.
-            *entity = (entity_data) {0};
+
+            *entity = (entity_base) {0};
+            // @NOTE(traks) default initialisation is only guaranteed to
+            // initialise the first union member
+            switch (type) {
+            case ENTITY_PLAYER: entity->player = (entity_player) {0}; break;
+            case ENTITY_ITEM: entity->item = (entity_item) {0}; break;
+            }
+
             entity->eid = eid;
             entity->type = type;
             entity->flags |= ENTITY_IN_USE;
@@ -354,7 +359,7 @@ try_reserve_entity(server * serv, unsigned type) {
 
 void
 evict_entity(server * serv, entity_id eid) {
-    entity_data * entity = resolve_entity(serv, eid);
+    entity_base * entity = resolve_entity(serv, eid);
     if (entity->type != ENTITY_NULL) {
         entity->flags &= ~ENTITY_IN_USE;
         serv->entity_count--;
@@ -530,7 +535,7 @@ server_tick(server * serv) {
                             response_size += 1;
                         }
 
-                        entity_data * entity = resolve_entity(serv, sampled->eid);
+                        entity_base * entity = resolve_entity(serv, sampled->eid);
                         assert(entity->type == ENTITY_PLAYER);
                         // @TODO(traks) actual UUID
                         response_size += sprintf((char *) response + response_size,
@@ -653,13 +658,7 @@ server_tick(server * serv) {
                 init_con->flags = 0;
                 initial_connection_count--;
 
-                if (serv->player_brain_count == ARRAY_SIZE(serv->player_brains)) {
-                    // @TODO(traks) send server full message and disconnect
-                    close(init_con->sock);
-                    continue;
-                }
-
-                entity_data * entity = try_reserve_entity(serv, ENTITY_PLAYER);
+                entity_base * entity = try_reserve_entity(serv, ENTITY_PLAYER);
 
                 if (entity->type == ENTITY_NULL) {
                     // @TODO(traks) send some message and disconnect
@@ -667,37 +666,46 @@ server_tick(server * serv) {
                     continue;
                 }
 
-                player_brain * brain;
-                for (int j = 0; j < ARRAY_SIZE(serv->player_brains); j++) {
-                    brain = serv->player_brains + j;
-                    if ((brain->flags & PLAYER_BRAIN_IN_USE) == 0) {
-                        break;
-                    }
+                entity_player * player = &entity->player;
+
+                // @TODO(traks) don't malloc this much when a player joins. AAA
+                // games send a lot less than 1MB/tick. For example, according
+                // to some website, Fortnite sends about 1.5KB/tick. Although we
+                // sometimes have to send a bunch of chunk data, which can be
+                // tens of KB. Minecraft even allows up to 2MB of chunk data.
+                player->rec_buf_size = 65536;
+                player->rec_buf = malloc(player->rec_buf_size);
+
+                player->send_buf_size = 1048576;
+                player->send_buf = malloc(player->send_buf_size);
+
+                if (player->rec_buf == NULL || player->send_buf == NULL) {
+                    // @TODO(traks) send some message on disconnect
+                    free(player->send_buf);
+                    free(player->rec_buf);
+                    evict_entity(serv, entity->eid);
+                    close(init_con->sock);
+                    continue;
                 }
 
-                serv->player_brain_count++;
-                *brain = (player_brain) {0};
-                brain->flags |= PLAYER_BRAIN_IN_USE;
-
-                brain->sock = init_con->sock;
-                brain->eid = entity->eid;
-                memcpy(entity->player.username, init_con->username,
+                player->sock = init_con->sock;
+                memcpy(player->username, init_con->username,
                         init_con->username_size);
-                entity->player.username_size = init_con->username_size;
-                brain->chunk_cache_radius = -1;
+                player->username_size = init_con->username_size;
+                player->chunk_cache_radius = -1;
                 // @TODO(traks) configurable server-wide global
-                brain->new_chunk_cache_radius = MAX_CHUNK_CACHE_RADIUS;
-                brain->last_keep_alive_sent_tick = serv->current_tick;
-                brain->flags |= PLAYER_BRAIN_GOT_ALIVE_RESPONSE;
-                entity->player.selected_slot = PLAYER_FIRST_HOTBAR_SLOT;
-                entity->player.gamemode = GAMEMODE_CREATIVE;
+                player->new_chunk_cache_radius = MAX_CHUNK_CACHE_RADIUS;
+                player->last_keep_alive_sent_tick = serv->current_tick;
+                entity->flags |= PLAYER_GOT_ALIVE_RESPONSE;
+                player->selected_slot = PLAYER_FIRST_HOTBAR_SLOT;
+                player->gamemode = GAMEMODE_CREATIVE;
 
-                teleport_player(brain, entity, 88, 70, 73, 0, 0);
+                teleport_player(entity, 88, 70, 73, 0, 0);
 
                 // @TODO(traks) ensure this can never happen instead of assering
                 // it never will hopefully happen
                 assert(serv->tab_list_added_count < ARRAY_SIZE(serv->tab_list_added));
-                serv->tab_list_added[serv->tab_list_added_count].eid = brain->eid;
+                serv->tab_list_added[serv->tab_list_added_count].eid = entity->eid;
                 serv->tab_list_added_count++;
 
                 logs("Player '%.*s' joined", (int) init_con->username_size,
@@ -708,12 +716,12 @@ server_tick(server * serv) {
 
     end_timed_block();
 
-    // update players
-    begin_timed_block("tick players");
+    // update entities
+    begin_timed_block("tick entities");
 
-    for (int i = 0; i < ARRAY_SIZE(serv->player_brains); i++) {
-        player_brain * brain = serv->player_brains + i;
-        if ((brain->flags & PLAYER_BRAIN_IN_USE) == 0) {
+    for (int i = 0; i < ARRAY_SIZE(serv->entities); i++) {
+        entity_base * entity = serv->entities + i;
+        if ((entity->flags & ENTITY_IN_USE) == 0) {
             continue;
         }
 
@@ -721,7 +729,12 @@ server_tick(server * serv) {
             .ptr = serv->short_lived_scratch,
             .size = serv->short_lived_scratch_size
         };
-        tick_player_brain(brain, serv, &tick_arena);
+
+        switch (entity->type) {
+        case ENTITY_PLAYER:
+            tick_player(entity, serv, &tick_arena);
+            break;
+        }
     }
 
     end_timed_block();
@@ -731,7 +744,7 @@ server_tick(server * serv) {
     // remove players from tab list if necessary
     for (int i = 0; i < serv->tab_list_size; i++) {
         tab_list_entry * entry = serv->tab_list + i;
-        entity_data * entity = resolve_entity(serv, entry->eid);
+        entity_base * entity = resolve_entity(serv, entry->eid);
         if (entity->type == ENTITY_NULL) {
             // @TODO(traks) make sure this can never happen instead of hoping
             assert(serv->tab_list_removed_count < ARRAY_SIZE(serv->tab_list_removed));
@@ -758,9 +771,12 @@ server_tick(server * serv) {
 
     begin_timed_block("send players");
 
-    for (int i = 0; i < ARRAY_SIZE(serv->player_brains); i++) {
-        player_brain * brain = serv->player_brains + i;
-        if ((brain->flags & PLAYER_BRAIN_IN_USE) == 0) {
+    for (int i = 0; i < ARRAY_SIZE(serv->entities); i++) {
+        entity_base * entity = serv->entities + i;
+        if (entity->type != ENTITY_PLAYER) {
+            continue;
+        }
+        if ((entity->flags & ENTITY_IN_USE) == 0) {
             continue;
         }
 
@@ -768,7 +784,7 @@ server_tick(server * serv) {
             .ptr = serv->short_lived_scratch,
             .size = serv->short_lived_scratch_size
         };
-        send_packets_to_player(brain, serv, &tick_arena);
+        send_packets_to_player(entity, serv, &tick_arena);
     }
 
     end_timed_block();
