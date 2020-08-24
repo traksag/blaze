@@ -5,6 +5,7 @@
 #include <string.h>
 #include <math.h>
 #include <stdlib.h>
+#include <zlib.h>
 #include "shared.h"
 
 // Implicit packet IDs for ease of updating. Updating packet IDs manually is a
@@ -934,17 +935,16 @@ begin_packet(buffer_cursor * send_cursor, mc_int id) {
 }
 
 static void
-finish_packet_and_send(buffer_cursor * send_cursor, entity_base * entity) {
+finish_packet_and_send(buffer_cursor * send_cursor, entity_base * entity,
+        memory_arena * scratch_arena) {
     // We use the written data to determine the packet size instead of
     // calculating the packet size up front. The major benefit is that
     // calculating the packet size up front is very error prone and requires a
     // lot of maintainance (in case of packet format changes).
     //
-    // The downside is that we need to write the packet data to a separate
-    // buffer and copy it to the send buffer afterwards, because Mojang decided
-    // to encode packet sizes with a variable-size encoding. Although with
-    // packet compression enabled (which everyone probably wants!) we need to
-    // write to a separate buffer anyway.
+    // The downside is that we have to copy all packet data an additional time,
+    // because Mojang decided to encode packet sizes with a variable-size
+    // encoding.
 
     // @TODO(traks) instead of copying the packet to the send buffer each time,
     // maybe write all packets to a separate buffer, then copy all packets at
@@ -962,15 +962,62 @@ finish_packet_and_send(buffer_cursor * send_cursor, entity_base * entity) {
         .index = player->send_cursor
     };
 
-    // @TODO(traks) should check somewhere that no error occurs
-    net_write_data(&packet_cursor, send_cursor->buf + start_index,
-            packet_size + 5 - start_index);
-    player->send_cursor = packet_cursor.index;
+    if (entity->flags & PLAYER_PACKET_COMPRESSION) {
+        // @TODO(traks) handle errors properly
+
+        z_stream zstream;
+        zstream.zalloc = Z_NULL;
+        zstream.zfree = Z_NULL;
+        zstream.opaque = Z_NULL;
+
+        if (deflateInit2(&zstream, Z_BEST_COMPRESSION,
+                Z_DEFLATED, 15, 9, Z_DEFAULT_STRATEGY) != Z_OK) {
+            logs("deflateInit failed");
+            return;
+        }
+
+        zstream.next_in = send_cursor->buf + send_cursor->index;
+        zstream.avail_in = send_cursor->limit - send_cursor->index;
+
+        memory_arena temp_arena = *scratch_arena;
+        // @TODO(traks) appropriate value
+        size_t max_compressed_size = 1 << 19;
+        unsigned char * compressed = alloc_in_arena(&temp_arena,
+                max_compressed_size);
+
+        zstream.next_out = compressed;
+        zstream.avail_out = max_compressed_size;
+
+        if (deflate(&zstream, Z_FINISH) != Z_STREAM_END) {
+            logs("Failed to finish deflating packet: %s", zstream.msg);
+            return;
+        }
+
+        if (deflateEnd(&zstream) != Z_OK) {
+            logs("deflateEnd failed");
+            return;
+        }
+
+        if (zstream.avail_in != 0) {
+            logs("Didn't deflate entire packet");
+            return;
+        }
+
+        net_write_varint(&packet_cursor, net_varint_size(packet_size) + zstream.total_out);
+        net_write_varint(&packet_cursor, packet_size);
+        net_write_data(&packet_cursor, compressed, zstream.total_out);
+        player->send_cursor = packet_cursor.index;
+    } else {
+        // @TODO(traks) should check somewhere that no error occurs
+        net_write_data(&packet_cursor, send_cursor->buf + start_index,
+                packet_size + 5 - start_index);
+        player->send_cursor = packet_cursor.index;
+    }
 }
 
 static void
 send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch,
-        entity_base * entity) {
+        entity_base * entity, memory_arena * tick_arena) {
     begin_timed_block("send chunk fully");
 
     // bit mask for included chunk sections; bottom section in least
@@ -1088,14 +1135,14 @@ send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch,
 
     // number of block entities
     net_write_varint(send_cursor, 0);
-    finish_packet_and_send(send_cursor, entity);
+    finish_packet_and_send(send_cursor, entity, tick_arena);
 
     end_timed_block();
 }
 
 static void
 send_light_update(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch,
-        entity_base * entity) {
+        entity_base * entity, memory_arena * tick_arena) {
     // There are 18 chunk sections from 1 section below the world to 1 section
     // above the world. The lowest chunk section comes first (and is the least
     // significant bit).
@@ -1135,7 +1182,7 @@ send_light_update(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch,
             net_write_ubyte(send_cursor, light);
         }
     }
-    finish_packet_and_send(send_cursor, entity);
+    finish_packet_and_send(send_cursor, entity, tick_arena);
 
     end_timed_block();
 }
@@ -1221,6 +1268,62 @@ tick_player(entity_base * entity, server * serv,
 
             memory_arena process_arena = *tick_arena;
             packet_cursor.limit = packet_cursor.index + packet_size;
+            rec_cursor.index = packet_cursor.limit;
+
+            if (entity->flags & PLAYER_PACKET_COMPRESSION) {
+                // ignore the uncompressed packet size, since we require all
+                // packets to be compressed
+                net_read_varint(&packet_cursor);
+
+                // @TODO(traks) move to a zlib alternative that is optimised
+                // for single pass inflate/deflate. If we don't end up doing
+                // this, make sure the code below is actually correct (when
+                // do we need to clean stuff up?)!
+
+                z_stream zstream;
+                zstream.zalloc = Z_NULL;
+                zstream.zfree = Z_NULL;
+                zstream.opaque = Z_NULL;
+
+                if (inflateInit2(&zstream, 0) != Z_OK) {
+                    logs("inflateInit failed");
+                    disconnect_player_now(entity, serv);
+                    break;
+                }
+
+                zstream.next_in = packet_cursor.buf + packet_cursor.index;
+                zstream.avail_in = packet_cursor.limit - packet_cursor.index;
+
+                size_t max_uncompressed_size = 2 * (1 << 20);
+                unsigned char * uncompressed = alloc_in_arena(&process_arena,
+                        max_uncompressed_size);
+
+                zstream.next_out = uncompressed;
+                zstream.avail_out = max_uncompressed_size;
+
+                if (inflate(&zstream, Z_FINISH) != Z_STREAM_END) {
+                    logs("Failed to finish inflating packet: %s", zstream.msg);
+                    disconnect_player_now(entity, serv);
+                    break;
+                }
+
+                if (inflateEnd(&zstream) != Z_OK) {
+                    logs("inflateEnd failed");
+                    disconnect_player_now(entity, serv);
+                    break;
+                }
+
+                if (zstream.avail_in != 0) {
+                    logs("Didn't inflate entire packet");
+                    disconnect_player_now(entity, serv);
+                    break;
+                }
+
+                packet_cursor = (buffer_cursor) {
+                    .buf = uncompressed,
+                    .limit = zstream.total_out,
+                };
+            }
 
             process_packet(entity, &packet_cursor, serv, &process_arena);
 
@@ -1235,8 +1338,6 @@ tick_player(entity_base * entity, server * serv,
                 disconnect_player_now(entity, serv);
                 break;
             }
-
-            rec_cursor.index = packet_cursor.index;
         }
 
         memmove(rec_cursor.buf, rec_cursor.buf + rec_cursor.index,
@@ -1542,6 +1643,15 @@ send_packets_to_player(entity_base * entity, server * serv,
     if (!(entity->flags & PLAYER_DID_INIT_PACKETS)) {
         entity->flags |= PLAYER_DID_INIT_PACKETS;
 
+        if (PACKET_COMPRESSION_ENABLED) {
+            // send login compression packet
+            begin_packet(&send_cursor, 3);
+            net_write_varint(&send_cursor, 0);
+            finish_packet_and_send(&send_cursor, entity, tick_arena);
+
+            entity->flags |= PLAYER_PACKET_COMPRESSION;
+        }
+
         // send game profile packet
         begin_packet(&send_cursor, 2);
         net_write_ulong(&send_cursor, 0x0123456789abcdef);
@@ -1551,7 +1661,7 @@ send_packets_to_player(entity_base * entity, server * serv,
             .ptr = player->username
         };
         net_write_string(&send_cursor, username);
-        finish_packet_and_send(&send_cursor, entity);
+        finish_packet_and_send(&send_cursor, entity, tick_arena);
 
         net_string level_name = NET_STRING("blaze:main");
 
@@ -1651,12 +1761,12 @@ send_packets_to_player(entity_base * entity, server * serv,
         net_write_ubyte(&send_cursor, 1); // show death screen on death
         net_write_ubyte(&send_cursor, 0); // is debug
         net_write_ubyte(&send_cursor, 0); // is flat
-        finish_packet_and_send(&send_cursor, entity);
+        finish_packet_and_send(&send_cursor, entity, tick_arena);
 
         begin_packet(&send_cursor, CBP_SET_CARRIED_ITEM);
         net_write_ubyte(&send_cursor,
                 player->selected_slot - PLAYER_FIRST_HOTBAR_SLOT);
-        finish_packet_and_send(&send_cursor, entity);
+        finish_packet_and_send(&send_cursor, entity, tick_arena);
 
         begin_packet(&send_cursor, CBP_UPDATE_TAGS);
 
@@ -1687,19 +1797,19 @@ send_packets_to_player(entity_base * entity, server * serv,
                 }
             }
         }
-        finish_packet_and_send(&send_cursor, entity);
+        finish_packet_and_send(&send_cursor, entity, tick_arena);
 
         begin_packet(&send_cursor, CBP_CUSTOM_PAYLOAD);
         net_string brand_str = NET_STRING("minecraft:brand");
         net_string brand = NET_STRING("blaze");
         net_write_string(&send_cursor, brand_str);
         net_write_string(&send_cursor, brand);
-        finish_packet_and_send(&send_cursor, entity);
+        finish_packet_and_send(&send_cursor, entity, tick_arena);
 
         begin_packet(&send_cursor, CBP_CHANGE_DIFFICULTY);
         net_write_ubyte(&send_cursor, 2); // difficulty normal
         net_write_ubyte(&send_cursor, 0); // locked
-        finish_packet_and_send(&send_cursor, entity);
+        finish_packet_and_send(&send_cursor, entity, tick_arena);
 
         begin_packet(&send_cursor, CBP_PLAYER_ABILITIES);
         // @NOTE(traks) actually need abilities to make creative mode players
@@ -1709,7 +1819,7 @@ send_packets_to_player(entity_base * entity, server * serv,
         net_write_ubyte(&send_cursor, ability_flags);
         net_write_float(&send_cursor, 0.05); // flying speed
         net_write_float(&send_cursor, 0.1); // walking speed
-        finish_packet_and_send(&send_cursor, entity);
+        finish_packet_and_send(&send_cursor, entity, tick_arena);
     }
 
     // send keep alive packet every so often
@@ -1717,7 +1827,7 @@ send_packets_to_player(entity_base * entity, server * serv,
             && (entity->flags & PLAYER_GOT_ALIVE_RESPONSE)) {
         begin_packet(&send_cursor, CBP_KEEP_ALIVE);
         net_write_ulong(&send_cursor, serv->current_tick);
-        finish_packet_and_send(&send_cursor, entity);
+        finish_packet_and_send(&send_cursor, entity, tick_arena);
 
         player->last_keep_alive_sent_tick = serv->current_tick;
         entity->flags &= ~PLAYER_GOT_ALIVE_RESPONSE;
@@ -1733,7 +1843,7 @@ send_packets_to_player(entity_base * entity, server * serv,
         net_write_float(&send_cursor, player->head_rot_x);
         net_write_ubyte(&send_cursor, 0); // relative arguments
         net_write_varint(&send_cursor, player->current_teleport_id);
-        finish_packet_and_send(&send_cursor, entity);
+        finish_packet_and_send(&send_cursor, entity, tick_arena);
 
         entity->flags |= PLAYER_SENT_TELEPORT;
     }
@@ -1756,7 +1866,7 @@ send_packets_to_player(entity_base * entity, server * serv,
         begin_packet(&send_cursor, CBP_BLOCK_UPDATE);
         net_write_block_pos(&send_cursor, pos);
         net_write_varint(&send_cursor, block_state);
-        finish_packet_and_send(&send_cursor, entity);
+        finish_packet_and_send(&send_cursor, entity, tick_arena);
     }
     player->changed_block_count = 0;
 
@@ -1780,13 +1890,13 @@ send_packets_to_player(entity_base * entity, server * serv,
         begin_packet(&send_cursor, CBP_SET_CHUNK_CACHE_CENTRE);
         net_write_varint(&send_cursor, new_chunk_cache_centre_x);
         net_write_varint(&send_cursor, new_chunk_cache_centre_z);
-        finish_packet_and_send(&send_cursor, entity);
+        finish_packet_and_send(&send_cursor, entity, tick_arena);
     }
 
     if (player->chunk_cache_radius != player->new_chunk_cache_radius) {
         begin_packet(&send_cursor, CBP_SET_CHUNK_CACHE_RADIUS);
         net_write_varint(&send_cursor, player->new_chunk_cache_radius);
-        finish_packet_and_send(&send_cursor, entity);
+        finish_packet_and_send(&send_cursor, entity, tick_arena);
     }
 
     // untrack old chunks
@@ -1844,7 +1954,7 @@ send_packets_to_player(entity_base * entity, server * serv,
                                 | (pos.x << 8) | (pos.z << 4) | (pos.y & 0xf);
                         net_write_varlong(&send_cursor, encoded);
                     }
-                    finish_packet_and_send(&send_cursor, entity);
+                    finish_packet_and_send(&send_cursor, entity, tick_arena);
                 }
 
                 continue;
@@ -1861,7 +1971,7 @@ send_packets_to_player(entity_base * entity, server * serv,
                 begin_packet(&send_cursor, CBP_FORGET_LEVEL_CHUNK);
                 net_write_int(&send_cursor, x);
                 net_write_int(&send_cursor, z);
-                finish_packet_and_send(&send_cursor, entity);
+                finish_packet_and_send(&send_cursor, entity, tick_arena);
             }
         }
     }
@@ -1927,8 +2037,8 @@ send_packets_to_player(entity_base * entity, server * serv,
             chunk * ch = get_chunk_if_loaded(pos);
             if (ch != NULL) {
                 // send chunk blocks and lighting
-                send_chunk_fully(&send_cursor, pos, ch, entity);
-                send_light_update(&send_cursor, pos, ch, entity);
+                send_chunk_fully(&send_cursor, pos, ch, entity, tick_arena);
+                send_light_update(&send_cursor, pos, ch, entity, tick_arena);
                 entry->sent = 1;
                 newly_sent_chunks++;
             }
@@ -1971,7 +2081,7 @@ send_packets_to_player(entity_base * entity, server * serv,
             // @TODO(traks) write NBT (currently just a single end tag)
             net_write_ubyte(&send_cursor, 0);
         }
-        finish_packet_and_send(&send_cursor, entity);
+        finish_packet_and_send(&send_cursor, entity, tick_arena);
     }
 
     player->slots_needing_update = 0;
@@ -2006,7 +2116,7 @@ send_packets_to_player(entity_base * entity, server * serv,
                 net_write_varint(&send_cursor, 0); // latency
                 net_write_ubyte(&send_cursor, 0); // has display name
             }
-            finish_packet_and_send(&send_cursor, entity);
+            finish_packet_and_send(&send_cursor, entity, tick_arena);
         }
     } else {
         if (serv->tab_list_removed_count > 0) {
@@ -2020,7 +2130,7 @@ send_packets_to_player(entity_base * entity, server * serv,
                 net_write_ulong(&send_cursor, 0);
                 net_write_ulong(&send_cursor, entry->eid);
             }
-            finish_packet_and_send(&send_cursor, entity);
+            finish_packet_and_send(&send_cursor, entity, tick_arena);
         }
         if (serv->tab_list_added_count > 0) {
             begin_packet(&send_cursor, CBP_PLAYER_INFO);
@@ -2044,7 +2154,7 @@ send_packets_to_player(entity_base * entity, server * serv,
                 net_write_varint(&send_cursor, 0); // latency
                 net_write_ubyte(&send_cursor, 0); // has display name
             }
-            finish_packet_and_send(&send_cursor, entity);
+            finish_packet_and_send(&send_cursor, entity, tick_arena);
         }
     }
 
@@ -2081,7 +2191,7 @@ send_packets_to_player(entity_base * entity, server * serv,
                     net_write_varint(&send_cursor, candidate_eid);
                     net_write_ubyte(&send_cursor,
                             (int) (candidate->player.head_rot_y * 256.0f / 360.0f) & 0xff);
-                    finish_packet_and_send(&send_cursor, entity);
+                    finish_packet_and_send(&send_cursor, entity, tick_arena);
                     break;
                 }
 
@@ -2096,7 +2206,7 @@ send_packets_to_player(entity_base * entity, server * serv,
                     net_write_ubyte(&send_cursor,
                             (int) (rot_x * 256.0f / 360.0f) & 0xff);
                     net_write_ubyte(&send_cursor, !!(candidate->flags & ENTITY_ON_GROUND));
-                    finish_packet_and_send(&send_cursor, entity);
+                    finish_packet_and_send(&send_cursor, entity, tick_arena);
                     continue;
                 }
             }
@@ -2137,13 +2247,13 @@ send_packets_to_player(entity_base * entity, server * serv,
                         (int) (candidate->player.head_rot_y * 256.0f / 360.0f) & 0xff);
                 net_write_ubyte(&send_cursor,
                         (int) (candidate->player.head_rot_x * 256.0f / 360.0f) & 0xff);
-                finish_packet_and_send(&send_cursor, entity);
+                finish_packet_and_send(&send_cursor, entity, tick_arena);
 
                 begin_packet(&send_cursor, CBP_ROTATE_HEAD);
                 net_write_varint(&send_cursor, candidate_eid);
                 net_write_ubyte(&send_cursor,
                         (int) (candidate->player.head_rot_y * 256.0f / 360.0f) & 0xff);
-                finish_packet_and_send(&send_cursor, entity);
+                finish_packet_and_send(&send_cursor, entity, tick_arena);
                 break;
             case ENTITY_ITEM: {
                 // begin_packet(&send_cursor, CBP_ADD_MOB);
@@ -2163,7 +2273,7 @@ send_packets_to_player(entity_base * entity, server * serv,
                 // net_write_short(&send_cursor, 0);
                 // net_write_short(&send_cursor, 0);
                 // net_write_short(&send_cursor, 0);
-                // finish_packet_and_send(&send_cursor, entity);
+                // finish_packet_and_send(&send_cursor, entity, tick_arena);
                 begin_packet(&send_cursor, CBP_ADD_ENTITY);
                 net_write_varint(&send_cursor, candidate_eid);
                 // @TODO(traks) appropriate UUID
@@ -2182,7 +2292,7 @@ send_packets_to_player(entity_base * entity, server * serv,
                 net_write_short(&send_cursor, 0);
                 net_write_short(&send_cursor, 0);
                 net_write_short(&send_cursor, 0);
-                finish_packet_and_send(&send_cursor, entity);
+                finish_packet_and_send(&send_cursor, entity, tick_arena);
 
                 begin_packet(&send_cursor, CBP_SET_ENTITY_DATA);
                 net_write_varint(&send_cursor, candidate_eid);
@@ -2198,7 +2308,7 @@ send_packets_to_player(entity_base * entity, server * serv,
                 net_write_ubyte(&send_cursor, 0);
 
                 net_write_ubyte(&send_cursor, 0xff); // end of entity data
-                finish_packet_and_send(&send_cursor, entity);
+                finish_packet_and_send(&send_cursor, entity, tick_arena);
                 break;
             }
             default:
@@ -2217,7 +2327,7 @@ send_packets_to_player(entity_base * entity, server * serv,
         for (int i = 0; i < removed_entity_count; i++) {
             net_write_varint(&send_cursor, removed_entities[i]);
         }
-        finish_packet_and_send(&send_cursor, entity);
+        finish_packet_and_send(&send_cursor, entity, tick_arena);
     }
 
     end_timed_block();
@@ -2257,7 +2367,7 @@ send_packets_to_player(entity_base * entity, server * serv,
         // regardless of client settings
         net_write_ulong(&send_cursor, 0);
         net_write_ulong(&send_cursor, 0);
-        finish_packet_and_send(&send_cursor, entity);
+        finish_packet_and_send(&send_cursor, entity, tick_arena);
     }
 
     end_timed_block();

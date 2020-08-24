@@ -369,10 +369,12 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     begin_timed_block("inflate");
     // @TODO(traks) perhaps use https://github.com/ebiggers/libdeflate instead
     // of zlib. Using zlib now just because I had the code for it laying around.
+    // If we don't end up doing this, make sure the code below is actually
+    // correct (when do we need to clean stuff up?)!
     z_stream zstream;
-    zstream.zalloc = NULL;
-    zstream.zfree = NULL;
-    zstream.opaque = NULL;
+    zstream.zalloc = Z_NULL;
+    zstream.zfree = Z_NULL;
+    zstream.opaque = Z_NULL;
 
     if (inflateInit2(&zstream, windowBits) != Z_OK) {
         logs("inflateInit failed");
@@ -382,7 +384,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     zstream.next_in = cursor.buf + cursor.index;
     zstream.avail_in = cursor.limit - cursor.index;
 
-    size_t max_uncompressed_size = 2097152;
+    size_t max_uncompressed_size = 2 * (1 << 20);
     unsigned char * uncompressed = alloc_in_arena(scratch_arena,
             max_uncompressed_size);
 

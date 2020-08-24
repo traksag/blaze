@@ -105,6 +105,9 @@ typedef union {
 
 #define MAX_PLAYERS (100)
 
+// whether all play packets should be compressed or not
+#define PACKET_COMPRESSION_ENABLED (1)
+
 // in network id order
 enum gamemode {
     GAMEMODE_SURVIVAL,
@@ -2199,6 +2202,8 @@ typedef struct {
 #define PLAYER_SPRINTING ((unsigned) (1 << 20))
 
 #define PLAYER_INITIALISED_TAB_LIST ((unsigned) (1 << 21))
+
+#define PLAYER_PACKET_COMPRESSION ((unsigned) (1 << 22))
 
 typedef struct {
     double x;
