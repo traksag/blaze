@@ -1469,7 +1469,7 @@ main(void) {
                     profiler_sock = -1;
                     break;
                 } else if (send_size == 0) {
-                    logs_errno("Profiler closed connection");
+                    logs("Profiler closed connection");
                     close(profiler_sock);
                     profiler_sock = -1;
                     break;
