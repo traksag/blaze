@@ -2368,13 +2368,20 @@ send_packets_to_player(entity_base * entity, server * serv,
     // try to write everything to the socket buffer
 
     if (send_cursor->error != 0) {
-        // @TODO(traks) send disconnect message
+        // just disconnect the player
         logs("Failed to create packets");
         disconnect_player_now(entity, serv);
-        return;
+        goto bail;
     }
 
     begin_timed_block("finalise packets");
+
+    buffer_cursor final_cursor_ = {
+        .buf = player->send_buf,
+        .limit = player->send_buf_size,
+        .index = player->send_cursor
+    };
+    buffer_cursor * final_cursor = &final_cursor_;
 
     send_cursor->limit = send_cursor->index;
     send_cursor->index = 0;
@@ -2389,12 +2396,6 @@ send_packets_to_player(entity_base * entity, server * serv,
         mc_int packet_size = net_read_varint(send_cursor);
         int packet_end = send_cursor->index + packet_size;
 
-        buffer_cursor packet_cursor = {
-            .buf = player->send_buf,
-            .limit = player->send_buf_size,
-            .index = player->send_cursor
-        };
-
         if (should_compress) {
             // @TODO(traks) handle errors properly
 
@@ -2404,9 +2405,8 @@ send_packets_to_player(entity_base * entity, server * serv,
             zstream.opaque = Z_NULL;
 
             if (deflateInit(&zstream, Z_DEFAULT_COMPRESSION) != Z_OK) {
-                logs("deflateInit failed");
-                disconnect_player_now(entity, serv);
-                return;
+                final_cursor->error = 1;
+                break;
             }
 
             zstream.next_in = send_cursor->buf + send_cursor->index;
@@ -2422,32 +2422,27 @@ send_packets_to_player(entity_base * entity, server * serv,
             zstream.avail_out = max_compressed_size;
 
             if (deflate(&zstream, Z_FINISH) != Z_STREAM_END) {
-                logs("Failed to finish deflating packet: %s", zstream.msg);
-                disconnect_player_now(entity, serv);
-                return;
+                final_cursor->error = 1;
+                break;
             }
 
             if (deflateEnd(&zstream) != Z_OK) {
-                logs("deflateEnd failed");
-                disconnect_player_now(entity, serv);
-                return;
+                final_cursor->error = 1;
+                break;
             }
 
             if (zstream.avail_in != 0) {
-                logs("Didn't deflate entire packet");
-                disconnect_player_now(entity, serv);
-                return;
+                final_cursor->error = 1;
+                break;
             }
 
-            net_write_varint(&packet_cursor, net_varint_size(packet_size) + zstream.total_out);
-            net_write_varint(&packet_cursor, packet_size);
-            net_write_data(&packet_cursor, compressed, zstream.total_out);
-            player->send_cursor = packet_cursor.index;
+            net_write_varint(final_cursor, net_varint_size(packet_size) + zstream.total_out);
+            net_write_varint(final_cursor, packet_size);
+            net_write_data(final_cursor, compressed, zstream.total_out);
         } else {
             // @TODO(traks) should check somewhere that no error occurs
-            net_write_data(&packet_cursor, send_cursor->buf + packet_start,
+            net_write_data(final_cursor, send_cursor->buf + packet_start,
                     packet_end - packet_start);
-            player->send_cursor = packet_cursor.index;
         }
 
         send_cursor->index = packet_end;
@@ -2455,9 +2450,16 @@ send_packets_to_player(entity_base * entity, server * serv,
 
     end_timed_block();
 
+    if (final_cursor->error != 0) {
+        // just disconnect the player
+        logs("Failed to finalise packets");
+        disconnect_player_now(entity, serv);
+        goto bail;
+    }
+
     begin_timed_block("send()");
-    ssize_t send_size = send(player->sock, player->send_buf,
-            player->send_cursor, 0);
+    ssize_t send_size = send(player->sock, final_cursor->buf,
+            final_cursor->index, 0);
     end_timed_block();
 
     if (send_size == -1) {
@@ -2467,10 +2469,11 @@ send_packets_to_player(entity_base * entity, server * serv,
             disconnect_player_now(entity, serv);
         }
     } else {
-        memmove(player->send_buf, player->send_buf + send_size,
-                player->send_cursor - send_size);
-        player->send_cursor -= send_size;
+        memmove(final_cursor->buf, final_cursor->buf + send_size,
+                final_cursor->index - send_size);
+        player->send_cursor = final_cursor->index - send_size;
     }
 
+bail:
     end_timed_block();
 }
