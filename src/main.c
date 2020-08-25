@@ -339,7 +339,8 @@ try_reserve_entity(server * serv, unsigned type) {
 
             *entity = (entity_base) {0};
             // @NOTE(traks) default initialisation is only guaranteed to
-            // initialise the first union member
+            // initialise the first union member, so we have to manually
+            // default initialise the union member based on the entity type
             switch (type) {
             case ENTITY_PLAYER: entity->player = (entity_player) {0}; break;
             case ENTITY_ITEM: entity->item = (entity_item) {0}; break;
@@ -363,6 +364,34 @@ evict_entity(server * serv, entity_id eid) {
     if (entity->type != ENTITY_NULL) {
         entity->flags &= ~ENTITY_IN_USE;
         serv->entity_count--;
+    }
+}
+
+static void
+tick_entity(entity_base * entity, server * serv, memory_arena * tick_arena) {
+    switch (entity->type) {
+    case ENTITY_PLAYER:
+        tick_player(entity, serv, tick_arena);
+        break;
+    case ENTITY_ITEM: {
+        if (entity->item.contents.type == ITEM_AIR) {
+            evict_entity(serv, entity->eid);
+            return;
+        }
+
+        if (entity->item.pickup_timeout > 0
+                && entity->item.pickup_timeout != 32767) {
+            entity->item.pickup_timeout--;
+        }
+
+        // gravity acceleration
+        entity->item.vy -= 0.04;
+
+        entity->x += entity->item.vx;
+        entity->y += entity->item.vy;
+        entity->z += entity->item.vz;
+        break;
+    }
     }
 }
 
@@ -730,11 +759,7 @@ server_tick(server * serv) {
             .size = serv->short_lived_scratch_size
         };
 
-        switch (entity->type) {
-        case ENTITY_PLAYER:
-            tick_player(entity, serv, &tick_arena);
-            break;
-        }
+        tick_entity(entity, serv, &tick_arena);
     }
 
     end_timed_block();

@@ -17,7 +17,9 @@
 
 #define PI (3.141592653589f)
 
-#define DEGREES_PER_RADIAN (360 / (2 * PI))
+#define DEGREES_PER_RADIAN (360.0f / (2.0f * PI))
+
+#define RADIANS_PER_DEGREE ((2.0f * PI) / 360.0f)
 
 typedef int8_t mc_byte;
 typedef int16_t mc_short;
@@ -2183,6 +2185,15 @@ typedef struct {
 
 typedef struct {
     item_stack contents;
+
+    // velocity
+    double vx;
+    double vy;
+    double vz;
+
+    // minecraft calls this pickup delay. If equal to 32767, this item can't
+    // ever be picked up (by players, foxes, etc.)
+    mc_short pickup_timeout;
 } entity_item;
 
 #define ENTITY_IN_USE ((unsigned) (1 << 0))
@@ -2206,9 +2217,11 @@ typedef struct {
 #define PLAYER_PACKET_COMPRESSION ((unsigned) (1 << 22))
 
 typedef struct {
+    // centre of bottom of entity's bounding box
     double x;
     double y;
     double z;
+
     entity_id eid;
     unsigned flags;
     unsigned type;

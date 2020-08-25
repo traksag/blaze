@@ -210,6 +210,32 @@ process_move_player_packet(entity_base * entity,
     }
 }
 
+static int
+drop_item(entity_base * player, item_stack * is, server * serv) {
+    entity_base * item = try_reserve_entity(serv, ENTITY_ITEM);
+    if (item->type == ENTITY_NULL) {
+        return 0;
+    }
+
+    item->x = player->x;
+    // @TODO(traks) this has to depend on player's current pose
+    item->y = player->y + 1.5;
+    item->z = player->z;
+    item->item.contents = *is;
+    item->item.pickup_timeout = 40;
+
+    float sin_rot_y = sinf(player->player.head_rot_y * RADIANS_PER_DEGREE);
+    float cos_rot_y = cosf(player->player.head_rot_y * RADIANS_PER_DEGREE);
+    float sin_rot_x = sinf(player->player.head_rot_x * RADIANS_PER_DEGREE);
+    float cos_rot_x = cosf(player->player.head_rot_x * RADIANS_PER_DEGREE);
+
+    // @TODO(traks) random offset
+    item->item.vx = 0.3f * -sin_rot_y * cos_rot_x;
+    item->item.vy = 0.3f * -sin_rot_x;
+    item->item.vz = 0.3f * cos_rot_y * cos_rot_x;
+    return 1;
+}
+
 static void
 process_packet(entity_base * entity, buffer_cursor * rec_cursor,
         server * serv, memory_arena * process_arena) {
@@ -599,19 +625,12 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
             // itself, so no need to send updates for the slot if nothing
             // special happens
             if (is->size > 0) {
-                entity_base * item = try_reserve_entity(serv, ENTITY_ITEM);
-                if (item->type == ENTITY_NULL) {
+                if (drop_item(entity, is, serv)) {
+                    is->size = 0;
+                    is->type = ITEM_AIR;
+                } else {
                     player->slots_needing_update |= (mc_ulong) 1 << sel_slot;
-                    break;
                 }
-
-                // @TODO(traks) higher spawn position
-                item->x = entity->x;
-                item->y = entity->y;
-                item->z = entity->z;
-                item->item.contents = *is;
-
-                *is = (item_stack) {0};
             }
             break;
         }
@@ -623,23 +642,15 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
             // itself, so no need to send updates for the slot if nothing
             // special happens
             if (is->size > 0) {
-                entity_base * item = try_reserve_entity(serv, ENTITY_ITEM);
-                if (item->type == ENTITY_NULL) {
+                int size = is->size;
+                is->size = 1;
+                if (drop_item(entity, is, serv)) {
+                    is->size = size - 1;
+                    if (is->size == 0) {
+                        is->type = ITEM_AIR;
+                    }
+                } else {
                     player->slots_needing_update |= (mc_ulong) 1 << sel_slot;
-                    break;
-                }
-
-                // @TODO(traks) higher spawn position
-                item->x = entity->x;
-                item->y = entity->y;
-                item->z = entity->z;
-                item->item.contents = *is;
-                item->item.contents.size = 1;
-
-                is->size--;
-
-                if (is->size == 0) {
-                    *is = (item_stack) {0};
                 }
             }
             break;
@@ -1628,6 +1639,133 @@ nbt_write_biome(buffer_cursor * send_cursor, biome * b) {
     // special effects end
 }
 
+static void
+send_tracked_entity_packets(entity_base * player, server * serv,
+        buffer_cursor * send_cursor, memory_arena * tick_arena,
+        entity_base * tracked) {
+    float rot_x = 0;
+    float rot_y = 0;
+
+    switch (tracked->type) {
+    case ENTITY_PLAYER:
+        rot_x = tracked->player.head_rot_x;
+        rot_y = tracked->player.head_rot_y;
+
+        begin_packet(send_cursor, CBP_ROTATE_HEAD);
+        net_write_varint(send_cursor, tracked->eid);
+        net_write_ubyte(send_cursor,
+                (int) (tracked->player.head_rot_y * 256.0f / 360.0f) & 0xff);
+        finish_packet_and_send(send_cursor, player, tick_arena);
+        break;
+    }
+
+    begin_packet(send_cursor, CBP_TELEPORT_ENTITY);
+    net_write_varint(send_cursor, tracked->eid);
+    net_write_double(send_cursor, tracked->x);
+    net_write_double(send_cursor, tracked->y);
+    net_write_double(send_cursor, tracked->z);
+    net_write_ubyte(send_cursor,
+            (int) (rot_y * 256.0f / 360.0f) & 0xff);
+    net_write_ubyte(send_cursor,
+            (int) (rot_x * 256.0f / 360.0f) & 0xff);
+    net_write_ubyte(send_cursor, !!(tracked->flags & ENTITY_ON_GROUND));
+    finish_packet_and_send(send_cursor, player, tick_arena);
+
+    // if (tracked->type == ENTITY_ITEM) {
+    //     begin_packet(send_cursor, CBP_SET_ENTITY_MOTION);
+    //     net_write_varint(send_cursor, tracked->eid);
+    //     net_write_short(send_cursor, CLAMP(tracked->item.vx, -3.9, 3.9) * 8000);
+    //     net_write_short(send_cursor, CLAMP(tracked->item.vy, -3.9, 3.9) * 8000);
+    //     net_write_short(send_cursor, CLAMP(tracked->item.vz, -3.9, 3.9) * 8000);
+    //     finish_packet_and_send(send_cursor, player, tick_arena);
+    // }
+}
+
+static void
+send_add_entity_packet(entity_base * player, server * serv,
+        buffer_cursor * send_cursor, memory_arena * tick_arena,
+        entity_base * tracked) {
+    switch (tracked->type) {
+    case ENTITY_PLAYER: {
+        begin_packet(send_cursor, CBP_ADD_PLAYER);
+        net_write_varint(send_cursor, tracked->eid);
+        // @TODO(traks) appropriate UUID
+        net_write_ulong(send_cursor, 0);
+        net_write_ulong(send_cursor, tracked->eid);
+        net_write_double(send_cursor, tracked->x);
+        net_write_double(send_cursor, tracked->y);
+        net_write_double(send_cursor, tracked->z);
+        net_write_ubyte(send_cursor,
+                (int) (tracked->player.head_rot_y * 256.0f / 360.0f) & 0xff);
+        net_write_ubyte(send_cursor,
+                (int) (tracked->player.head_rot_x * 256.0f / 360.0f) & 0xff);
+        finish_packet_and_send(send_cursor, player, tick_arena);
+
+        begin_packet(send_cursor, CBP_ROTATE_HEAD);
+        net_write_varint(send_cursor, tracked->eid);
+        net_write_ubyte(send_cursor,
+                (int) (tracked->player.head_rot_y * 256.0f / 360.0f) & 0xff);
+        finish_packet_and_send(send_cursor, player, tick_arena);
+        break;
+    }
+    case ENTITY_ITEM: {
+        // begin_packet(send_cursor, CBP_ADD_MOB);
+        // net_write_varint(send_cursor, tracked->eid);
+        // // @TODO(traks) appropriate UUID
+        // net_write_ulong(send_cursor, 0);
+        // net_write_ulong(send_cursor, 0);
+        // net_write_varint(send_cursor, ENTITY_SQUID);
+        // net_write_double(send_cursor, tracked->x);
+        // net_write_double(send_cursor, tracked->y);
+        // net_write_double(send_cursor, tracked->z);
+        // net_write_ubyte(send_cursor, 0);
+        // net_write_ubyte(send_cursor, 0);
+        // // @TODO(traks) y head rotation (what is that?)
+        // net_write_ubyte(send_cursor, 0);
+        // // @TODO(traks) entity velocity
+        // net_write_short(send_cursor, 0);
+        // net_write_short(send_cursor, 0);
+        // net_write_short(send_cursor, 0);
+        // finish_packet_and_send(send_cursor, player, tick_arena);
+        begin_packet(send_cursor, CBP_ADD_ENTITY);
+        net_write_varint(send_cursor, tracked->eid);
+        // @TODO(traks) appropriate UUID
+        net_write_ulong(send_cursor, 0);
+        net_write_ulong(send_cursor, tracked->eid);
+        net_write_varint(send_cursor, tracked->type);
+        net_write_double(send_cursor, tracked->x);
+        net_write_double(send_cursor, tracked->y);
+        net_write_double(send_cursor, tracked->z);
+        // @TODO(traks) x and y rotation
+        net_write_ubyte(send_cursor, 0);
+        net_write_ubyte(send_cursor, 0);
+        // @TODO(traks) player data
+        net_write_int(send_cursor, 0);
+        net_write_short(send_cursor, CLAMP(tracked->item.vx, -3.9, 3.9) * 8000);
+        net_write_short(send_cursor, CLAMP(tracked->item.vy, -3.9, 3.9) * 8000);
+        net_write_short(send_cursor, CLAMP(tracked->item.vz, -3.9, 3.9) * 8000);
+        finish_packet_and_send(send_cursor, player, tick_arena);
+
+        begin_packet(send_cursor, CBP_SET_ENTITY_DATA);
+        net_write_varint(send_cursor, tracked->eid);
+
+        net_write_ubyte(send_cursor, 7); // set item contents
+        net_write_varint(send_cursor, 6); // data type: item stack
+
+        net_write_ubyte(send_cursor, 1); // has item
+        item_stack * is = &tracked->item.contents;
+        net_write_varint(send_cursor, is->type);
+        net_write_ubyte(send_cursor, is->size);
+        // @TODO(traks) write NBT (currently just a single end tag)
+        net_write_ubyte(send_cursor, 0);
+
+        net_write_ubyte(send_cursor, 0xff); // end of entity data
+        finish_packet_and_send(send_cursor, player, tick_arena);
+        break;
+    }
+    }
+}
+
 void
 send_packets_to_player(entity_base * entity, server * serv,
         memory_arena * tick_arena) {
@@ -2169,44 +2307,18 @@ send_packets_to_player(entity_base * entity, server * serv,
     for (int j = 1; j < MAX_ENTITIES; j++) {
         entity_id tracked_eid = player->tracked_entities[j];
         entity_base * candidate = serv->entities + j;
-        entity_id candidate_eid = candidate->eid;
 
         if (tracked_eid != 0) {
             // entity is currently being tracked
             if ((candidate->flags & ENTITY_IN_USE)
-                    && candidate_eid == tracked_eid) {
+                    && candidate->eid == tracked_eid) {
                 // entity is still there
                 double dx = candidate->x - entity->x;
                 double dy = candidate->y - entity->y;
                 double dz = candidate->z - entity->z;
-                float rot_x = 0;
-                float rot_y = 0;
-
-                switch (candidate->type) {
-                case ENTITY_PLAYER:
-                    rot_x = candidate->player.head_rot_x;
-                    rot_y = candidate->player.head_rot_y;
-
-                    begin_packet(&send_cursor, CBP_ROTATE_HEAD);
-                    net_write_varint(&send_cursor, candidate_eid);
-                    net_write_ubyte(&send_cursor,
-                            (int) (candidate->player.head_rot_y * 256.0f / 360.0f) & 0xff);
-                    finish_packet_and_send(&send_cursor, entity, tick_arena);
-                    break;
-                }
-
                 if (dx * dx + dy * dy + dz * dz < 45 * 45) {
-                    begin_packet(&send_cursor, CBP_TELEPORT_ENTITY);
-                    net_write_varint(&send_cursor, tracked_eid);
-                    net_write_double(&send_cursor, candidate->x);
-                    net_write_double(&send_cursor, candidate->y);
-                    net_write_double(&send_cursor, candidate->z);
-                    net_write_ubyte(&send_cursor,
-                            (int) (rot_y * 256.0f / 360.0f) & 0xff);
-                    net_write_ubyte(&send_cursor,
-                            (int) (rot_x * 256.0f / 360.0f) & 0xff);
-                    net_write_ubyte(&send_cursor, !!(candidate->flags & ENTITY_ON_GROUND));
-                    finish_packet_and_send(&send_cursor, entity, tick_arena);
+                    send_tracked_entity_packets(entity, serv,
+                            &send_cursor, tick_arena, candidate);
                     continue;
                 }
             }
@@ -2223,7 +2335,7 @@ send_packets_to_player(entity_base * entity, server * serv,
             removed_entity_count++;
         }
 
-        if ((candidate->flags & ENTITY_IN_USE) && candidate_eid != entity->eid) {
+        if ((candidate->flags & ENTITY_IN_USE) && candidate->eid != entity->eid) {
             // candidate is valid for being newly tracked
             double dx = candidate->x - entity->x;
             double dy = candidate->y - entity->y;
@@ -2233,91 +2345,11 @@ send_packets_to_player(entity_base * entity, server * serv,
                 continue;
             }
 
-            switch (candidate->type) {
-            case ENTITY_PLAYER: {
-                begin_packet(&send_cursor, CBP_ADD_PLAYER);
-                net_write_varint(&send_cursor, candidate_eid);
-                // @TODO(traks) appropriate UUID
-                net_write_ulong(&send_cursor, 0);
-                net_write_ulong(&send_cursor, candidate_eid);
-                net_write_double(&send_cursor, candidate->x);
-                net_write_double(&send_cursor, candidate->y);
-                net_write_double(&send_cursor, candidate->z);
-                net_write_ubyte(&send_cursor,
-                        (int) (candidate->player.head_rot_y * 256.0f / 360.0f) & 0xff);
-                net_write_ubyte(&send_cursor,
-                        (int) (candidate->player.head_rot_x * 256.0f / 360.0f) & 0xff);
-                finish_packet_and_send(&send_cursor, entity, tick_arena);
+            send_add_entity_packet(entity, serv,
+                    &send_cursor, tick_arena, candidate);
 
-                begin_packet(&send_cursor, CBP_ROTATE_HEAD);
-                net_write_varint(&send_cursor, candidate_eid);
-                net_write_ubyte(&send_cursor,
-                        (int) (candidate->player.head_rot_y * 256.0f / 360.0f) & 0xff);
-                finish_packet_and_send(&send_cursor, entity, tick_arena);
-                break;
-            case ENTITY_ITEM: {
-                // begin_packet(&send_cursor, CBP_ADD_MOB);
-                // net_write_varint(&send_cursor, candidate_eid);
-                // // @TODO(traks) appropriate UUID
-                // net_write_ulong(&send_cursor, 0);
-                // net_write_ulong(&send_cursor, 0);
-                // net_write_varint(&send_cursor, ENTITY_SQUID);
-                // net_write_double(&send_cursor, candidate->x);
-                // net_write_double(&send_cursor, candidate->y);
-                // net_write_double(&send_cursor, candidate->z);
-                // net_write_ubyte(&send_cursor, 0);
-                // net_write_ubyte(&send_cursor, 0);
-                // // @TODO(traks) y head rotation (what is that?)
-                // net_write_ubyte(&send_cursor, 0);
-                // // @TODO(traks) entity velocity
-                // net_write_short(&send_cursor, 0);
-                // net_write_short(&send_cursor, 0);
-                // net_write_short(&send_cursor, 0);
-                // finish_packet_and_send(&send_cursor, entity, tick_arena);
-                begin_packet(&send_cursor, CBP_ADD_ENTITY);
-                net_write_varint(&send_cursor, candidate_eid);
-                // @TODO(traks) appropriate UUID
-                net_write_ulong(&send_cursor, 0);
-                net_write_ulong(&send_cursor, candidate_eid);
-                net_write_varint(&send_cursor, candidate->type);
-                net_write_double(&send_cursor, candidate->x);
-                net_write_double(&send_cursor, candidate->y);
-                net_write_double(&send_cursor, candidate->z);
-                // @TODO(traks) x and y rotation
-                net_write_ubyte(&send_cursor, 0);
-                net_write_ubyte(&send_cursor, 0);
-                // @TODO(traks) entity data
-                net_write_int(&send_cursor, 0);
-                // @TODO(traks) velocity
-                net_write_short(&send_cursor, 0);
-                net_write_short(&send_cursor, 0);
-                net_write_short(&send_cursor, 0);
-                finish_packet_and_send(&send_cursor, entity, tick_arena);
-
-                begin_packet(&send_cursor, CBP_SET_ENTITY_DATA);
-                net_write_varint(&send_cursor, candidate_eid);
-
-                net_write_ubyte(&send_cursor, 7); // set item contents
-                net_write_varint(&send_cursor, 6); // data type: item stack
-
-                net_write_ubyte(&send_cursor, 1); // has item
-                item_stack * is = &candidate->item.contents;
-                net_write_varint(&send_cursor, is->type);
-                net_write_ubyte(&send_cursor, is->size);
-                // @TODO(traks) write NBT (currently just a single end tag)
-                net_write_ubyte(&send_cursor, 0);
-
-                net_write_ubyte(&send_cursor, 0xff); // end of entity data
-                finish_packet_and_send(&send_cursor, entity, tick_arena);
-                break;
-            }
-            default:
-                continue;
-            }
-            }
-
-            mc_uint entity_index = candidate_eid & ENTITY_INDEX_MASK;
-            player->tracked_entities[entity_index] = candidate_eid;
+            mc_uint entity_index = candidate->eid & ENTITY_INDEX_MASK;
+            player->tracked_entities[entity_index] = candidate->eid;
         }
     }
 
