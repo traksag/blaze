@@ -940,14 +940,21 @@ chunk_cache_index(chunk_pos pos) {
 
 static void
 begin_packet(buffer_cursor * send_cursor, mc_int id) {
+    if (send_cursor->limit - send_cursor->index < 6) {
+        send_cursor->error = 1;
+        return;
+    }
+
+    send_cursor->mark = send_cursor->index;
+    // reserve space for internal header
+    send_cursor->index += 1;
     // skip some bytes for packet size varint at the start
-    send_cursor->index = 5;
+    send_cursor->index += 5;
     net_write_varint(send_cursor, id);
 }
 
 static void
-finish_packet_and_send(buffer_cursor * send_cursor, entity_base * entity,
-        memory_arena * scratch_arena) {
+finish_packet(buffer_cursor * send_cursor, entity_base * player) {
     // We use the written data to determine the packet size instead of
     // calculating the packet size up front. The major benefit is that
     // calculating the packet size up front is very error prone and requires a
@@ -957,73 +964,26 @@ finish_packet_and_send(buffer_cursor * send_cursor, entity_base * entity,
     // because Mojang decided to encode packet sizes with a variable-size
     // encoding.
 
-    // @TODO(traks) instead of copying the packet to the send buffer each time,
-    // maybe write all packets to a separate buffer, then copy all packets at
-    // once to the send buffer
-    mc_int packet_size = send_cursor->index - 5;
-    mc_int start_index = 5 - net_varint_size(packet_size);
-    send_cursor->index = start_index;
+    if (send_cursor->error != 0) {
+        // @NOTE(traks) the cursor mark may be invalid
+        return;
+    }
+
+    int packet_end = send_cursor->index;
+    send_cursor->index = send_cursor->mark;
+    mc_int packet_size = packet_end - send_cursor->index - 6;
+
+    int size_offset = 5 - net_varint_size(packet_size);
+    int internal_header = size_offset;
+    if (player->flags & PLAYER_PACKET_COMPRESSION) {
+        internal_header |= 0x80;
+    }
+    send_cursor->buf[send_cursor->index] = internal_header;
+    send_cursor->index += 1 + size_offset;
+
     net_write_varint(send_cursor, packet_size);
 
-    entity_player * player = &entity->player;
-
-    buffer_cursor packet_cursor = {
-        .buf = player->send_buf,
-        .limit = player->send_buf_size,
-        .index = player->send_cursor
-    };
-
-    if (entity->flags & PLAYER_PACKET_COMPRESSION) {
-        // @TODO(traks) handle errors properly
-
-        z_stream zstream;
-        zstream.zalloc = Z_NULL;
-        zstream.zfree = Z_NULL;
-        zstream.opaque = Z_NULL;
-
-        if (deflateInit2(&zstream, Z_BEST_COMPRESSION,
-                Z_DEFLATED, 15, 9, Z_DEFAULT_STRATEGY) != Z_OK) {
-            logs("deflateInit failed");
-            return;
-        }
-
-        zstream.next_in = send_cursor->buf + send_cursor->index;
-        zstream.avail_in = send_cursor->limit - send_cursor->index;
-
-        memory_arena temp_arena = *scratch_arena;
-        // @TODO(traks) appropriate value
-        size_t max_compressed_size = 1 << 19;
-        unsigned char * compressed = alloc_in_arena(&temp_arena,
-                max_compressed_size);
-
-        zstream.next_out = compressed;
-        zstream.avail_out = max_compressed_size;
-
-        if (deflate(&zstream, Z_FINISH) != Z_STREAM_END) {
-            logs("Failed to finish deflating packet: %s", zstream.msg);
-            return;
-        }
-
-        if (deflateEnd(&zstream) != Z_OK) {
-            logs("deflateEnd failed");
-            return;
-        }
-
-        if (zstream.avail_in != 0) {
-            logs("Didn't deflate entire packet");
-            return;
-        }
-
-        net_write_varint(&packet_cursor, net_varint_size(packet_size) + zstream.total_out);
-        net_write_varint(&packet_cursor, packet_size);
-        net_write_data(&packet_cursor, compressed, zstream.total_out);
-        player->send_cursor = packet_cursor.index;
-    } else {
-        // @TODO(traks) should check somewhere that no error occurs
-        net_write_data(&packet_cursor, send_cursor->buf + start_index,
-                packet_size + 5 - start_index);
-        player->send_cursor = packet_cursor.index;
-    }
+    send_cursor->index = packet_end;
 }
 
 static void
@@ -1146,7 +1106,7 @@ send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch,
 
     // number of block entities
     net_write_varint(send_cursor, 0);
-    finish_packet_and_send(send_cursor, entity, tick_arena);
+    finish_packet(send_cursor, entity);
 
     end_timed_block();
 }
@@ -1193,7 +1153,7 @@ send_light_update(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch,
             net_write_ubyte(send_cursor, light);
         }
     }
-    finish_packet_and_send(send_cursor, entity, tick_arena);
+    finish_packet(send_cursor, entity);
 
     end_timed_block();
 }
@@ -1655,7 +1615,7 @@ send_tracked_entity_packets(entity_base * player, server * serv,
         net_write_varint(send_cursor, tracked->eid);
         net_write_ubyte(send_cursor,
                 (int) (tracked->player.head_rot_y * 256.0f / 360.0f) & 0xff);
-        finish_packet_and_send(send_cursor, player, tick_arena);
+        finish_packet(send_cursor, player);
         break;
     }
 
@@ -1669,7 +1629,7 @@ send_tracked_entity_packets(entity_base * player, server * serv,
     net_write_ubyte(send_cursor,
             (int) (rot_x * 256.0f / 360.0f) & 0xff);
     net_write_ubyte(send_cursor, !!(tracked->flags & ENTITY_ON_GROUND));
-    finish_packet_and_send(send_cursor, player, tick_arena);
+    finish_packet(send_cursor, player);
 
     // if (tracked->type == ENTITY_ITEM) {
     //     begin_packet(send_cursor, CBP_SET_ENTITY_MOTION);
@@ -1677,7 +1637,7 @@ send_tracked_entity_packets(entity_base * player, server * serv,
     //     net_write_short(send_cursor, CLAMP(tracked->item.vx, -3.9, 3.9) * 8000);
     //     net_write_short(send_cursor, CLAMP(tracked->item.vy, -3.9, 3.9) * 8000);
     //     net_write_short(send_cursor, CLAMP(tracked->item.vz, -3.9, 3.9) * 8000);
-    //     finish_packet_and_send(send_cursor, player, tick_arena);
+    //     finish_packet(send_cursor, player);
     // }
 }
 
@@ -1699,13 +1659,13 @@ send_add_entity_packet(entity_base * player, server * serv,
                 (int) (tracked->player.head_rot_y * 256.0f / 360.0f) & 0xff);
         net_write_ubyte(send_cursor,
                 (int) (tracked->player.head_rot_x * 256.0f / 360.0f) & 0xff);
-        finish_packet_and_send(send_cursor, player, tick_arena);
+        finish_packet(send_cursor, player);
 
         begin_packet(send_cursor, CBP_ROTATE_HEAD);
         net_write_varint(send_cursor, tracked->eid);
         net_write_ubyte(send_cursor,
                 (int) (tracked->player.head_rot_y * 256.0f / 360.0f) & 0xff);
-        finish_packet_and_send(send_cursor, player, tick_arena);
+        finish_packet(send_cursor, player);
         break;
     }
     case ENTITY_ITEM: {
@@ -1726,7 +1686,7 @@ send_add_entity_packet(entity_base * player, server * serv,
         // net_write_short(send_cursor, 0);
         // net_write_short(send_cursor, 0);
         // net_write_short(send_cursor, 0);
-        // finish_packet_and_send(send_cursor, player, tick_arena);
+        // finish_packet(send_cursor, player);
         begin_packet(send_cursor, CBP_ADD_ENTITY);
         net_write_varint(send_cursor, tracked->eid);
         // @TODO(traks) appropriate UUID
@@ -1744,7 +1704,7 @@ send_add_entity_packet(entity_base * player, server * serv,
         net_write_short(send_cursor, CLAMP(tracked->item.vx, -3.9, 3.9) * 8000);
         net_write_short(send_cursor, CLAMP(tracked->item.vy, -3.9, 3.9) * 8000);
         net_write_short(send_cursor, CLAMP(tracked->item.vz, -3.9, 3.9) * 8000);
-        finish_packet_and_send(send_cursor, player, tick_arena);
+        finish_packet(send_cursor, player);
 
         begin_packet(send_cursor, CBP_SET_ENTITY_DATA);
         net_write_varint(send_cursor, tracked->eid);
@@ -1760,7 +1720,7 @@ send_add_entity_packet(entity_base * player, server * serv,
         net_write_ubyte(send_cursor, 0);
 
         net_write_ubyte(send_cursor, 0xff); // end of entity data
-        finish_packet_and_send(send_cursor, player, tick_arena);
+        finish_packet(send_cursor, player);
         break;
     }
     }
@@ -1773,140 +1733,141 @@ send_packets_to_player(entity_base * entity, server * serv,
 
     entity_player * player = &entity->player;
     size_t max_uncompressed_packet_size = 1 << 20;
-    buffer_cursor send_cursor = {
+    buffer_cursor send_cursor_ = {
         .buf = alloc_in_arena(tick_arena, max_uncompressed_packet_size),
         .limit = max_uncompressed_packet_size
     };
+    buffer_cursor * send_cursor = &send_cursor_;
 
     if (!(entity->flags & PLAYER_DID_INIT_PACKETS)) {
         entity->flags |= PLAYER_DID_INIT_PACKETS;
 
         if (PACKET_COMPRESSION_ENABLED) {
             // send login compression packet
-            begin_packet(&send_cursor, 3);
-            net_write_varint(&send_cursor, 0);
-            finish_packet_and_send(&send_cursor, entity, tick_arena);
+            begin_packet(send_cursor, 3);
+            net_write_varint(send_cursor, 0);
+            finish_packet(send_cursor, entity);
 
             entity->flags |= PLAYER_PACKET_COMPRESSION;
         }
 
         // send game profile packet
-        begin_packet(&send_cursor, 2);
-        net_write_ulong(&send_cursor, 0x0123456789abcdef);
-        net_write_ulong(&send_cursor, 0x0123456789abcdef);
+        begin_packet(send_cursor, 2);
+        net_write_ulong(send_cursor, 0x0123456789abcdef);
+        net_write_ulong(send_cursor, 0x0123456789abcdef);
         net_string username = {
             .size = player->username_size,
             .ptr = player->username
         };
-        net_write_string(&send_cursor, username);
-        finish_packet_and_send(&send_cursor, entity, tick_arena);
+        net_write_string(send_cursor, username);
+        finish_packet(send_cursor, entity);
 
         net_string level_name = NET_STRING("blaze:main");
 
-        begin_packet(&send_cursor, CBP_LOGIN);
-        net_write_uint(&send_cursor, player->eid);
-        net_write_ubyte(&send_cursor, 0); // hardcore
-        net_write_ubyte(&send_cursor, player->gamemode); // current gamemode
-        net_write_ubyte(&send_cursor, player->gamemode); // previous gamemode
+        begin_packet(send_cursor, CBP_LOGIN);
+        net_write_uint(send_cursor, player->eid);
+        net_write_ubyte(send_cursor, 0); // hardcore
+        net_write_ubyte(send_cursor, player->gamemode); // current gamemode
+        net_write_ubyte(send_cursor, player->gamemode); // previous gamemode
 
         // all levels/worlds currently available on the server
         // @NOTE(traks) This list is used for tab completions
-        net_write_varint(&send_cursor, 1); // number of levels
-        net_write_string(&send_cursor, level_name);
+        net_write_varint(send_cursor, 1); // number of levels
+        net_write_string(send_cursor, level_name);
 
         // Send all dimension-related NBT data
 
-        nbt_write_key(&send_cursor, NBT_TAG_COMPOUND, NET_STRING(""));
+        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, NET_STRING(""));
 
         // write dimension types
-        nbt_write_key(&send_cursor, NBT_TAG_COMPOUND, NET_STRING("minecraft:dimension_type"));
+        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, NET_STRING("minecraft:dimension_type"));
 
-        nbt_write_key(&send_cursor, NBT_TAG_STRING, NET_STRING("type"));
-        nbt_write_string(&send_cursor, NET_STRING("minecraft:dimension_type"));
+        nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("type"));
+        nbt_write_string(send_cursor, NET_STRING("minecraft:dimension_type"));
 
-        nbt_write_key(&send_cursor, NBT_TAG_LIST, NET_STRING("value"));
-        net_write_ubyte(&send_cursor, NBT_TAG_COMPOUND);
-        net_write_int(&send_cursor, serv->dimension_type_count);
+        nbt_write_key(send_cursor, NBT_TAG_LIST, NET_STRING("value"));
+        net_write_ubyte(send_cursor, NBT_TAG_COMPOUND);
+        net_write_int(send_cursor, serv->dimension_type_count);
         for (int i = 0; i < serv->dimension_type_count; i++) {
             dimension_type * dim_type = serv->dimension_types + i;
 
-            nbt_write_key(&send_cursor, NBT_TAG_STRING, NET_STRING("name"));
+            nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("name"));
             net_string name = {
                 .ptr = dim_type->name,
                 .size = dim_type->name_size
             };
-            nbt_write_string(&send_cursor, name);
+            nbt_write_string(send_cursor, name);
 
-            nbt_write_key(&send_cursor, NBT_TAG_INT, NET_STRING("id"));
-            net_write_int(&send_cursor, i);
+            nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("id"));
+            net_write_int(send_cursor, i);
 
-            nbt_write_key(&send_cursor, NBT_TAG_COMPOUND, NET_STRING("element"));
-            nbt_write_dimension_type(&send_cursor, dim_type);
-            net_write_ubyte(&send_cursor, NBT_TAG_END);
+            nbt_write_key(send_cursor, NBT_TAG_COMPOUND, NET_STRING("element"));
+            nbt_write_dimension_type(send_cursor, dim_type);
+            net_write_ubyte(send_cursor, NBT_TAG_END);
 
-            net_write_ubyte(&send_cursor, NBT_TAG_END);
+            net_write_ubyte(send_cursor, NBT_TAG_END);
         }
 
-        net_write_ubyte(&send_cursor, NBT_TAG_END);
+        net_write_ubyte(send_cursor, NBT_TAG_END);
         // end of dimension types
 
         // write biomes
-        nbt_write_key(&send_cursor, NBT_TAG_COMPOUND, NET_STRING("minecraft:worldgen/biome"));
+        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, NET_STRING("minecraft:worldgen/biome"));
 
-        nbt_write_key(&send_cursor, NBT_TAG_STRING, NET_STRING("type"));
-        nbt_write_string(&send_cursor, NET_STRING("minecraft:worldgen/biome"));
+        nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("type"));
+        nbt_write_string(send_cursor, NET_STRING("minecraft:worldgen/biome"));
 
-        nbt_write_key(&send_cursor, NBT_TAG_LIST, NET_STRING("value"));
-        net_write_ubyte(&send_cursor, NBT_TAG_COMPOUND);
-        net_write_int(&send_cursor, serv->biome_count);
+        nbt_write_key(send_cursor, NBT_TAG_LIST, NET_STRING("value"));
+        net_write_ubyte(send_cursor, NBT_TAG_COMPOUND);
+        net_write_int(send_cursor, serv->biome_count);
         for (int i = 0; i < serv->biome_count; i++) {
             biome * b = serv->biomes + i;
 
-            nbt_write_key(&send_cursor, NBT_TAG_STRING, NET_STRING("name"));
+            nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("name"));
             net_string name = {
                 .ptr = b->name,
                 .size = b->name_size
             };
-            nbt_write_string(&send_cursor, name);
+            nbt_write_string(send_cursor, name);
 
-            nbt_write_key(&send_cursor, NBT_TAG_INT, NET_STRING("id"));
-            net_write_int(&send_cursor, i);
+            nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("id"));
+            net_write_int(send_cursor, i);
 
-            nbt_write_key(&send_cursor, NBT_TAG_COMPOUND, NET_STRING("element"));
-            nbt_write_biome(&send_cursor, b);
-            net_write_ubyte(&send_cursor, NBT_TAG_END);
+            nbt_write_key(send_cursor, NBT_TAG_COMPOUND, NET_STRING("element"));
+            nbt_write_biome(send_cursor, b);
+            net_write_ubyte(send_cursor, NBT_TAG_END);
 
-            net_write_ubyte(&send_cursor, NBT_TAG_END);
+            net_write_ubyte(send_cursor, NBT_TAG_END);
         }
 
-        net_write_ubyte(&send_cursor, NBT_TAG_END);
+        net_write_ubyte(send_cursor, NBT_TAG_END);
         // end of biomes
 
-        net_write_ubyte(&send_cursor, NBT_TAG_END);
+        net_write_ubyte(send_cursor, NBT_TAG_END);
 
         // dimension type NBT data of level player is joining
-        nbt_write_key(&send_cursor, NBT_TAG_COMPOUND, NET_STRING(""));
-        nbt_write_dimension_type(&send_cursor, serv->dimension_types);
-        net_write_ubyte(&send_cursor, NBT_TAG_END);
+        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, NET_STRING(""));
+        nbt_write_dimension_type(send_cursor, serv->dimension_types);
+        net_write_ubyte(send_cursor, NBT_TAG_END);
 
         // level name the player is joining
-        net_write_string(&send_cursor, level_name);
+        net_write_string(send_cursor, level_name);
 
-        net_write_ulong(&send_cursor, 0); // seed
-        net_write_varint(&send_cursor, 0); // max players (ignored by client)
-        net_write_varint(&send_cursor, player->new_chunk_cache_radius - 1);
-        net_write_ubyte(&send_cursor, 0); // reduced debug info
-        net_write_ubyte(&send_cursor, 1); // show death screen on death
-        net_write_ubyte(&send_cursor, 0); // is debug
-        net_write_ubyte(&send_cursor, 0); // is flat
-        finish_packet_and_send(&send_cursor, entity, tick_arena);
+        net_write_ulong(send_cursor, 0); // seed
+        net_write_varint(send_cursor, 0); // max players (ignored by client)
+        net_write_varint(send_cursor, player->new_chunk_cache_radius - 1);
+        net_write_ubyte(send_cursor, 0); // reduced debug info
+        net_write_ubyte(send_cursor, 1); // show death screen on death
+        net_write_ubyte(send_cursor, 0); // is debug
+        net_write_ubyte(send_cursor, 0); // is flat
+        finish_packet(send_cursor, entity);
 
-        begin_packet(&send_cursor, CBP_SET_CARRIED_ITEM);
-        net_write_ubyte(&send_cursor,
+        begin_packet(send_cursor, CBP_SET_CARRIED_ITEM);
+        net_write_ubyte(send_cursor,
                 player->selected_slot - PLAYER_FIRST_HOTBAR_SLOT);
-        finish_packet_and_send(&send_cursor, entity, tick_arena);
+        finish_packet(send_cursor, entity);
 
-        begin_packet(&send_cursor, CBP_UPDATE_TAGS);
+        begin_packet(send_cursor, CBP_UPDATE_TAGS);
 
         // Note that the order of the elements in the array has to match the
         // order of the tag lists in the packet.
@@ -1919,53 +1880,53 @@ send_packets_to_player(entity_base * entity, server * serv,
 
         for (int tagsi = 0; tagsi < ARRAY_SIZE(tag_lists); tagsi++) {
             tag_list * tags = tag_lists[tagsi];
-            net_write_varint(&send_cursor, tags->size);
+            net_write_varint(send_cursor, tags->size);
 
             for (int i = 0; i < tags->size; i++) {
                 tag_spec * tag = tags->tags + i;
                 unsigned char * name_size = serv->tag_name_buf + tag->name_index;
 
-                net_write_varint(&send_cursor, *name_size);
-                net_write_data(&send_cursor, name_size + 1, *name_size);
-                net_write_varint(&send_cursor, tag->value_count);
+                net_write_varint(send_cursor, *name_size);
+                net_write_data(send_cursor, name_size + 1, *name_size);
+                net_write_varint(send_cursor, tag->value_count);
 
                 for (int vali = 0; vali < tag->value_count; vali++) {
                     mc_int val = serv->tag_value_id_buf[tag->values_index + vali];
-                    net_write_varint(&send_cursor, val);
+                    net_write_varint(send_cursor, val);
                 }
             }
         }
-        finish_packet_and_send(&send_cursor, entity, tick_arena);
+        finish_packet(send_cursor, entity);
 
-        begin_packet(&send_cursor, CBP_CUSTOM_PAYLOAD);
+        begin_packet(send_cursor, CBP_CUSTOM_PAYLOAD);
         net_string brand_str = NET_STRING("minecraft:brand");
         net_string brand = NET_STRING("blaze");
-        net_write_string(&send_cursor, brand_str);
-        net_write_string(&send_cursor, brand);
-        finish_packet_and_send(&send_cursor, entity, tick_arena);
+        net_write_string(send_cursor, brand_str);
+        net_write_string(send_cursor, brand);
+        finish_packet(send_cursor, entity);
 
-        begin_packet(&send_cursor, CBP_CHANGE_DIFFICULTY);
-        net_write_ubyte(&send_cursor, 2); // difficulty normal
-        net_write_ubyte(&send_cursor, 0); // locked
-        finish_packet_and_send(&send_cursor, entity, tick_arena);
+        begin_packet(send_cursor, CBP_CHANGE_DIFFICULTY);
+        net_write_ubyte(send_cursor, 2); // difficulty normal
+        net_write_ubyte(send_cursor, 0); // locked
+        finish_packet(send_cursor, entity);
 
-        begin_packet(&send_cursor, CBP_PLAYER_ABILITIES);
+        begin_packet(send_cursor, CBP_PLAYER_ABILITIES);
         // @NOTE(traks) actually need abilities to make creative mode players
         // be able to fly
         // bitmap: invulnerable, (is flying), can fly, instabuild
         mc_ubyte ability_flags = 0x4;
-        net_write_ubyte(&send_cursor, ability_flags);
-        net_write_float(&send_cursor, 0.05); // flying speed
-        net_write_float(&send_cursor, 0.1); // walking speed
-        finish_packet_and_send(&send_cursor, entity, tick_arena);
+        net_write_ubyte(send_cursor, ability_flags);
+        net_write_float(send_cursor, 0.05); // flying speed
+        net_write_float(send_cursor, 0.1); // walking speed
+        finish_packet(send_cursor, entity);
     }
 
     // send keep alive packet every so often
     if (serv->current_tick - player->last_keep_alive_sent_tick >= KEEP_ALIVE_SPACING
             && (entity->flags & PLAYER_GOT_ALIVE_RESPONSE)) {
-        begin_packet(&send_cursor, CBP_KEEP_ALIVE);
-        net_write_ulong(&send_cursor, serv->current_tick);
-        finish_packet_and_send(&send_cursor, entity, tick_arena);
+        begin_packet(send_cursor, CBP_KEEP_ALIVE);
+        net_write_ulong(send_cursor, serv->current_tick);
+        finish_packet(send_cursor, entity);
 
         player->last_keep_alive_sent_tick = serv->current_tick;
         entity->flags &= ~PLAYER_GOT_ALIVE_RESPONSE;
@@ -1973,15 +1934,15 @@ send_packets_to_player(entity_base * entity, server * serv,
 
     if ((entity->flags & ENTITY_TELEPORTING)
             && !(entity->flags & PLAYER_SENT_TELEPORT)) {
-        begin_packet(&send_cursor, CBP_PLAYER_POSITION);
-        net_write_double(&send_cursor, entity->x);
-        net_write_double(&send_cursor, entity->y);
-        net_write_double(&send_cursor, entity->z);
-        net_write_float(&send_cursor, player->head_rot_y);
-        net_write_float(&send_cursor, player->head_rot_x);
-        net_write_ubyte(&send_cursor, 0); // relative arguments
-        net_write_varint(&send_cursor, player->current_teleport_id);
-        finish_packet_and_send(&send_cursor, entity, tick_arena);
+        begin_packet(send_cursor, CBP_PLAYER_POSITION);
+        net_write_double(send_cursor, entity->x);
+        net_write_double(send_cursor, entity->y);
+        net_write_double(send_cursor, entity->z);
+        net_write_float(send_cursor, player->head_rot_y);
+        net_write_float(send_cursor, player->head_rot_x);
+        net_write_ubyte(send_cursor, 0); // relative arguments
+        net_write_varint(send_cursor, player->current_teleport_id);
+        finish_packet(send_cursor, entity);
 
         entity->flags |= PLAYER_SENT_TELEPORT;
     }
@@ -2001,10 +1962,10 @@ send_packets_to_player(entity_base * entity, server * serv,
         mc_ushort block_state = chunk_get_block_state(ch,
                 pos.x & 0xf, pos.y, pos.z & 0xf);
 
-        begin_packet(&send_cursor, CBP_BLOCK_UPDATE);
-        net_write_block_pos(&send_cursor, pos);
-        net_write_varint(&send_cursor, block_state);
-        finish_packet_and_send(&send_cursor, entity, tick_arena);
+        begin_packet(send_cursor, CBP_BLOCK_UPDATE);
+        net_write_block_pos(send_cursor, pos);
+        net_write_varint(send_cursor, block_state);
+        finish_packet(send_cursor, entity);
     }
     player->changed_block_count = 0;
 
@@ -2025,16 +1986,16 @@ send_packets_to_player(entity_base * entity, server * serv,
 
     if (player->chunk_cache_centre_x != new_chunk_cache_centre_x
             || player->chunk_cache_centre_z != new_chunk_cache_centre_z) {
-        begin_packet(&send_cursor, CBP_SET_CHUNK_CACHE_CENTRE);
-        net_write_varint(&send_cursor, new_chunk_cache_centre_x);
-        net_write_varint(&send_cursor, new_chunk_cache_centre_z);
-        finish_packet_and_send(&send_cursor, entity, tick_arena);
+        begin_packet(send_cursor, CBP_SET_CHUNK_CACHE_CENTRE);
+        net_write_varint(send_cursor, new_chunk_cache_centre_x);
+        net_write_varint(send_cursor, new_chunk_cache_centre_z);
+        finish_packet(send_cursor, entity);
     }
 
     if (player->chunk_cache_radius != player->new_chunk_cache_radius) {
-        begin_packet(&send_cursor, CBP_SET_CHUNK_CACHE_RADIUS);
-        net_write_varint(&send_cursor, player->new_chunk_cache_radius);
-        finish_packet_and_send(&send_cursor, entity, tick_arena);
+        begin_packet(send_cursor, CBP_SET_CHUNK_CACHE_RADIUS);
+        net_write_varint(send_cursor, player->new_chunk_cache_radius);
+        finish_packet(send_cursor, entity);
     }
 
     // untrack old chunks
@@ -2074,15 +2035,15 @@ send_packets_to_player(entity_base * entity, server * serv,
                         continue;
                     }
 
-                    begin_packet(&send_cursor, CBP_SECTION_BLOCKS_UPDATE);
+                    begin_packet(send_cursor, CBP_SECTION_BLOCKS_UPDATE);
                     mc_ulong section_pos =
                             ((mc_ulong) (x & 0x3fffff) << 42)
                             | ((mc_ulong) (z & 0x3fffff) << 20)
                             | (mc_ulong) (section & 0xfffff);
-                    net_write_ulong(&send_cursor, section_pos);
+                    net_write_ulong(send_cursor, section_pos);
                     // @TODO(traks) appropriate value for this
-                    net_write_ubyte(&send_cursor, 1); // suppress light updates
-                    net_write_varint(&send_cursor, sec_changed_block_count);
+                    net_write_ubyte(send_cursor, 1); // suppress light updates
+                    net_write_varint(send_cursor, sec_changed_block_count);
 
                     for (int i = 0; i < sec_changed_block_count; i++) {
                         compact_chunk_block_pos pos = sec_changed_blocks[i];
@@ -2090,9 +2051,9 @@ send_packets_to_player(entity_base * entity, server * serv,
                                 pos.x, pos.y, pos.z);
                         mc_long encoded = (block_state << 12)
                                 | (pos.x << 8) | (pos.z << 4) | (pos.y & 0xf);
-                        net_write_varlong(&send_cursor, encoded);
+                        net_write_varlong(send_cursor, encoded);
                     }
-                    finish_packet_and_send(&send_cursor, entity, tick_arena);
+                    finish_packet(send_cursor, entity);
                 }
 
                 continue;
@@ -2106,10 +2067,10 @@ send_packets_to_player(entity_base * entity, server * serv,
             if (player->chunk_cache[index].sent) {
                 player->chunk_cache[index] = (chunk_cache_entry) {0};
 
-                begin_packet(&send_cursor, CBP_FORGET_LEVEL_CHUNK);
-                net_write_int(&send_cursor, x);
-                net_write_int(&send_cursor, z);
-                finish_packet_and_send(&send_cursor, entity, tick_arena);
+                begin_packet(send_cursor, CBP_FORGET_LEVEL_CHUNK);
+                net_write_int(send_cursor, x);
+                net_write_int(send_cursor, z);
+                finish_packet(send_cursor, entity);
             }
         }
     }
@@ -2175,8 +2136,8 @@ send_packets_to_player(entity_base * entity, server * serv,
             chunk * ch = get_chunk_if_loaded(pos);
             if (ch != NULL) {
                 // send chunk blocks and lighting
-                send_chunk_fully(&send_cursor, pos, ch, entity, tick_arena);
-                send_light_update(&send_cursor, pos, ch, entity, tick_arena);
+                send_chunk_fully(send_cursor, pos, ch, entity, tick_arena);
+                send_light_update(send_cursor, pos, ch, entity, tick_arena);
                 entry->sent = 1;
                 newly_sent_chunks++;
             }
@@ -2206,20 +2167,20 @@ send_packets_to_player(entity_base * entity, server * serv,
         logs("Sending slot update for %d", i);
         item_stack * is = player->slots + i;
 
-        begin_packet(&send_cursor, CBP_CONTAINER_SET_SLOT);
-        net_write_ubyte(&send_cursor, 0); // inventory id
-        net_write_ushort(&send_cursor, i);
+        begin_packet(send_cursor, CBP_CONTAINER_SET_SLOT);
+        net_write_ubyte(send_cursor, 0); // inventory id
+        net_write_ushort(send_cursor, i);
 
         if (is->type == 0) {
-            net_write_ubyte(&send_cursor, 0); // has item
+            net_write_ubyte(send_cursor, 0); // has item
         } else {
-            net_write_ubyte(&send_cursor, 1); // has item
-            net_write_varint(&send_cursor, is->type);
-            net_write_ubyte(&send_cursor, is->size);
+            net_write_ubyte(send_cursor, 1); // has item
+            net_write_varint(send_cursor, is->type);
+            net_write_ubyte(send_cursor, is->size);
             // @TODO(traks) write NBT (currently just a single end tag)
-            net_write_ubyte(&send_cursor, 0);
+            net_write_ubyte(send_cursor, 0);
         }
-        finish_packet_and_send(&send_cursor, entity, tick_arena);
+        finish_packet(send_cursor, entity);
     }
 
     player->slots_needing_update = 0;
@@ -2233,66 +2194,66 @@ send_packets_to_player(entity_base * entity, server * serv,
     if (!(entity->flags & PLAYER_INITIALISED_TAB_LIST)) {
         entity->flags |= PLAYER_INITIALISED_TAB_LIST;
         if (serv->tab_list_size > 0) {
-            begin_packet(&send_cursor, CBP_PLAYER_INFO);
-            net_write_varint(&send_cursor, 0); // action: add
-            net_write_varint(&send_cursor, serv->tab_list_size);
+            begin_packet(send_cursor, CBP_PLAYER_INFO);
+            net_write_varint(send_cursor, 0); // action: add
+            net_write_varint(send_cursor, serv->tab_list_size);
 
             for (int i = 0; i < serv->tab_list_size; i++) {
                 tab_list_entry * entry = serv->tab_list + i;
                 entity_base * entity = resolve_entity(serv, entry->eid);
                 assert(entity->type == ENTITY_PLAYER);
                 // @TODO(traks) write UUID
-                net_write_ulong(&send_cursor, 0);
-                net_write_ulong(&send_cursor, entry->eid);
+                net_write_ulong(send_cursor, 0);
+                net_write_ulong(send_cursor, entry->eid);
                 net_string username = {
                     .ptr = player->username,
                     .size = player->username_size
                 };
-                net_write_string(&send_cursor, username);
-                net_write_varint(&send_cursor, 0); // num properties
-                net_write_varint(&send_cursor, player->gamemode);
-                net_write_varint(&send_cursor, 0); // latency
-                net_write_ubyte(&send_cursor, 0); // has display name
+                net_write_string(send_cursor, username);
+                net_write_varint(send_cursor, 0); // num properties
+                net_write_varint(send_cursor, player->gamemode);
+                net_write_varint(send_cursor, 0); // latency
+                net_write_ubyte(send_cursor, 0); // has display name
             }
-            finish_packet_and_send(&send_cursor, entity, tick_arena);
+            finish_packet(send_cursor, entity);
         }
     } else {
         if (serv->tab_list_removed_count > 0) {
-            begin_packet(&send_cursor, CBP_PLAYER_INFO);
-            net_write_varint(&send_cursor, 4); // action: remove
-            net_write_varint(&send_cursor, serv->tab_list_removed_count);
+            begin_packet(send_cursor, CBP_PLAYER_INFO);
+            net_write_varint(send_cursor, 4); // action: remove
+            net_write_varint(send_cursor, serv->tab_list_removed_count);
 
             for (int i = 0; i < serv->tab_list_removed_count; i++) {
                 tab_list_entry * entry = serv->tab_list_removed + i;
                 // @TODO(traks) write UUID
-                net_write_ulong(&send_cursor, 0);
-                net_write_ulong(&send_cursor, entry->eid);
+                net_write_ulong(send_cursor, 0);
+                net_write_ulong(send_cursor, entry->eid);
             }
-            finish_packet_and_send(&send_cursor, entity, tick_arena);
+            finish_packet(send_cursor, entity);
         }
         if (serv->tab_list_added_count > 0) {
-            begin_packet(&send_cursor, CBP_PLAYER_INFO);
-            net_write_varint(&send_cursor, 0); // action: add
-            net_write_varint(&send_cursor, serv->tab_list_added_count);
+            begin_packet(send_cursor, CBP_PLAYER_INFO);
+            net_write_varint(send_cursor, 0); // action: add
+            net_write_varint(send_cursor, serv->tab_list_added_count);
 
             for (int i = 0; i < serv->tab_list_added_count; i++) {
                 tab_list_entry * entry = serv->tab_list_added + i;
                 entity_base * entity = resolve_entity(serv, entry->eid);
                 assert(entity->type == ENTITY_PLAYER);
                 // @TODO(traks) write UUID
-                net_write_ulong(&send_cursor, 0);
-                net_write_ulong(&send_cursor, entry->eid);
+                net_write_ulong(send_cursor, 0);
+                net_write_ulong(send_cursor, entry->eid);
                 net_string username = {
                     .ptr = player->username,
                     .size = player->username_size
                 };
-                net_write_string(&send_cursor, username);
-                net_write_varint(&send_cursor, 0); // num properties
-                net_write_varint(&send_cursor, player->gamemode);
-                net_write_varint(&send_cursor, 0); // latency
-                net_write_ubyte(&send_cursor, 0); // has display name
+                net_write_string(send_cursor, username);
+                net_write_varint(send_cursor, 0); // num properties
+                net_write_varint(send_cursor, player->gamemode);
+                net_write_varint(send_cursor, 0); // latency
+                net_write_ubyte(send_cursor, 0); // has display name
             }
-            finish_packet_and_send(&send_cursor, entity, tick_arena);
+            finish_packet(send_cursor, entity);
         }
     }
 
@@ -2318,7 +2279,7 @@ send_packets_to_player(entity_base * entity, server * serv,
                 double dz = candidate->z - entity->z;
                 if (dx * dx + dy * dy + dz * dz < 45 * 45) {
                     send_tracked_entity_packets(entity, serv,
-                            &send_cursor, tick_arena, candidate);
+                            send_cursor, tick_arena, candidate);
                     continue;
                 }
             }
@@ -2346,7 +2307,7 @@ send_packets_to_player(entity_base * entity, server * serv,
             }
 
             send_add_entity_packet(entity, serv,
-                    &send_cursor, tick_arena, candidate);
+                    send_cursor, tick_arena, candidate);
 
             mc_uint entity_index = candidate->eid & ENTITY_INDEX_MASK;
             player->tracked_entities[entity_index] = candidate->eid;
@@ -2354,12 +2315,12 @@ send_packets_to_player(entity_base * entity, server * serv,
     }
 
     if (removed_entity_count > 0) {
-        begin_packet(&send_cursor, CBP_REMOVE_ENTITIES);
-        net_write_varint(&send_cursor, removed_entity_count);
+        begin_packet(send_cursor, CBP_REMOVE_ENTITIES);
+        net_write_varint(send_cursor, removed_entity_count);
         for (int i = 0; i < removed_entity_count; i++) {
-            net_write_varint(&send_cursor, removed_entities[i]);
+            net_write_varint(send_cursor, removed_entities[i]);
         }
-        finish_packet_and_send(&send_cursor, entity, tick_arena);
+        finish_packet(send_cursor, entity);
     }
 
     end_timed_block();
@@ -2391,27 +2352,111 @@ send_packets_to_player(entity_base * entity, server * serv,
         memcpy(buf + buf_index, suffix.ptr, suffix.size);
         buf_index += suffix.size;
 
-        begin_packet(&send_cursor, CBP_CHAT);
-        net_write_varint(&send_cursor, buf_index);
-        net_write_data(&send_cursor, buf, buf_index);
-        net_write_ubyte(&send_cursor, 0); // chat box position
+        begin_packet(send_cursor, CBP_CHAT);
+        net_write_varint(send_cursor, buf_index);
+        net_write_data(send_cursor, buf, buf_index);
+        net_write_ubyte(send_cursor, 0); // chat box position
         // @TODO(traks) write sender UUID. If UUID equals 0, client displays it
         // regardless of client settings
-        net_write_ulong(&send_cursor, 0);
-        net_write_ulong(&send_cursor, 0);
-        finish_packet_and_send(&send_cursor, entity, tick_arena);
+        net_write_ulong(send_cursor, 0);
+        net_write_ulong(send_cursor, 0);
+        finish_packet(send_cursor, entity);
     }
 
     end_timed_block();
 
     // try to write everything to the socket buffer
 
-    assert(send_cursor.error == 0);
+    if (send_cursor->error != 0) {
+        // @TODO(traks) send disconnect message
+        logs("Failed to create packets");
+        disconnect_player_now(entity, serv);
+        return;
+    }
 
-    int sock = player->sock;
+    begin_timed_block("finalise packets");
+
+    send_cursor->limit = send_cursor->index;
+    send_cursor->index = 0;
+    while (send_cursor->index != send_cursor->limit) {
+        int internal_header = send_cursor->buf[send_cursor->index];
+        int size_offset = internal_header & 0x7;
+        int should_compress = internal_header & 0x80;
+
+        send_cursor->index += 1 + size_offset;
+
+        int packet_start = send_cursor->index;
+        mc_int packet_size = net_read_varint(send_cursor);
+        int packet_end = send_cursor->index + packet_size;
+
+        buffer_cursor packet_cursor = {
+            .buf = player->send_buf,
+            .limit = player->send_buf_size,
+            .index = player->send_cursor
+        };
+
+        if (should_compress) {
+            // @TODO(traks) handle errors properly
+
+            z_stream zstream;
+            zstream.zalloc = Z_NULL;
+            zstream.zfree = Z_NULL;
+            zstream.opaque = Z_NULL;
+
+            if (deflateInit(&zstream, Z_DEFAULT_COMPRESSION) != Z_OK) {
+                logs("deflateInit failed");
+                disconnect_player_now(entity, serv);
+                return;
+            }
+
+            zstream.next_in = send_cursor->buf + send_cursor->index;
+            zstream.avail_in = packet_end - send_cursor->index;
+
+            memory_arena temp_arena = *tick_arena;
+            // @TODO(traks) appropriate value
+            size_t max_compressed_size = 1 << 19;
+            unsigned char * compressed = alloc_in_arena(&temp_arena,
+                    max_compressed_size);
+
+            zstream.next_out = compressed;
+            zstream.avail_out = max_compressed_size;
+
+            if (deflate(&zstream, Z_FINISH) != Z_STREAM_END) {
+                logs("Failed to finish deflating packet: %s", zstream.msg);
+                disconnect_player_now(entity, serv);
+                return;
+            }
+
+            if (deflateEnd(&zstream) != Z_OK) {
+                logs("deflateEnd failed");
+                disconnect_player_now(entity, serv);
+                return;
+            }
+
+            if (zstream.avail_in != 0) {
+                logs("Didn't deflate entire packet");
+                disconnect_player_now(entity, serv);
+                return;
+            }
+
+            net_write_varint(&packet_cursor, net_varint_size(packet_size) + zstream.total_out);
+            net_write_varint(&packet_cursor, packet_size);
+            net_write_data(&packet_cursor, compressed, zstream.total_out);
+            player->send_cursor = packet_cursor.index;
+        } else {
+            // @TODO(traks) should check somewhere that no error occurs
+            net_write_data(&packet_cursor, send_cursor->buf + packet_start,
+                    packet_end - packet_start);
+            player->send_cursor = packet_cursor.index;
+        }
+
+        send_cursor->index = packet_end;
+    }
+
+    end_timed_block();
 
     begin_timed_block("send()");
-    ssize_t send_size = send(sock, player->send_buf,
+    ssize_t send_size = send(player->sock, player->send_buf,
             player->send_cursor, 0);
     end_timed_block();
 

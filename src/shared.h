@@ -50,6 +50,7 @@ typedef struct {
     int limit;
     int index;
     int error;
+    int mark;
 } buffer_cursor;
 
 #define NET_STRING(x) ((net_string) {.size = sizeof (x) - 1, .ptr = (x)})
