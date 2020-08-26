@@ -1683,8 +1683,8 @@ update_tracked_entity(entity_base * player, server * serv,
         buffer_cursor * send_cursor, memory_arena * tick_arena,
         tracked_entity * tracked, entity_base * entity) {
     double dx = entity->x - tracked->last_sent_x;
-    double dy = entity->x - tracked->last_sent_y;
-    double dz = entity->x - tracked->last_sent_z;
+    double dy = entity->y - tracked->last_sent_y;
+    double dz = entity->z - tracked->last_sent_z;
     // @TODO(traks) better epsilons
     double dmax = 32767.0 / 4096.0 - 0.001;
     double dmin = -32768.0 / 4096.0 + 0.001;
@@ -1749,12 +1749,14 @@ update_tracked_entity(entity_base * player, server * serv,
 
         sent_pos = 1;
         sent_rot = 1;
+        tracked->last_tp_packet_tick = serv->current_tick;
     }
 
     if (sent_pos) {
         tracked->last_sent_x = entity->x;
         tracked->last_sent_y = entity->y;
         tracked->last_sent_z = entity->z;
+        tracked->last_send_pos_tick = serv->current_tick;
     }
     if (sent_rot) {
         tracked->last_sent_rot_x = encoded_rot_x;
