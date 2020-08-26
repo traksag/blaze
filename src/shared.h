@@ -2105,6 +2105,54 @@ enum entity_type {
 static_assert(MAX_ENTITIES <= (1UL << 20), "MAX_ENTITIES too large");
 typedef mc_uint entity_id;
 
+// in network order
+enum entity_pose {
+    ENTITY_POSE_STANDING,
+    ENTITY_POSE_FALL_FLYING,
+    ENTITY_POSE_SLEEPING,
+    ENTITY_POSE_SWIMMING,
+    ENTITY_POSE_SPIN_ATTACK,
+    ENTITY_POSE_CROUCHING,
+    ENTITY_POSE_DYING,
+};
+
+enum entity_data_type {
+    ENTITY_DATA_TYPE_BYTE,
+    ENTITY_DATA_TYPE_INT,
+    ENTITY_DATA_TYPE_FLOAT,
+    ENTITY_DATA_TYPE_STRING,
+    ENTITY_DATA_TYPE_COMPONENT,
+    ENTITY_DATA_TYPE_OPTIONAL_COMPONENT,
+    ENTITY_DATA_TYPE_ITEM_STACK,
+    ENTITY_DATA_TYPE_BOOL,
+    ENTITY_DATA_TYPE_ROTATIONS,
+    ENTITY_DATA_TYPE_BLOCK_POS,
+    ENTITY_DATA_TYPE_OPTIONAL_BLOCK_POS,
+    ENTITY_DATA_TYPE_DIRECTION,
+    ENTITY_DATA_TYPE_OPTIONAL_UUID,
+    ENTITY_DATA_TYPE_BLOCK_STATE,
+    ENTITY_DATA_TYPE_NBT,
+    ENTITY_DATA_TYPE_PARTICLE,
+    ENTITY_DATA_TYPE_VILLAGER_DATA,
+    ENTITY_DATA_TYPE_OPTIONAL_UINT,
+    ENTITY_DATA_TYPE_POSE,
+};
+
+enum entity_data {
+    ENTITY_DATA_FLAGS,
+    ENTITY_DATA_AIR_SUPPLY,
+    ENTITY_DATA_CUSTOM_NAME,
+    ENTITY_DATA_CUSTOM_NAME_VISIBLE,
+    ENTITY_DATA_SILENT,
+    ENTITY_DATA_NO_GRAVITY,
+    ENTITY_DATA_POSE,
+    ENTITY_BASE_DATA_NEXT,
+
+    // item entity data
+    ENTITY_DATA_ITEM = ENTITY_BASE_DATA_NEXT,
+};
+
+
 // Player inventory slots are indexed as follows:
 //
 //  0           the crafting grid result slot
@@ -2125,6 +2173,22 @@ typedef struct {
 } chunk_cache_entry;
 
 typedef struct {
+    entity_id eid;
+
+    mc_long last_tp_packet_tick;
+    mc_long last_send_pos_tick;
+
+    double last_sent_x;
+    double last_sent_y;
+    double last_sent_z;
+
+    // these are always 0 for some entities
+    unsigned char last_sent_rot_x;
+    unsigned char last_sent_rot_y;
+    unsigned char last_sent_head_rot_y;
+} tracked_entity;
+
+typedef struct {
     unsigned char username[16];
     int username_size;
 
@@ -2140,10 +2204,6 @@ typedef struct {
     // players. The client determines the body rotation based on the player's
     // movement and their head rotation. However, we do need to send a players
     // head rotation using the designated packet, otherwise heads won't rotate.
-    // @NOTE(traks) these values shouldn't exceed the range [0, 360] by too
-    // much, otherwise float -> integer conversion errors may occur.
-    float head_rot_x;
-    float head_rot_y;
 
     int sock;
     unsigned char * rec_buf;
@@ -2173,25 +2233,20 @@ typedef struct {
     mc_ubyte model_customisation;
     mc_int main_hand;
 
-    mc_ulong last_keep_alive_sent_tick;
+    mc_long last_keep_alive_sent_tick;
 
     entity_id eid;
 
     // @TODO(traks) this feels a bit silly, but very simple
-    entity_id tracked_entities[MAX_ENTITIES];
+    tracked_entity tracked_entities[MAX_ENTITIES];
 
     net_block_pos changed_blocks[8];
     mc_ubyte changed_block_count;
 } entity_player;
 
 typedef struct {
+    // entity data
     item_stack contents;
-
-    // velocity
-    double vx;
-    double vy;
-    double vz;
-
     // minecraft calls this pickup delay. If equal to 32767, this item can't
     // ever be picked up (by players, foxes, etc.)
     mc_short pickup_timeout;
@@ -2202,6 +2257,16 @@ typedef struct {
 #define ENTITY_TELEPORTING ((unsigned) (1 << 1))
 
 #define ENTITY_ON_GROUND ((unsigned) (1 << 2))
+
+#define ENTITY_CUSTOM_NAME_VISIBLE ((unsigned) (1 << 3))
+
+#define ENTITY_NO_GRAVITY ((unsigned) (1 << 4))
+
+#define ENTITY_SILENT ((unsigned) (1 << 5))
+
+#define ENTITY_GLOWING ((unsigned) (1 << 6))
+
+#define ENTITY_INVISIBLE ((unsigned) (1 << 7))
 
 #define PLAYER_DID_INIT_PACKETS ((unsigned) (1 << 16))
 
@@ -2218,14 +2283,32 @@ typedef struct {
 #define PLAYER_PACKET_COMPRESSION ((unsigned) (1 << 22))
 
 typedef struct {
+    entity_id eid;
+    unsigned type;
+
     // centre of bottom of entity's bounding box
     double x;
     double y;
     double z;
 
-    entity_id eid;
+    // for players the head rotation
+    // not used for items
+
+    // @NOTE(traks) these values shouldn't exceed the range [0, 360] by too
+    // much, otherwise float -> integer conversion errors may occur.
+    float rot_x;
+    float rot_y;
+
+    // velocity, not used for players
+    double vx;
+    double vy;
+    double vz;
+
+    // entity data
     unsigned flags;
-    unsigned type;
+    mc_int air_supply;
+    unsigned char pose;
+    mc_uint changed_data;
 
     union {
         entity_player player;
@@ -2416,7 +2499,7 @@ typedef struct {
 } biome;
 
 typedef struct {
-    unsigned long long current_tick;
+    mc_long current_tick;
 
     entity_base entities[MAX_ENTITIES];
     mc_ushort next_entity_generations[MAX_ENTITIES];

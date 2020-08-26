@@ -369,6 +369,10 @@ evict_entity(server * serv, entity_id eid) {
 
 static void
 tick_entity(entity_base * entity, server * serv, memory_arena * tick_arena) {
+    // @TODO(traks) currently it's possible that an entity is spawned and ticked
+    // the same tick. Is that an issue or not? Maybe that causes undesirable
+    // off-by-one tick behaviour.
+
     switch (entity->type) {
     case ENTITY_PLAYER:
         tick_player(entity, serv, tick_arena);
@@ -385,11 +389,11 @@ tick_entity(entity_base * entity, server * serv, memory_arena * tick_arena) {
         }
 
         // gravity acceleration
-        entity->item.vy -= 0.04;
+        entity->vy -= 0.04;
 
-        entity->x += entity->item.vx;
-        entity->y += entity->item.vy;
-        entity->z += entity->item.vz;
+        entity->x += entity->vx;
+        entity->y += entity->vy;
+        entity->z += entity->vz;
         break;
     }
     }

@@ -445,7 +445,7 @@ place_leaves(server * serv, net_block_pos clicked_pos,
 }
 
 static void
-place_horizontal_facing(server * serv, entity_base * entity,
+place_horizontal_facing(server * serv, entity_base * player,
         net_block_pos clicked_pos, mc_int clicked_face, mc_int place_type) {
     place_target target = determine_place_target(serv,
             clicked_pos, clicked_face, place_type);
@@ -456,7 +456,7 @@ place_horizontal_facing(server * serv, entity_base * entity,
     mc_ushort place_state = serv->block_properties_table[place_type].base_state;
 
     // facing direction is opposite of player facing direction
-    float rot_y = entity->player.head_rot_y;
+    float rot_y = player->rot_y;
     int int_rot = (int) floor(rot_y / 90.0f + 0.5f) & 0x3;
     switch (int_rot) {
     case 0: // +Z = south
@@ -478,7 +478,7 @@ place_horizontal_facing(server * serv, entity_base * entity,
 }
 
 static void
-place_end_portal_frame(server * serv, entity_base * entity,
+place_end_portal_frame(server * serv, entity_base * player,
         net_block_pos clicked_pos, mc_int clicked_face, mc_int place_type) {
     place_target target = determine_place_target(serv,
             clicked_pos, clicked_face, place_type);
@@ -489,7 +489,7 @@ place_end_portal_frame(server * serv, entity_base * entity,
     mc_ushort place_state = serv->block_properties_table[place_type].base_state;
 
     // facing direction is opposite of player facing direction
-    float rot_y = entity->player.head_rot_y;
+    float rot_y = player->rot_y;
     int int_rot = (int) floor(rot_y / 90.0f + 0.5f) & 0x3;
     switch (int_rot) {
     case 0: // +Z = south
