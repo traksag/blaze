@@ -2112,7 +2112,7 @@ enum entity_pose {
     ENTITY_POSE_SLEEPING,
     ENTITY_POSE_SWIMMING,
     ENTITY_POSE_SPIN_ATTACK,
-    ENTITY_POSE_CROUCHING,
+    ENTITY_POSE_SHIFTING,
     ENTITY_POSE_DYING,
 };
 
@@ -2146,10 +2146,28 @@ enum entity_data {
     ENTITY_DATA_SILENT,
     ENTITY_DATA_NO_GRAVITY,
     ENTITY_DATA_POSE,
-    ENTITY_BASE_DATA_NEXT,
+    ENTITY_DATA_BASE_NEXT,
+
+    // living entity data
+    ENTITY_DATA_LIVING_FLAGS = ENTITY_DATA_BASE_NEXT,
+    ENTITY_DATA_HEALTH,
+    ENTITY_DATA_EFFECT_COLOUR,
+    ENTITY_DATA_EFFECT_AMBIENCE,
+    ENTITY_DATA_ARROW_COUNT,
+    ENTITY_DATA_BEE_STINGER_COUNT,
+    ENTITY_DATA_SLEEPING_POS,
+    ENTITY_DATA_LIVING_NEXT,
 
     // item entity data
-    ENTITY_DATA_ITEM = ENTITY_BASE_DATA_NEXT,
+    ENTITY_DATA_ITEM = ENTITY_DATA_BASE_NEXT,
+
+    // player data
+    ENTITY_DATA_ABSORPTION = ENTITY_DATA_LIVING_NEXT,
+    ENTITY_DATA_SCORE,
+    ENTITY_DATA_MODEL_CUSTOMISATION,
+    ENTITY_DATA_MAIN_HAND,
+    ENTITY_DATA_LEFT_SHOULDER_ENTITY,
+    ENTITY_DATA_RIGHT_SHOULDER_ENTITY,
 };
 
 
@@ -2253,34 +2271,30 @@ typedef struct {
 } entity_item;
 
 #define ENTITY_IN_USE ((unsigned) (1 << 0))
-
 #define ENTITY_TELEPORTING ((unsigned) (1 << 1))
-
 #define ENTITY_ON_GROUND ((unsigned) (1 << 2))
-
 #define ENTITY_CUSTOM_NAME_VISIBLE ((unsigned) (1 << 3))
-
 #define ENTITY_NO_GRAVITY ((unsigned) (1 << 4))
-
 #define ENTITY_SILENT ((unsigned) (1 << 5))
-
 #define ENTITY_GLOWING ((unsigned) (1 << 6))
-
 #define ENTITY_INVISIBLE ((unsigned) (1 << 7))
+#define ENTITY_INVULNERABLE ((unsigned) (1 << 8))
 
 #define PLAYER_DID_INIT_PACKETS ((unsigned) (1 << 16))
-
 #define PLAYER_SENT_TELEPORT ((unsigned) (1 << 17))
-
 #define PLAYER_GOT_ALIVE_RESPONSE ((unsigned) (1 << 18))
-
 #define PLAYER_SHIFTING ((unsigned) (1 << 19))
-
 #define PLAYER_SPRINTING ((unsigned) (1 << 20))
-
 #define PLAYER_INITIALISED_TAB_LIST ((unsigned) (1 << 21))
-
 #define PLAYER_PACKET_COMPRESSION ((unsigned) (1 << 22))
+#define PLAYER_SPIN_ATTACKING ((unsigned) (1 << 23))
+#define PLAYER_FLYING ((unsigned) (1 << 24))
+#define PLAYER_CAN_FLY ((unsigned) (1 << 25))
+#define PLAYER_INSTABUILD ((unsigned) (1 << 26))
+#define PLAYER_CAN_BUILD ((unsigned) (1 << 27))
+
+#define PLAYER_ABILITIES_CHANGED ((mc_ulong) (1ULL << 32))
+#define PLAYER_GAMEMODE_CHANGED ((mc_ulong) (1ULL << 33))
 
 typedef struct {
     entity_id eid;
@@ -2304,11 +2318,15 @@ typedef struct {
     double vy;
     double vz;
 
+    // Bottom 32 bits for changed entity data: bit position equals entity data
+    // id. Top 32 bits for other things. This is used to send packets with the
+    // most up-to-date data.
+    mc_ulong changed_data;
+
     // entity data
     unsigned flags;
     mc_int air_supply;
     unsigned char pose;
-    mc_uint changed_data;
 
     union {
         entity_player player;
@@ -2723,6 +2741,9 @@ void
 teleport_player(entity_base * entity,
         double new_x, double new_y, double new_z,
         float new_rot_x, float new_rot_y);
+
+void
+set_player_gamemode(entity_base * player, int new_gamemode);
 
 void
 tick_player(entity_base * entity, server * serv,

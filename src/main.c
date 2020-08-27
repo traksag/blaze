@@ -731,7 +731,7 @@ server_tick(server * serv) {
                 player->last_keep_alive_sent_tick = serv->current_tick;
                 entity->flags |= PLAYER_GOT_ALIVE_RESPONSE;
                 player->selected_slot = PLAYER_FIRST_HOTBAR_SLOT;
-                player->gamemode = GAMEMODE_CREATIVE;
+                set_player_gamemode(entity, GAMEMODE_CREATIVE);
 
                 teleport_player(entity, 88, 70, 73, 0, 0);
 
@@ -824,6 +824,19 @@ server_tick(server * serv) {
     // clear tab list updates
     serv->tab_list_added_count = 0;
     serv->tab_list_removed_count = 0;
+
+    begin_timed_block("clear entity changes");
+
+    for (int i = 0; i < ARRAY_SIZE(serv->entities); i++) {
+        entity_base * entity = serv->entities + i;
+        if ((entity->flags & ENTITY_IN_USE) == 0) {
+            continue;
+        }
+
+        entity->changed_data = 0;
+    }
+
+    end_timed_block();
 
     // load chunks from requests
     begin_timed_block("load chunks");

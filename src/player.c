@@ -186,6 +186,52 @@ teleport_player(entity_base * entity,
     entity->rot_y = new_rot_y;
 }
 
+void
+set_player_gamemode(entity_base * player, int new_gamemode) {
+    if (player->player.gamemode != new_gamemode) {
+        player->changed_data |= PLAYER_GAMEMODE_CHANGED;
+    }
+
+    player->player.gamemode = new_gamemode;
+    unsigned old_flags = player->flags;
+
+    switch (new_gamemode) {
+    case GAMEMODE_SURVIVAL:
+        player->flags &= ~PLAYER_FLYING;
+        player->flags &= ~PLAYER_CAN_FLY;
+        player->flags &= ~PLAYER_INSTABUILD;
+        player->flags &= ~ENTITY_INVULNERABLE;
+        player->flags |= PLAYER_CAN_BUILD;
+        break;
+    case GAMEMODE_CREATIVE:
+        // @NOTE(traks) actually need abilities to make creative mode players
+        // able to fly
+        player->flags |= PLAYER_CAN_FLY;
+        player->flags |= PLAYER_INSTABUILD;
+        player->flags |= ENTITY_INVULNERABLE;
+        player->flags |= PLAYER_CAN_BUILD;
+        break;
+    case GAMEMODE_ADVENTURE:
+        player->flags &= ~PLAYER_FLYING;
+        player->flags &= ~PLAYER_CAN_FLY;
+        player->flags &= ~PLAYER_INSTABUILD;
+        player->flags &= ~ENTITY_INVULNERABLE;
+        player->flags |= PLAYER_CAN_BUILD;
+        break;
+    case GAMEMODE_SPECTATOR:
+        player->flags |= PLAYER_FLYING;
+        player->flags |= PLAYER_CAN_FLY;
+        player->flags &= ~PLAYER_INSTABUILD;
+        player->flags |= ENTITY_INVULNERABLE;
+        player->flags &= ~PLAYER_CAN_BUILD;
+        break;
+    }
+
+    if (old_flags != player->flags) {
+        player->changed_data |= PLAYER_ABILITIES_CHANGED;
+    }
+}
+
 static void
 process_move_player_packet(entity_base * player,
         double new_x, double new_y, double new_z,
@@ -572,7 +618,15 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
         logs("Packet player abilities");
         mc_ubyte flags = net_read_ubyte(rec_cursor);
         mc_ubyte flying = flags & 0x2;
-        // @TODO(traks) process packet
+        if (flying) {
+            if (entity->flags & PLAYER_CAN_FLY) {
+                entity->flags |= PLAYER_FLYING;
+            } else {
+                entity->changed_data |= PLAYER_ABILITIES_CHANGED;
+            }
+        } else {
+            entity->flags &= ~PLAYER_FLYING;
+        }
         break;
     }
     case SBP_PLAYER_ACTION: {
@@ -686,18 +740,28 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
         switch (action) {
         case 0: // press shift key
             entity->flags |= PLAYER_SHIFTING;
+            entity->changed_data |= 1 << ENTITY_DATA_FLAGS;
+            if (!(entity->flags & PLAYER_FLYING)) {
+                entity->pose = ENTITY_POSE_SHIFTING;
+                entity->changed_data |= 1 << ENTITY_DATA_POSE;
+            }
             break;
         case 1: // release shift key
             entity->flags &= ~PLAYER_SHIFTING;
+            entity->changed_data |= 1 << ENTITY_DATA_FLAGS;
+            entity->pose = ENTITY_POSE_STANDING;
+            entity->changed_data |= 1 << ENTITY_DATA_POSE;
             break;
         case 2: // stop sleeping
             // @TODO(traks)
             break;
         case 3: // start sprinting
             entity->flags |= PLAYER_SPRINTING;
+            entity->changed_data |= 1 << ENTITY_DATA_FLAGS;
             break;
         case 4: // stop sprinting
             entity->flags &= ~PLAYER_SPRINTING;
+            entity->changed_data |= 1 << ENTITY_DATA_FLAGS;
             break;
         case 5: // start riding jump
             // @TODO(traks)
@@ -1612,8 +1676,8 @@ send_changed_entity_data(buffer_cursor * send_cursor, entity_base * player,
         mc_ubyte flags = 0;
         // @TODO(traks) shared flags
         // flags |= !!(entity->flags & ENTITY_ON_FIRE) << 0;
-        // flags |= !!(entity->flags & ENTITY_SHIFT_KEY_DOWN) << 1;
-        // flags |= !!(entity->flags & ENTITY_SPRINTING) << 3;
+        flags |= !!(entity->flags & PLAYER_SHIFTING) << 1;
+        flags |= !!(entity->flags & PLAYER_SPRINTING) << 3;
         // flags |= !!(entity->flags & ENTITY_SWIMMING) << 4;
         flags |= !!(entity->flags & ENTITY_INVISIBLE) << 5;
         flags |= !!(entity->flags & ENTITY_GLOWING) << 6;
@@ -1714,8 +1778,7 @@ update_tracked_entity(entity_base * player, server * serv,
             net_write_short(send_cursor, dz * 4096.0);
             net_write_ubyte(send_cursor, encoded_rot_y);
             net_write_ubyte(send_cursor, encoded_rot_x);
-            // @TODO(traks) on ground
-            net_write_ubyte(send_cursor, 0);
+            net_write_ubyte(send_cursor, !!(player->flags & ENTITY_ON_GROUND));
             finish_packet(send_cursor, player);
         } else if (sent_pos) {
             begin_packet(send_cursor, CBP_MOVE_ENTITY_POS);
@@ -1723,16 +1786,14 @@ update_tracked_entity(entity_base * player, server * serv,
             net_write_short(send_cursor, dx * 4096.0);
             net_write_short(send_cursor, dy * 4096.0);
             net_write_short(send_cursor, dz * 4096.0);
-            // @TODO(traks) on ground
-            net_write_ubyte(send_cursor, 0);
+            net_write_ubyte(send_cursor, !!(player->flags & ENTITY_ON_GROUND));
             finish_packet(send_cursor, player);
         } else if (sent_rot) {
             begin_packet(send_cursor, CBP_MOVE_ENTITY_ROT);
             net_write_varint(send_cursor, entity->eid);
             net_write_ubyte(send_cursor, encoded_rot_y);
             net_write_ubyte(send_cursor, encoded_rot_x);
-            // @TODO(traks) on ground
-            net_write_ubyte(send_cursor, 0);
+            net_write_ubyte(send_cursor, !!(player->flags & ENTITY_ON_GROUND));
             finish_packet(send_cursor, player);
         }
     } else {
@@ -1743,8 +1804,7 @@ update_tracked_entity(entity_base * player, server * serv,
         net_write_double(send_cursor, entity->z);
         net_write_ubyte(send_cursor, encoded_rot_y);
         net_write_ubyte(send_cursor, encoded_rot_x);
-        // @TODO(traks) on ground
-        net_write_ubyte(send_cursor, 0);
+        net_write_ubyte(send_cursor, !!(player->flags & ENTITY_ON_GROUND));
         finish_packet(send_cursor, player);
 
         sent_pos = 1;
@@ -1881,6 +1941,30 @@ start_tracking_entity(entity_base * player, server * serv,
     }
 
     send_changed_entity_data(send_cursor, player, entity, 0xffffffff);
+}
+
+static void
+send_player_abilities(buffer_cursor * send_cursor, entity_base * player) {
+    begin_packet(send_cursor, CBP_PLAYER_ABILITIES);
+    mc_ubyte ability_flags = 0;
+
+    if (player->flags & ENTITY_INVULNERABLE) {
+        ability_flags |= 0x1;
+    }
+    if (player->flags & PLAYER_FLYING) {
+        ability_flags |= 0x2;
+    }
+    if (player->flags & PLAYER_CAN_FLY) {
+        ability_flags |= 0x4;
+    }
+    if (player->flags & PLAYER_INSTABUILD) {
+        ability_flags |= 0x8;
+    }
+
+    net_write_ubyte(send_cursor, ability_flags);
+    net_write_float(send_cursor, 0.05); // flying speed
+    net_write_float(send_cursor, 0.1); // walking speed
+    finish_packet(send_cursor, player);
 }
 
 void
@@ -2066,15 +2150,11 @@ send_packets_to_player(entity_base * player, server * serv,
         net_write_ubyte(send_cursor, 0); // locked
         finish_packet(send_cursor, player);
 
-        begin_packet(send_cursor, CBP_PLAYER_ABILITIES);
-        // @NOTE(traks) actually need abilities to make creative mode players
-        // be able to fly
-        // bitmap: invulnerable, (is flying), can fly, instabuild
-        mc_ubyte ability_flags = 0x4;
-        net_write_ubyte(send_cursor, ability_flags);
-        net_write_float(send_cursor, 0.05); // flying speed
-        net_write_float(send_cursor, 0.1); // walking speed
-        finish_packet(send_cursor, player);
+        send_player_abilities(send_cursor, player);
+
+        // reset changed data, because all data is sent already and we don't
+        // want to send the same data twice
+        player->changed_data = 0;
     }
 
     // send keep alive packet every so often
@@ -2101,6 +2181,10 @@ send_packets_to_player(entity_base * player, server * serv,
         finish_packet(send_cursor, player);
 
         player->flags |= PLAYER_SENT_TELEPORT;
+    }
+
+    if (player->changed_data & PLAYER_ABILITIES_CHANGED) {
+        send_player_abilities(send_cursor, player);
     }
 
     // send block changes for this player only
