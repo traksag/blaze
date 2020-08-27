@@ -2295,6 +2295,8 @@ typedef struct {
 #define ENTITY_INVISIBLE ((unsigned) (1 << 7))
 #define ENTITY_INVULNERABLE ((unsigned) (1 << 8))
 
+#define LIVING_EFFECT_AMBIENCE ((unsigned) (1 << 12))
+
 #define PLAYER_DID_INIT_PACKETS ((unsigned) (1 << 16))
 #define PLAYER_SENT_TELEPORT ((unsigned) (1 << 17))
 #define PLAYER_GOT_ALIVE_RESPONSE ((unsigned) (1 << 18))
@@ -2342,6 +2344,7 @@ typedef struct {
     unsigned flags;
     mc_int air_supply;
     unsigned char pose;
+    mc_int effect_colour; // living entities
 
     union {
         entity_player player;

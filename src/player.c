@@ -202,6 +202,13 @@ set_player_gamemode(entity_base * player, int new_gamemode) {
         player->flags &= ~PLAYER_INSTABUILD;
         player->flags &= ~ENTITY_INVULNERABLE;
         player->flags |= PLAYER_CAN_BUILD;
+        player->changed_data |= PLAYER_ABILITIES_CHANGED;
+
+        // @TODO(traks) should be based on active effects
+        player->flags &= ~ENTITY_INVISIBLE;
+        player->changed_data |= 1 << ENTITY_DATA_FLAGS;
+
+        // @TODO(traks) show effect particles and set ambience
         break;
     case GAMEMODE_CREATIVE:
         // @NOTE(traks) actually need abilities to make creative mode players
@@ -210,6 +217,13 @@ set_player_gamemode(entity_base * player, int new_gamemode) {
         player->flags |= PLAYER_INSTABUILD;
         player->flags |= ENTITY_INVULNERABLE;
         player->flags |= PLAYER_CAN_BUILD;
+        player->changed_data |= PLAYER_ABILITIES_CHANGED;
+
+        // @TODO(traks) should be based on active effects
+        player->flags &= ~ENTITY_INVISIBLE;
+        player->changed_data |= 1 << ENTITY_DATA_FLAGS;
+
+        // @TODO(traks) show effect particles and set ambience
         break;
     case GAMEMODE_ADVENTURE:
         player->flags &= ~PLAYER_FLYING;
@@ -217,6 +231,13 @@ set_player_gamemode(entity_base * player, int new_gamemode) {
         player->flags &= ~PLAYER_INSTABUILD;
         player->flags &= ~ENTITY_INVULNERABLE;
         player->flags |= PLAYER_CAN_BUILD;
+        player->changed_data |= PLAYER_ABILITIES_CHANGED;
+
+        // @TODO(traks) should be based on active effects
+        player->flags &= ~ENTITY_INVISIBLE;
+        player->changed_data |= 1 << ENTITY_DATA_FLAGS;
+
+        // @TODO(traks) show effect particles and set ambience
         break;
     case GAMEMODE_SPECTATOR:
         player->flags |= PLAYER_FLYING;
@@ -224,11 +245,20 @@ set_player_gamemode(entity_base * player, int new_gamemode) {
         player->flags &= ~PLAYER_INSTABUILD;
         player->flags |= ENTITY_INVULNERABLE;
         player->flags &= ~PLAYER_CAN_BUILD;
-        break;
-    }
-
-    if (old_flags != player->flags) {
         player->changed_data |= PLAYER_ABILITIES_CHANGED;
+
+        // @NOTE(traks) if we don't make the player invisible, their head will
+        // be fully opaque for both themselves (the model rendered in the
+        // inventory GUI) and to other players.
+        player->flags |= ENTITY_INVISIBLE;
+        player->changed_data |= 1 << ENTITY_DATA_FLAGS;
+
+        player->flags &= ~LIVING_EFFECT_AMBIENCE;
+        player->changed_data |= 1 << ENTITY_DATA_EFFECT_AMBIENCE;
+
+        player->effect_colour = 0;
+        player->changed_data |= 1 << ENTITY_DATA_EFFECT_COLOUR;
+        break;
     }
 }
 
@@ -1667,6 +1697,10 @@ nbt_write_biome(buffer_cursor * send_cursor, biome * b) {
 static void
 send_changed_entity_data(buffer_cursor * send_cursor, entity_base * player,
         entity_base * entity, mc_uint changed_data) {
+    if (changed_data == 0) {
+        return;
+    }
+
     begin_packet(send_cursor, CBP_SET_ENTITY_DATA);
     net_write_varint(send_cursor, entity->eid);
 
@@ -2153,6 +2187,8 @@ send_packets_to_player(entity_base * player, server * serv,
 
         send_player_abilities(send_cursor, player);
 
+        send_changed_entity_data(send_cursor, player, player, player->changed_data);
+
         // reset changed data, because all data is sent already and we don't
         // want to send the same data twice
         player->changed_data = 0;
@@ -2194,6 +2230,8 @@ send_packets_to_player(entity_base * player, server * serv,
     if (player->changed_data & PLAYER_ABILITIES_CHANGED) {
         send_player_abilities(send_cursor, player);
     }
+
+    send_changed_entity_data(send_cursor, player, player, player->changed_data);
 
     // send block changes for this player only
     for (int i = 0; i < player->player.changed_block_count; i++) {
