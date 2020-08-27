@@ -545,8 +545,8 @@ server_tick(server * serv) {
                     };
 
                     int list_size = serv->tab_list_size;
-                    size_t list_bytes = list_size * sizeof (tab_list_entry);
-                    tab_list_entry * list = alloc_in_arena(
+                    size_t list_bytes = list_size * sizeof (entity_id);
+                    entity_id * list = alloc_in_arena(
                             &scratch_arena, list_bytes);
                     memcpy(list, serv->tab_list, list_bytes);
                     int sample_size = MIN(12, list_size);
@@ -561,14 +561,14 @@ server_tick(server * serv) {
 
                     for (int i = 0; i < sample_size; i++) {
                         int target = i + (rand() % (list_size - i));
-                        tab_list_entry * sampled = list + target;
+                        entity_id * sampled = list + target;
 
                         if (i > 0) {
                             response[response_size] = ',';
                             response_size += 1;
                         }
 
-                        entity_base * entity = resolve_entity(serv, sampled->eid);
+                        entity_base * entity = resolve_entity(serv, *sampled);
                         assert(entity->type == ENTITY_PLAYER);
                         // @TODO(traks) actual UUID
                         response_size += sprintf((char *) response + response_size,
@@ -738,7 +738,7 @@ server_tick(server * serv) {
                 // @TODO(traks) ensure this can never happen instead of assering
                 // it never will hopefully happen
                 assert(serv->tab_list_added_count < ARRAY_SIZE(serv->tab_list_added));
-                serv->tab_list_added[serv->tab_list_added_count].eid = entity->eid;
+                serv->tab_list_added[serv->tab_list_added_count] = entity->eid;
                 serv->tab_list_added_count++;
 
                 logs("Player '%.*s' joined", (int) init_con->username_size,
@@ -772,12 +772,12 @@ server_tick(server * serv) {
 
     // remove players from tab list if necessary
     for (int i = 0; i < serv->tab_list_size; i++) {
-        tab_list_entry * entry = serv->tab_list + i;
-        entity_base * entity = resolve_entity(serv, entry->eid);
+        entity_id eid = serv->tab_list[i];
+        entity_base * entity = resolve_entity(serv, eid);
         if (entity->type == ENTITY_NULL) {
             // @TODO(traks) make sure this can never happen instead of hoping
             assert(serv->tab_list_removed_count < ARRAY_SIZE(serv->tab_list_removed));
-            serv->tab_list_removed[serv->tab_list_removed_count] = *entry;
+            serv->tab_list_removed[serv->tab_list_removed_count] = eid;
             serv->tab_list_removed_count++;
             serv->tab_list[i] = serv->tab_list[serv->tab_list_size - 1];
             serv->tab_list_size--;
@@ -790,9 +790,9 @@ server_tick(server * serv) {
 
     // add players to live tab list
     for (int i = 0; i < serv->tab_list_added_count; i++) {
-        tab_list_entry * new_entry = serv->tab_list_added + i;
+        entity_id eid = serv->tab_list_added[i];
         assert(serv->tab_list_size < ARRAY_SIZE(serv->tab_list));
-        serv->tab_list[serv->tab_list_size] = *new_entry;
+        serv->tab_list[serv->tab_list_size] = eid;
         serv->tab_list_size++;
     }
 

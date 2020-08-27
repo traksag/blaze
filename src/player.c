@@ -1993,8 +1993,9 @@ send_packets_to_player(entity_base * player, server * serv,
 
         // send game profile packet
         begin_packet(send_cursor, 2);
-        net_write_ulong(send_cursor, 0x0123456789abcdef);
-        net_write_ulong(send_cursor, 0x0123456789abcdef);
+        // @TODO(traks) send UUID
+        net_write_ulong(send_cursor, 0);
+        net_write_ulong(send_cursor, player->eid);
         net_string username = {
             .size = player->player.username_size,
             .ptr = player->player.username
@@ -2181,6 +2182,13 @@ send_packets_to_player(entity_base * player, server * serv,
         finish_packet(send_cursor, player);
 
         player->flags |= PLAYER_SENT_TELEPORT;
+    }
+
+    if (player->changed_data & PLAYER_GAMEMODE_CHANGED) {
+        begin_packet(send_cursor, CBP_GAME_EVENT);
+        net_write_ubyte(send_cursor, GAME_EVENT_CHANGE_GAMEMODE);
+        net_write_float(send_cursor, player->player.gamemode);
+        finish_packet(send_cursor, player);
     }
 
     if (player->changed_data & PLAYER_ABILITIES_CHANGED) {
@@ -2440,12 +2448,12 @@ send_packets_to_player(entity_base * player, server * serv,
             net_write_varint(send_cursor, serv->tab_list_size);
 
             for (int i = 0; i < serv->tab_list_size; i++) {
-                tab_list_entry * entry = serv->tab_list + i;
-                entity_base * player = resolve_entity(serv, entry->eid);
+                entity_id eid = serv->tab_list[i];
+                entity_base * player = resolve_entity(serv, eid);
                 assert(player->type == ENTITY_PLAYER);
                 // @TODO(traks) write UUID
                 net_write_ulong(send_cursor, 0);
-                net_write_ulong(send_cursor, entry->eid);
+                net_write_ulong(send_cursor, eid);
                 net_string username = {
                     .ptr = player->player.username,
                     .size = player->player.username_size
@@ -2465,10 +2473,10 @@ send_packets_to_player(entity_base * player, server * serv,
             net_write_varint(send_cursor, serv->tab_list_removed_count);
 
             for (int i = 0; i < serv->tab_list_removed_count; i++) {
-                tab_list_entry * entry = serv->tab_list_removed + i;
+                entity_id eid = serv->tab_list_removed[i];
                 // @TODO(traks) write UUID
                 net_write_ulong(send_cursor, 0);
-                net_write_ulong(send_cursor, entry->eid);
+                net_write_ulong(send_cursor, eid);
             }
             finish_packet(send_cursor, player);
         }
@@ -2478,12 +2486,12 @@ send_packets_to_player(entity_base * player, server * serv,
             net_write_varint(send_cursor, serv->tab_list_added_count);
 
             for (int i = 0; i < serv->tab_list_added_count; i++) {
-                tab_list_entry * entry = serv->tab_list_added + i;
-                entity_base * player = resolve_entity(serv, entry->eid);
+                entity_id eid = serv->tab_list_added[i];
+                entity_base * player = resolve_entity(serv, eid);
                 assert(player->type == ENTITY_PLAYER);
                 // @TODO(traks) write UUID
                 net_write_ulong(send_cursor, 0);
-                net_write_ulong(send_cursor, entry->eid);
+                net_write_ulong(send_cursor, eid);
                 net_string username = {
                     .ptr = player->player.username,
                     .size = player->player.username_size
@@ -2495,6 +2503,27 @@ send_packets_to_player(entity_base * player, server * serv,
                 net_write_ubyte(send_cursor, 0); // has display name
             }
             finish_packet(send_cursor, player);
+        }
+
+        for (int i = 0; i < MAX_ENTITIES; i++) {
+            entity_base * entity = serv->entities + i;
+            if (!(entity->flags & ENTITY_IN_USE)) {
+                continue;
+            }
+            if (entity->type != ENTITY_PLAYER) {
+                continue;
+            }
+
+            if (entity->changed_data & PLAYER_GAMEMODE_CHANGED) {
+                begin_packet(send_cursor, CBP_PLAYER_INFO);
+                net_write_varint(send_cursor, 1); // action: update gamemode
+                net_write_varint(send_cursor, 1); // changed entries
+                // @TODO(traks) write uuid
+                net_write_ulong(send_cursor, 0);
+                net_write_ulong(send_cursor, entity->eid);
+                net_write_varint(send_cursor, entity->player.gamemode);
+                finish_packet(send_cursor, player);
+            }
         }
     }
 

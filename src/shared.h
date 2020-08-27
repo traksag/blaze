@@ -2116,6 +2116,21 @@ enum entity_pose {
     ENTITY_POSE_DYING,
 };
 
+enum game_event_type {
+    GAME_EVENT_NO_RESPAWN_BLOCK_AVAILABLE,
+    GAME_EVENT_START_RAINING,
+    GAME_EVENT_STOP_RAINING,
+    GAME_EVENT_CHANGE_GAMEMODE,
+    GAME_EVENT_WIN_GAME,
+    GAME_EVENT_DEMO_EVENT,
+    GAME_EVENT_ARROW_HIT_PLAYER,
+    GAME_EVENT_RAIN_LEVEL_CHANGE,
+    GAME_EVENT_THUNDER_LEVEL_CHANGE,
+    GAME_EVENT_PUFFER_FISH_STING,
+    GAME_EVENT_GUARDIAN_ELDER_EFFECT,
+    GAME_EVENT_IMMEDIATE_RESPAWN,
+};
+
 enum entity_data_type {
     ENTITY_DATA_TYPE_BYTE,
     ENTITY_DATA_TYPE_INT,
@@ -2340,10 +2355,6 @@ typedef struct {
 } global_msg;
 
 typedef struct {
-    entity_id eid;
-} tab_list_entry;
-
-typedef struct {
     // index into string buffer for name size + value
     int name_index;
     int value_count;
@@ -2536,11 +2547,11 @@ typedef struct {
     void * short_lived_scratch;
     mc_int short_lived_scratch_size;
 
-    tab_list_entry tab_list_added[64];
+    entity_id tab_list_added[64];
     int tab_list_added_count;
-    tab_list_entry tab_list_removed[64];
+    entity_id tab_list_removed[64];
     int tab_list_removed_count;
-    tab_list_entry tab_list[MAX_PLAYERS];
+    entity_id tab_list[MAX_PLAYERS];
     int tab_list_size;
 
     tag_list block_tags;
