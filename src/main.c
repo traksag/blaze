@@ -211,6 +211,37 @@ net_string_equal(net_string a, net_string b) {
     return a.size == b.size && memcmp(a.ptr, b.ptr, a.size) == 0;
 }
 
+net_block_pos
+get_relative_block_pos(net_block_pos pos, int face) {
+    switch (face) {
+    case DIRECTION_NEG_Y: pos.y--; break;
+    case DIRECTION_POS_Y: pos.y++; break;
+    case DIRECTION_NEG_Z: pos.z--; break;
+    case DIRECTION_POS_Z: pos.z++; break;
+    case DIRECTION_NEG_X: pos.x--; break;
+    case DIRECTION_POS_X: pos.x++; break;
+    case DIRECTION_ZERO: break;
+    default:
+        assert(0);
+    }
+    return pos;
+}
+
+int
+get_opposite_direction(int direction) {
+    switch (direction) {
+    case DIRECTION_NEG_Y: return DIRECTION_POS_Y;
+    case DIRECTION_POS_Y: return DIRECTION_NEG_Y;
+    case DIRECTION_NEG_Z: return DIRECTION_POS_Z;
+    case DIRECTION_POS_Z: return DIRECTION_NEG_Z;
+    case DIRECTION_NEG_X: return DIRECTION_POS_X;
+    case DIRECTION_POS_X: return DIRECTION_NEG_X;
+    case DIRECTION_ZERO: return DIRECTION_ZERO;
+    default:
+        assert(0);
+    }
+}
+
 static mc_ushort
 hash_resource_loc(net_string resource_loc, resource_loc_table * table) {
     mc_ushort res = 0;

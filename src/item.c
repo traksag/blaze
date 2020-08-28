@@ -9,20 +9,16 @@ typedef struct {
     mc_int cur_type;
 } place_target;
 
-static net_block_pos
-get_relative_block_pos(net_block_pos pos, int face) {
-    switch (face) {
-    case DIRECTION_NEG_Y: pos.y--; break;
-    case DIRECTION_POS_Y: pos.y++; break;
-    case DIRECTION_NEG_Z: pos.z--; break;
-    case DIRECTION_POS_Z: pos.z++; break;
-    case DIRECTION_NEG_X: pos.x--; break;
-    case DIRECTION_POS_X: pos.x++; break;
-    default:
-        assert(0);
-    }
-    return pos;
-}
+typedef struct {
+    server * serv;
+    entity_base * player;
+    net_block_pos clicked_pos;
+    mc_int clicked_face;
+    float click_offset_x;
+    float click_offset_y;
+    float click_offset_z;
+    memory_arena * scratch_arena;
+} place_context;
 
 static int
 can_replace(mc_int place_type, mc_int cur_type) {
@@ -123,32 +119,31 @@ determine_place_target(server * serv, net_block_pos clicked_pos,
 }
 
 static void
-place_simple_block(server * serv, net_block_pos clicked_pos,
-        mc_int clicked_face, mc_int place_type) {
-    place_target target = determine_place_target(serv,
-            clicked_pos, clicked_face, place_type);
+place_simple_block(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
     if (target.ch == NULL) {
         return;
     }
 
-    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
 static void
-place_snowy_grassy_block(server * serv, net_block_pos clicked_pos,
-        mc_int clicked_face, mc_int place_type) {
-    place_target target = determine_place_target(serv,
-            clicked_pos, clicked_face, place_type);
+place_snowy_grassy_block(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
     if (target.ch == NULL) {
         return;
     }
 
-    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
     mc_ushort state_above = chunk_get_block_state(target.ch,
             target.pos.x & 0xf, target.pos.y + 1, target.pos.z & 0xf);
-    mc_int type_above = serv->block_type_by_state[state_above];
+    mc_int type_above = context.serv->block_type_by_state[state_above];
 
     if (type_above == BLOCK_SNOW_BLOCK || type_above == BLOCK_SNOW) {
         place_state += 0;
@@ -158,131 +153,108 @@ place_snowy_grassy_block(server * serv, net_block_pos clicked_pos,
 
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
-}
-
-static int
-can_place_plant_on(mc_int type_below) {
-    switch (type_below) {
-    case BLOCK_GRASS_BLOCK:
-    case BLOCK_DIRT:
-    case BLOCK_COARSE_DIRT:
-    case BLOCK_PODZOL:
-    case BLOCK_FARMLAND:
-        return 1;
-    default:
-        return 0;
-    }
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
 static void
-place_plant(server * serv, net_block_pos clicked_pos,
-        mc_int clicked_face, mc_int place_type) {
-    place_target target = determine_place_target(serv,
-            clicked_pos, clicked_face, place_type);
+place_plant(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
     if (target.ch == NULL) {
         return;
     }
 
-    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
     mc_ushort state_below = chunk_get_block_state(target.ch,
             target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
-    mc_int type_below = serv->block_type_by_state[state_below];
+    mc_int type_below = context.serv->block_type_by_state[state_below];
 
-    if (!can_place_plant_on(type_below)) {
+    if (!can_plant_survive_on(type_below)) {
         return;
     }
 
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
 static void
-place_dead_bush(server * serv, net_block_pos clicked_pos,
-        mc_int clicked_face, mc_int place_type) {
-    place_target target = determine_place_target(serv,
-            clicked_pos, clicked_face, place_type);
+place_dead_bush(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
     if (target.ch == NULL) {
         return;
     }
 
-    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
     mc_ushort state_below = chunk_get_block_state(target.ch,
             target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
-    mc_int type_below = serv->block_type_by_state[state_below];
+    mc_int type_below = context.serv->block_type_by_state[state_below];
 
-    switch (type_below) {
-    case BLOCK_SAND:
-    case BLOCK_RED_SAND:
-    case BLOCK_TERRACOTTA:
-    case BLOCK_WHITE_TERRACOTTA:
-    case BLOCK_ORANGE_TERRACOTTA:
-    case BLOCK_MAGENTA_TERRACOTTA:
-    case BLOCK_LIGHT_BLUE_TERRACOTTA:
-    case BLOCK_YELLOW_TERRACOTTA:
-    case BLOCK_LIME_TERRACOTTA:
-    case BLOCK_PINK_TERRACOTTA:
-    case BLOCK_GRAY_TERRACOTTA:
-    case BLOCK_LIGHT_GRAY_TERRACOTTA:
-    case BLOCK_CYAN_TERRACOTTA:
-    case BLOCK_PURPLE_TERRACOTTA:
-    case BLOCK_BLUE_TERRACOTTA:
-    case BLOCK_BROWN_TERRACOTTA:
-    case BLOCK_GREEN_TERRACOTTA:
-    case BLOCK_RED_TERRACOTTA:
-    case BLOCK_BLACK_TERRACOTTA:
-    case BLOCK_DIRT:
-    case BLOCK_COARSE_DIRT:
-    case BLOCK_PODZOL:
-        break;
-    default:
+    if (!can_dead_bush_survive_on(type_below)) {
         return;
     }
 
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
 static void
-place_wither_rose(server * serv, net_block_pos clicked_pos,
-        mc_int clicked_face, mc_int place_type) {
-    place_target target = determine_place_target(serv,
-            clicked_pos, clicked_face, place_type);
+place_wither_rose(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
     if (target.ch == NULL) {
         return;
     }
 
-    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
     mc_ushort state_below = chunk_get_block_state(target.ch,
             target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
-    mc_int type_below = serv->block_type_by_state[state_below];
+    mc_int type_below = context.serv->block_type_by_state[state_below];
 
-    switch (type_below) {
-    case BLOCK_NETHERRACK:
-    case BLOCK_SOUL_SAND:
-    case BLOCK_SOUL_SOIL:
-        break;
-    default:
-        if (!can_place_plant_on(type_below)) {
-            return;
-        }
+    if (!can_wither_rose_survive_on(type_below)) {
+        return;
     }
 
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
 static void
-place_simple_pillar(server * serv, net_block_pos clicked_pos,
-        mc_int clicked_face, mc_int place_type) {
-    place_target target = determine_place_target(serv,
-            clicked_pos, clicked_face, place_type);
+place_nether_plant(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
     if (target.ch == NULL) {
         return;
     }
 
-    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
+    mc_ushort state_below = chunk_get_block_state(target.ch,
+            target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
+    mc_int type_below = context.serv->block_type_by_state[state_below];
 
-    switch (clicked_face) {
+    if (!can_nether_plant_survive_on(type_below)) {
+        return;
+    }
+
+    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
+            target.pos.z & 0xf, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+}
+
+static void
+place_simple_pillar(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
+    if (target.ch == NULL) {
+        return;
+    }
+
+    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
+
+    switch (context.clicked_face) {
     case DIRECTION_NEG_X:
     case DIRECTION_POS_X:
         place_state += 0;
@@ -299,20 +271,20 @@ place_simple_pillar(server * serv, net_block_pos clicked_pos,
 
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
 static void
-place_chain(server * serv, net_block_pos clicked_pos,
-        mc_int clicked_face, mc_int place_type) {
-    place_target target = determine_place_target(serv,
-            clicked_pos, clicked_face, place_type);
+place_chain(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
     if (target.ch == NULL) {
         return;
     }
 
-    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
 
-    switch (clicked_face) {
+    switch (context.clicked_face) {
     case DIRECTION_NEG_X:
     case DIRECTION_POS_X:
         place_state += 0 * 2;
@@ -328,7 +300,7 @@ place_chain(server * serv, net_block_pos clicked_pos,
     }
 
     if (target.cur_type == BLOCK_WATER) {
-        int water_level = target.cur_state - serv->block_properties_table[target.cur_type].base_state;
+        int water_level = target.cur_state - context.serv->block_properties_table[target.cur_type].base_state;
         if (water_level == 0) {
             // waterlogged
             place_state += 0;
@@ -341,12 +313,12 @@ place_chain(server * serv, net_block_pos clicked_pos,
 
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
 static void
-place_slab(server * serv, net_block_pos clicked_pos, float click_offset_y,
-        mc_int clicked_face, mc_int place_type) {
-    net_block_pos target_pos = clicked_pos;
+place_slab(place_context context, mc_int place_type) {
+    net_block_pos target_pos = context.clicked_pos;
     chunk_pos ch_pos = {
         .x = target_pos.x >> 4,
         .z = target_pos.z >> 4
@@ -358,24 +330,24 @@ place_slab(server * serv, net_block_pos clicked_pos, float click_offset_y,
 
     mc_ushort cur_state = chunk_get_block_state(ch,
             target_pos.x & 0xf, target_pos.y, target_pos.z & 0xf);
-    mc_int cur_type = serv->block_type_by_state[cur_state];
+    mc_int cur_type = context.serv->block_type_by_state[cur_state];
 
     int replace_cur = 0;
     if (cur_type == place_type) {
-        int cur_slab = (cur_state - serv->block_properties_table[cur_type].base_state) / 2;
+        int cur_slab = (cur_state - context.serv->block_properties_table[cur_type].base_state) / 2;
         if (cur_slab == SLAB_TOP) {
-            replace_cur = clicked_face == DIRECTION_NEG_Y
-                    || (clicked_face != DIRECTION_POS_Y && click_offset_y <= 0.5f);
+            replace_cur = context.clicked_face == DIRECTION_NEG_Y
+                    || (context.clicked_face != DIRECTION_POS_Y && context.click_offset_y <= 0.5f);
         } else if  (cur_slab == SLAB_BOTTOM) {
-            replace_cur = clicked_face == DIRECTION_POS_Y
-                    || (clicked_face != DIRECTION_NEG_Y && click_offset_y > 0.5f);
+            replace_cur = context.clicked_face == DIRECTION_POS_Y
+                    || (context.clicked_face != DIRECTION_NEG_Y && context.click_offset_y > 0.5f);
         }
     } else {
         replace_cur = can_replace(place_type, cur_type);
     }
 
     if (!replace_cur) {
-        target_pos = get_relative_block_pos(target_pos, clicked_face);
+        target_pos = get_relative_block_pos(target_pos, context.clicked_face);
         ch_pos = (chunk_pos) {
             .x = target_pos.x >> 4,
             .z = target_pos.z >> 4
@@ -387,23 +359,23 @@ place_slab(server * serv, net_block_pos clicked_pos, float click_offset_y,
 
         cur_state = chunk_get_block_state(ch,
                 target_pos.x & 0xf, target_pos.y, target_pos.z & 0xf);
-        cur_type = serv->block_type_by_state[cur_state];
+        cur_type = context.serv->block_type_by_state[cur_state];
 
         if (cur_type != place_type && !can_replace(place_type, cur_type)) {
             return;
         }
     }
 
-    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
 
     if (place_type == cur_type) {
         place_state += 4;
     } else {
-        if (clicked_face == DIRECTION_POS_Y) {
+        if (context.clicked_face == DIRECTION_POS_Y) {
             place_state += 2;
-        } else if (clicked_face == DIRECTION_NEG_Y) {
+        } else if (context.clicked_face == DIRECTION_NEG_Y) {
             place_state += 0;
-        } else if (click_offset_y <= 0.5f) {
+        } else if (context.click_offset_y <= 0.5f) {
             place_state += 2;
         } else {
             place_state += 0;
@@ -411,7 +383,7 @@ place_slab(server * serv, net_block_pos clicked_pos, float click_offset_y,
     }
 
     if (cur_type == BLOCK_WATER) {
-        int water_level = cur_state - serv->block_properties_table[cur_type].base_state;
+        int water_level = cur_state - context.serv->block_properties_table[cur_type].base_state;
         if (water_level == 0) {
             // waterlogged slab
             place_state += 0;
@@ -424,39 +396,39 @@ place_slab(server * serv, net_block_pos clicked_pos, float click_offset_y,
 
     chunk_set_block_state(ch, target_pos.x & 0xf, target_pos.y,
             target_pos.z & 0xf, place_state);
+    propagate_block_updates_after_change(target_pos, context.serv, context.scratch_arena);
 }
 
 static void
-place_leaves(server * serv, net_block_pos clicked_pos,
-        mc_int clicked_face, mc_int place_type) {
-    place_target target = determine_place_target(serv,
-            clicked_pos, clicked_face, place_type);
+place_leaves(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
     if (target.ch == NULL) {
         return;
     }
 
     // @TODO(traks) calculate distance to nearest log block and modify block
     // state with that information
-    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
     place_state += 0; // persistent = true
 
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
 static void
-place_horizontal_facing(server * serv, entity_base * player,
-        net_block_pos clicked_pos, mc_int clicked_face, mc_int place_type) {
-    place_target target = determine_place_target(serv,
-            clicked_pos, clicked_face, place_type);
+place_horizontal_facing(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
     if (target.ch == NULL) {
         return;
     }
 
-    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
 
     // facing direction is opposite of player facing direction
-    float rot_y = player->rot_y;
+    float rot_y = context.player->rot_y;
     int int_rot = (int) floor(rot_y / 90.0f + 0.5f) & 0x3;
     switch (int_rot) {
     case 0: // +Z = south
@@ -475,21 +447,21 @@ place_horizontal_facing(server * serv, entity_base * player,
 
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
 static void
-place_end_portal_frame(server * serv, entity_base * player,
-        net_block_pos clicked_pos, mc_int clicked_face, mc_int place_type) {
-    place_target target = determine_place_target(serv,
-            clicked_pos, clicked_face, place_type);
+place_end_portal_frame(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
     if (target.ch == NULL) {
         return;
     }
 
-    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
 
     // facing direction is opposite of player facing direction
-    float rot_y = player->rot_y;
+    float rot_y = context.player->rot_y;
     int int_rot = (int) floor(rot_y / 90.0f + 0.5f) & 0x3;
     switch (int_rot) {
     case 0: // +Z = south
@@ -511,23 +483,24 @@ place_end_portal_frame(server * serv, entity_base * player,
 
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
 static void
-place_crop(server * serv, net_block_pos clicked_pos,
-        mc_int clicked_face, mc_int place_type) {
-    place_target target = determine_place_target(serv,
-            clicked_pos, clicked_face, place_type);
+place_crop(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
     if (target.ch == NULL) {
         return;
     }
 
     // base state has age 0
-    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
     mc_ushort state_below = chunk_get_block_state(target.ch,
             target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
-    mc_int type_below = serv->block_type_by_state[state_below];
+    mc_int type_below = context.serv->block_type_by_state[state_below];
 
+    // @TODO(traks) light level also needs to be sufficient
     switch (type_below) {
     case BLOCK_FARMLAND:
         break;
@@ -537,22 +510,22 @@ place_crop(server * serv, net_block_pos clicked_pos,
 
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
 static void
-place_nether_wart(server * serv, net_block_pos clicked_pos,
-        mc_int clicked_face, mc_int place_type) {
-    place_target target = determine_place_target(serv,
-            clicked_pos, clicked_face, place_type);
+place_nether_wart(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
     if (target.ch == NULL) {
         return;
     }
 
     // base state has age 0
-    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
     mc_ushort state_below = chunk_get_block_state(target.ch,
             target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
-    mc_int type_below = serv->block_type_by_state[state_below];
+    mc_int type_below = context.serv->block_type_by_state[state_below];
 
     switch (type_below) {
     case BLOCK_SOUL_SAND:
@@ -563,46 +536,41 @@ place_nether_wart(server * serv, net_block_pos clicked_pos,
 
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
 static void
-place_carpet(server * serv, net_block_pos clicked_pos,
-        mc_int clicked_face, mc_int place_type) {
-    place_target target = determine_place_target(serv,
-            clicked_pos, clicked_face, place_type);
+place_carpet(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
     if (target.ch == NULL) {
         return;
     }
 
     // base state has age 0
-    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
     mc_ushort state_below = chunk_get_block_state(target.ch,
             target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
-    mc_int type_below = serv->block_type_by_state[state_below];
+    mc_int type_below = context.serv->block_type_by_state[state_below];
 
-    switch (type_below) {
-    case BLOCK_AIR:
-    case BLOCK_VOID_AIR:
-    case BLOCK_CAVE_AIR:
+    if (!can_carpet_survive_on(type_below)) {
         return;
-    default:
-        break;
     }
 
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
 static void
-place_mushroom_block(server * serv, net_block_pos clicked_pos,
-        mc_int clicked_face, mc_int place_type) {
-    place_target target = determine_place_target(serv,
-            clicked_pos, clicked_face, place_type);
+place_mushroom_block(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
     if (target.ch == NULL) {
         return;
     }
 
-    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
 
     net_block_pos neighbour_pos[6];
     for (int i = 0; i < 6; i++) {
@@ -629,7 +597,7 @@ place_mushroom_block(server * serv, net_block_pos clicked_pos,
 
         mc_ushort state = chunk_get_block_state(ch,
                 pos.x & 0xf, pos.y, pos.z & 0xf);
-        neighbour_types[i] = serv->block_type_by_state[state];
+        neighbour_types[i] = context.serv->block_type_by_state[state];
     }
 
     // connect to neighbouring mushroom blocks of the same type by setting the
@@ -655,21 +623,21 @@ place_mushroom_block(server * serv, net_block_pos clicked_pos,
 
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
 static void
-place_end_rod(server * serv, net_block_pos clicked_pos,
-        mc_int clicked_face, mc_int place_type) {
-    place_target target = determine_place_target(serv,
-            clicked_pos, clicked_face, place_type);
+place_end_rod(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
     if (target.ch == NULL) {
         return;
     }
 
-    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
 
     int opposite_face;
-    switch (clicked_face) {
+    switch (context.clicked_face) {
     case DIRECTION_NEG_Y: opposite_face = DIRECTION_POS_Y; break;
     case DIRECTION_POS_Y: opposite_face = DIRECTION_NEG_Y; break;
     case DIRECTION_NEG_Z: opposite_face = DIRECTION_POS_Z; break;
@@ -690,10 +658,10 @@ place_end_rod(server * serv, net_block_pos clicked_pos,
 
     mc_ushort opposite_state = chunk_get_block_state(opposite_ch,
             opposite_pos.x & 0xf, opposite_pos.y, opposite_pos.z & 0xf);
-    mc_int opposite_type = serv->block_type_by_state[opposite_state];
+    mc_int opposite_type = context.serv->block_type_by_state[opposite_state];
 
     if (opposite_type == place_type) {
-        int facing = opposite_state - serv->block_properties_table[opposite_type].base_state;
+        int facing = opposite_state - context.serv->block_properties_table[opposite_type].base_state;
         int facing_direction;
         switch (facing) {
         case 0: facing_direction = DIRECTION_NEG_Z; break;
@@ -704,9 +672,9 @@ place_end_rod(server * serv, net_block_pos clicked_pos,
         case 5: facing_direction = DIRECTION_NEG_Y; break;
         }
 
-        if (facing_direction == clicked_face) {
+        if (facing_direction == context.clicked_face) {
             // set placed block facing to opposite of clicked face
-            switch (clicked_face) {
+            switch (context.clicked_face) {
             case DIRECTION_NEG_Y: place_state += 4; break;
             case DIRECTION_POS_Y: place_state += 5; break;
             case DIRECTION_NEG_Z: place_state += 2; break;
@@ -716,7 +684,7 @@ place_end_rod(server * serv, net_block_pos clicked_pos,
             }
         } else {
             // set placed block facing to clicked face
-            switch (clicked_face) {
+            switch (context.clicked_face) {
             case DIRECTION_NEG_Y: place_state += 5; break;
             case DIRECTION_POS_Y: place_state += 4; break;
             case DIRECTION_NEG_Z: place_state += 0; break;
@@ -727,7 +695,7 @@ place_end_rod(server * serv, net_block_pos clicked_pos,
         }
     } else {
         // set placed block facing to clicked face
-        switch (clicked_face) {
+        switch (context.clicked_face) {
         case DIRECTION_NEG_Y: place_state += 5; break;
         case DIRECTION_POS_Y: place_state += 4; break;
         case DIRECTION_NEG_Z: place_state += 0; break;
@@ -739,22 +707,22 @@ place_end_rod(server * serv, net_block_pos clicked_pos,
 
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
 static void
-place_sugar_cane(server * serv, net_block_pos clicked_pos,
-        mc_int clicked_face, mc_int place_type) {
-    place_target target = determine_place_target(serv,
-            clicked_pos, clicked_face, place_type);
+place_sugar_cane(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
     if (target.ch == NULL) {
         return;
     }
 
     // base state has age 0
-    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
     mc_ushort state_below = chunk_get_block_state(target.ch,
             target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
-    mc_int type_below = serv->block_type_by_state[state_below];
+    mc_int type_below = context.serv->block_type_by_state[state_below];
 
     switch (type_below) {
     case BLOCK_SUGAR_CANE:
@@ -789,7 +757,7 @@ place_sugar_cane(server * serv, net_block_pos clicked_pos,
 
             mc_ushort neighbour_state = chunk_get_block_state(ch,
                     pos.x & 0xf, pos.y, pos.z & 0xf);
-            mc_int neighbour_type = serv->block_type_by_state[neighbour_state];
+            mc_int neighbour_type = context.serv->block_type_by_state[neighbour_state];
             switch (neighbour_type) {
             // @TODO(traks) use fluid state so that waterlogged blocks also
             // allow sugar cane to be placed
@@ -809,23 +777,22 @@ place_sugar_cane(server * serv, net_block_pos clicked_pos,
 set_block:
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
 void
-process_use_item_on_packet(server * serv, entity_base * entity,
+process_use_item_on_packet(server * serv, entity_base * player,
         mc_int hand, net_block_pos clicked_pos, mc_int clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
-        mc_ubyte is_inside) {
-    if (entity->flags & ENTITY_TELEPORTING) {
+        mc_ubyte is_inside, memory_arena * scratch_arena) {
+    if (player->flags & ENTITY_TELEPORTING) {
         // ignore
         return;
     }
 
-    entity_player * player = &entity->player;
-
-    int sel_slot = entity->player.selected_slot;
-    item_stack * main = entity->player.slots + sel_slot;
-    item_stack * off = entity->player.slots + PLAYER_OFF_HAND_SLOT;
+    int sel_slot = player->player.selected_slot;
+    item_stack * main = player->player.slots + sel_slot;
+    item_stack * off = player->player.slots + PLAYER_OFF_HAND_SLOT;
     item_stack * used = hand == PLAYER_MAIN_HAND ? main : off;
 
     // @TODO(traks) special handling depending on gamemode. Currently we assume
@@ -839,7 +806,7 @@ process_use_item_on_packet(server * serv, entity_base * entity,
 
     // if the player is not crouching with an item in their hands, try to use
     // the clicked block
-    if (!((entity->flags & PLAYER_SHIFTING)
+    if (!((player->flags & PLAYER_SHIFTING)
             && (main->type != ITEM_AIR || off->type != ITEM_AIR))) {
         // @TODO(traks) use clicked block (button, door, etc.)
     }
@@ -877,96 +844,107 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     // @TODO(traks) finalise some things such as block entity data based on
     // custom item stack name, create bed head part, plant upper part, etc.
 
+    place_context context = {
+        .serv = serv,
+        .player = player,
+        .clicked_pos = clicked_pos,
+        .clicked_face = clicked_face,
+        .click_offset_x = click_offset_x,
+        .click_offset_y = click_offset_y,
+        .click_offset_z = click_offset_z,
+        .scratch_arena = scratch_arena,
+    };
+
     switch (used->type) {
     case ITEM_AIR:
         // nothing to do
         break;
     case ITEM_STONE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_STONE);
+        place_simple_block(context, BLOCK_STONE);
         break;
     case ITEM_GRANITE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_GRANITE);
+        place_simple_block(context, BLOCK_GRANITE);
         break;
     case ITEM_POLISHED_GRANITE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_POLISHED_GRANITE);
+        place_simple_block(context, BLOCK_POLISHED_GRANITE);
         break;
     case ITEM_DIORITE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_DIORITE);
+        place_simple_block(context, BLOCK_DIORITE);
         break;
     case ITEM_POLISHED_DIORITE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_POLISHED_DIORITE);
+        place_simple_block(context, BLOCK_POLISHED_DIORITE);
         break;
     case ITEM_ANDESITE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_ANDESITE);
+        place_simple_block(context, BLOCK_ANDESITE);
         break;
     case ITEM_POLISHED_ANDESITE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_POLISHED_ANDESITE);
+        place_simple_block(context, BLOCK_POLISHED_ANDESITE);
         break;
     case ITEM_GRASS_BLOCK:
-        place_snowy_grassy_block(serv, clicked_pos, clicked_face, BLOCK_GRASS_BLOCK);
+        place_snowy_grassy_block(context, BLOCK_GRASS_BLOCK);
         break;
     case ITEM_DIRT:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_DIRT);
+        place_simple_block(context, BLOCK_DIRT);
         break;
     case ITEM_COARSE_DIRT:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_COARSE_DIRT);
+        place_simple_block(context, BLOCK_COARSE_DIRT);
         break;
     case ITEM_PODZOL:
-        place_snowy_grassy_block(serv, clicked_pos, clicked_face, BLOCK_PODZOL);
+        place_snowy_grassy_block(context, BLOCK_PODZOL);
         break;
     case ITEM_CRIMSON_NYLIUM:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CRIMSON_NYLIUM);
+        place_simple_block(context, BLOCK_CRIMSON_NYLIUM);
         break;
     case ITEM_WARPED_NYLIUM:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_WARPED_NYLIUM);
+        place_simple_block(context, BLOCK_WARPED_NYLIUM);
         break;
     case ITEM_COBBLESTONE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_COBBLESTONE);
+        place_simple_block(context, BLOCK_COBBLESTONE);
         break;
     case ITEM_OAK_PLANKS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_OAK_PLANKS);
+        place_simple_block(context, BLOCK_OAK_PLANKS);
         break;
     case ITEM_SPRUCE_PLANKS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_SPRUCE_PLANKS);
+        place_simple_block(context, BLOCK_SPRUCE_PLANKS);
         break;
     case ITEM_BIRCH_PLANKS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BIRCH_PLANKS);
+        place_simple_block(context, BLOCK_BIRCH_PLANKS);
         break;
     case ITEM_JUNGLE_PLANKS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_JUNGLE_PLANKS);
+        place_simple_block(context, BLOCK_JUNGLE_PLANKS);
         break;
     case ITEM_ACACIA_PLANKS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_ACACIA_PLANKS);
+        place_simple_block(context, BLOCK_ACACIA_PLANKS);
         break;
     case ITEM_DARK_OAK_PLANKS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_DARK_OAK_PLANKS);
+        place_simple_block(context, BLOCK_DARK_OAK_PLANKS);
         break;
     case ITEM_CRIMSON_PLANKS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CRIMSON_PLANKS);
+        place_simple_block(context, BLOCK_CRIMSON_PLANKS);
         break;
     case ITEM_WARPED_PLANKS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_WARPED_PLANKS);
+        place_simple_block(context, BLOCK_WARPED_PLANKS);
         break;
     case ITEM_OAK_SAPLING:
-        place_plant(serv, clicked_pos, clicked_face, BLOCK_OAK_SAPLING);
+        place_plant(context, BLOCK_OAK_SAPLING);
         break;
     case ITEM_SPRUCE_SAPLING:
-        place_plant(serv, clicked_pos, clicked_face, BLOCK_SPRUCE_SAPLING);
+        place_plant(context, BLOCK_SPRUCE_SAPLING);
         break;
     case ITEM_BIRCH_SAPLING:
-        place_plant(serv, clicked_pos, clicked_face, BLOCK_BIRCH_SAPLING);
+        place_plant(context, BLOCK_BIRCH_SAPLING);
         break;
     case ITEM_JUNGLE_SAPLING:
-        place_plant(serv, clicked_pos, clicked_face, BLOCK_JUNGLE_SAPLING);
+        place_plant(context, BLOCK_JUNGLE_SAPLING);
         break;
     case ITEM_ACACIA_SAPLING:
-        place_plant(serv, clicked_pos, clicked_face, BLOCK_ACACIA_SAPLING);
+        place_plant(context, BLOCK_ACACIA_SAPLING);
         break;
     case ITEM_DARK_OAK_SAPLING:
-        place_plant(serv, clicked_pos, clicked_face, BLOCK_DARK_OAK_SAPLING);
+        place_plant(context, BLOCK_DARK_OAK_SAPLING);
         break;
     case ITEM_BEDROCK:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BEDROCK);
+        place_simple_block(context, BLOCK_BEDROCK);
         break;
     case ITEM_SAND:
         break;
@@ -975,154 +953,154 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_GRAVEL:
         break;
     case ITEM_GOLD_ORE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_GOLD_ORE);
+        place_simple_block(context, BLOCK_GOLD_ORE);
         break;
     case ITEM_IRON_ORE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_IRON_ORE);
+        place_simple_block(context, BLOCK_IRON_ORE);
         break;
     case ITEM_COAL_ORE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_COAL_ORE);
+        place_simple_block(context, BLOCK_COAL_ORE);
         break;
     case ITEM_NETHER_GOLD_ORE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_NETHER_GOLD_ORE);
+        place_simple_block(context, BLOCK_NETHER_GOLD_ORE);
         break;
     case ITEM_OAK_LOG:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_OAK_LOG);
+        place_simple_pillar(context, BLOCK_OAK_LOG);
         break;
     case ITEM_SPRUCE_LOG:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_SPRUCE_LOG);
+        place_simple_pillar(context, BLOCK_SPRUCE_LOG);
         break;
     case ITEM_BIRCH_LOG:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_BIRCH_LOG);
+        place_simple_pillar(context, BLOCK_BIRCH_LOG);
         break;
     case ITEM_JUNGLE_LOG:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_JUNGLE_LOG);
+        place_simple_pillar(context, BLOCK_JUNGLE_LOG);
         break;
     case ITEM_ACACIA_LOG:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_ACACIA_LOG);
+        place_simple_pillar(context, BLOCK_ACACIA_LOG);
         break;
     case ITEM_DARK_OAK_LOG:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_DARK_OAK_LOG);
+        place_simple_pillar(context, BLOCK_DARK_OAK_LOG);
         break;
     case ITEM_CRIMSON_STEM:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_CRIMSON_STEM);
+        place_simple_pillar(context, BLOCK_CRIMSON_STEM);
         break;
     case ITEM_WARPED_STEM:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_WARPED_STEM);
+        place_simple_pillar(context, BLOCK_WARPED_STEM);
         break;
     case ITEM_STRIPPED_OAK_LOG:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_OAK_LOG);
+        place_simple_pillar(context, BLOCK_STRIPPED_OAK_LOG);
         break;
     case ITEM_STRIPPED_SPRUCE_LOG:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_SPRUCE_LOG);
+        place_simple_pillar(context, BLOCK_STRIPPED_SPRUCE_LOG);
         break;
     case ITEM_STRIPPED_BIRCH_LOG:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_BIRCH_LOG);
+        place_simple_pillar(context, BLOCK_STRIPPED_BIRCH_LOG);
         break;
     case ITEM_STRIPPED_JUNGLE_LOG:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_JUNGLE_LOG);
+        place_simple_pillar(context, BLOCK_STRIPPED_JUNGLE_LOG);
         break;
     case ITEM_STRIPPED_ACACIA_LOG:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_ACACIA_LOG);
+        place_simple_pillar(context, BLOCK_STRIPPED_ACACIA_LOG);
         break;
     case ITEM_STRIPPED_DARK_OAK_LOG:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_DARK_OAK_LOG);
+        place_simple_pillar(context, BLOCK_STRIPPED_DARK_OAK_LOG);
         break;
     case ITEM_STRIPPED_CRIMSON_STEM:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_CRIMSON_STEM);
+        place_simple_pillar(context, BLOCK_STRIPPED_CRIMSON_STEM);
         break;
     case ITEM_STRIPPED_WARPED_STEM:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_WARPED_STEM);
+        place_simple_pillar(context, BLOCK_STRIPPED_WARPED_STEM);
         break;
     case ITEM_STRIPPED_OAK_WOOD:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_OAK_WOOD);
+        place_simple_pillar(context, BLOCK_STRIPPED_OAK_WOOD);
         break;
     case ITEM_STRIPPED_SPRUCE_WOOD:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_SPRUCE_WOOD);
+        place_simple_pillar(context, BLOCK_STRIPPED_SPRUCE_WOOD);
         break;
     case ITEM_STRIPPED_BIRCH_WOOD:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_BIRCH_WOOD);
+        place_simple_pillar(context, BLOCK_STRIPPED_BIRCH_WOOD);
         break;
     case ITEM_STRIPPED_JUNGLE_WOOD:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_JUNGLE_WOOD);
+        place_simple_pillar(context, BLOCK_STRIPPED_JUNGLE_WOOD);
         break;
     case ITEM_STRIPPED_ACACIA_WOOD:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_ACACIA_WOOD);
+        place_simple_pillar(context, BLOCK_STRIPPED_ACACIA_WOOD);
         break;
     case ITEM_STRIPPED_DARK_OAK_WOOD:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_DARK_OAK_WOOD);
+        place_simple_pillar(context, BLOCK_STRIPPED_DARK_OAK_WOOD);
         break;
     case ITEM_STRIPPED_CRIMSON_HYPHAE:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_CRIMSON_HYPHAE);
+        place_simple_pillar(context, BLOCK_STRIPPED_CRIMSON_HYPHAE);
         break;
     case ITEM_STRIPPED_WARPED_HYPHAE:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_STRIPPED_WARPED_HYPHAE);
+        place_simple_pillar(context, BLOCK_STRIPPED_WARPED_HYPHAE);
         break;
     case ITEM_OAK_WOOD:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_OAK_WOOD);
+        place_simple_pillar(context, BLOCK_OAK_WOOD);
         break;
     case ITEM_SPRUCE_WOOD:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_SPRUCE_WOOD);
+        place_simple_pillar(context, BLOCK_SPRUCE_WOOD);
         break;
     case ITEM_BIRCH_WOOD:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_BIRCH_WOOD);
+        place_simple_pillar(context, BLOCK_BIRCH_WOOD);
         break;
     case ITEM_JUNGLE_WOOD:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_JUNGLE_WOOD);
+        place_simple_pillar(context, BLOCK_JUNGLE_WOOD);
         break;
     case ITEM_ACACIA_WOOD:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_ACACIA_WOOD);
+        place_simple_pillar(context, BLOCK_ACACIA_WOOD);
         break;
     case ITEM_DARK_OAK_WOOD:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_DARK_OAK_WOOD);
+        place_simple_pillar(context, BLOCK_DARK_OAK_WOOD);
         break;
     case ITEM_CRIMSON_HYPHAE:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_CRIMSON_HYPHAE);
+        place_simple_pillar(context, BLOCK_CRIMSON_HYPHAE);
         break;
     case ITEM_WARPED_HYPHAE:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_WARPED_HYPHAE);
+        place_simple_pillar(context, BLOCK_WARPED_HYPHAE);
         break;
     case ITEM_OAK_LEAVES:
-        place_leaves(serv, clicked_pos, clicked_face, BLOCK_OAK_LEAVES);
+        place_leaves(context, BLOCK_OAK_LEAVES);
         break;
     case ITEM_SPRUCE_LEAVES:
-        place_leaves(serv, clicked_pos, clicked_face, BLOCK_SPRUCE_LEAVES);
+        place_leaves(context, BLOCK_SPRUCE_LEAVES);
         break;
     case ITEM_BIRCH_LEAVES:
-        place_leaves(serv, clicked_pos, clicked_face, BLOCK_BIRCH_LEAVES);
+        place_leaves(context, BLOCK_BIRCH_LEAVES);
         break;
     case ITEM_JUNGLE_LEAVES:
-        place_leaves(serv, clicked_pos, clicked_face, BLOCK_JUNGLE_LEAVES);
+        place_leaves(context, BLOCK_JUNGLE_LEAVES);
         break;
     case ITEM_ACACIA_LEAVES:
-        place_leaves(serv, clicked_pos, clicked_face, BLOCK_ACACIA_LEAVES);
+        place_leaves(context, BLOCK_ACACIA_LEAVES);
         break;
     case ITEM_DARK_OAK_LEAVES:
-        place_leaves(serv, clicked_pos, clicked_face, BLOCK_DARK_OAK_LEAVES);
+        place_leaves(context, BLOCK_DARK_OAK_LEAVES);
         break;
     case ITEM_SPONGE:
         break;
     case ITEM_WET_SPONGE:
         break;
     case ITEM_GLASS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_GLASS);
+        place_simple_block(context, BLOCK_GLASS);
         break;
     case ITEM_LAPIS_ORE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_LAPIS_ORE);
+        place_simple_block(context, BLOCK_LAPIS_ORE);
         break;
     case ITEM_LAPIS_BLOCK:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_LAPIS_BLOCK);
+        place_simple_block(context, BLOCK_LAPIS_BLOCK);
         break;
     case ITEM_DISPENSER:
         break;
     case ITEM_SANDSTONE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_SANDSTONE);
+        place_simple_block(context, BLOCK_SANDSTONE);
         break;
     case ITEM_CHISELED_SANDSTONE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CHISELED_SANDSTONE);
+        place_simple_block(context, BLOCK_CHISELED_SANDSTONE);
         break;
     case ITEM_CUT_SANDSTONE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CUT_SANDSTONE);
+        place_simple_block(context, BLOCK_CUT_SANDSTONE);
         break;
     case ITEM_NOTE_BLOCK:
         break;
@@ -1133,16 +1111,16 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_STICKY_PISTON:
         break;
     case ITEM_COBWEB:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_COBWEB);
+        place_simple_block(context, BLOCK_COBWEB);
         break;
     case ITEM_GRASS:
-        place_plant(serv, clicked_pos, clicked_face, BLOCK_GRASS);
+        place_plant(context, BLOCK_GRASS);
         break;
     case ITEM_FERN:
-        place_plant(serv, clicked_pos, clicked_face, BLOCK_FERN);
+        place_plant(context, BLOCK_FERN);
         break;
     case ITEM_DEAD_BUSH:
-        place_dead_bush(serv, clicked_pos, clicked_face, BLOCK_DEAD_BUSH);
+        place_dead_bush(context, BLOCK_DEAD_BUSH);
         break;
     case ITEM_SEAGRASS:
         break;
@@ -1151,236 +1129,241 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_PISTON:
         break;
     case ITEM_WHITE_WOOL:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_WHITE_WOOL);
+        place_simple_block(context, BLOCK_WHITE_WOOL);
         break;
     case ITEM_ORANGE_WOOL:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_ORANGE_WOOL);
+        place_simple_block(context, BLOCK_ORANGE_WOOL);
         break;
     case ITEM_MAGENTA_WOOL:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_MAGENTA_WOOL);
+        place_simple_block(context, BLOCK_MAGENTA_WOOL);
         break;
     case ITEM_LIGHT_BLUE_WOOL:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_LIGHT_BLUE_WOOL);
+        place_simple_block(context, BLOCK_LIGHT_BLUE_WOOL);
         break;
     case ITEM_YELLOW_WOOL:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_YELLOW_WOOL);
+        place_simple_block(context, BLOCK_YELLOW_WOOL);
         break;
     case ITEM_LIME_WOOL:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_LIME_WOOL);
+        place_simple_block(context, BLOCK_LIME_WOOL);
         break;
     case ITEM_PINK_WOOL:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_PINK_WOOL);
+        place_simple_block(context, BLOCK_PINK_WOOL);
         break;
     case ITEM_GRAY_WOOL:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_GRAY_WOOL);
+        place_simple_block(context, BLOCK_GRAY_WOOL);
         break;
     case ITEM_LIGHT_GRAY_WOOL:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_LIGHT_GRAY_WOOL);
+        place_simple_block(context, BLOCK_LIGHT_GRAY_WOOL);
         break;
     case ITEM_CYAN_WOOL:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CYAN_WOOL);
+        place_simple_block(context, BLOCK_CYAN_WOOL);
         break;
     case ITEM_PURPLE_WOOL:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_PURPLE_WOOL);
+        place_simple_block(context, BLOCK_PURPLE_WOOL);
         break;
     case ITEM_BLUE_WOOL:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BLUE_WOOL);
+        place_simple_block(context, BLOCK_BLUE_WOOL);
         break;
     case ITEM_BROWN_WOOL:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BROWN_WOOL);
+        place_simple_block(context, BLOCK_BROWN_WOOL);
         break;
     case ITEM_GREEN_WOOL:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_GREEN_WOOL);
+        place_simple_block(context, BLOCK_GREEN_WOOL);
         break;
     case ITEM_RED_WOOL:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_RED_WOOL);
+        place_simple_block(context, BLOCK_RED_WOOL);
         break;
     case ITEM_BLACK_WOOL:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BLACK_WOOL);
+        place_simple_block(context, BLOCK_BLACK_WOOL);
         break;
     case ITEM_DANDELION:
-        place_plant(serv, clicked_pos, clicked_face, BLOCK_DANDELION);
+        place_plant(context, BLOCK_DANDELION);
         break;
     case ITEM_POPPY:
-        place_plant(serv, clicked_pos, clicked_face, BLOCK_POPPY);
+        place_plant(context, BLOCK_POPPY);
         break;
     case ITEM_BLUE_ORCHID:
-        place_plant(serv, clicked_pos, clicked_face, BLOCK_BLUE_ORCHID);
+        place_plant(context, BLOCK_BLUE_ORCHID);
         break;
     case ITEM_ALLIUM:
-        place_plant(serv, clicked_pos, clicked_face, BLOCK_ALLIUM);
+        place_plant(context, BLOCK_ALLIUM);
         break;
     case ITEM_AZURE_BLUET:
-        place_plant(serv, clicked_pos, clicked_face, BLOCK_AZURE_BLUET);
+        place_plant(context, BLOCK_AZURE_BLUET);
         break;
     case ITEM_RED_TULIP:
-        place_plant(serv, clicked_pos, clicked_face, BLOCK_RED_TULIP);
+        place_plant(context, BLOCK_RED_TULIP);
         break;
     case ITEM_ORANGE_TULIP:
-        place_plant(serv, clicked_pos, clicked_face, BLOCK_ORANGE_TULIP);
+        place_plant(context, BLOCK_ORANGE_TULIP);
         break;
     case ITEM_WHITE_TULIP:
-        place_plant(serv, clicked_pos, clicked_face, BLOCK_WHITE_TULIP);
+        place_plant(context, BLOCK_WHITE_TULIP);
         break;
     case ITEM_PINK_TULIP:
-        place_plant(serv, clicked_pos, clicked_face, BLOCK_PINK_TULIP);
+        place_plant(context, BLOCK_PINK_TULIP);
         break;
     case ITEM_OXEYE_DAISY:
-        place_plant(serv, clicked_pos, clicked_face, BLOCK_OXEYE_DAISY);
+        place_plant(context, BLOCK_OXEYE_DAISY);
         break;
     case ITEM_CORNFLOWER:
-        place_plant(serv, clicked_pos, clicked_face, BLOCK_CORNFLOWER);
+        place_plant(context, BLOCK_CORNFLOWER);
         break;
     case ITEM_LILY_OF_THE_VALLEY:
-        place_plant(serv, clicked_pos, clicked_face, BLOCK_LILY_OF_THE_VALLEY);
+        place_plant(context, BLOCK_LILY_OF_THE_VALLEY);
         break;
     case ITEM_WITHER_ROSE:
-        place_plant(serv, clicked_pos, clicked_face, BLOCK_WITHER_ROSE);
+        place_plant(context, BLOCK_WITHER_ROSE);
         break;
     case ITEM_BROWN_MUSHROOM:
         break;
     case ITEM_RED_MUSHROOM:
         break;
     case ITEM_CRIMSON_FUNGUS:
+        place_nether_plant(context, BLOCK_CRIMSON_FUNGUS);
         break;
     case ITEM_WARPED_FUNGUS:
+        place_nether_plant(context, BLOCK_WARPED_FUNGUS);
         break;
     case ITEM_CRIMSON_ROOTS:
+        place_nether_plant(context, BLOCK_CRIMSON_ROOTS);
         break;
     case ITEM_WARPED_ROOTS:
+        place_nether_plant(context, BLOCK_WARPED_ROOTS);
         break;
     case ITEM_NETHER_SPROUTS:
+        place_nether_plant(context, BLOCK_NETHER_SPROUTS);
         break;
     case ITEM_WEEPING_VINES:
         break;
     case ITEM_TWISTING_VINES:
         break;
     case ITEM_SUGAR_CANE:
-        place_sugar_cane(serv, clicked_pos, clicked_face, BLOCK_SUGAR_CANE);
+        place_sugar_cane(context, BLOCK_SUGAR_CANE);
         break;
     case ITEM_KELP:
         break;
     case ITEM_BAMBOO:
         break;
     case ITEM_GOLD_BLOCK:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_GOLD_BLOCK);
+        place_simple_block(context, BLOCK_GOLD_BLOCK);
         break;
     case ITEM_IRON_BLOCK:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_IRON_BLOCK);
+        place_simple_block(context, BLOCK_IRON_BLOCK);
         break;
     case ITEM_OAK_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_OAK_SLAB);
+        place_slab(context, BLOCK_OAK_SLAB);
         break;
     case ITEM_SPRUCE_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_SPRUCE_SLAB);
+        place_slab(context, BLOCK_SPRUCE_SLAB);
         break;
     case ITEM_BIRCH_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_BIRCH_SLAB);
+        place_slab(context, BLOCK_BIRCH_SLAB);
         break;
     case ITEM_JUNGLE_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_JUNGLE_SLAB);
+        place_slab(context, BLOCK_JUNGLE_SLAB);
         break;
     case ITEM_ACACIA_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_ACACIA_SLAB);
+        place_slab(context, BLOCK_ACACIA_SLAB);
         break;
     case ITEM_DARK_OAK_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_DARK_OAK_SLAB);
+        place_slab(context, BLOCK_DARK_OAK_SLAB);
         break;
     case ITEM_CRIMSON_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_CRIMSON_SLAB);
+        place_slab(context, BLOCK_CRIMSON_SLAB);
         break;
     case ITEM_WARPED_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_WARPED_SLAB);
+        place_slab(context, BLOCK_WARPED_SLAB);
         break;
     case ITEM_STONE_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_STONE_SLAB);
+        place_slab(context, BLOCK_STONE_SLAB);
         break;
     case ITEM_SMOOTH_STONE_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_SMOOTH_STONE_SLAB);
+        place_slab(context, BLOCK_SMOOTH_STONE_SLAB);
         break;
     case ITEM_SANDSTONE_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_SANDSTONE_SLAB);
+        place_slab(context, BLOCK_SANDSTONE_SLAB);
         break;
     case ITEM_CUT_SANDSTONE_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_CUT_SANDSTONE_SLAB);
+        place_slab(context, BLOCK_CUT_SANDSTONE_SLAB);
         break;
     case ITEM_PETRIFIED_OAK_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_PETRIFIED_OAK_SLAB);
+        place_slab(context, BLOCK_PETRIFIED_OAK_SLAB);
         break;
     case ITEM_COBBLESTONE_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_COBBLESTONE_SLAB);
+        place_slab(context, BLOCK_COBBLESTONE_SLAB);
         break;
     case ITEM_BRICK_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_BRICK_SLAB);
+        place_slab(context, BLOCK_BRICK_SLAB);
         break;
     case ITEM_STONE_BRICK_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_STONE_BRICK_SLAB);
+        place_slab(context, BLOCK_STONE_BRICK_SLAB);
         break;
     case ITEM_NETHER_BRICK_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_NETHER_BRICK_SLAB);
+        place_slab(context, BLOCK_NETHER_BRICK_SLAB);
         break;
     case ITEM_QUARTZ_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_QUARTZ_SLAB);
+        place_slab(context, BLOCK_QUARTZ_SLAB);
         break;
     case ITEM_RED_SANDSTONE_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_RED_SANDSTONE_SLAB);
+        place_slab(context, BLOCK_RED_SANDSTONE_SLAB);
         break;
     case ITEM_CUT_RED_SANDSTONE_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_CUT_RED_SANDSTONE_SLAB);
+        place_slab(context, BLOCK_CUT_RED_SANDSTONE_SLAB);
         break;
     case ITEM_PURPUR_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_PURPUR_SLAB);
+        place_slab(context, BLOCK_PURPUR_SLAB);
         break;
     case ITEM_PRISMARINE_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_PRISMARINE_SLAB);
+        place_slab(context, BLOCK_PRISMARINE_SLAB);
         break;
     case ITEM_PRISMARINE_BRICK_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_PRISMARINE_BRICK_SLAB);
+        place_slab(context, BLOCK_PRISMARINE_BRICK_SLAB);
         break;
     case ITEM_DARK_PRISMARINE_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_DARK_PRISMARINE_SLAB);
+        place_slab(context, BLOCK_DARK_PRISMARINE_SLAB);
         break;
     case ITEM_SMOOTH_QUARTZ:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_SMOOTH_QUARTZ);
+        place_simple_block(context, BLOCK_SMOOTH_QUARTZ);
         break;
     case ITEM_SMOOTH_RED_SANDSTONE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_SMOOTH_RED_SANDSTONE);
+        place_simple_block(context, BLOCK_SMOOTH_RED_SANDSTONE);
         break;
     case ITEM_SMOOTH_SANDSTONE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_SMOOTH_SANDSTONE);
+        place_simple_block(context, BLOCK_SMOOTH_SANDSTONE);
         break;
     case ITEM_SMOOTH_STONE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_SMOOTH_STONE);
+        place_simple_block(context, BLOCK_SMOOTH_STONE);
         break;
     case ITEM_BRICKS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BRICKS);
+        place_simple_block(context, BLOCK_BRICKS);
         break;
     case ITEM_TNT:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_TNT);
+        place_simple_block(context, BLOCK_TNT);
         break;
     case ITEM_BOOKSHELF:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BOOKSHELF);
+        place_simple_block(context, BLOCK_BOOKSHELF);
         break;
     case ITEM_MOSSY_COBBLESTONE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_MOSSY_COBBLESTONE);
+        place_simple_block(context, BLOCK_MOSSY_COBBLESTONE);
         break;
     case ITEM_OBSIDIAN:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_OBSIDIAN);
+        place_simple_block(context, BLOCK_OBSIDIAN);
         break;
     case ITEM_TORCH:
         break;
     case ITEM_END_ROD:
-        place_end_rod(serv, clicked_pos, clicked_face, BLOCK_END_ROD);
+        place_end_rod(context, BLOCK_END_ROD);
         break;
     case ITEM_CHORUS_PLANT:
         break;
     case ITEM_CHORUS_FLOWER:
         break;
     case ITEM_PURPUR_BLOCK:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_PURPUR_BLOCK);
+        place_simple_block(context, BLOCK_PURPUR_BLOCK);
         break;
     case ITEM_PURPUR_PILLAR:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_PURPUR_PILLAR);
+        place_simple_pillar(context, BLOCK_PURPUR_PILLAR);
         break;
     case ITEM_PURPUR_STAIRS:
         break;
@@ -1391,13 +1374,13 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_CHEST:
         break;
     case ITEM_DIAMOND_ORE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_DIAMOND_ORE);
+        place_simple_block(context, BLOCK_DIAMOND_ORE);
         break;
     case ITEM_DIAMOND_BLOCK:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_DIAMOND_BLOCK);
+        place_simple_block(context, BLOCK_DIAMOND_BLOCK);
         break;
     case ITEM_CRAFTING_TABLE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CRAFTING_TABLE);
+        place_simple_block(context, BLOCK_CRAFTING_TABLE);
         break;
     case ITEM_FARMLAND:
         break;
@@ -1432,22 +1415,22 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_POLISHED_BLACKSTONE_PRESSURE_PLATE:
         break;
     case ITEM_REDSTONE_ORE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_REDSTONE_ORE);
+        place_simple_block(context, BLOCK_REDSTONE_ORE);
         break;
     case ITEM_REDSTONE_TORCH:
         break;
     case ITEM_SNOW:
         break;
     case ITEM_ICE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_ICE);
+        place_simple_block(context, BLOCK_ICE);
         break;
     case ITEM_SNOW_BLOCK:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_SNOW_BLOCK);
+        place_simple_block(context, BLOCK_SNOW_BLOCK);
         break;
     case ITEM_CACTUS:
         break;
     case ITEM_CLAY:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CLAY);
+        place_simple_block(context, BLOCK_CLAY);
         break;
     case ITEM_JUKEBOX:
         break;
@@ -1468,35 +1451,35 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_WARPED_FENCE:
         break;
     case ITEM_PUMPKIN:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_PUMPKIN);
+        place_simple_block(context, BLOCK_PUMPKIN);
         break;
     case ITEM_CARVED_PUMPKIN:
         // @TODO(traks) spawn iron golem?
-        place_horizontal_facing(serv, entity, clicked_pos, clicked_face, BLOCK_CARVED_PUMPKIN);
+        place_horizontal_facing(context, BLOCK_CARVED_PUMPKIN);
         break;
     case ITEM_NETHERRACK:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_NETHERRACK);
+        place_simple_block(context, BLOCK_NETHERRACK);
         break;
     case ITEM_SOUL_SAND:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_SOUL_SAND);
+        place_simple_block(context, BLOCK_SOUL_SAND);
         break;
     case ITEM_SOUL_SOIL:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_SOUL_SOIL);
+        place_simple_block(context, BLOCK_SOUL_SOIL);
         break;
     case ITEM_BASALT:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_BASALT);
+        place_simple_pillar(context, BLOCK_BASALT);
         break;
     case ITEM_POLISHED_BASALT:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_POLISHED_BASALT);
+        place_simple_pillar(context, BLOCK_POLISHED_BASALT);
         break;
     case ITEM_SOUL_TORCH:
         break;
     case ITEM_GLOWSTONE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_GLOWSTONE);
+        place_simple_block(context, BLOCK_GLOWSTONE);
         break;
     case ITEM_JACK_O_LANTERN:
         // @TODO(traks) spawn iron golem?
-        place_horizontal_facing(serv, entity, clicked_pos, clicked_face, BLOCK_JACK_O_LANTERN);
+        place_horizontal_facing(context, BLOCK_JACK_O_LANTERN);
         break;
     case ITEM_OAK_TRAPDOOR:
         break;
@@ -1515,53 +1498,53 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_WARPED_TRAPDOOR:
         break;
     case ITEM_INFESTED_STONE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_INFESTED_STONE);
+        place_simple_block(context, BLOCK_INFESTED_STONE);
         break;
     case ITEM_INFESTED_COBBLESTONE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_INFESTED_COBBLESTONE);
+        place_simple_block(context, BLOCK_INFESTED_COBBLESTONE);
         break;
     case ITEM_INFESTED_STONE_BRICKS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_INFESTED_STONE_BRICKS);
+        place_simple_block(context, BLOCK_INFESTED_STONE_BRICKS);
         break;
     case ITEM_INFESTED_MOSSY_STONE_BRICKS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_INFESTED_MOSSY_STONE_BRICKS);
+        place_simple_block(context, BLOCK_INFESTED_MOSSY_STONE_BRICKS);
         break;
     case ITEM_INFESTED_CRACKED_STONE_BRICKS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_INFESTED_CRACKED_STONE_BRICKS);
+        place_simple_block(context, BLOCK_INFESTED_CRACKED_STONE_BRICKS);
         break;
     case ITEM_INFESTED_CHISELED_STONE_BRICKS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_INFESTED_CHISELED_STONE_BRICKS);
+        place_simple_block(context, BLOCK_INFESTED_CHISELED_STONE_BRICKS);
         break;
     case ITEM_STONE_BRICKS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_STONE_BRICKS);
+        place_simple_block(context, BLOCK_STONE_BRICKS);
         break;
     case ITEM_MOSSY_STONE_BRICKS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_MOSSY_STONE_BRICKS);
+        place_simple_block(context, BLOCK_MOSSY_STONE_BRICKS);
         break;
     case ITEM_CRACKED_STONE_BRICKS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CRACKED_STONE_BRICKS);
+        place_simple_block(context, BLOCK_CRACKED_STONE_BRICKS);
         break;
     case ITEM_CHISELED_STONE_BRICKS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CHISELED_STONE_BRICKS);
+        place_simple_block(context, BLOCK_CHISELED_STONE_BRICKS);
         break;
     case ITEM_BROWN_MUSHROOM_BLOCK:
-        place_mushroom_block(serv, clicked_pos, clicked_face, BLOCK_BROWN_MUSHROOM_BLOCK);
+        place_mushroom_block(context, BLOCK_BROWN_MUSHROOM_BLOCK);
         break;
     case ITEM_RED_MUSHROOM_BLOCK:
-        place_mushroom_block(serv, clicked_pos, clicked_face, BLOCK_RED_MUSHROOM_BLOCK);
+        place_mushroom_block(context, BLOCK_RED_MUSHROOM_BLOCK);
         break;
     case ITEM_MUSHROOM_STEM:
-        place_mushroom_block(serv, clicked_pos, clicked_face, BLOCK_MUSHROOM_STEM);
+        place_mushroom_block(context, BLOCK_MUSHROOM_STEM);
         break;
     case ITEM_IRON_BARS:
         break;
     case ITEM_CHAIN:
-        place_chain(serv, clicked_pos, clicked_face, BLOCK_CHAIN);
+        place_chain(context, BLOCK_CHAIN);
         break;
     case ITEM_GLASS_PANE:
         break;
     case ITEM_MELON:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_MELON);
+        place_simple_block(context, BLOCK_MELON);
         break;
     case ITEM_VINE:
         break;
@@ -1586,16 +1569,16 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_STONE_BRICK_STAIRS:
         break;
     case ITEM_MYCELIUM:
-        place_snowy_grassy_block(serv, clicked_pos, clicked_face, BLOCK_MYCELIUM);
+        place_snowy_grassy_block(context, BLOCK_MYCELIUM);
         break;
     case ITEM_NETHER_BRICKS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_NETHER_BRICKS);
+        place_simple_block(context, BLOCK_NETHER_BRICKS);
         break;
     case ITEM_CRACKED_NETHER_BRICKS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CRACKED_NETHER_BRICKS);
+        place_simple_block(context, BLOCK_CRACKED_NETHER_BRICKS);
         break;
     case ITEM_CHISELED_NETHER_BRICKS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CHISELED_NETHER_BRICKS);
+        place_simple_block(context, BLOCK_CHISELED_NETHER_BRICKS);
         break;
     case ITEM_NETHER_BRICK_FENCE:
         break;
@@ -1604,13 +1587,13 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_ENCHANTING_TABLE:
         break;
     case ITEM_END_PORTAL_FRAME:
-        place_end_portal_frame(serv, entity, clicked_pos, clicked_face, BLOCK_END_PORTAL_FRAME);
+        place_end_portal_frame(context, BLOCK_END_PORTAL_FRAME);
         break;
     case ITEM_END_STONE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_END_STONE);
+        place_simple_block(context, BLOCK_END_STONE);
         break;
     case ITEM_END_STONE_BRICKS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_END_STONE_BRICKS);
+        place_simple_block(context, BLOCK_END_STONE_BRICKS);
         break;
     case ITEM_DRAGON_EGG:
         break;
@@ -1619,14 +1602,14 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_SANDSTONE_STAIRS:
         break;
     case ITEM_EMERALD_ORE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_EMERALD_ORE);
+        place_simple_block(context, BLOCK_EMERALD_ORE);
         break;
     case ITEM_ENDER_CHEST:
         break;
     case ITEM_TRIPWIRE_HOOK:
         break;
     case ITEM_EMERALD_BLOCK:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_EMERALD_BLOCK);
+        place_simple_block(context, BLOCK_EMERALD_BLOCK);
         break;
     case ITEM_SPRUCE_STAIRS:
         break;
@@ -1711,23 +1694,23 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_DAYLIGHT_DETECTOR:
         break;
     case ITEM_REDSTONE_BLOCK:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_REDSTONE_BLOCK);
+        place_simple_block(context, BLOCK_REDSTONE_BLOCK);
         break;
     case ITEM_NETHER_QUARTZ_ORE:
         break;
     case ITEM_HOPPER:
         break;
     case ITEM_CHISELED_QUARTZ_BLOCK:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CHISELED_QUARTZ_BLOCK);
+        place_simple_block(context, BLOCK_CHISELED_QUARTZ_BLOCK);
         break;
     case ITEM_QUARTZ_BLOCK:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_QUARTZ_BLOCK);
+        place_simple_block(context, BLOCK_QUARTZ_BLOCK);
         break;
     case ITEM_QUARTZ_BRICKS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_QUARTZ_BRICKS);
+        place_simple_block(context, BLOCK_QUARTZ_BRICKS);
         break;
     case ITEM_QUARTZ_PILLAR:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_QUARTZ_PILLAR);
+        place_simple_pillar(context, BLOCK_QUARTZ_PILLAR);
         break;
     case ITEM_QUARTZ_STAIRS:
         break;
@@ -1736,116 +1719,116 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_DROPPER:
         break;
     case ITEM_WHITE_TERRACOTTA:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_WHITE_TERRACOTTA);
+        place_simple_block(context, BLOCK_WHITE_TERRACOTTA);
         break;
     case ITEM_ORANGE_TERRACOTTA:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_ORANGE_TERRACOTTA);
+        place_simple_block(context, BLOCK_ORANGE_TERRACOTTA);
         break;
     case ITEM_MAGENTA_TERRACOTTA:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_MAGENTA_TERRACOTTA);
+        place_simple_block(context, BLOCK_MAGENTA_TERRACOTTA);
         break;
     case ITEM_LIGHT_BLUE_TERRACOTTA:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_LIGHT_BLUE_TERRACOTTA);
+        place_simple_block(context, BLOCK_LIGHT_BLUE_TERRACOTTA);
         break;
     case ITEM_YELLOW_TERRACOTTA:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_YELLOW_TERRACOTTA);
+        place_simple_block(context, BLOCK_YELLOW_TERRACOTTA);
         break;
     case ITEM_LIME_TERRACOTTA:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_LIME_TERRACOTTA);
+        place_simple_block(context, BLOCK_LIME_TERRACOTTA);
         break;
     case ITEM_PINK_TERRACOTTA:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_PINK_TERRACOTTA);
+        place_simple_block(context, BLOCK_PINK_TERRACOTTA);
         break;
     case ITEM_GRAY_TERRACOTTA:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_GRAY_TERRACOTTA);
+        place_simple_block(context, BLOCK_GRAY_TERRACOTTA);
         break;
     case ITEM_LIGHT_GRAY_TERRACOTTA:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_LIGHT_GRAY_TERRACOTTA);
+        place_simple_block(context, BLOCK_LIGHT_GRAY_TERRACOTTA);
         break;
     case ITEM_CYAN_TERRACOTTA:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CYAN_TERRACOTTA);
+        place_simple_block(context, BLOCK_CYAN_TERRACOTTA);
         break;
     case ITEM_PURPLE_TERRACOTTA:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_PURPLE_TERRACOTTA);
+        place_simple_block(context, BLOCK_PURPLE_TERRACOTTA);
         break;
     case ITEM_BLUE_TERRACOTTA:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BLUE_TERRACOTTA);
+        place_simple_block(context, BLOCK_BLUE_TERRACOTTA);
         break;
     case ITEM_BROWN_TERRACOTTA:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BROWN_TERRACOTTA);
+        place_simple_block(context, BLOCK_BROWN_TERRACOTTA);
         break;
     case ITEM_GREEN_TERRACOTTA:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_GREEN_TERRACOTTA);
+        place_simple_block(context, BLOCK_GREEN_TERRACOTTA);
         break;
     case ITEM_RED_TERRACOTTA:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_RED_TERRACOTTA);
+        place_simple_block(context, BLOCK_RED_TERRACOTTA);
         break;
     case ITEM_BLACK_TERRACOTTA:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BLACK_TERRACOTTA);
+        place_simple_block(context, BLOCK_BLACK_TERRACOTTA);
         break;
     case ITEM_BARRIER:
         break;
     case ITEM_IRON_TRAPDOOR:
         break;
     case ITEM_HAY_BLOCK:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_HAY_BLOCK);
+        place_simple_pillar(context, BLOCK_HAY_BLOCK);
         break;
     case ITEM_WHITE_CARPET:
-        place_carpet(serv, clicked_pos, clicked_face, BLOCK_WHITE_CARPET);
+        place_carpet(context, BLOCK_WHITE_CARPET);
         break;
     case ITEM_ORANGE_CARPET:
-        place_carpet(serv, clicked_pos, clicked_face, BLOCK_ORANGE_CARPET);
+        place_carpet(context, BLOCK_ORANGE_CARPET);
         break;
     case ITEM_MAGENTA_CARPET:
-        place_carpet(serv, clicked_pos, clicked_face, BLOCK_MAGENTA_CARPET);
+        place_carpet(context, BLOCK_MAGENTA_CARPET);
         break;
     case ITEM_LIGHT_BLUE_CARPET:
-        place_carpet(serv, clicked_pos, clicked_face, BLOCK_LIGHT_BLUE_CARPET);
+        place_carpet(context, BLOCK_LIGHT_BLUE_CARPET);
         break;
     case ITEM_YELLOW_CARPET:
-        place_carpet(serv, clicked_pos, clicked_face, BLOCK_YELLOW_CARPET);
+        place_carpet(context, BLOCK_YELLOW_CARPET);
         break;
     case ITEM_LIME_CARPET:
-        place_carpet(serv, clicked_pos, clicked_face, BLOCK_LIME_CARPET);
+        place_carpet(context, BLOCK_LIME_CARPET);
         break;
     case ITEM_PINK_CARPET:
-        place_carpet(serv, clicked_pos, clicked_face, BLOCK_PINK_CARPET);
+        place_carpet(context, BLOCK_PINK_CARPET);
         break;
     case ITEM_GRAY_CARPET:
-        place_carpet(serv, clicked_pos, clicked_face, BLOCK_GRAY_CARPET);
+        place_carpet(context, BLOCK_GRAY_CARPET);
         break;
     case ITEM_LIGHT_GRAY_CARPET:
-        place_carpet(serv, clicked_pos, clicked_face, BLOCK_LIGHT_GRAY_CARPET);
+        place_carpet(context, BLOCK_LIGHT_GRAY_CARPET);
         break;
     case ITEM_CYAN_CARPET:
-        place_carpet(serv, clicked_pos, clicked_face, BLOCK_CYAN_CARPET);
+        place_carpet(context, BLOCK_CYAN_CARPET);
         break;
     case ITEM_PURPLE_CARPET:
-        place_carpet(serv, clicked_pos, clicked_face, BLOCK_PURPLE_CARPET);
+        place_carpet(context, BLOCK_PURPLE_CARPET);
         break;
     case ITEM_BLUE_CARPET:
-        place_carpet(serv, clicked_pos, clicked_face, BLOCK_BLUE_CARPET);
+        place_carpet(context, BLOCK_BLUE_CARPET);
         break;
     case ITEM_BROWN_CARPET:
-        place_carpet(serv, clicked_pos, clicked_face, BLOCK_BROWN_CARPET);
+        place_carpet(context, BLOCK_BROWN_CARPET);
         break;
     case ITEM_GREEN_CARPET:
-        place_carpet(serv, clicked_pos, clicked_face, BLOCK_GREEN_CARPET);
+        place_carpet(context, BLOCK_GREEN_CARPET);
         break;
     case ITEM_RED_CARPET:
-        place_carpet(serv, clicked_pos, clicked_face, BLOCK_RED_CARPET);
+        place_carpet(context, BLOCK_RED_CARPET);
         break;
     case ITEM_BLACK_CARPET:
-        place_carpet(serv, clicked_pos, clicked_face, BLOCK_BLACK_CARPET);
+        place_carpet(context, BLOCK_BLACK_CARPET);
         break;
     case ITEM_TERRACOTTA:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_TERRACOTTA);
+        place_simple_block(context, BLOCK_TERRACOTTA);
         break;
     case ITEM_COAL_BLOCK:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_COAL_BLOCK);
+        place_simple_block(context, BLOCK_COAL_BLOCK);
         break;
     case ITEM_PACKED_ICE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_PACKED_ICE);
+        place_simple_block(context, BLOCK_PACKED_ICE);
         break;
     case ITEM_ACACIA_STAIRS:
         break;
@@ -1868,52 +1851,52 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_LARGE_FERN:
         break;
     case ITEM_WHITE_STAINED_GLASS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_WHITE_STAINED_GLASS);
+        place_simple_block(context, BLOCK_WHITE_STAINED_GLASS);
         break;
     case ITEM_ORANGE_STAINED_GLASS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_ORANGE_STAINED_GLASS);
+        place_simple_block(context, BLOCK_ORANGE_STAINED_GLASS);
         break;
     case ITEM_MAGENTA_STAINED_GLASS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_MAGENTA_STAINED_GLASS);
+        place_simple_block(context, BLOCK_MAGENTA_STAINED_GLASS);
         break;
     case ITEM_LIGHT_BLUE_STAINED_GLASS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_LIGHT_BLUE_STAINED_GLASS);
+        place_simple_block(context, BLOCK_LIGHT_BLUE_STAINED_GLASS);
         break;
     case ITEM_YELLOW_STAINED_GLASS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_YELLOW_STAINED_GLASS);
+        place_simple_block(context, BLOCK_YELLOW_STAINED_GLASS);
         break;
     case ITEM_LIME_STAINED_GLASS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_LIME_STAINED_GLASS);
+        place_simple_block(context, BLOCK_LIME_STAINED_GLASS);
         break;
     case ITEM_PINK_STAINED_GLASS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_PINK_STAINED_GLASS);
+        place_simple_block(context, BLOCK_PINK_STAINED_GLASS);
         break;
     case ITEM_GRAY_STAINED_GLASS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_GRAY_STAINED_GLASS);
+        place_simple_block(context, BLOCK_GRAY_STAINED_GLASS);
         break;
     case ITEM_LIGHT_GRAY_STAINED_GLASS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_LIGHT_GRAY_STAINED_GLASS);
+        place_simple_block(context, BLOCK_LIGHT_GRAY_STAINED_GLASS);
         break;
     case ITEM_CYAN_STAINED_GLASS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CYAN_STAINED_GLASS);
+        place_simple_block(context, BLOCK_CYAN_STAINED_GLASS);
         break;
     case ITEM_PURPLE_STAINED_GLASS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_PURPLE_STAINED_GLASS);
+        place_simple_block(context, BLOCK_PURPLE_STAINED_GLASS);
         break;
     case ITEM_BLUE_STAINED_GLASS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BLUE_STAINED_GLASS);
+        place_simple_block(context, BLOCK_BLUE_STAINED_GLASS);
         break;
     case ITEM_BROWN_STAINED_GLASS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BROWN_STAINED_GLASS);
+        place_simple_block(context, BLOCK_BROWN_STAINED_GLASS);
         break;
     case ITEM_GREEN_STAINED_GLASS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_GREEN_STAINED_GLASS);
+        place_simple_block(context, BLOCK_GREEN_STAINED_GLASS);
         break;
     case ITEM_RED_STAINED_GLASS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_RED_STAINED_GLASS);
+        place_simple_block(context, BLOCK_RED_STAINED_GLASS);
         break;
     case ITEM_BLACK_STAINED_GLASS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BLACK_STAINED_GLASS);
+        place_simple_block(context, BLOCK_BLACK_STAINED_GLASS);
         break;
     case ITEM_WHITE_STAINED_GLASS_PANE:
         break;
@@ -1948,13 +1931,13 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_BLACK_STAINED_GLASS_PANE:
         break;
     case ITEM_PRISMARINE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_PRISMARINE);
+        place_simple_block(context, BLOCK_PRISMARINE);
         break;
     case ITEM_PRISMARINE_BRICKS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_PRISMARINE_BRICKS);
+        place_simple_block(context, BLOCK_PRISMARINE_BRICKS);
         break;
     case ITEM_DARK_PRISMARINE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_DARK_PRISMARINE);
+        place_simple_block(context, BLOCK_DARK_PRISMARINE);
         break;
     case ITEM_PRISMARINE_STAIRS:
         break;
@@ -1963,16 +1946,16 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_DARK_PRISMARINE_STAIRS:
         break;
     case ITEM_SEA_LANTERN:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_SEA_LANTERN);
+        place_simple_block(context, BLOCK_SEA_LANTERN);
         break;
     case ITEM_RED_SANDSTONE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_RED_SANDSTONE);
+        place_simple_block(context, BLOCK_RED_SANDSTONE);
         break;
     case ITEM_CHISELED_RED_SANDSTONE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CHISELED_RED_SANDSTONE);
+        place_simple_block(context, BLOCK_CHISELED_RED_SANDSTONE);
         break;
     case ITEM_CUT_RED_SANDSTONE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CUT_RED_SANDSTONE);
+        place_simple_block(context, BLOCK_CUT_RED_SANDSTONE);
         break;
     case ITEM_RED_SANDSTONE_STAIRS:
         break;
@@ -1981,19 +1964,19 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_CHAIN_COMMAND_BLOCK:
         break;
     case ITEM_MAGMA_BLOCK:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_MAGMA_BLOCK);
+        place_simple_block(context, BLOCK_MAGMA_BLOCK);
         break;
     case ITEM_NETHER_WART_BLOCK:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_NETHER_WART_BLOCK);
+        place_simple_block(context, BLOCK_NETHER_WART_BLOCK);
         break;
     case ITEM_WARPED_WART_BLOCK:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_WARPED_WART_BLOCK);
+        place_simple_block(context, BLOCK_WARPED_WART_BLOCK);
         break;
     case ITEM_RED_NETHER_BRICKS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_RED_NETHER_BRICKS);
+        place_simple_block(context, BLOCK_RED_NETHER_BRICKS);
         break;
     case ITEM_BONE_BLOCK:
-        place_simple_pillar(serv, clicked_pos, clicked_face, BLOCK_BONE_BLOCK);
+        place_simple_pillar(context, BLOCK_BONE_BLOCK);
         break;
     case ITEM_STRUCTURE_VOID:
         break;
@@ -2066,52 +2049,52 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_BLACK_GLAZED_TERRACOTTA:
         break;
     case ITEM_WHITE_CONCRETE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_WHITE_CONCRETE);
+        place_simple_block(context, BLOCK_WHITE_CONCRETE);
         break;
     case ITEM_ORANGE_CONCRETE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_ORANGE_CONCRETE);
+        place_simple_block(context, BLOCK_ORANGE_CONCRETE);
         break;
     case ITEM_MAGENTA_CONCRETE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_MAGENTA_CONCRETE);
+        place_simple_block(context, BLOCK_MAGENTA_CONCRETE);
         break;
     case ITEM_LIGHT_BLUE_CONCRETE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BLUE_CONCRETE);
+        place_simple_block(context, BLOCK_BLUE_CONCRETE);
         break;
     case ITEM_YELLOW_CONCRETE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_YELLOW_CONCRETE);
+        place_simple_block(context, BLOCK_YELLOW_CONCRETE);
         break;
     case ITEM_LIME_CONCRETE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_LIME_CONCRETE);
+        place_simple_block(context, BLOCK_LIME_CONCRETE);
         break;
     case ITEM_PINK_CONCRETE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_PINK_CONCRETE);
+        place_simple_block(context, BLOCK_PINK_CONCRETE);
         break;
     case ITEM_GRAY_CONCRETE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_GRAY_CONCRETE);
+        place_simple_block(context, BLOCK_GRAY_CONCRETE);
         break;
     case ITEM_LIGHT_GRAY_CONCRETE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_LIGHT_GRAY_CONCRETE);
+        place_simple_block(context, BLOCK_LIGHT_GRAY_CONCRETE);
         break;
     case ITEM_CYAN_CONCRETE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CYAN_CONCRETE);
+        place_simple_block(context, BLOCK_CYAN_CONCRETE);
         break;
     case ITEM_PURPLE_CONCRETE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_PURPLE_CONCRETE);
+        place_simple_block(context, BLOCK_PURPLE_CONCRETE);
         break;
     case ITEM_BLUE_CONCRETE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BLUE_CONCRETE);
+        place_simple_block(context, BLOCK_BLUE_CONCRETE);
         break;
     case ITEM_BROWN_CONCRETE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BROWN_CONCRETE);
+        place_simple_block(context, BLOCK_BROWN_CONCRETE);
         break;
     case ITEM_GREEN_CONCRETE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_GREEN_CONCRETE);
+        place_simple_block(context, BLOCK_GREEN_CONCRETE);
         break;
     case ITEM_RED_CONCRETE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_RED_CONCRETE);
+        place_simple_block(context, BLOCK_RED_CONCRETE);
         break;
     case ITEM_BLACK_CONCRETE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BLACK_CONCRETE);
+        place_simple_block(context, BLOCK_BLACK_CONCRETE);
         break;
     case ITEM_WHITE_CONCRETE_POWDER:
         break;
@@ -2148,19 +2131,19 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_TURTLE_EGG:
         break;
     case ITEM_DEAD_TUBE_CORAL_BLOCK:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_DEAD_TUBE_CORAL_BLOCK);
+        place_simple_block(context, BLOCK_DEAD_TUBE_CORAL_BLOCK);
         break;
     case ITEM_DEAD_BRAIN_CORAL_BLOCK:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_DEAD_BRAIN_CORAL_BLOCK);
+        place_simple_block(context, BLOCK_DEAD_BRAIN_CORAL_BLOCK);
         break;
     case ITEM_DEAD_BUBBLE_CORAL_BLOCK:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_DEAD_BUBBLE_CORAL_BLOCK);
+        place_simple_block(context, BLOCK_DEAD_BUBBLE_CORAL_BLOCK);
         break;
     case ITEM_DEAD_FIRE_CORAL_BLOCK:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_DEAD_FIRE_CORAL_BLOCK);
+        place_simple_block(context, BLOCK_DEAD_FIRE_CORAL_BLOCK);
         break;
     case ITEM_DEAD_HORN_CORAL_BLOCK:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_DEAD_HORN_CORAL_BLOCK);
+        place_simple_block(context, BLOCK_DEAD_HORN_CORAL_BLOCK);
         break;
     case ITEM_TUBE_CORAL_BLOCK:
         break;
@@ -2245,43 +2228,43 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_DIORITE_STAIRS:
         break;
     case ITEM_POLISHED_GRANITE_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_POLISHED_GRANITE_SLAB);
+        place_slab(context, BLOCK_POLISHED_GRANITE_SLAB);
         break;
     case ITEM_SMOOTH_RED_SANDSTONE_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_SMOOTH_RED_SANDSTONE_SLAB);
+        place_slab(context, BLOCK_SMOOTH_RED_SANDSTONE_SLAB);
         break;
     case ITEM_MOSSY_STONE_BRICK_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_MOSSY_STONE_BRICK_SLAB);
+        place_slab(context, BLOCK_MOSSY_STONE_BRICK_SLAB);
         break;
     case ITEM_POLISHED_DIORITE_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_POLISHED_DIORITE_SLAB);
+        place_slab(context, BLOCK_POLISHED_DIORITE_SLAB);
         break;
     case ITEM_MOSSY_COBBLESTONE_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_MOSSY_COBBLESTONE_SLAB);
+        place_slab(context, BLOCK_MOSSY_COBBLESTONE_SLAB);
         break;
     case ITEM_END_STONE_BRICK_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_END_STONE_BRICK_SLAB);
+        place_slab(context, BLOCK_END_STONE_BRICK_SLAB);
         break;
     case ITEM_SMOOTH_SANDSTONE_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_SMOOTH_SANDSTONE_SLAB);
+        place_slab(context, BLOCK_SMOOTH_SANDSTONE_SLAB);
         break;
     case ITEM_SMOOTH_QUARTZ_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_SMOOTH_QUARTZ_SLAB);
+        place_slab(context, BLOCK_SMOOTH_QUARTZ_SLAB);
         break;
     case ITEM_GRANITE_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_GRANITE_SLAB);
+        place_slab(context, BLOCK_GRANITE_SLAB);
         break;
     case ITEM_ANDESITE_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_ANDESITE_SLAB);
+        place_slab(context, BLOCK_ANDESITE_SLAB);
         break;
     case ITEM_RED_NETHER_BRICK_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_RED_NETHER_BRICK_SLAB);
+        place_slab(context, BLOCK_RED_NETHER_BRICK_SLAB);
         break;
     case ITEM_POLISHED_ANDESITE_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_POLISHED_ANDESITE_SLAB);
+        place_slab(context, BLOCK_POLISHED_ANDESITE_SLAB);
         break;
     case ITEM_DIORITE_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_DIORITE_SLAB);
+        place_slab(context, BLOCK_DIORITE_SLAB);
         break;
     case ITEM_SCAFFOLDING:
         break;
@@ -2352,7 +2335,7 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_NETHERITE_HOE:
         break;
     case ITEM_WHEAT_SEEDS:
-        place_crop(serv, clicked_pos, clicked_face, BLOCK_WHEAT);
+        place_crop(context, BLOCK_WHEAT);
         break;
     case ITEM_PAINTING:
         break;
@@ -2377,7 +2360,7 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_REDSTONE:
         break;
     case ITEM_DRIED_KELP_BLOCK:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_DRIED_KELP_BLOCK);
+        place_simple_block(context, BLOCK_DRIED_KELP_BLOCK);
         break;
     case ITEM_CHEST_MINECART:
         break;
@@ -2426,19 +2409,19 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_FILLED_MAP:
         break;
     case ITEM_PUMPKIN_SEEDS:
-        place_crop(serv, clicked_pos, clicked_face, BLOCK_PUMPKIN_STEM);
+        place_crop(context, BLOCK_PUMPKIN_STEM);
         break;
     case ITEM_MELON_SEEDS:
-        place_crop(serv, clicked_pos, clicked_face, BLOCK_MELON_STEM);
+        place_crop(context, BLOCK_MELON_STEM);
         break;
     case ITEM_NETHER_WART:
-        place_nether_wart(serv, clicked_pos, clicked_face, BLOCK_NETHER_WART);
+        place_nether_wart(context, BLOCK_NETHER_WART);
         break;
     case ITEM_BREWING_STAND:
         break;
     case ITEM_CAULDRON:
         // base state has level 0
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CAULDRON);
+        place_simple_block(context, BLOCK_CAULDRON);
         break;
     case ITEM_ENDER_EYE:
         break;
@@ -2581,10 +2564,10 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_FLOWER_POT:
         break;
     case ITEM_CARROT:
-        place_crop(serv, clicked_pos, clicked_face, BLOCK_CARROTS);
+        place_crop(context, BLOCK_CARROTS);
         break;
     case ITEM_POTATO:
-        place_crop(serv, clicked_pos, clicked_face, BLOCK_POTATOES);
+        place_crop(context, BLOCK_POTATOES);
         break;
     case ITEM_SKELETON_SKULL:
         break;
@@ -2645,7 +2628,7 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_END_CRYSTAL:
         break;
     case ITEM_BEETROOT_SEEDS:
-        place_crop(serv, clicked_pos, clicked_face, BLOCK_BEETROOTS);
+        place_crop(context, BLOCK_BEETROOTS);
         break;
     case ITEM_DEBUG_STICK:
         break;
@@ -2676,11 +2659,11 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_MUSIC_DISC_PIGSTEP:
         break;
     case ITEM_LOOM:
-        place_horizontal_facing(serv, entity, clicked_pos, clicked_face, BLOCK_LOOM);
+        place_horizontal_facing(context, BLOCK_LOOM);
         break;
     case ITEM_COMPOSTER:
         // base state has level 0
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_COMPOSTER);
+        place_simple_block(context, BLOCK_COMPOSTER);
         break;
     case ITEM_BARREL:
         break;
@@ -2689,17 +2672,17 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_BLAST_FURNACE:
         break;
     case ITEM_CARTOGRAPHY_TABLE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CARTOGRAPHY_TABLE);
+        place_simple_block(context, BLOCK_CARTOGRAPHY_TABLE);
         break;
     case ITEM_FLETCHING_TABLE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_FLETCHING_TABLE);
+        place_simple_block(context, BLOCK_FLETCHING_TABLE);
         break;
     case ITEM_GRINDSTONE:
         break;
     case ITEM_LECTERN:
         break;
     case ITEM_SMITHING_TABLE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_SMITHING_TABLE);
+        place_simple_block(context, BLOCK_SMITHING_TABLE);
         break;
     case ITEM_STONECUTTER:
         break;
@@ -2710,77 +2693,77 @@ process_use_item_on_packet(server * serv, entity_base * entity,
     case ITEM_SOUL_LANTERN:
         break;
     case ITEM_SWEET_BERRIES:
-        place_plant(serv, clicked_pos, clicked_face, BLOCK_SWEET_BERRY_BUSH);
+        place_plant(context, BLOCK_SWEET_BERRY_BUSH);
         break;
     case ITEM_CAMPFIRE:
         break;
     case ITEM_SOUL_CAMPFIRE:
         break;
     case ITEM_SHROOMLIGHT:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_SHROOMLIGHT);
+        place_simple_block(context, BLOCK_SHROOMLIGHT);
         break;
     case ITEM_BEE_NEST:
         break;
     case ITEM_BEEHIVE:
         break;
     case ITEM_HONEY_BLOCK:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_HONEY_BLOCK);
+        place_simple_block(context, BLOCK_HONEY_BLOCK);
         break;
     case ITEM_HONEYCOMB_BLOCK:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_HONEYCOMB_BLOCK);
+        place_simple_block(context, BLOCK_HONEYCOMB_BLOCK);
         break;
     case ITEM_LODESTONE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_LODESTONE);
+        place_simple_block(context, BLOCK_LODESTONE);
         break;
     case ITEM_NETHERITE_BLOCK:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_NETHERITE_BLOCK);
+        place_simple_block(context, BLOCK_NETHERITE_BLOCK);
         break;
     case ITEM_ANCIENT_DEBRIS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_ANCIENT_DEBRIS);
+        place_simple_block(context, BLOCK_ANCIENT_DEBRIS);
         break;
     case ITEM_TARGET:
         // base state has power 0
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_TARGET);
+        place_simple_block(context, BLOCK_TARGET);
         break;
     case ITEM_CRYING_OBSIDIAN:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CRYING_OBSIDIAN);
+        place_simple_block(context, BLOCK_CRYING_OBSIDIAN);
         break;
     case ITEM_BLACKSTONE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_BLACKSTONE);
+        place_simple_block(context, BLOCK_BLACKSTONE);
         break;
     case ITEM_BLACKSTONE_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_BLACKSTONE_SLAB);
+        place_slab(context, BLOCK_BLACKSTONE_SLAB);
         break;
     case ITEM_BLACKSTONE_STAIRS:
         break;
     case ITEM_GILDED_BLACKSTONE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_GILDED_BLACKSTONE);
+        place_simple_block(context, BLOCK_GILDED_BLACKSTONE);
         break;
     case ITEM_POLISHED_BLACKSTONE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_POLISHED_BLACKSTONE);
+        place_simple_block(context, BLOCK_POLISHED_BLACKSTONE);
         break;
     case ITEM_POLISHED_BLACKSTONE_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_POLISHED_BLACKSTONE_SLAB);
+        place_slab(context, BLOCK_POLISHED_BLACKSTONE_SLAB);
         break;
     case ITEM_POLISHED_BLACKSTONE_STAIRS:
         break;
     case ITEM_CHISELED_POLISHED_BLACKSTONE:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CHISELED_POLISHED_BLACKSTONE);
+        place_simple_block(context, BLOCK_CHISELED_POLISHED_BLACKSTONE);
         break;
     case ITEM_POLISHED_BLACKSTONE_BRICKS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_POLISHED_BLACKSTONE_BRICKS);
+        place_simple_block(context, BLOCK_POLISHED_BLACKSTONE_BRICKS);
         break;
     case ITEM_POLISHED_BLACKSTONE_BRICK_SLAB:
-        place_slab(serv, clicked_pos, click_offset_y, clicked_face, BLOCK_POLISHED_BLACKSTONE_BRICK_SLAB);
+        place_slab(context, BLOCK_POLISHED_BLACKSTONE_BRICK_SLAB);
         break;
     case ITEM_POLISHED_BLACKSTONE_BRICK_STAIRS:
         break;
     case ITEM_CRACKED_POLISHED_BLACKSTONE_BRICKS:
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_CRACKED_POLISHED_BLACKSTONE_BRICKS);
+        place_simple_block(context, BLOCK_CRACKED_POLISHED_BLACKSTONE_BRICKS);
         break;
     case ITEM_RESPAWN_ANCHOR:
         // base state has charge 0
-        place_simple_block(serv, clicked_pos, clicked_face, BLOCK_RESPAWN_ANCHOR);
+        place_simple_block(context, BLOCK_RESPAWN_ANCHOR);
         break;
     default:
         // no use-on action for the remaining item types
@@ -2793,14 +2776,14 @@ process_use_item_on_packet(server * serv, entity_base * entity,
 
     // @TODO(traks) we shouldn't assert here
     net_block_pos changed_pos = clicked_pos;
-    assert(player->changed_block_count < ARRAY_SIZE(player->changed_blocks));
-    player->changed_blocks[player->changed_block_count] = changed_pos;
-    player->changed_block_count++;
+    assert(player->player.changed_block_count < ARRAY_SIZE(player->player.changed_blocks));
+    player->player.changed_blocks[player->player.changed_block_count] = changed_pos;
+    player->player.changed_block_count++;
 
     changed_pos = get_relative_block_pos(clicked_pos, clicked_face);
-    assert(player->changed_block_count < ARRAY_SIZE(player->changed_blocks));
-    player->changed_blocks[player->changed_block_count] = changed_pos;
-    player->changed_block_count++;
+    assert(player->player.changed_block_count < ARRAY_SIZE(player->player.changed_blocks));
+    player->player.changed_blocks[player->player.changed_block_count] = changed_pos;
+    player->player.changed_block_count++;
 }
 
 mc_ubyte

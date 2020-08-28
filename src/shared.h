@@ -111,6 +111,8 @@ typedef union {
 // whether all play packets should be compressed or not
 #define PACKET_COMPRESSION_ENABLED (1)
 
+#define MAX_WORLD_Y (255)
+
 // in network id order
 enum gamemode {
     GAMEMODE_SURVIVAL,
@@ -142,6 +144,7 @@ enum direction {
     DIRECTION_POS_Z, // south
     DIRECTION_NEG_X, // west
     DIRECTION_POS_X, // east
+    DIRECTION_ZERO, // not used in network
 };
 
 typedef struct {
@@ -2777,12 +2780,37 @@ int
 net_string_equal(net_string a, net_string b);
 
 void
-process_use_item_on_packet(server * serv, entity_base * entity,
+process_use_item_on_packet(server * serv, entity_base * player,
         mc_int hand, net_block_pos clicked_pos, mc_int clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
-        mc_ubyte is_inside);
+        mc_ubyte is_inside, memory_arena * scratch_arena);
 
 mc_ubyte
 get_max_stack_size(mc_int item_type);
+
+void
+propagate_block_updates_after_change(net_block_pos change_pos,
+        server * serv, memory_arena * scratch_arena);
+
+net_block_pos
+get_relative_block_pos(net_block_pos pos, int face);
+
+int
+can_plant_survive_on(mc_int type_below);
+
+int
+can_carpet_survive_on(mc_int type_below);
+
+int
+can_dead_bush_survive_on(mc_int type_below);
+
+int
+can_wither_rose_survive_on(mc_int type_below);
+
+int
+can_nether_plant_survive_on(mc_int type_below);
+
+int
+get_opposite_direction(int direction);
 
 #endif

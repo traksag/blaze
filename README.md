@@ -39,6 +39,7 @@ As of writing this, Blaze only runs in offline mode and has the following featur
 6. In-memory block placing and breaking, and sending changes to clients.
 7. Spawning items in from the creative mode inventory.
 8. Server list ping with a sample of the online players.
+9. Basic block update system.
 
 ## Contributing
 

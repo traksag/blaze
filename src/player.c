@@ -686,10 +686,10 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
                     break;
                 }
 
-                int in_chunk_x = block_pos.x & 0xf;
-                int in_chunk_z = block_pos.z & 0xf;
-                chunk_set_block_state(ch, in_chunk_x, block_pos.y,
-                        in_chunk_z, 0);
+                chunk_set_block_state(ch, block_pos.x & 0xf, block_pos.y,
+                        block_pos.z & 0xf, 0);
+                propagate_block_updates_after_change(block_pos,
+                        serv, process_arena);
             }
             break;
         }
@@ -1008,7 +1008,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
 
         process_use_item_on_packet(serv, entity, hand, clicked_pos,
                 clicked_face, click_offset_x, click_offset_y, click_offset_z,
-                is_inside);
+                is_inside, process_arena);
         break;
     }
     case SBP_USE_ITEM: {
