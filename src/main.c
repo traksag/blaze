@@ -399,6 +399,166 @@ evict_entity(server * serv, entity_id eid) {
 }
 
 static void
+move_entity(entity_base * entity) {
+    double x = entity->x;
+    double y = entity->y;
+    double z = entity->z;
+
+    double vx = entity->vx;
+    double vy = entity->vy;
+    double vz = entity->vz;
+
+    double remaining_dt = 1;
+
+    for (int iter = 0; iter < 4; iter++) {
+        // @TODO(traks) drag depending on block state below
+
+        // @TODO(traks) fluid handling
+
+        double dx = remaining_dt * vx;
+        double dy = remaining_dt * vy;
+        double dz = remaining_dt * vz;
+
+        double end_x = x + dx;
+        double end_y = y + dy;
+        double end_z = z + dz;
+
+        double min_x = MIN(x, end_x);
+        double max_x = MAX(x, end_x);
+        double min_y = MIN(y, end_y);
+        double max_y = MAX(y, end_y);
+        double min_z = MIN(z, end_z);
+        double max_z = MAX(z, end_z);
+
+        double width = entity->collision_width;
+        double height = entity->collision_height;
+        min_x -= width / 2;
+        max_x += width / 2;
+        max_y += height;
+        min_z -= width / 2;
+        max_z += width / 2;
+
+        mc_int iter_min_x = floor(min_x);
+        mc_int iter_max_x = floor(max_x);
+        mc_int iter_min_y = floor(min_y);
+        mc_int iter_max_y = floor(max_y);
+        mc_int iter_min_z = floor(min_z);
+        mc_int iter_max_z = floor(max_z);
+
+        mc_ushort hit_state = 0;
+        int hit_face;
+
+        double dt = 1;
+
+        for (int block_x = iter_min_x; block_x <= iter_max_x; block_x++) {
+            for (int block_y = iter_min_y; block_y <= iter_max_y; block_y++) {
+                for (int block_z = iter_min_z; block_z <= iter_max_z; block_z++) {
+                    chunk_pos ch_pos = {
+                        .x = block_x >> 4,
+                        .z = block_z >> 4,
+                    };
+                    chunk * ch = get_chunk_if_loaded(ch_pos);
+                    if (ch == NULL) {
+                        // @TODO(traks) what now?
+                        return;
+                    }
+
+                    // @TODO(traks) can fail if y out of bounds
+                    mc_ushort cur_state = chunk_get_block_state(ch,
+                            block_x & 0xf, block_y, block_z & 0xf);
+
+                    if (cur_state == 0) {
+                        continue;
+                    }
+
+                    // @TODO(traks) use block model depending on block state
+
+                    double test_min_x = block_x - width / 2;
+                    double test_max_x = block_x + 1 + width / 2;
+                    double test_min_y = block_y - height;
+                    double test_max_y = block_y + 1;
+                    double test_min_z = block_z - width / 2;
+                    double test_max_z = block_z + 1 + width / 2;
+
+                    typedef struct {
+                        double wall_a;
+                        double min_b;
+                        double max_b;
+                        double min_c;
+                        double max_c;
+                        double da;
+                        double db;
+                        double dc;
+                        double a;
+                        double b;
+                        double c;
+                        int face;
+                    } hit_test;
+
+                    hit_test tests[] = {
+                        {test_min_x, test_min_y, test_max_y, test_min_z, test_max_z, dx, dy, dz, x, y, z, DIRECTION_NEG_X},
+                        {test_max_x, test_min_y, test_max_y, test_min_z, test_max_z, dx, dy, dz, x, y, z, DIRECTION_POS_X},
+                        {test_min_y, test_min_x, test_max_x, test_min_z, test_max_z, dy, dx, dz, y, x, z, DIRECTION_NEG_Y},
+                        {test_max_y, test_min_x, test_max_x, test_min_z, test_max_z, dy, dx, dz, y, x, z, DIRECTION_POS_Y},
+                        {test_min_z, test_min_y, test_max_y, test_min_x, test_max_x, dz, dy, dx, z, y, x, DIRECTION_NEG_Z},
+                        {test_max_z, test_min_y, test_max_y, test_min_x, test_max_x, dz, dy, dx, z, y, x, DIRECTION_POS_Z},
+                    };
+
+                    for (int i = 0; i < ARRAY_SIZE(tests); i++) {
+                        hit_test * test = tests + i;
+                        if (test->da != 0) {
+                            double hit_time = (test->wall_a - test->a) / test->da;
+                            if (hit_time >= 0 && dt > hit_time) {
+                                double hit_b = test->b + hit_time * test->db;
+                                if (test->min_b <= hit_b && hit_b <= test->max_b) {
+                                    double hit_c = test->c + hit_time * test->dc;
+                                    if (test->min_c <= hit_c && hit_c <= test->max_c) {
+                                        // @TODO(traks) epsilon
+                                        dt = MAX(0, hit_time - 0.001);
+                                        hit_state = cur_state;
+                                        hit_face = test->face;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        x += dt * dx;
+        y += dt * dy;
+        z += dt * dz;
+
+        if (hit_state != 0) {
+            switch (hit_face) {
+            case DIRECTION_NEG_X:
+            case DIRECTION_POS_X:
+                vx = 0;
+                break;
+            case DIRECTION_NEG_Y:
+            case DIRECTION_POS_Y:
+                vy = 0;
+                break;
+            case DIRECTION_NEG_Z:
+            case DIRECTION_POS_Z:
+                vz = 0;
+                break;
+            }
+        }
+
+        remaining_dt -= dt * remaining_dt;
+    }
+
+    entity->x = x;
+    entity->y = y;
+    entity->z = z;
+    entity->vx = vx;
+    entity->vy = vy;
+    entity->vz = vz;
+}
+
+static void
 tick_entity(entity_base * entity, server * serv, memory_arena * tick_arena) {
     // @TODO(traks) currently it's possible that an entity is spawned and ticked
     // the same tick. Is that an issue or not? Maybe that causes undesirable
@@ -422,9 +582,7 @@ tick_entity(entity_base * entity, server * serv, memory_arena * tick_arena) {
         // gravity acceleration
         entity->vy -= 0.04;
 
-        entity->x += entity->vx;
-        entity->y += entity->vy;
-        entity->z += entity->vz;
+        move_entity(entity);
         break;
     }
     }
@@ -762,6 +920,10 @@ server_tick(server * serv) {
                 player->last_keep_alive_sent_tick = serv->current_tick;
                 entity->flags |= PLAYER_GOT_ALIVE_RESPONSE;
                 player->selected_slot = PLAYER_FIRST_HOTBAR_SLOT;
+                // @TODO(traks) collision width and height of player depending
+                // on player pose
+                entity->collision_width = 0.6;
+                entity->collision_height = 1.8;
                 set_player_gamemode(entity, GAMEMODE_CREATIVE);
 
                 teleport_player(entity, 88, 70, 73, 0, 0);

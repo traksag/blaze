@@ -2338,6 +2338,9 @@ typedef struct {
     double vy;
     double vz;
 
+    double collision_width;
+    double collision_height;
+
     // Bottom 32 bits for changed entity data: bit position equals entity data
     // id. Top 32 bits for other things. This is used to send packets with the
     // most up-to-date data.

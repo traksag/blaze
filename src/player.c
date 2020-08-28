@@ -299,6 +299,10 @@ drop_item(entity_base * player, item_stack * is,
     // @TODO(traks) this has to depend on player's current pose
     item->y = eye_y - 0.3;
     item->z = player->z;
+
+    item->collision_width = 0.25;
+    item->collision_height = 0.25;
+
     item->item.contents = *is;
     item->item.contents.size = drop_size;
     item->item.pickup_timeout = 40;
