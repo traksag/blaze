@@ -293,10 +293,10 @@ drop_item(entity_base * player, item_stack * is,
         return 0;
     }
 
-    double eye_y = player->y + 1.8 * 0.85;
+    // @TODO(traks) this has to depend on player's current pose
+    double eye_y = player->y + 1.62;
 
     item->x = player->x;
-    // @TODO(traks) this has to depend on player's current pose
     item->y = eye_y - 0.3;
     item->z = player->z;
 
@@ -1781,9 +1781,16 @@ send_changed_entity_data(buffer_cursor * send_cursor, entity_base * player,
 }
 
 static void
-update_tracked_entity(entity_base * player, server * serv,
+try_update_tracked_entity(entity_base * player, server * serv,
         buffer_cursor * send_cursor, memory_arena * tick_arena,
         tracked_entity * tracked, entity_base * entity) {
+    if (serv->current_tick - tracked->last_update_tick < tracked->update_interval
+            && entity->changed_data == 0) {
+        return;
+    }
+
+    tracked->last_update_tick = serv->current_tick;
+
     double dx = entity->x - tracked->last_sent_x;
     double dy = entity->y - tracked->last_sent_y;
     double dz = entity->z - tracked->last_sent_z;
@@ -1793,8 +1800,6 @@ update_tracked_entity(entity_base * player, server * serv,
 
     unsigned char encoded_rot_x = (int) (entity->rot_x * 256.0f / 360.0f) & 0xff;
     unsigned char encoded_rot_y = (int) (entity->rot_y * 256.0f / 360.0f) & 0xff;
-    int sent_pos = 0;
-    int sent_rot = 0;
 
     if (dx > dmin && dx < dmax
             && dy > dmin && dy < dmax
@@ -1803,17 +1808,20 @@ update_tracked_entity(entity_base * player, server * serv,
         // resend position every once in a while in case of floating point
         // rounding errors and discrepancies between our view of the position
         // and the encoded position
-        sent_pos = (dx * dx + dy * dy + dz * dz > 0)
+        int sent_pos = (dx * dx + dy * dy + dz * dz > 0)
                 || (serv->current_tick - tracked->last_send_pos_tick >= 100);
         int sent_rot = (encoded_rot_x - tracked->last_sent_rot_x) != 0
                 || (encoded_rot_y - tracked->last_sent_rot_y) != 0;
+        mc_short encoded_dx = floor(dx * 4096.0);
+        mc_short encoded_dy = floor(dy * 4096.0);
+        mc_short encoded_dz = floor(dz * 4096.0);
 
         if (sent_pos && sent_rot) {
             begin_packet(send_cursor, CBP_MOVE_ENTITY_POS_ROT);
             net_write_varint(send_cursor, entity->eid);
-            net_write_short(send_cursor, dx * 4096.0);
-            net_write_short(send_cursor, dy * 4096.0);
-            net_write_short(send_cursor, dz * 4096.0);
+            net_write_short(send_cursor, encoded_dx);
+            net_write_short(send_cursor, encoded_dy);
+            net_write_short(send_cursor, encoded_dz);
             net_write_ubyte(send_cursor, encoded_rot_y);
             net_write_ubyte(send_cursor, encoded_rot_x);
             net_write_ubyte(send_cursor, !!(player->flags & ENTITY_ON_GROUND));
@@ -1821,9 +1829,9 @@ update_tracked_entity(entity_base * player, server * serv,
         } else if (sent_pos) {
             begin_packet(send_cursor, CBP_MOVE_ENTITY_POS);
             net_write_varint(send_cursor, entity->eid);
-            net_write_short(send_cursor, dx * 4096.0);
-            net_write_short(send_cursor, dy * 4096.0);
-            net_write_short(send_cursor, dz * 4096.0);
+            net_write_short(send_cursor, encoded_dx);
+            net_write_short(send_cursor, encoded_dy);
+            net_write_short(send_cursor, encoded_dz);
             net_write_ubyte(send_cursor, !!(player->flags & ENTITY_ON_GROUND));
             finish_packet(send_cursor, player);
         } else if (sent_rot) {
@@ -1833,6 +1841,25 @@ update_tracked_entity(entity_base * player, server * serv,
             net_write_ubyte(send_cursor, encoded_rot_x);
             net_write_ubyte(send_cursor, !!(player->flags & ENTITY_ON_GROUND));
             finish_packet(send_cursor, player);
+        }
+
+        if (sent_pos) {
+            mc_long encoded_last_x = floor(tracked->last_sent_x * 4096.0);
+            mc_long encoded_last_y = floor(tracked->last_sent_y * 4096.0);
+            mc_long encoded_last_z = floor(tracked->last_sent_z * 4096.0);
+
+            // @NOTE(traks) this is the way the Minecraft client calculates the
+            // new position. We emulate this to reduce accumulated precision
+            // loss across many move packets.
+            tracked->last_sent_x = (encoded_last_x + encoded_dx) / 4096.0;
+            tracked->last_sent_y = (encoded_last_y + encoded_dy) / 4096.0;
+            tracked->last_sent_z = (encoded_last_z + encoded_dz) / 4096.0;
+
+            tracked->last_send_pos_tick = serv->current_tick;
+        }
+        if (sent_rot) {
+            tracked->last_sent_rot_x = encoded_rot_x;
+            tracked->last_sent_rot_y = encoded_rot_y;
         }
     } else {
         begin_packet(send_cursor, CBP_TELEPORT_ENTITY);
@@ -1845,20 +1872,14 @@ update_tracked_entity(entity_base * player, server * serv,
         net_write_ubyte(send_cursor, !!(player->flags & ENTITY_ON_GROUND));
         finish_packet(send_cursor, player);
 
-        sent_pos = 1;
-        sent_rot = 1;
         tracked->last_tp_packet_tick = serv->current_tick;
-    }
 
-    if (sent_pos) {
         tracked->last_sent_x = entity->x;
         tracked->last_sent_y = entity->y;
         tracked->last_sent_z = entity->z;
-        tracked->last_send_pos_tick = serv->current_tick;
-    }
-    if (sent_rot) {
         tracked->last_sent_rot_x = encoded_rot_x;
         tracked->last_sent_rot_y = encoded_rot_y;
+        tracked->last_send_pos_tick = serv->current_tick;
     }
 
     if (entity->type != ENTITY_PLAYER) {
@@ -1904,9 +1925,12 @@ start_tracking_entity(entity_base * player, server * serv,
 
     tracked->last_tp_packet_tick = serv->current_tick;
     tracked->last_send_pos_tick = serv->current_tick;
+    tracked->last_update_tick = serv->current_tick;
 
     switch (entity->type) {
     case ENTITY_PLAYER: {
+        tracked->update_interval = 2;
+
         begin_packet(send_cursor, CBP_ADD_PLAYER);
         net_write_varint(send_cursor, entity->eid);
         // @TODO(traks) appropriate UUID
@@ -1928,6 +1952,8 @@ start_tracking_entity(entity_base * player, server * serv,
         break;
     }
     case ENTITY_ITEM: {
+        tracked->update_interval = 20;
+
         // begin_packet(send_cursor, CBP_ADD_MOB);
         // net_write_varint(send_cursor, entity->eid);
         // // @TODO(traks) appropriate UUID
@@ -1970,9 +1996,9 @@ start_tracking_entity(entity_base * player, server * serv,
 
         begin_packet(send_cursor, CBP_SET_ENTITY_MOTION);
         net_write_varint(send_cursor, entity->eid);
-        net_write_short(send_cursor, floor(CLAMP(entity->vx, -3.9, 3.9) * 8000));
-        net_write_short(send_cursor, floor(CLAMP(entity->vy, -3.9, 3.9) * 8000));
-        net_write_short(send_cursor, floor(CLAMP(entity->vz, -3.9, 3.9) * 8000));
+        net_write_short(send_cursor, CLAMP(entity->vx, -3.9, 3.9) * 8000);
+        net_write_short(send_cursor, CLAMP(entity->vy, -3.9, 3.9) * 8000);
+        net_write_short(send_cursor, CLAMP(entity->vz, -3.9, 3.9) * 8000);
         finish_packet(send_cursor, player);
         break;
     }
@@ -2590,7 +2616,7 @@ send_packets_to_player(entity_base * player, server * serv,
                 double dy = candidate->y - player->y;
                 double dz = candidate->z - player->z;
                 if (dx * dx + dy * dy + dz * dz < 45 * 45) {
-                    update_tracked_entity(player, serv,
+                    try_update_tracked_entity(player, serv,
                             send_cursor, tick_arena, tracked, candidate);
                     continue;
                 }
@@ -2603,8 +2629,8 @@ send_packets_to_player(entity_base * player, server * serv,
                 continue;
             }
 
-            player->player.tracked_entities[j].eid = 0;
             removed_entities[removed_entity_count] = tracked->eid;
+            player->player.tracked_entities[j].eid = 0;
             removed_entity_count++;
         }
 

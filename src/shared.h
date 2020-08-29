@@ -2213,6 +2213,9 @@ typedef struct {
 
     mc_long last_tp_packet_tick;
     mc_long last_send_pos_tick;
+    mc_long last_update_tick;
+
+    unsigned char update_interval;
 
     double last_sent_x;
     double last_sent_y;

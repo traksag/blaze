@@ -1835,6 +1835,7 @@ process_use_item_on_packet(server * serv, entity_base * player,
     case ITEM_DARK_OAK_STAIRS:
         break;
     case ITEM_SLIME_BLOCK:
+        place_simple_block(context, BLOCK_SLIME_BLOCK);
         break;
     case ITEM_GRASS_PATH:
         break;

@@ -131,7 +131,7 @@ end_timed_block() {
 
 void
 logs(void * format, ...) {
-    char msg[128];
+    char msg[256];
     va_list ap;
     va_start(ap, format);
     vsnprintf(msg, sizeof msg, format, ap);
@@ -399,7 +399,7 @@ evict_entity(server * serv, entity_id eid) {
 }
 
 static void
-move_entity(entity_base * entity) {
+move_entity(entity_base * entity, server * serv) {
     double x = entity->x;
     double y = entity->y;
     double z = entity->z;
@@ -530,6 +530,8 @@ move_entity(entity_base * entity) {
         y += dt * dy;
         z += dt * dz;
 
+        mc_int hit_type = serv->block_type_by_state[hit_state];
+
         if (hit_state != 0) {
             switch (hit_face) {
             case DIRECTION_NEG_X:
@@ -537,9 +539,50 @@ move_entity(entity_base * entity) {
                 vx = 0;
                 break;
             case DIRECTION_NEG_Y:
-            case DIRECTION_POS_Y:
                 vy = 0;
                 break;
+            case DIRECTION_POS_Y: {
+                double bounce_factor;
+                // @TODO(traks) all living entities have bounce factor -1
+                switch (entity->type) {
+                case ENTITY_PLAYER:
+                    if (entity->flags & PLAYER_SHIFTING) {
+                        bounce_factor = 0;
+                    } else {
+                        bounce_factor = -1;
+                    }
+                    break;
+                default:
+                    bounce_factor = -0.8;
+                }
+
+                switch (hit_type) {
+                case BLOCK_SLIME_BLOCK:
+                    vy *= bounce_factor;
+                    break;
+                case BLOCK_WHITE_BED:
+                case BLOCK_ORANGE_BED:
+                case BLOCK_MAGENTA_BED:
+                case BLOCK_LIGHT_BLUE_BED:
+                case BLOCK_YELLOW_BED:
+                case BLOCK_LIME_BED:
+                case BLOCK_PINK_BED:
+                case BLOCK_GRAY_BED:
+                case BLOCK_LIGHT_GRAY_BED:
+                case BLOCK_CYAN_BED:
+                case BLOCK_PURPLE_BED:
+                case BLOCK_BLUE_BED:
+                case BLOCK_BROWN_BED:
+                case BLOCK_GREEN_BED:
+                case BLOCK_RED_BED:
+                case BLOCK_BLACK_BED:
+                    vy *= bounce_factor * 0.66;
+                    break;
+                default:
+                    vy = 0;
+                }
+                break;
+            }
             case DIRECTION_NEG_Z:
             case DIRECTION_POS_Z:
                 vz = 0;
@@ -582,7 +625,12 @@ tick_entity(entity_base * entity, server * serv, memory_arena * tick_arena) {
         // gravity acceleration
         entity->vy -= 0.04;
 
-        move_entity(entity);
+        move_entity(entity, serv);
+
+        // @NOTE(traks) not sure why Minecraft does this
+        entity->vx *= 0.98;
+        entity->vy *= 0.98;
+        entity->vz *= 0.98;
         break;
     }
     }
