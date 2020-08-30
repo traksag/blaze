@@ -669,6 +669,21 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
         net_block_pos block_pos = net_read_block_pos(rec_cursor);
         mc_ubyte direction = net_read_ubyte(rec_cursor);
 
+        // @NOTE(traks) destroying blocks in survival works as follows:
+        //
+        //  1. first client sends start packet
+        //  2. if player stops mining before block is broken, client sends
+        //     abort packet
+        //  3. if player breaks block on client side, then stop packet is sent
+        //
+        // However, if abort packet is sent, and the player starts mining the
+        // same block again (without mining another block in between), no start
+        // packet is sent, but a stop packet is sent and the server is supposed
+        // to break the block!
+        //
+        // It seems that stopping mining and continuing mining with saved mining
+        // progress, is handled client side and not server side.
+
         switch (action) {
         case 0: { // start destroy block
             // The player started mining the block. If the player is in
@@ -690,10 +705,23 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
                     break;
                 }
 
+                // @TODO(traks) better block breaking logic. E.g. new state
+                // should be water source block if waterlogged block is broken.
+                mc_ushort new_state = 0;
                 chunk_set_block_state(ch, block_pos.x & 0xf, block_pos.y,
-                        block_pos.z & 0xf, 0);
+                        block_pos.z & 0xf, new_state);
                 propagate_block_updates_after_change(block_pos,
                         serv, process_arena);
+
+                // @TODO(traks) rewrite so we don't need an assert
+                assert(player->block_break_ack_count
+                        < ARRAY_SIZE(player->block_break_acks));
+                player->block_break_acks[player->block_break_ack_count] = (block_break_ack) {
+                    .pos = block_pos,
+                    .new_state = new_state,
+                    .action = action,
+                    .success = 1,
+                };
             }
             break;
         }
@@ -2262,6 +2290,19 @@ send_packets_to_player(entity_base * player, server * serv,
     }
 
     send_changed_entity_data(send_cursor, player, player, player->changed_data);
+
+    // send block break acks
+    for (int i = 0; i < player->player.block_break_ack_count; i++) {
+        block_break_ack * ack = player->player.block_break_acks + i;
+
+        begin_packet(send_cursor, CBP_BLOCK_BREAK_ACK);
+        net_write_block_pos(send_cursor, ack->pos);
+        net_write_varint(send_cursor, ack->new_state);
+        net_write_varint(send_cursor, ack->action);
+        net_write_ubyte(send_cursor, ack->success);
+        finish_packet(send_cursor, player);
+    }
+    player->player.block_break_ack_count = 0;
 
     // send block changes for this player only
     for (int i = 0; i < player->player.changed_block_count; i++) {

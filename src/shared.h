@@ -2228,6 +2228,13 @@ typedef struct {
 } tracked_entity;
 
 typedef struct {
+    net_block_pos pos;
+    mc_ushort new_state;
+    unsigned char action;
+    unsigned char success;
+} block_break_ack;
+
+typedef struct {
     unsigned char username[16];
     int username_size;
 
@@ -2281,6 +2288,11 @@ typedef struct {
 
     net_block_pos changed_blocks[8];
     mc_ubyte changed_block_count;
+
+    // @TODO(traks) figure out the maximum number of blocks broken per tick by
+    // a single player
+    block_break_ack block_break_acks[8];
+    unsigned char block_break_ack_count;
 } entity_player;
 
 typedef struct {
