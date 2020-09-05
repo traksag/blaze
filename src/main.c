@@ -252,7 +252,7 @@ hash_resource_loc(net_string resource_loc, resource_loc_table * table) {
     return res & table->size_mask;
 }
 
-static void
+void
 register_resource_loc(net_string resource_loc, mc_short id,
         resource_loc_table * table) {
     mc_ushort hash = hash_resource_loc(resource_loc, table);
@@ -1225,121 +1225,6 @@ load_item_types(server * serv) {
 }
 
 static void
-load_block_types(server * serv) {
-    int fd = open("blocktypes.txt", O_RDONLY);
-    if (fd == -1) {
-        return;
-    }
-
-    struct stat stat;
-    if (fstat(fd, &stat)) {
-        close(fd);
-        return;
-    }
-
-    // @TODO(traks) should we unmap this or something?
-    unsigned char * fmmap = mmap(NULL, stat.st_size, PROT_READ,
-            MAP_PRIVATE, fd, 0);
-    if (fmmap == MAP_FAILED) {
-        close(fd);
-        return;
-    }
-
-    // after mmaping we can close the file descriptor
-    close(fd);
-
-    buffer_cursor cursor = {.buf = fmmap, .limit = stat.st_size};
-    net_string args[32];
-    mc_ushort base_state = 0;
-    mc_ushort states_for_type = 0;
-    mc_ushort type_id;
-
-    block_properties * block_properties_table = serv->block_properties_table;
-    block_property_spec * block_property_specs = serv->block_property_specs;
-    int max_block_property_specs = ARRAY_SIZE(serv->block_property_specs);
-    int block_property_spec_count = 0;
-    int block_state_count = 0;
-    int block_type_count = 0;
-
-    for (;;) {
-        int arg_count = parse_database_line(&cursor, args);
-        if (arg_count == 0) {
-            // empty line
-
-            assert(block_state_count + states_for_type
-                    <= ARRAY_SIZE(serv->block_type_by_state));
-            for (int i = 0; i < states_for_type; i++) {
-                serv->block_type_by_state[block_state_count + i] = type_id;
-            }
-
-            block_state_count += states_for_type;
-
-            if (cursor.index == cursor.limit) {
-                break;
-            }
-        } else if (net_string_equal(args[0], NET_STRING("key"))) {
-            net_string key = args[1];
-            type_id = block_type_count;
-            block_type_count++;
-            register_resource_loc(key, type_id, &serv->block_resource_table);
-
-            base_state += states_for_type;
-            block_properties_table[type_id].base_state = base_state;
-            states_for_type = 1;
-        } else if (net_string_equal(args[0], NET_STRING("property"))) {
-            states_for_type *= arg_count - 2;
-            block_property_spec prop_spec = {0};
-            prop_spec.value_count = arg_count - 2;
-
-            int speci = 0;
-            for (int i = 1; i < arg_count; i++) {
-                // let there be one 0 at the end of the property's tape. We use
-                // this to detect the end in other operations.
-                assert(sizeof prop_spec.tape - speci - 1 >= 1 + args[i].size);
-                prop_spec.tape[speci] = args[i].size;
-                speci++;
-                memcpy(prop_spec.tape + speci, args[i].ptr, args[i].size);
-                speci += args[i].size;
-            }
-
-            block_properties * props = block_properties_table + type_id;
-
-            int i;
-            for (i = 0; i < block_property_spec_count; i++) {
-                if (memcmp(block_property_specs + i,
-                        &prop_spec, sizeof prop_spec) == 0) {
-                    props->property_specs[props->property_count] = i;
-                    props->property_count++;
-                    break;
-                }
-            }
-            if (i == block_property_spec_count) {
-                assert(block_property_spec_count < max_block_property_specs);
-                props->property_specs[props->property_count] = block_property_spec_count;
-                props->property_count++;
-                block_property_specs[block_property_spec_count] = prop_spec;
-                block_property_spec_count++;
-            }
-        } else if (net_string_equal(args[0], NET_STRING("default_values"))) {
-            block_properties * props = block_properties_table + type_id;
-
-            for (int i = 1; i < arg_count; i++) {
-                assert(i - 1 < props->property_count);
-                block_property_spec * prop_spec = block_property_specs
-                        + props->property_specs[i - 1];
-                int value_index = find_property_value_index(prop_spec, args[i]);
-                assert(value_index != -1);
-                props->default_value_indices[i - 1] = value_index;
-            }
-        }
-    }
-
-    serv->block_state_count = block_state_count;
-    serv->block_property_spec_count = block_property_spec_count;
-    assert(block_type_count == serv->block_resource_table.max_ids);
-}
-
-static void
 load_entity_types(server * serv) {
     int fd = open("entitytypes.txt", O_RDONLY);
     if (fd == -1) {
@@ -1679,7 +1564,7 @@ main(void) {
     alloc_resource_loc_table(&serv->fluid_resource_table, 1 << 10, 1 << 10, 5);
 
     load_item_types(serv);
-    load_block_types(serv);
+    init_block_data(serv);
     load_entity_types(serv);
     load_fluid_types(serv);
     load_tags("blocktags.txt", &serv->block_tags, &serv->block_resource_table, serv);

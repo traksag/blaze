@@ -2788,6 +2788,10 @@ void
 send_packets_to_player(entity_base * entity, server * serv,
         memory_arena * tick_arena);
 
+void
+register_resource_loc(net_string resource_loc, mc_short id,
+        resource_loc_table * table);
+
 mc_short
 resolve_resource_loc_id(net_string resource_loc, resource_loc_table * table);
 
@@ -2830,5 +2834,8 @@ can_nether_plant_survive_on(mc_int type_below);
 
 int
 get_opposite_direction(int direction);
+
+void
+init_block_data(server * serv);
 
 #endif

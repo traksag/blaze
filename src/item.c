@@ -2197,6 +2197,7 @@ process_use_item_on_packet(server * serv, entity_base * player,
     case ITEM_DEAD_HORN_CORAL_FAN:
         break;
     case ITEM_BLUE_ICE:
+        place_simple_block(context, BLOCK_BLUE_ICE);
         break;
     case ITEM_CONDUIT:
         break;
