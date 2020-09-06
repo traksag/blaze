@@ -1414,38 +1414,50 @@ register_block_type(server * serv, mc_int block_type, char * resource_loc) {
 }
 
 static void
+set_collision_model_for_all_states(server * serv, block_properties * props,
+        int collision_model) {
+    int block_states = count_block_states(serv, props);
+    for (int i = 0; i < block_states; i++) {
+        int j = props->base_state + i;
+        serv->collision_model_by_state[j] = collision_model;
+    }
+}
+
+static void
 init_simple_block(server * serv, mc_int block_type, char * resource_loc,
         int collision_model) {
     register_block_type(serv, block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     finalise_block_props(serv, props);
-
-    serv->collision_model_by_state[props->base_state] = collision_model;
+    set_collision_model_for_all_states(serv, props, collision_model);
 }
 
 static void
-init_sapling_props(server * serv, mc_int block_type, char * resource_loc) {
+init_sapling(server * serv, mc_int block_type, char * resource_loc) {
     register_block_type(serv, block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_range_prop(serv, props, "stage", 0, 0, 1);
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 }
 
 static void
-init_pillar_props(server * serv, mc_int block_type, char * resource_loc) {
+init_pillar(server * serv, mc_int block_type, char * resource_loc) {
     register_block_type(serv, block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_prop(serv, props, "axis", "y", 3, "x", "y", "z");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 }
 
 static void
-init_leaves_props(server * serv, mc_int block_type, char * resource_loc) {
+init_leaves(server * serv, mc_int block_type, char * resource_loc) {
     register_block_type(serv, block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_range_prop(serv, props, "distance", 7, 1, 7);
     add_block_prop(serv, props, "persistent", "false", 2, "true", "false");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 }
 
 static void
@@ -1468,21 +1480,23 @@ init_slab_props(server * serv, mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_sign_props(server * serv, mc_int block_type, char * resource_loc) {
+init_sign(server * serv, mc_int block_type, char * resource_loc) {
     register_block_type(serv, block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_range_prop(serv, props, "rotation", 0, 0, 15);
     add_block_prop(serv, props, "waterlogged", "false", 2, "true", "false");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 }
 
 static void
-init_wall_sign_props(server * serv, mc_int block_type, char * resource_loc) {
+init_wall_sign(server * serv, mc_int block_type, char * resource_loc) {
     register_block_type(serv, block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
     add_block_prop(serv, props, "waterlogged", "false", 2, "true", "false");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 }
 
 static void
@@ -1497,19 +1511,21 @@ init_stair_props(server * serv, mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_tall_plant_props(server * serv, mc_int block_type, char * resource_loc) {
+init_tall_plant(server * serv, mc_int block_type, char * resource_loc) {
     register_block_type(serv, block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_prop(serv, props, "half", "lower", 2, "upper", "lower");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 }
 
 static void
-init_glazed_terracotta_props(server * serv, mc_int block_type, char * resource_loc) {
+init_glazed_terracotta(server * serv, mc_int block_type, char * resource_loc) {
     register_block_type(serv, block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 }
 
 static void
@@ -1534,11 +1550,12 @@ init_wall_props(server * serv, mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_pressure_plate_props(server * serv, mc_int block_type, char * resource_loc) {
+init_pressure_plate(server * serv, mc_int block_type, char * resource_loc) {
     register_block_type(serv, block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_prop(serv, props, "powered", "false", 2, "true", "false");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 }
 
 static void
@@ -1566,13 +1583,14 @@ init_door_props(server * serv, mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_button_props(server * serv, mc_int block_type, char * resource_loc) {
+init_button(server * serv, mc_int block_type, char * resource_loc) {
     register_block_type(serv, block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_prop(serv, props, "face", "wall", 3, "floor", "wall", "ceiling");
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
     add_block_prop(serv, props, "powered", "false", 2, "true", "false");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 }
 
 static void
@@ -1599,7 +1617,7 @@ init_fence_gate_props(server * serv, mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_mushroom_block_props(server * serv, mc_int block_type, char * resource_loc) {
+init_mushroom_block(server * serv, mc_int block_type, char * resource_loc) {
     register_block_type(serv, block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_prop(serv, props, "down", "true", 2, "true", "false");
@@ -1609,6 +1627,7 @@ init_mushroom_block_props(server * serv, mc_int block_type, char * resource_loc)
     add_block_prop(serv, props, "up", "true", 2, "true", "false");
     add_block_prop(serv, props, "west", "true", 2, "true", "false");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 }
 
 static void
@@ -1677,6 +1696,15 @@ init_coral_wall_fan_props(server * serv, mc_int block_type, char * resource_loc)
 }
 
 static void
+init_snowy_grassy_block(server * serv, mc_int block_type, char * resource_loc) {
+    register_block_type(serv, block_type, resource_loc);
+    block_properties * props = serv->block_properties_table + block_type;
+    add_block_prop(serv, props, "snowy", "false", 2, "true", "false");
+    finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
+}
+
+static void
 register_block_model(server * serv, int index,
         int box_count, block_box * boxes) {
     block_model * model = serv->block_models + index;
@@ -1709,20 +1737,10 @@ init_block_data(server * serv) {
     init_simple_block(serv, BLOCK_POLISHED_DIORITE, "minecraft:polished_diorite", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_ANDESITE, "minecraft:andesite", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_POLISHED_ANDESITE, "minecraft:polished_andesite", BLOCK_MODEL_FULL);
-
-    register_block_type(serv, BLOCK_GRASS_BLOCK, "minecraft:grass_block");
-    props = serv->block_properties_table + BLOCK_GRASS_BLOCK;
-    add_block_prop(serv, props, "snowy", "false", 2, "true", "false");
-    finalise_block_props(serv, props);
-
+    init_snowy_grassy_block(serv, BLOCK_GRASS_BLOCK, "minecraft:grass_block");
     init_simple_block(serv, BLOCK_DIRT, "minecraft:dirt", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_COARSE_DIRT, "minecraft:coarse_dirt", BLOCK_MODEL_FULL);
-
-    register_block_type(serv, BLOCK_PODZOL, "minecraft:podzol");
-    props = serv->block_properties_table + BLOCK_PODZOL;
-    add_block_prop(serv, props, "snowy", "false", 2, "true", "false");
-    finalise_block_props(serv, props);
-
+    init_snowy_grassy_block(serv, BLOCK_PODZOL, "minecraft:podzol");
     init_simple_block(serv, BLOCK_COBBLESTONE, "minecraft:cobblestone", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_OAK_PLANKS, "minecraft:oak_planks", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_SPRUCE_PLANKS, "minecraft:spruce_planks", BLOCK_MODEL_FULL);
@@ -1730,25 +1748,27 @@ init_block_data(server * serv) {
     init_simple_block(serv, BLOCK_JUNGLE_PLANKS, "minecraft:jungle_planks", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_ACACIA_PLANKS, "minecraft:acacia_planks", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_DARK_OAK_PLANKS, "minecraft:dark_oak_planks", BLOCK_MODEL_FULL);
-
-    init_sapling_props(serv, BLOCK_OAK_SAPLING, "minecraft:oak_sapling");
-    init_sapling_props(serv, BLOCK_SPRUCE_SAPLING, "minecraft:spruce_sapling");
-    init_sapling_props(serv, BLOCK_BIRCH_SAPLING, "minecraft:birch_sapling");
-    init_sapling_props(serv, BLOCK_JUNGLE_SAPLING, "minecraft:jungle_sapling");
-    init_sapling_props(serv, BLOCK_ACACIA_SAPLING, "minecraft:acacia_sapling");
-    init_sapling_props(serv, BLOCK_DARK_OAK_SAPLING, "minecraft:dark_oak_sapling");
-
+    init_sapling(serv, BLOCK_OAK_SAPLING, "minecraft:oak_sapling");
+    init_sapling(serv, BLOCK_SPRUCE_SAPLING, "minecraft:spruce_sapling");
+    init_sapling(serv, BLOCK_BIRCH_SAPLING, "minecraft:birch_sapling");
+    init_sapling(serv, BLOCK_JUNGLE_SAPLING, "minecraft:jungle_sapling");
+    init_sapling(serv, BLOCK_ACACIA_SAPLING, "minecraft:acacia_sapling");
+    init_sapling(serv, BLOCK_DARK_OAK_SAPLING, "minecraft:dark_oak_sapling");
     init_simple_block(serv, BLOCK_BEDROCK, "minecraft:bedrock", BLOCK_MODEL_FULL);
 
+    // @TODO(traks) slower movement in fluids
     register_block_type(serv, BLOCK_WATER, "minecraft:water");
     props = serv->block_properties_table + BLOCK_WATER;
     add_block_range_prop(serv, props, "level", 0, 0, 15);
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
+    // @TODO(traks) slower movement in fluids
     register_block_type(serv, BLOCK_LAVA, "minecraft:lava");
     props = serv->block_properties_table + BLOCK_LAVA;
     add_block_range_prop(serv, props, "level", 0, 0, 15);
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
     init_simple_block(serv, BLOCK_SAND, "minecraft:sand", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_RED_SAND, "minecraft:red_sand", BLOCK_MODEL_FULL);
@@ -1757,39 +1777,36 @@ init_block_data(server * serv) {
     init_simple_block(serv, BLOCK_IRON_ORE, "minecraft:iron_ore", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_COAL_ORE, "minecraft:coal_ore", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_NETHER_GOLD_ORE, "minecraft:nether_gold_ore", BLOCK_MODEL_FULL);
-
-    init_pillar_props(serv, BLOCK_OAK_LOG, "minecraft:oak_log");
-    init_pillar_props(serv, BLOCK_SPRUCE_LOG, "minecraft:spruce_log");
-    init_pillar_props(serv, BLOCK_BIRCH_LOG, "minecraft:birch_log");
-    init_pillar_props(serv, BLOCK_JUNGLE_LOG, "minecraft:jungle_log");
-    init_pillar_props(serv, BLOCK_ACACIA_LOG, "minecraft:acacia_log");
-    init_pillar_props(serv, BLOCK_DARK_OAK_LOG, "minecraft:dark_oak_log");
-    init_pillar_props(serv, BLOCK_STRIPPED_SPRUCE_LOG, "minecraft:stripped_spruce_log");
-    init_pillar_props(serv, BLOCK_STRIPPED_BIRCH_LOG, "minecraft:stripped_birch_log");
-    init_pillar_props(serv, BLOCK_STRIPPED_JUNGLE_LOG, "minecraft:stripped_jungle_log");
-    init_pillar_props(serv, BLOCK_STRIPPED_ACACIA_LOG, "minecraft:stripped_acacia_log");
-    init_pillar_props(serv, BLOCK_STRIPPED_DARK_OAK_LOG, "minecraft:stripped_dark_oak_log");
-    init_pillar_props(serv, BLOCK_STRIPPED_OAK_LOG, "minecraft:stripped_oak_log");
-    init_pillar_props(serv, BLOCK_OAK_WOOD, "minecraft:oak_wood");
-    init_pillar_props(serv, BLOCK_SPRUCE_WOOD, "minecraft:spruce_wood");
-    init_pillar_props(serv, BLOCK_BIRCH_WOOD, "minecraft:birch_wood");
-    init_pillar_props(serv, BLOCK_JUNGLE_WOOD, "minecraft:jungle_wood");
-    init_pillar_props(serv, BLOCK_ACACIA_WOOD, "minecraft:acacia_wood");
-    init_pillar_props(serv, BLOCK_DARK_OAK_WOOD, "minecraft:dark_oak_wood");
-    init_pillar_props(serv, BLOCK_STRIPPED_OAK_WOOD, "minecraft:stripped_oak_wood");
-    init_pillar_props(serv, BLOCK_STRIPPED_SPRUCE_WOOD, "minecraft:stripped_spruce_wood");
-    init_pillar_props(serv, BLOCK_STRIPPED_BIRCH_WOOD, "minecraft:stripped_birch_wood");
-    init_pillar_props(serv, BLOCK_STRIPPED_JUNGLE_WOOD, "minecraft:stripped_jungle_wood");
-    init_pillar_props(serv, BLOCK_STRIPPED_ACACIA_WOOD, "minecraft:stripped_acacia_wood");
-    init_pillar_props(serv, BLOCK_STRIPPED_DARK_OAK_WOOD, "minecraft:stripped_dark_oak_wood");
-
-    init_leaves_props(serv, BLOCK_OAK_LEAVES, "minecraft:oak_leaves");
-    init_leaves_props(serv, BLOCK_SPRUCE_LEAVES, "minecraft:spruce_leaves");
-    init_leaves_props(serv, BLOCK_BIRCH_LEAVES, "minecraft:birch_leaves");
-    init_leaves_props(serv, BLOCK_JUNGLE_LEAVES, "minecraft:jungle_leaves");
-    init_leaves_props(serv, BLOCK_ACACIA_LEAVES, "minecraft:acacia_leaves");
-    init_leaves_props(serv, BLOCK_DARK_OAK_LEAVES, "minecraft:dark_oak_leaves");
-
+    init_pillar(serv, BLOCK_OAK_LOG, "minecraft:oak_log");
+    init_pillar(serv, BLOCK_SPRUCE_LOG, "minecraft:spruce_log");
+    init_pillar(serv, BLOCK_BIRCH_LOG, "minecraft:birch_log");
+    init_pillar(serv, BLOCK_JUNGLE_LOG, "minecraft:jungle_log");
+    init_pillar(serv, BLOCK_ACACIA_LOG, "minecraft:acacia_log");
+    init_pillar(serv, BLOCK_DARK_OAK_LOG, "minecraft:dark_oak_log");
+    init_pillar(serv, BLOCK_STRIPPED_SPRUCE_LOG, "minecraft:stripped_spruce_log");
+    init_pillar(serv, BLOCK_STRIPPED_BIRCH_LOG, "minecraft:stripped_birch_log");
+    init_pillar(serv, BLOCK_STRIPPED_JUNGLE_LOG, "minecraft:stripped_jungle_log");
+    init_pillar(serv, BLOCK_STRIPPED_ACACIA_LOG, "minecraft:stripped_acacia_log");
+    init_pillar(serv, BLOCK_STRIPPED_DARK_OAK_LOG, "minecraft:stripped_dark_oak_log");
+    init_pillar(serv, BLOCK_STRIPPED_OAK_LOG, "minecraft:stripped_oak_log");
+    init_pillar(serv, BLOCK_OAK_WOOD, "minecraft:oak_wood");
+    init_pillar(serv, BLOCK_SPRUCE_WOOD, "minecraft:spruce_wood");
+    init_pillar(serv, BLOCK_BIRCH_WOOD, "minecraft:birch_wood");
+    init_pillar(serv, BLOCK_JUNGLE_WOOD, "minecraft:jungle_wood");
+    init_pillar(serv, BLOCK_ACACIA_WOOD, "minecraft:acacia_wood");
+    init_pillar(serv, BLOCK_DARK_OAK_WOOD, "minecraft:dark_oak_wood");
+    init_pillar(serv, BLOCK_STRIPPED_OAK_WOOD, "minecraft:stripped_oak_wood");
+    init_pillar(serv, BLOCK_STRIPPED_SPRUCE_WOOD, "minecraft:stripped_spruce_wood");
+    init_pillar(serv, BLOCK_STRIPPED_BIRCH_WOOD, "minecraft:stripped_birch_wood");
+    init_pillar(serv, BLOCK_STRIPPED_JUNGLE_WOOD, "minecraft:stripped_jungle_wood");
+    init_pillar(serv, BLOCK_STRIPPED_ACACIA_WOOD, "minecraft:stripped_acacia_wood");
+    init_pillar(serv, BLOCK_STRIPPED_DARK_OAK_WOOD, "minecraft:stripped_dark_oak_wood");
+    init_leaves(serv, BLOCK_OAK_LEAVES, "minecraft:oak_leaves");
+    init_leaves(serv, BLOCK_SPRUCE_LEAVES, "minecraft:spruce_leaves");
+    init_leaves(serv, BLOCK_BIRCH_LEAVES, "minecraft:birch_leaves");
+    init_leaves(serv, BLOCK_JUNGLE_LEAVES, "minecraft:jungle_leaves");
+    init_leaves(serv, BLOCK_ACACIA_LEAVES, "minecraft:acacia_leaves");
+    init_leaves(serv, BLOCK_DARK_OAK_LEAVES, "minecraft:dark_oak_leaves");
     init_simple_block(serv, BLOCK_SPONGE, "minecraft:sponge", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_WET_SPONGE, "minecraft:wet_sponge", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_GLASS, "minecraft:glass", BLOCK_MODEL_FULL);
@@ -1801,6 +1818,7 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "facing", "north", 6, "north", "east", "south", "west", "up", "down");
     add_block_prop(serv, props, "triggered", "false", 2, "true", "false");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 
     init_simple_block(serv, BLOCK_SANDSTONE, "minecraft:sandstone", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_CHISELED_SANDSTONE, "minecraft:chiseled_sandstone", BLOCK_MODEL_FULL);
@@ -1812,7 +1830,9 @@ init_block_data(server * serv) {
     add_block_range_prop(serv, props, "note", 0, 0, 24);
     add_block_prop(serv, props, "powered", "false", 2, "true", "false");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 
+    // @TODO(traks) collision models
     init_bed_props(serv, BLOCK_WHITE_BED, "minecraft:white_bed");
     init_bed_props(serv, BLOCK_ORANGE_BED, "minecraft:orange_bed");
     init_bed_props(serv, BLOCK_MAGENTA_BED, "minecraft:magenta_bed");
@@ -1835,13 +1855,16 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "powered", "false", 2, "true", "false");
     add_block_prop(serv, props, "shape", "north_south", 6, "north_south", "east_west", "ascending_east", "ascending_west", "ascending_north", "ascending_south");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
     register_block_type(serv, BLOCK_DETECTOR_RAIL, "minecraft:detector_rail");
     props = serv->block_properties_table + BLOCK_DETECTOR_RAIL;
     add_block_prop(serv, props, "powered", "false", 2, "true", "false");
     add_block_prop(serv, props, "shape", "north_south", 6, "north_south", "east_west", "ascending_east", "ascending_west", "ascending_north", "ascending_south");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
+    // @TODO(traks) collision model
     register_block_type(serv, BLOCK_STICKY_PISTON, "minecraft:sticky_piston");
     props = serv->block_properties_table + BLOCK_STICKY_PISTON;
     add_block_prop(serv, props, "extended", "false", 2, "true", "false");
@@ -1855,14 +1878,16 @@ init_block_data(server * serv) {
     init_simple_block(serv, BLOCK_DEAD_BUSH, "minecraft:dead_bush", BLOCK_MODEL_EMPTY);
     init_simple_block(serv, BLOCK_SEAGRASS, "minecraft:seagrass", BLOCK_MODEL_EMPTY);
 
-    init_tall_plant_props(serv, BLOCK_TALL_SEAGRASS, "minecraft:tall_seagrass");
+    init_tall_plant(serv, BLOCK_TALL_SEAGRASS, "minecraft:tall_seagrass");
 
+    // @TODO(traks) collision model
     register_block_type(serv, BLOCK_PISTON, "minecraft:piston");
     props = serv->block_properties_table + BLOCK_PISTON;
     add_block_prop(serv, props, "extended", "false", 2, "true", "false");
     add_block_prop(serv, props, "facing", "north", 6, "north", "east", "south", "west", "up", "down");
     finalise_block_props(serv, props);
 
+    // @TODO(traks) collision model
     register_block_type(serv, BLOCK_PISTON_HEAD, "minecraft:piston_head");
     props = serv->block_properties_table + BLOCK_PISTON_HEAD;
     add_block_prop(serv, props, "facing", "north", 6, "north", "east", "south", "west", "up", "down");
@@ -1887,6 +1912,7 @@ init_block_data(server * serv) {
     init_simple_block(serv, BLOCK_RED_WOOL, "minecraft:red_wool", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_BLACK_WOOL, "minecraft:black_wool", BLOCK_MODEL_FULL);
 
+    // @TODO(traks) collision model
     register_block_type(serv, BLOCK_MOVING_PISTON, "minecraft:moving_piston");
     props = serv->block_properties_table + BLOCK_MOVING_PISTON;
     add_block_prop(serv, props, "facing", "north", 6, "north", "east", "south", "west", "up", "down");
@@ -1916,6 +1942,7 @@ init_block_data(server * serv) {
     props = serv->block_properties_table + BLOCK_TNT;
     add_block_prop(serv, props, "unstable", "false", 2, "true", "false");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 
     init_simple_block(serv, BLOCK_BOOKSHELF, "minecraft:bookshelf", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_MOSSY_COBBLESTONE, "minecraft:mossy_cobblestone", BLOCK_MODEL_FULL);
@@ -1926,6 +1953,7 @@ init_block_data(server * serv) {
     props = serv->block_properties_table + BLOCK_WALL_TORCH;
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
     register_block_type(serv, BLOCK_FIRE, "minecraft:fire");
     props = serv->block_properties_table + BLOCK_FIRE;
@@ -1936,13 +1964,16 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "up", "false", 2, "true", "false");
     add_block_prop(serv, props, "west", "false", 2, "true", "false");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
     // @TODO(traks) do damage in fire
     init_simple_block(serv, BLOCK_SOUL_FIRE, "minecraft:soul_fire", BLOCK_MODEL_EMPTY);
     init_simple_block(serv, BLOCK_SPAWNER, "minecraft:spawner", BLOCK_MODEL_FULL);
 
+    // @TODO(traks) collision model
     init_stair_props(serv, BLOCK_OAK_STAIRS, "minecraft:oak_stairs");
 
+    // @TODO(traks) collision model
     register_block_type(serv, BLOCK_CHEST, "minecraft:chest");
     props = serv->block_properties_table + BLOCK_CHEST;
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
@@ -1958,6 +1989,7 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "south", "none", 3, "up", "side", "none");
     add_block_prop(serv, props, "west", "none", 3, "up", "side", "none");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
     init_simple_block(serv, BLOCK_DIAMOND_ORE, "minecraft:diamond_ore", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_DIAMOND_BLOCK, "minecraft:diamond_block", BLOCK_MODEL_FULL);
@@ -1967,7 +1999,9 @@ init_block_data(server * serv) {
     props = serv->block_properties_table + BLOCK_WHEAT;
     add_block_range_prop(serv, props, "age", 0, 0, 7);
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
+    // @TODO(traks) collision model
     register_block_type(serv, BLOCK_FARMLAND, "minecraft:farmland");
     props = serv->block_properties_table + BLOCK_FARMLAND;
     add_block_range_prop(serv, props, "moisture", 0, 0, 7);
@@ -1978,16 +2012,19 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
     add_block_prop(serv, props, "lit", "false", 2, "true", "false");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 
-    init_sign_props(serv, BLOCK_OAK_SIGN, "minecraft:oak_sign");
-    init_sign_props(serv, BLOCK_SPRUCE_SIGN, "minecraft:spruce_sign");
-    init_sign_props(serv, BLOCK_BIRCH_SIGN, "minecraft:birch_sign");
-    init_sign_props(serv, BLOCK_ACACIA_SIGN, "minecraft:acacia_sign");
-    init_sign_props(serv, BLOCK_JUNGLE_SIGN, "minecraft:jungle_sign");
-    init_sign_props(serv, BLOCK_DARK_OAK_SIGN, "minecraft:dark_oak_sign");
+    init_sign(serv, BLOCK_OAK_SIGN, "minecraft:oak_sign");
+    init_sign(serv, BLOCK_SPRUCE_SIGN, "minecraft:spruce_sign");
+    init_sign(serv, BLOCK_BIRCH_SIGN, "minecraft:birch_sign");
+    init_sign(serv, BLOCK_ACACIA_SIGN, "minecraft:acacia_sign");
+    init_sign(serv, BLOCK_JUNGLE_SIGN, "minecraft:jungle_sign");
+    init_sign(serv, BLOCK_DARK_OAK_SIGN, "minecraft:dark_oak_sign");
 
+    // @TODO(traks) collision model
     init_door_props(serv, BLOCK_OAK_DOOR, "minecraft:oak_door");
 
+    // @TODO(traks) collision model
     register_block_type(serv, BLOCK_LADDER, "minecraft:ladder");
     props = serv->block_properties_table + BLOCK_LADDER;
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
@@ -1998,15 +2035,16 @@ init_block_data(server * serv) {
     props = serv->block_properties_table + BLOCK_RAIL;
     add_block_prop(serv, props, "shape", "north_south", 10, "north_south", "east_west", "ascending_east", "ascending_west", "ascending_north", "ascending_south", "south_east", "south_west", "north_west", "north_east");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
     init_stair_props(serv, BLOCK_COBBLESTONE_STAIRS, "minecraft:cobblestone_stairs");
 
-    init_wall_sign_props(serv, BLOCK_OAK_WALL_SIGN, "minecraft:oak_wall_sign");
-    init_wall_sign_props(serv, BLOCK_SPRUCE_WALL_SIGN, "minecraft:spruce_wall_sign");
-    init_wall_sign_props(serv, BLOCK_BIRCH_WALL_SIGN, "minecraft:birch_wall_sign");
-    init_wall_sign_props(serv, BLOCK_ACACIA_WALL_SIGN, "minecraft:acacia_wall_sign");
-    init_wall_sign_props(serv, BLOCK_JUNGLE_WALL_SIGN, "minecraft:jungle_wall_sign");
-    init_wall_sign_props(serv, BLOCK_DARK_OAK_WALL_SIGN, "minecraft:dark_oak_wall_sign");
+    init_wall_sign(serv, BLOCK_OAK_WALL_SIGN, "minecraft:oak_wall_sign");
+    init_wall_sign(serv, BLOCK_SPRUCE_WALL_SIGN, "minecraft:spruce_wall_sign");
+    init_wall_sign(serv, BLOCK_BIRCH_WALL_SIGN, "minecraft:birch_wall_sign");
+    init_wall_sign(serv, BLOCK_ACACIA_WALL_SIGN, "minecraft:acacia_wall_sign");
+    init_wall_sign(serv, BLOCK_JUNGLE_WALL_SIGN, "minecraft:jungle_wall_sign");
+    init_wall_sign(serv, BLOCK_DARK_OAK_WALL_SIGN, "minecraft:dark_oak_wall_sign");
 
     register_block_type(serv, BLOCK_LEVER, "minecraft:lever");
     props = serv->block_properties_table + BLOCK_LEVER;
@@ -2014,36 +2052,41 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
     add_block_prop(serv, props, "powered", "false", 2, "true", "false");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
-    init_pressure_plate_props(serv, BLOCK_STONE_PRESSURE_PLATE, "minecraft:stone_pressure_plate");
+    init_pressure_plate(serv, BLOCK_STONE_PRESSURE_PLATE, "minecraft:stone_pressure_plate");
 
     init_door_props(serv, BLOCK_IRON_DOOR, "minecraft:iron_door");
 
-    init_pressure_plate_props(serv, BLOCK_OAK_PRESSURE_PLATE, "minecraft:oak_pressure_plate");
-    init_pressure_plate_props(serv, BLOCK_SPRUCE_PRESSURE_PLATE, "minecraft:spruce_pressure_plate");
-    init_pressure_plate_props(serv, BLOCK_BIRCH_PRESSURE_PLATE, "minecraft:birch_pressure_plate");
-    init_pressure_plate_props(serv, BLOCK_JUNGLE_PRESSURE_PLATE, "minecraft:jungle_pressure_plate");
-    init_pressure_plate_props(serv, BLOCK_ACACIA_PRESSURE_PLATE, "minecraft:acacia_pressure_plate");
-    init_pressure_plate_props(serv, BLOCK_DARK_OAK_PRESSURE_PLATE, "minecraft:dark_oak_pressure_plate");
+    init_pressure_plate(serv, BLOCK_OAK_PRESSURE_PLATE, "minecraft:oak_pressure_plate");
+    init_pressure_plate(serv, BLOCK_SPRUCE_PRESSURE_PLATE, "minecraft:spruce_pressure_plate");
+    init_pressure_plate(serv, BLOCK_BIRCH_PRESSURE_PLATE, "minecraft:birch_pressure_plate");
+    init_pressure_plate(serv, BLOCK_JUNGLE_PRESSURE_PLATE, "minecraft:jungle_pressure_plate");
+    init_pressure_plate(serv, BLOCK_ACACIA_PRESSURE_PLATE, "minecraft:acacia_pressure_plate");
+    init_pressure_plate(serv, BLOCK_DARK_OAK_PRESSURE_PLATE, "minecraft:dark_oak_pressure_plate");
 
     register_block_type(serv, BLOCK_REDSTONE_ORE, "minecraft:redstone_ore");
     props = serv->block_properties_table + BLOCK_REDSTONE_ORE;
     add_block_prop(serv, props, "lit", "false", 2, "true", "false");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_REDSTONE_TORCH, "minecraft:redstone_torch");
     props = serv->block_properties_table + BLOCK_REDSTONE_TORCH;
     add_block_prop(serv, props, "lit", "true", 2, "true", "false");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
     register_block_type(serv, BLOCK_REDSTONE_WALL_TORCH, "minecraft:redstone_wall_torch");
     props = serv->block_properties_table + BLOCK_REDSTONE_WALL_TORCH;
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
     add_block_prop(serv, props, "lit", "false", 2, "true", "false");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
-    init_button_props(serv, BLOCK_STONE_BUTTON, "minecraft:stone_button");
+    init_button(serv, BLOCK_STONE_BUTTON, "minecraft:stone_button");
 
+    // @TODO(traks) collision models
     register_block_type(serv, BLOCK_SNOW, "minecraft:snow");
     props = serv->block_properties_table + BLOCK_SNOW;
     add_block_range_prop(serv, props, "layers", 1, 1, 8);
@@ -2052,6 +2095,7 @@ init_block_data(server * serv) {
     init_simple_block(serv, BLOCK_ICE, "minecraft:ice", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_SNOW_BLOCK, "minecraft:snow_block", BLOCK_MODEL_FULL);
 
+    // @TODO(traks) collision models
     register_block_type(serv, BLOCK_CACTUS, "minecraft:cactus");
     props = serv->block_properties_table + BLOCK_CACTUS;
     add_block_range_prop(serv, props, "age", 0, 0, 15);
@@ -2063,12 +2107,15 @@ init_block_data(server * serv) {
     props = serv->block_properties_table + BLOCK_SUGAR_CANE;
     add_block_range_prop(serv, props, "age", 0, 0, 15);
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
     register_block_type(serv, BLOCK_JUKEBOX, "minecraft:jukebox");
     props = serv->block_properties_table + BLOCK_JUKEBOX;
     add_block_prop(serv, props, "has_record", "false", 2, "true", "false");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 
+    // @TODO(traks) collision models
     init_cross_props(serv, BLOCK_OAK_FENCE, "minecraft:oak_fence");
 
     init_simple_block(serv, BLOCK_PUMPKIN, "minecraft:pumpkin", BLOCK_MODEL_FULL);
@@ -2076,16 +2123,15 @@ init_block_data(server * serv) {
     // @TODO(traks) not really a full block
     init_simple_block(serv, BLOCK_SOUL_SAND, "minecraft:soul_sand", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_SOUL_SOIL, "minecraft:soul_soil", BLOCK_MODEL_FULL);
-
-    init_pillar_props(serv, BLOCK_BASALT, "minecraft:basalt");
-    init_pillar_props(serv, BLOCK_POLISHED_BASALT, "minecraft:polished_basalt");
-
+    init_pillar(serv, BLOCK_BASALT, "minecraft:basalt");
+    init_pillar(serv, BLOCK_POLISHED_BASALT, "minecraft:polished_basalt");
     init_simple_block(serv, BLOCK_SOUL_TORCH, "minecraft:soul_torch", BLOCK_MODEL_EMPTY);
 
     register_block_type(serv, BLOCK_SOUL_WALL_TORCH, "minecraft:soul_wall_torch");
     props = serv->block_properties_table + BLOCK_SOUL_WALL_TORCH;
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
     init_simple_block(serv, BLOCK_GLOWSTONE, "minecraft:glowstone", BLOCK_MODEL_FULL);
 
@@ -2093,22 +2139,27 @@ init_block_data(server * serv) {
     props = serv->block_properties_table + BLOCK_NETHER_PORTAL;
     add_block_prop(serv, props, "axis", "x", 2, "x", "z");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
     register_block_type(serv, BLOCK_CARVED_PUMPKIN, "minecraft:carved_pumpkin");
     props = serv->block_properties_table + BLOCK_CARVED_PUMPKIN;
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_JACK_O_LANTERN, "minecraft:jack_o_lantern");
     props = serv->block_properties_table + BLOCK_JACK_O_LANTERN;
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 
+    // @TODO(traks) collision models
     register_block_type(serv, BLOCK_CAKE, "minecraft:cake");
     props = serv->block_properties_table + BLOCK_CAKE;
     add_block_range_prop(serv, props, "facing", 0, 0, 6);
     finalise_block_props(serv, props);
 
+    // @TODO(traks) collision models
     register_block_type(serv, BLOCK_REPEATER, "minecraft:repeater");
     props = serv->block_properties_table + BLOCK_REPEATER;
     add_block_range_prop(serv, props, "delay", 1, 1, 4);
@@ -2134,6 +2185,7 @@ init_block_data(server * serv) {
     init_simple_block(serv, BLOCK_RED_STAINED_GLASS, "minecraft:red_stained_glass", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_BLACK_STAINED_GLASS, "minecraft:black_stained_glass", BLOCK_MODEL_FULL);
 
+    // @TODO(traks) collision models
     init_trapdoor_props(serv, BLOCK_OAK_TRAPDOOR, "minecraft:oak_trapdoor");
     init_trapdoor_props(serv, BLOCK_SPRUCE_TRAPDOOR, "minecraft:spruce_trapdoor");
     init_trapdoor_props(serv, BLOCK_BIRCH_TRAPDOOR, "minecraft:birch_trapdoor");
@@ -2151,19 +2203,21 @@ init_block_data(server * serv) {
     init_simple_block(serv, BLOCK_INFESTED_MOSSY_STONE_BRICKS, "minecraft:infested_mossy_stone_bricks", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_INFESTED_CRACKED_STONE_BRICKS, "minecraft:infested_cracked_stone_bricks", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_INFESTED_CHISELED_STONE_BRICKS, "minecraft:infested_chiseled_stone_bricks", BLOCK_MODEL_FULL);
+    init_mushroom_block(serv, BLOCK_BROWN_MUSHROOM_BLOCK, "minecraft:brown_mushroom_block");
+    init_mushroom_block(serv, BLOCK_RED_MUSHROOM_BLOCK, "minecraft:red_mushroom_block");
+    init_mushroom_block(serv, BLOCK_MUSHROOM_STEM, "minecraft:mushroom_stem");
 
-    init_mushroom_block_props(serv, BLOCK_BROWN_MUSHROOM_BLOCK, "minecraft:brown_mushroom_block");
-    init_mushroom_block_props(serv, BLOCK_RED_MUSHROOM_BLOCK, "minecraft:red_mushroom_block");
-    init_mushroom_block_props(serv, BLOCK_MUSHROOM_STEM, "minecraft:mushroom_stem");
-
+    // @TODO(traks) collision models
     init_cross_props(serv, BLOCK_IRON_BARS, "minecraft:iron_bars");
 
+    // @TODO(traks) collision models
     register_block_type(serv, BLOCK_CHAIN, "minecraft:chain");
     props = serv->block_properties_table + BLOCK_CHAIN;
     add_block_prop(serv, props, "axis", "y", 3, "x", "y", "z");
     add_block_prop(serv, props, "waterlogged", "false", 2, "true", "false");
     finalise_block_props(serv, props);
 
+    // @TODO(traks) collision models
     init_cross_props(serv, BLOCK_GLASS_PANE, "minecraft:glass_pane");
 
     init_simple_block(serv, BLOCK_MELON, "minecraft:melon", BLOCK_MODEL_FULL);
@@ -2172,21 +2226,25 @@ init_block_data(server * serv) {
     props = serv->block_properties_table + BLOCK_ATTACHED_PUMPKIN_STEM;
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
     register_block_type(serv, BLOCK_ATTACHED_MELON_STEM, "minecraft:attached_melon_stem");
     props = serv->block_properties_table + BLOCK_ATTACHED_MELON_STEM;
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
     register_block_type(serv, BLOCK_PUMPKIN_STEM, "minecraft:pumpkin_stem");
     props = serv->block_properties_table + BLOCK_PUMPKIN_STEM;
     add_block_range_prop(serv, props, "age", 0, 0, 7);
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
     register_block_type(serv, BLOCK_MELON_STEM, "minecraft:melon_stem");
     props = serv->block_properties_table + BLOCK_MELON_STEM;
     add_block_range_prop(serv, props, "age", 0, 0, 7);
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
     register_block_type(serv, BLOCK_VINE, "minecraft:vine");
     props = serv->block_properties_table + BLOCK_VINE;
@@ -2196,16 +2254,15 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "up", "false", 2, "true", "false");
     add_block_prop(serv, props, "west", "false", 2, "true", "false");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
+    // @TODO(traks) collision models
     init_fence_gate_props(serv, BLOCK_OAK_FENCE_GATE, "minecraft:oak_fence_gate");
 
     init_stair_props(serv, BLOCK_BRICK_STAIRS, "minecraft:brick_stairs");
     init_stair_props(serv, BLOCK_STONE_BRICK_STAIRS, "minecraft:stone_brick_stairs");
 
-    register_block_type(serv, BLOCK_MYCELIUM, "minecraft:mycelium");
-    props = serv->block_properties_table + BLOCK_MYCELIUM;
-    add_block_prop(serv, props, "snowy", "false", 2, "true", "false");
-    finalise_block_props(serv, props);
+    init_snowy_grassy_block(serv, BLOCK_MYCELIUM, "minecraft:mycelium");
 
     // @TODO(traks) collision box
     init_simple_block(serv, BLOCK_LILY_PAD, "minecraft:lily_pad", BLOCK_MODEL_FULL);
@@ -2219,10 +2276,12 @@ init_block_data(server * serv) {
     props = serv->block_properties_table + BLOCK_NETHER_WART;
     add_block_range_prop(serv, props, "age", 0, 0, 3);
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
     // @TODO(traks) collision box
     init_simple_block(serv, BLOCK_ENCHANTING_TABLE, "minecraft:enchanting_table", BLOCK_MODEL_FULL);
 
+    // @TODO(traks) collision models
     register_block_type(serv, BLOCK_BREWING_STAND, "minecraft:brewing_stand");
     props = serv->block_properties_table + BLOCK_BREWING_STAND;
     add_block_prop(serv, props, "has_bottle_0", "false", 2, "true", "false");
@@ -2230,6 +2289,7 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "has_bottle_2", "false", 2, "true", "false");
     finalise_block_props(serv, props);
 
+    // @TODO(traks) collision models
     register_block_type(serv, BLOCK_CAULDRON, "minecraft:cauldron");
     props = serv->block_properties_table + BLOCK_CAULDRON;
     add_block_range_prop(serv, props, "level", 0, 0, 3);
@@ -2237,6 +2297,7 @@ init_block_data(server * serv) {
 
     init_simple_block(serv, BLOCK_END_PORTAL, "minecraft:end_portal", BLOCK_MODEL_EMPTY);
 
+    // @TODO(traks) collision models
     register_block_type(serv, BLOCK_END_PORTAL_FRAME, "minecraft:end_portal_frame");
     props = serv->block_properties_table + BLOCK_END_PORTAL_FRAME;
     add_block_prop(serv, props, "eye", "false", 2, "true", "false");
@@ -2251,7 +2312,9 @@ init_block_data(server * serv) {
     props = serv->block_properties_table + BLOCK_REDSTONE_LAMP;
     add_block_prop(serv, props, "lit", "false", 2, "true", "false");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 
+    // @TODO(traks) collision models
     register_block_type(serv, BLOCK_COCOA, "minecraft:cocoa");
     props = serv->block_properties_table + BLOCK_COCOA;
     add_block_range_prop(serv, props, "age", 0, 0, 2);
@@ -2262,12 +2325,14 @@ init_block_data(server * serv) {
 
     init_simple_block(serv, BLOCK_EMERALD_ORE, "minecraft:emerald_ore", BLOCK_MODEL_FULL);
 
+    // @TODO(traks) collision models
     register_block_type(serv, BLOCK_ENDER_CHEST, "minecraft:ender_chest");
     props = serv->block_properties_table + BLOCK_ENDER_CHEST;
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
     add_block_prop(serv, props, "waterlogged", "false", 2, "true", "false");
     finalise_block_props(serv, props);
 
+    // @TODO(traks) collision models
     register_block_type(serv, BLOCK_TRIPWIRE_HOOK, "minecraft:tripwire_hook");
     props = serv->block_properties_table + BLOCK_TRIPWIRE_HOOK;
     add_block_prop(serv, props, "attached", "false", 2, "true", "false");
@@ -2285,6 +2350,7 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "south", "false", 2, "true", "false");
     add_block_prop(serv, props, "west", "false", 2, "true", "false");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
     init_simple_block(serv, BLOCK_EMERALD_BLOCK, "minecraft:emerald_block", BLOCK_MODEL_FULL);
 
@@ -2297,9 +2363,11 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "conditional", "false", 2, "true", "false");
     add_block_prop(serv, props, "facing", "north", 6, "north", "east", "south", "west", "up", "down");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 
     init_simple_block(serv, BLOCK_BEACON, "minecraft:beacon", BLOCK_MODEL_FULL);
 
+    // @TODO(traks) collision models
     init_wall_props(serv, BLOCK_COBBLESTONE_WALL, "minecraft:cobblestone_wall");
     init_wall_props(serv, BLOCK_MOSSY_COBBLESTONE_WALL, "minecraft:mossy_cobblestone_wall");
 
@@ -2334,19 +2402,22 @@ init_block_data(server * serv) {
     props = serv->block_properties_table + BLOCK_CARROTS;
     add_block_range_prop(serv, props, "age", 0, 0, 7);
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
     register_block_type(serv, BLOCK_POTATOES, "minecraft:potatoes");
     props = serv->block_properties_table + BLOCK_POTATOES;
     add_block_range_prop(serv, props, "age", 0, 0, 7);
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
-    init_button_props(serv, BLOCK_OAK_BUTTON, "minecraft:oak_button");
-    init_button_props(serv, BLOCK_SPRUCE_BUTTON, "minecraft:spruce_button");
-    init_button_props(serv, BLOCK_BIRCH_BUTTON, "minecraft:birch_button");
-    init_button_props(serv, BLOCK_JUNGLE_BUTTON, "minecraft:jungle_button");
-    init_button_props(serv, BLOCK_ACACIA_BUTTON, "minecraft:acacia_button");
-    init_button_props(serv, BLOCK_DARK_OAK_BUTTON, "minecraft:dark_oak_button");
+    init_button(serv, BLOCK_OAK_BUTTON, "minecraft:oak_button");
+    init_button(serv, BLOCK_SPRUCE_BUTTON, "minecraft:spruce_button");
+    init_button(serv, BLOCK_BIRCH_BUTTON, "minecraft:birch_button");
+    init_button(serv, BLOCK_JUNGLE_BUTTON, "minecraft:jungle_button");
+    init_button(serv, BLOCK_ACACIA_BUTTON, "minecraft:acacia_button");
+    init_button(serv, BLOCK_DARK_OAK_BUTTON, "minecraft:dark_oak_button");
 
+    // @TODO(traks) collision models
     init_skull_props(serv, BLOCK_SKELETON_SKULL, "minecraft:skeleton_skull");
     init_wall_skull_props(serv, BLOCK_SKELETON_WALL_SKULL, "minecraft:skeleton_wall_skull");
     init_skull_props(serv, BLOCK_WITHER_SKELETON_SKULL, "minecraft:wither_skeleton_skull");
@@ -2360,10 +2431,12 @@ init_block_data(server * serv) {
     init_skull_props(serv, BLOCK_DRAGON_HEAD, "minecraft:dragon_head");
     init_wall_skull_props(serv, BLOCK_DRAGON_WALL_HEAD, "minecraft:dragon_wall_head");
 
+    // @TODO(traks) collision models
     init_anvil_props(serv, BLOCK_ANVIL, "minecraft:anvil");
     init_anvil_props(serv, BLOCK_CHIPPED_ANVIL, "minecraft:chipped_anvil");
     init_anvil_props(serv, BLOCK_DAMAGED_ANVIL, "minecraft:damaged_anvil");
 
+    // @TODO(traks) collision models
     register_block_type(serv, BLOCK_TRAPPED_CHEST, "minecraft:trapped_chest");
     props = serv->block_properties_table + BLOCK_TRAPPED_CHEST;
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
@@ -2375,12 +2448,15 @@ init_block_data(server * serv) {
     props = serv->block_properties_table + BLOCK_LIGHT_WEIGHTED_PRESSURE_PLATE;
     add_block_range_prop(serv, props, "power", 0, 0, 15);
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
     register_block_type(serv, BLOCK_HEAVY_WEIGHTED_PRESSURE_PLATE, "minecraft:heavy_weighted_pressure_plate");
     props = serv->block_properties_table + BLOCK_HEAVY_WEIGHTED_PRESSURE_PLATE;
     add_block_range_prop(serv, props, "power", 0, 0, 15);
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
+    // @TODO(traks) collision models
     register_block_type(serv, BLOCK_COMPARATOR, "minecraft:comparator");
     props = serv->block_properties_table + BLOCK_COMPARATOR;
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
@@ -2388,6 +2464,7 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "powered", "false", 2, "true", "false");
     finalise_block_props(serv, props);
 
+    // @TODO(traks) collision models
     register_block_type(serv, BLOCK_DAYLIGHT_DETECTOR, "minecraft:daylight_detector");
     props = serv->block_properties_table + BLOCK_DAYLIGHT_DETECTOR;
     add_block_prop(serv, props, "inverted", "false", 2, "true", "false");
@@ -2397,6 +2474,7 @@ init_block_data(server * serv) {
     init_simple_block(serv, BLOCK_REDSTONE_BLOCK, "minecraft:redstone_block", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_NETHER_QUARTZ_ORE, "minecraft:nether_quartz_ore", BLOCK_MODEL_FULL);
 
+    // @TODO(traks) collision models
     register_block_type(serv, BLOCK_HOPPER, "minecraft:hopper");
     props = serv->block_properties_table + BLOCK_HOPPER;
     add_block_prop(serv, props, "enabled", "true", 2, "true", "false");
@@ -2406,7 +2484,7 @@ init_block_data(server * serv) {
     init_simple_block(serv, BLOCK_QUARTZ_BLOCK, "minecraft:quartz_ore", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_CHISELED_QUARTZ_BLOCK, "minecraft:chiseled_quartz_block", BLOCK_MODEL_FULL);
 
-    init_pillar_props(serv, BLOCK_QUARTZ_PILLAR, "minecraft:quartz_piller");
+    init_pillar(serv, BLOCK_QUARTZ_PILLAR, "minecraft:quartz_piller");
 
     init_stair_props(serv, BLOCK_QUARTZ_STAIRS, "minecraft:quartz_stairs");
 
@@ -2415,12 +2493,14 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "powered", "false", 2, "true", "false");
     add_block_prop(serv, props, "shape", "north_south", 6, "north_south", "east_west", "ascending_east", "ascending_west", "ascending_north", "ascending_south");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
     register_block_type(serv, BLOCK_DROPPER, "minecraft:dropper");
     props = serv->block_properties_table + BLOCK_DROPPER;
     add_block_prop(serv, props, "facing", "north", 6, "north", "east", "south", "west", "up", "down");
     add_block_prop(serv, props, "triggered", "false", 2, "true", "false");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 
     init_simple_block(serv, BLOCK_WHITE_TERRACOTTA, "minecraft:white_terracotta", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_ORANGE_TERRACOTTA, "minecraft:orange_terracotta", BLOCK_MODEL_FULL);
@@ -2478,7 +2558,7 @@ init_block_data(server * serv) {
 
     init_simple_block(serv, BLOCK_SEA_LANTERN, "minecraft:sea_lantern", BLOCK_MODEL_FULL);
 
-    init_pillar_props(serv, BLOCK_HAY_BLOCK, "minecraft:hay_block");
+    init_pillar(serv, BLOCK_HAY_BLOCK, "minecraft:hay_block");
 
     // @TODO(traks) better model
     init_simple_block(serv, BLOCK_WHITE_CARPET, "minecraft:white_carpet", BLOCK_MODEL_EMPTY);
@@ -2501,13 +2581,14 @@ init_block_data(server * serv) {
     init_simple_block(serv, BLOCK_COAL_BLOCK, "minecraft:coal_block", BLOCK_MODEL_EMPTY);
     init_simple_block(serv, BLOCK_PACKED_ICE, "minecraft:packed_ice", BLOCK_MODEL_EMPTY);
 
-    init_tall_plant_props(serv, BLOCK_SUNFLOWER, "minecraft:sunflower");
-    init_tall_plant_props(serv, BLOCK_LILAC, "minecraft:lilac");
-    init_tall_plant_props(serv, BLOCK_ROSE_BUSH, "minecraft:rose_bush");
-    init_tall_plant_props(serv, BLOCK_PEONY, "minecraft:peony");
-    init_tall_plant_props(serv, BLOCK_TALL_GRASS, "minecraft:tall_grass");
-    init_tall_plant_props(serv, BLOCK_LARGE_FERN, "minecraft:large_fern");
+    init_tall_plant(serv, BLOCK_SUNFLOWER, "minecraft:sunflower");
+    init_tall_plant(serv, BLOCK_LILAC, "minecraft:lilac");
+    init_tall_plant(serv, BLOCK_ROSE_BUSH, "minecraft:rose_bush");
+    init_tall_plant(serv, BLOCK_PEONY, "minecraft:peony");
+    init_tall_plant(serv, BLOCK_TALL_GRASS, "minecraft:tall_grass");
+    init_tall_plant(serv, BLOCK_LARGE_FERN, "minecraft:large_fern");
 
+    // @TODO(traks) collision models
     init_banner_props(serv, BLOCK_WHITE_BANNER, "minecraft:white_banner");
     init_banner_props(serv, BLOCK_ORANGE_BANNER, "minecraft:orange_banner");
     init_banner_props(serv, BLOCK_MAGENTA_BANNER, "minecraft:magenta_banner");
@@ -2525,6 +2606,7 @@ init_block_data(server * serv) {
     init_banner_props(serv, BLOCK_RED_BANNER, "minecraft:red_banner");
     init_banner_props(serv, BLOCK_BLACK_BANNER, "minecraft:black_banner");
 
+    // @TODO(traks) collision models
     init_wall_banner_props(serv, BLOCK_WHITE_WALL_BANNER, "minecraft:white_wall_banner");
     init_wall_banner_props(serv, BLOCK_ORANGE_WALL_BANNER, "minecraft:orange_wall_banner");
     init_wall_banner_props(serv, BLOCK_MAGENTA_WALL_BANNER, "minecraft:magenta_wall_banner");
@@ -2548,6 +2630,7 @@ init_block_data(server * serv) {
 
     init_stair_props(serv, BLOCK_RED_SANDSTONE_STAIRS, "minecraft:red_sandstone_stairs");
 
+    // @TODO(traks) collision models
     init_slab_props(serv, BLOCK_OAK_SLAB, "minecraft:oak_slab");
     init_slab_props(serv, BLOCK_SPRUCE_SLAB, "minecraft:spruce_slab");
     init_slab_props(serv, BLOCK_BIRCH_SLAB, "minecraft:birch_slab");
@@ -2591,11 +2674,13 @@ init_block_data(server * serv) {
     init_door_props(serv, BLOCK_ACACIA_DOOR, "minecraft:acacia_door");
     init_door_props(serv, BLOCK_DARK_OAK_DOOR, "minecraft:dark_oak_door");
 
+    // @TODO(traks) collision models
     register_block_type(serv, BLOCK_END_ROD, "minecraft:end_rod");
     props = serv->block_properties_table + BLOCK_END_ROD;
     add_block_prop(serv, props, "facing", "up", 6, "north", "east", "south", "west", "up", "down");
     finalise_block_props(serv, props);
 
+    // @TODO(traks) collision models
     register_block_type(serv, BLOCK_CHORUS_PLANT, "minecraft:chorus_plant");
     props = serv->block_properties_table + BLOCK_CHORUS_PLANT;
     add_block_prop(serv, props, "down", "false", 2, "true", "false");
@@ -2606,6 +2691,7 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "west", "false", 2, "true", "false");
     finalise_block_props(serv, props);
 
+    // @TODO(traks) collision models
     register_block_type(serv, BLOCK_CHORUS_FLOWER, "minecraft:chorus_flower");
     props = serv->block_properties_table + BLOCK_CHORUS_FLOWER;
     add_block_range_prop(serv, props, "age", 0, 0, 5);
@@ -2613,7 +2699,7 @@ init_block_data(server * serv) {
 
     init_simple_block(serv, BLOCK_PURPUR_BLOCK, "minecraft:purpur_block", BLOCK_MODEL_FULL);
 
-    init_pillar_props(serv, BLOCK_PURPUR_PILLAR, "minecraft:purpur_pillar");
+    init_pillar(serv, BLOCK_PURPUR_PILLAR, "minecraft:purpur_pillar");
 
     init_stair_props(serv, BLOCK_PURPUR_STAIRS, "minecraft:purpur_stairs");
 
@@ -2623,6 +2709,7 @@ init_block_data(server * serv) {
     props = serv->block_properties_table + BLOCK_BEETROOTS;
     add_block_range_prop(serv, props, "age", 0, 0, 3);
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
     // @TODO(traks) better collision box
     init_simple_block(serv, BLOCK_GRASS_PATH, "minecraft:grass_path", BLOCK_MODEL_FULL);
@@ -2634,23 +2721,26 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "conditional", "false", 2, "true", "false");
     add_block_prop(serv, props, "facing", "north", 6, "north", "east", "south", "west", "up", "down");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_CHAIN_COMMAND_BLOCK, "minecraft:chain_command_block");
     props = serv->block_properties_table + BLOCK_CHAIN_COMMAND_BLOCK;
     add_block_prop(serv, props, "conditional", "false", 2, "true", "false");
     add_block_prop(serv, props, "facing", "north", 6, "north", "east", "south", "west", "up", "down");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_FROSTED_ICE, "minecraft:frosted_ice");
     props = serv->block_properties_table + BLOCK_FROSTED_ICE;
     add_block_range_prop(serv, props, "age", 0, 0, 3);
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 
     init_simple_block(serv, BLOCK_MAGMA_BLOCK, "minecraft:magma_block", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_NETHER_WART_BLOCK, "minecraft:nether_wart_block", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_RED_NETHER_BRICKS, "minecraft:red_nether_bricks", BLOCK_MODEL_FULL);
 
-    init_pillar_props(serv, BLOCK_BONE_BLOCK, "minecraft:bone_block");
+    init_pillar(serv, BLOCK_BONE_BLOCK, "minecraft:bone_block");
 
     init_simple_block(serv, BLOCK_STRUCTURE_VOID, "minecraft:structure_void", BLOCK_MODEL_EMPTY);
 
@@ -2659,7 +2749,9 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "facing", "south", 6, "north", "east", "south", "west", "up", "down");
     add_block_prop(serv, props, "powered", "false", 2, "true", "false");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 
+    // @TODO(traks) collision models
     init_shulker_box_props(serv, BLOCK_SHULKER_BOX, "minecraft:shulker_box");
     init_shulker_box_props(serv, BLOCK_WHITE_SHULKER_BOX, "minecraft:white_shulker_box");
     init_shulker_box_props(serv, BLOCK_ORANGE_SHULKER_BOX, "minecraft:orange_shulker_box");
@@ -2678,22 +2770,22 @@ init_block_data(server * serv) {
     init_shulker_box_props(serv, BLOCK_RED_SHULKER_BOX, "minecraft:red_shulker_box");
     init_shulker_box_props(serv, BLOCK_BLACK_SHULKER_BOX, "minecraft:black_shulker_box");
 
-    init_glazed_terracotta_props(serv, BLOCK_WHITE_GLAZED_TERRACOTTA, "minecraft:white_glazed_terracotta");
-    init_glazed_terracotta_props(serv, BLOCK_ORANGE_GLAZED_TERRACOTTA, "minecraft:orange_glazed_terracotta");
-    init_glazed_terracotta_props(serv, BLOCK_MAGENTA_GLAZED_TERRACOTTA, "minecraft:magenta_glazed_terracotta");
-    init_glazed_terracotta_props(serv, BLOCK_LIGHT_BLUE_GLAZED_TERRACOTTA, "minecraft:light_blue_glazed_terracotta");
-    init_glazed_terracotta_props(serv, BLOCK_YELLOW_GLAZED_TERRACOTTA, "minecraft:yellow_glazed_terracotta");
-    init_glazed_terracotta_props(serv, BLOCK_LIME_GLAZED_TERRACOTTA, "minecraft:lime_glazed_terracotta");
-    init_glazed_terracotta_props(serv, BLOCK_PINK_GLAZED_TERRACOTTA, "minecraft:pink_glazed_terracotta");
-    init_glazed_terracotta_props(serv, BLOCK_GRAY_GLAZED_TERRACOTTA, "minecraft:gray_glazed_terracotta");
-    init_glazed_terracotta_props(serv, BLOCK_LIGHT_GRAY_GLAZED_TERRACOTTA, "minecraft:light_gray_glazed_terracotta");
-    init_glazed_terracotta_props(serv, BLOCK_CYAN_GLAZED_TERRACOTTA, "minecraft:cyan_glazed_terracotta");
-    init_glazed_terracotta_props(serv, BLOCK_PURPLE_GLAZED_TERRACOTTA, "minecraft:purple_glazed_terracotta");
-    init_glazed_terracotta_props(serv, BLOCK_BLUE_GLAZED_TERRACOTTA, "minecraft:blue_glazed_terracotta");
-    init_glazed_terracotta_props(serv, BLOCK_BROWN_GLAZED_TERRACOTTA, "minecraft:brown_glazed_terracotta");
-    init_glazed_terracotta_props(serv, BLOCK_GREEN_GLAZED_TERRACOTTA, "minecraft:green_glazed_terracotta");
-    init_glazed_terracotta_props(serv, BLOCK_RED_GLAZED_TERRACOTTA, "minecraft:red_glazed_terracotta");
-    init_glazed_terracotta_props(serv, BLOCK_BLACK_GLAZED_TERRACOTTA, "minecraft:black_glazed_terracotta");
+    init_glazed_terracotta(serv, BLOCK_WHITE_GLAZED_TERRACOTTA, "minecraft:white_glazed_terracotta");
+    init_glazed_terracotta(serv, BLOCK_ORANGE_GLAZED_TERRACOTTA, "minecraft:orange_glazed_terracotta");
+    init_glazed_terracotta(serv, BLOCK_MAGENTA_GLAZED_TERRACOTTA, "minecraft:magenta_glazed_terracotta");
+    init_glazed_terracotta(serv, BLOCK_LIGHT_BLUE_GLAZED_TERRACOTTA, "minecraft:light_blue_glazed_terracotta");
+    init_glazed_terracotta(serv, BLOCK_YELLOW_GLAZED_TERRACOTTA, "minecraft:yellow_glazed_terracotta");
+    init_glazed_terracotta(serv, BLOCK_LIME_GLAZED_TERRACOTTA, "minecraft:lime_glazed_terracotta");
+    init_glazed_terracotta(serv, BLOCK_PINK_GLAZED_TERRACOTTA, "minecraft:pink_glazed_terracotta");
+    init_glazed_terracotta(serv, BLOCK_GRAY_GLAZED_TERRACOTTA, "minecraft:gray_glazed_terracotta");
+    init_glazed_terracotta(serv, BLOCK_LIGHT_GRAY_GLAZED_TERRACOTTA, "minecraft:light_gray_glazed_terracotta");
+    init_glazed_terracotta(serv, BLOCK_CYAN_GLAZED_TERRACOTTA, "minecraft:cyan_glazed_terracotta");
+    init_glazed_terracotta(serv, BLOCK_PURPLE_GLAZED_TERRACOTTA, "minecraft:purple_glazed_terracotta");
+    init_glazed_terracotta(serv, BLOCK_BLUE_GLAZED_TERRACOTTA, "minecraft:blue_glazed_terracotta");
+    init_glazed_terracotta(serv, BLOCK_BROWN_GLAZED_TERRACOTTA, "minecraft:brown_glazed_terracotta");
+    init_glazed_terracotta(serv, BLOCK_GREEN_GLAZED_TERRACOTTA, "minecraft:green_glazed_terracotta");
+    init_glazed_terracotta(serv, BLOCK_RED_GLAZED_TERRACOTTA, "minecraft:red_glazed_terracotta");
+    init_glazed_terracotta(serv, BLOCK_BLACK_GLAZED_TERRACOTTA, "minecraft:black_glazed_terracotta");
 
     init_simple_block(serv, BLOCK_WHITE_CONCRETE, "minecraft:white_concrete", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_ORANGE_CONCRETE, "minecraft:orange_concrete", BLOCK_MODEL_FULL);
@@ -2729,6 +2821,7 @@ init_block_data(server * serv) {
     init_simple_block(serv, BLOCK_RED_CONCRETE_POWDER, "minecraft:red_concrete_powder", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_BLACK_CONCRETE_POWDER, "minecraft:black_concrete_powder", BLOCK_MODEL_FULL);
 
+    // @TODO(traks) collision models
     register_block_type(serv, BLOCK_KELP, "minecraft:kelp");
     props = serv->block_properties_table + BLOCK_KELP;
     add_block_range_prop(serv, props, "age", 0, 0, 25);
@@ -2737,6 +2830,7 @@ init_block_data(server * serv) {
     init_simple_block(serv, BLOCK_KELP_PLANT, "minecraft:kelp_plant", BLOCK_MODEL_EMPTY);
     init_simple_block(serv, BLOCK_DRIED_KELP_BLOCK, "minecraft:dried_kelp_block", BLOCK_MODEL_FULL);
 
+    // @TODO(traks) collision models
     register_block_type(serv, BLOCK_TURTLE_EGG, "minecraft:turtle_egg");
     props = serv->block_properties_table + BLOCK_TURTLE_EGG;
     add_block_range_prop(serv, props, "eggs", 1, 1, 4);
@@ -2755,42 +2849,43 @@ init_block_data(server * serv) {
     init_simple_block(serv, BLOCK_FIRE_CORAL_BLOCK, "minecraft:fire_coral_block", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_HORN_CORAL_BLOCK, "minecraft:horn_coral_block", BLOCK_MODEL_FULL);
 
+    // @TODO(traks) collision models
     init_coral_props(serv, BLOCK_DEAD_TUBE_CORAL, "minecraft:dead_tube_coral");
     init_coral_props(serv, BLOCK_DEAD_BRAIN_CORAL, "minecraft:dead_brain_coral");
     init_coral_props(serv, BLOCK_DEAD_BUBBLE_CORAL, "minecraft:dead_bubble_coral");
     init_coral_props(serv, BLOCK_DEAD_FIRE_CORAL, "minecraft:dead_fire_coral");
     init_coral_props(serv, BLOCK_DEAD_HORN_CORAL, "minecraft:dead_horn_coral");
-
     init_coral_props(serv, BLOCK_TUBE_CORAL, "minecraft:tube_coral");
     init_coral_props(serv, BLOCK_BRAIN_CORAL, "minecraft:brain_coral");
     init_coral_props(serv, BLOCK_BUBBLE_CORAL, "minecraft:bubble_coral");
     init_coral_props(serv, BLOCK_FIRE_CORAL, "minecraft:fire_coral");
     init_coral_props(serv, BLOCK_HORN_CORAL, "minecraft:horn_coral");
 
+    // @TODO(traks) collision models
     init_coral_fan_props(serv, BLOCK_DEAD_TUBE_CORAL_FAN, "minecraft:dead_tube_coral_fan");
     init_coral_fan_props(serv, BLOCK_DEAD_BRAIN_CORAL_FAN, "minecraft:dead_brain_coral_fan");
     init_coral_fan_props(serv, BLOCK_DEAD_BUBBLE_CORAL_FAN, "minecraft:dead_bubble_coral_fan");
     init_coral_fan_props(serv, BLOCK_DEAD_FIRE_CORAL_FAN, "minecraft:dead_fire_coral_fan");
     init_coral_fan_props(serv, BLOCK_DEAD_HORN_CORAL_FAN, "minecraft:dead_horn_coral_fan");
-
     init_coral_fan_props(serv, BLOCK_TUBE_CORAL_FAN, "minecraft:tube_coral_fan");
     init_coral_fan_props(serv, BLOCK_BRAIN_CORAL_FAN, "minecraft:brain_coral_fan");
     init_coral_fan_props(serv, BLOCK_BUBBLE_CORAL_FAN, "minecraft:bubble_coral_fan");
     init_coral_fan_props(serv, BLOCK_FIRE_CORAL_FAN, "minecraft:fire_coral_fan");
     init_coral_fan_props(serv, BLOCK_HORN_CORAL_FAN, "minecraft:horn_coral_fan");
 
+    // @TODO(traks) collision models
     init_coral_wall_fan_props(serv, BLOCK_DEAD_TUBE_CORAL_WALL_FAN, "minecraft:dead_tube_coral_wall_fan");
     init_coral_wall_fan_props(serv, BLOCK_DEAD_BRAIN_CORAL_WALL_FAN, "minecraft:dead_brain_coral_wall_fan");
     init_coral_wall_fan_props(serv, BLOCK_DEAD_BUBBLE_CORAL_WALL_FAN, "minecraft:dead_bubble_coral_wall_fan");
     init_coral_wall_fan_props(serv, BLOCK_DEAD_FIRE_CORAL_WALL_FAN, "minecraft:dead_fire_coral_wall_fan");
     init_coral_wall_fan_props(serv, BLOCK_DEAD_HORN_CORAL_WALL_FAN, "minecraft:dead_horn_coral_wall_fan");
-
     init_coral_wall_fan_props(serv, BLOCK_TUBE_CORAL_WALL_FAN, "minecraft:tube_coral_wall_fan");
     init_coral_wall_fan_props(serv, BLOCK_BRAIN_CORAL_WALL_FAN, "minecraft:brain_coral_wall_fan");
     init_coral_wall_fan_props(serv, BLOCK_BUBBLE_CORAL_WALL_FAN, "minecraft:bubble_coral_wall_fan");
     init_coral_wall_fan_props(serv, BLOCK_FIRE_CORAL_WALL_FAN, "minecraft:fire_coral_wall_fan");
     init_coral_wall_fan_props(serv, BLOCK_HORN_CORAL_WALL_FAN, "minecraft:horn_coral_wall_fan");
 
+    // @TODO(traks) collision models
     register_block_type(serv, BLOCK_SEA_PICKLE, "minecraft:sea_pickle");
     props = serv->block_properties_table + BLOCK_SEA_PICKLE;
     add_block_range_prop(serv, props, "pickles", 1, 1, 4);
@@ -2799,6 +2894,7 @@ init_block_data(server * serv) {
 
     init_simple_block(serv, BLOCK_BLUE_ICE, "minecraft:blue_ice", BLOCK_MODEL_FULL);
 
+    // @TODO(traks) collision models
     register_block_type(serv, BLOCK_CONDUIT, "minecraft:conduit");
     props = serv->block_properties_table + BLOCK_CONDUIT;
     add_block_prop(serv, props, "waterlogged", "true", 2, "true", "false");
@@ -2806,6 +2902,7 @@ init_block_data(server * serv) {
 
     init_simple_block(serv, BLOCK_BAMBOO_SAPLING, "minecraft:bamboo_sapling", BLOCK_MODEL_EMPTY);
 
+    // @TODO(traks) collision models
     register_block_type(serv, BLOCK_BAMBOO, "minecraft:bamboo");
     props = serv->block_properties_table + BLOCK_BAMBOO;
     add_block_range_prop(serv, props, "age", 0, 0, 1);
@@ -2818,6 +2915,7 @@ init_block_data(server * serv) {
     init_simple_block(serv, BLOCK_VOID_AIR, "minecraft:void_air", BLOCK_MODEL_EMPTY);
     init_simple_block(serv, BLOCK_CAVE_AIR, "minecraft:cave_air", BLOCK_MODEL_EMPTY);
 
+    // @TODO(traks) collision models
     register_block_type(serv, BLOCK_BUBBLE_COLUMN, "minecraft:bubble_column");
     props = serv->block_properties_table + BLOCK_BUBBLE_COLUMN;
     add_block_prop(serv, props, "drag", "true", 2, "true", "false");
@@ -2865,6 +2963,7 @@ init_block_data(server * serv) {
     init_wall_props(serv, BLOCK_END_STONE_BRICK_WALL, "minecraft:end_stone_brick_wall");
     init_wall_props(serv, BLOCK_DIORITE_WALL, "minecraft:diorite_wall");
 
+    // @TODO(traks) collision models
     register_block_type(serv, BLOCK_SCAFFOLDING, "minecraft:scaffolding");
     props = serv->block_properties_table + BLOCK_SCAFFOLDING;
     add_block_prop(serv, props, "bottom", "false", 2, "true", "false");
@@ -2876,34 +2975,40 @@ init_block_data(server * serv) {
     props = serv->block_properties_table + BLOCK_LOOM;
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_BARREL, "minecraft:barrel");
     props = serv->block_properties_table + BLOCK_BARREL;
     add_block_prop(serv, props, "facing", "north", 6, "north", "east", "south", "west", "up", "down");
     add_block_prop(serv, props, "open", "false", 2, "true", "false");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_SMOKER, "minecraft:smoker");
     props = serv->block_properties_table + BLOCK_SMOKER;
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
     add_block_prop(serv, props, "lit", "false", 2, "true", "false");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_FURNACE, "minecraft:furnace");
     props = serv->block_properties_table + BLOCK_BLAST_FURNACE;
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
     add_block_prop(serv, props, "lit", "false", 2, "true", "false");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 
     init_simple_block(serv, BLOCK_CARTOGRAPHY_TABLE, "minecraft:cartography_table", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_FLETCHING_TABLE, "minecraft:fletching_table", BLOCK_MODEL_FULL);
 
+    // @TODO(traks) collisions models
     register_block_type(serv, BLOCK_GRINDSTONE, "minecraft:grindstone");
     props = serv->block_properties_table + BLOCK_GRINDSTONE;
     add_block_prop(serv, props, "floor", "wall", 3, "floor", "wall", "ceiling");
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
     finalise_block_props(serv, props);
 
+    // @TODO(traks) collisions models
     register_block_type(serv, BLOCK_LECTERN, "minecraft:lectern");
     props = serv->block_properties_table + BLOCK_LECTERN;
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
@@ -2913,11 +3018,13 @@ init_block_data(server * serv) {
 
     init_simple_block(serv, BLOCK_SMITHING_TABLE, "minecraft:smithing_table", BLOCK_MODEL_FULL);
 
+    // @TODO(traks) collisions models
     register_block_type(serv, BLOCK_STONECUTTER, "minecraft:stonecutter");
     props = serv->block_properties_table + BLOCK_STONECUTTER;
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
     finalise_block_props(serv, props);
 
+    // @TODO(traks) collisions models
     register_block_type(serv, BLOCK_BELL, "minecraft:bell");
     props = serv->block_properties_table + BLOCK_BELL;
     add_block_prop(serv, props, "attachment", "floor", 4, "floor", "ceiling", "single_wall", "double_wall");
@@ -2925,18 +3032,21 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "powered", "false", 2, "true", "false");
     finalise_block_props(serv, props);
 
+    // @TODO(traks) collisions models
     register_block_type(serv, BLOCK_LANTERN, "minecraft:lantern");
     props = serv->block_properties_table + BLOCK_LANTERN;
     add_block_prop(serv, props, "hanging", "false", 2, "true", "false");
     add_block_prop(serv, props, "waterlogged", "false", 2, "true", "false");
     finalise_block_props(serv, props);
 
+    // @TODO(traks) collisions models
     register_block_type(serv, BLOCK_SOUL_LANTERN, "minecraft:soul_lantern");
     props = serv->block_properties_table + BLOCK_SOUL_LANTERN;
     add_block_prop(serv, props, "hanging", "false", 2, "true", "false");
     add_block_prop(serv, props, "waterlogged", "false", 2, "true", "false");
     finalise_block_props(serv, props);
 
+    // @TODO(traks) collisions models
     register_block_type(serv, BLOCK_CAMPFIRE, "minecraft:campfire");
     props = serv->block_properties_table + BLOCK_CAMPFIRE;
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
@@ -2945,6 +3055,7 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "waterlogged", "false", 2, "true", "false");
     finalise_block_props(serv, props);
 
+    // @TODO(traks) collisions models
     register_block_type(serv, BLOCK_SOUL_CAMPFIRE, "minecraft:soul_campfire");
     props = serv->block_properties_table + BLOCK_SOUL_CAMPFIRE;
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
@@ -2953,15 +3064,16 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "waterlogged", "false", 2, "true", "false");
     finalise_block_props(serv, props);
 
+    // @TODO(traks) collisions models
     register_block_type(serv, BLOCK_SWEET_BERRY_BUSH, "minecraft:sweet_berry_bush");
     props = serv->block_properties_table + BLOCK_SWEET_BERRY_BUSH;
     add_block_range_prop(serv, props, "age", 0, 0, 3);
     finalise_block_props(serv, props);
 
-    init_pillar_props(serv, BLOCK_WARPED_STEM, "minecraft:warped_stem");
-    init_pillar_props(serv, BLOCK_STRIPPED_WARPED_STEM, "minecraft:stripped_warped_stem");
-    init_pillar_props(serv, BLOCK_WARPED_HYPHAE, "minecraft:warped_hyphae");
-    init_pillar_props(serv, BLOCK_STRIPPED_WARPED_HYPHAE, "minecraft:stripped_warped_hyphae");
+    init_pillar(serv, BLOCK_WARPED_STEM, "minecraft:warped_stem");
+    init_pillar(serv, BLOCK_STRIPPED_WARPED_STEM, "minecraft:stripped_warped_stem");
+    init_pillar(serv, BLOCK_WARPED_HYPHAE, "minecraft:warped_hyphae");
+    init_pillar(serv, BLOCK_STRIPPED_WARPED_HYPHAE, "minecraft:stripped_warped_hyphae");
 
     init_simple_block(serv, BLOCK_WARPED_NYLIUM, "minecraft:warped_nylium", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_WARPED_FUNGUS, "minecraft:warped_fungus", BLOCK_MODEL_FULL);
@@ -2969,15 +3081,16 @@ init_block_data(server * serv) {
     init_simple_block(serv, BLOCK_WARPED_ROOTS, "minecraft:warped_roots", BLOCK_MODEL_EMPTY);
     init_simple_block(serv, BLOCK_NETHER_SPROUTS, "minecraft:nether_sprouts", BLOCK_MODEL_EMPTY);
 
-    init_pillar_props(serv, BLOCK_CRIMSON_STEM, "minecraft:crimson_stem");
-    init_pillar_props(serv, BLOCK_STRIPPED_CRIMSON_STEM, "minecraft:stripped_crimson_stem");
-    init_pillar_props(serv, BLOCK_CRIMSON_HYPHAE, "minecraft:crimson_hyphae");
-    init_pillar_props(serv, BLOCK_STRIPPED_CRIMSON_HYPHAE, "minecraft:stripped_crimson_hyphae");
+    init_pillar(serv, BLOCK_CRIMSON_STEM, "minecraft:crimson_stem");
+    init_pillar(serv, BLOCK_STRIPPED_CRIMSON_STEM, "minecraft:stripped_crimson_stem");
+    init_pillar(serv, BLOCK_CRIMSON_HYPHAE, "minecraft:crimson_hyphae");
+    init_pillar(serv, BLOCK_STRIPPED_CRIMSON_HYPHAE, "minecraft:stripped_crimson_hyphae");
 
     init_simple_block(serv, BLOCK_CRIMSON_NYLIUM, "minecraft:crimson_nylium", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_CRIMSON_FUNGUS, "minecraft:crimson_fungus", BLOCK_MODEL_EMPTY);
     init_simple_block(serv, BLOCK_SHROOMLIGHT, "minecraft:shroomlight", BLOCK_MODEL_FULL);
 
+    // @TODO(traks) collisions models
     register_block_type(serv, BLOCK_WEEPING_VINES, "minecraft:weeping_vines");
     props = serv->block_properties_table + BLOCK_WEEPING_VINES;
     add_block_range_prop(serv, props, "age", 0, 0, 25);
@@ -2985,6 +3098,7 @@ init_block_data(server * serv) {
 
     init_simple_block(serv, BLOCK_WEEPING_VINES_PLANT, "minecraft:weeping_vines_plant", BLOCK_MODEL_EMPTY);
 
+    // @TODO(traks) collisions models
     register_block_type(serv, BLOCK_TWISTING_VINES, "minecraft:twisting_vines");
     props = serv->block_properties_table + BLOCK_TWISTING_VINES;
     add_block_range_prop(serv, props, "age", 0, 0, 25);
@@ -2999,8 +3113,8 @@ init_block_data(server * serv) {
     init_slab_props(serv, BLOCK_CRIMSON_SLAB, "minecraft:crimson_slab");
     init_slab_props(serv, BLOCK_WARPED_SLAB, "minecraft:warped_slab");
 
-    init_pressure_plate_props(serv, BLOCK_CRIMSON_PRESSURE_PLATE, "minecraft:crimson_pressure_plate");
-    init_pressure_plate_props(serv, BLOCK_WARPED_PRESSURE_PLATE, "minecraft:warped_pressure_plate");
+    init_pressure_plate(serv, BLOCK_CRIMSON_PRESSURE_PLATE, "minecraft:crimson_pressure_plate");
+    init_pressure_plate(serv, BLOCK_WARPED_PRESSURE_PLATE, "minecraft:warped_pressure_plate");
 
     init_cross_props(serv, BLOCK_CRIMSON_FENCE, "minecraft:crimson_fence");
     init_cross_props(serv, BLOCK_WARPED_FENCE, "minecraft:warped_fence");
@@ -3014,28 +3128,31 @@ init_block_data(server * serv) {
     init_stair_props(serv, BLOCK_CRIMSON_STAIRS, "minecraft:crimson_stairs");
     init_stair_props(serv, BLOCK_WARPED_STAIRS, "minecraft:warped_stairs");
 
-    init_button_props(serv, BLOCK_CRIMSON_BUTTON, "minecraft:crimson_button");
-    init_button_props(serv, BLOCK_WARPED_BUTTON, "minecraft:warped_button");
+    init_button(serv, BLOCK_CRIMSON_BUTTON, "minecraft:crimson_button");
+    init_button(serv, BLOCK_WARPED_BUTTON, "minecraft:warped_button");
 
     init_door_props(serv, BLOCK_CRIMSON_DOOR, "minecraft:crimson_door");
     init_door_props(serv, BLOCK_WARPED_DOOR, "minecraft:warped_door");
 
-    init_sign_props(serv, BLOCK_CRIMSON_SIGN, "minecraft:crimson_sign");
-    init_sign_props(serv, BLOCK_WARPED_SIGN, "minecraft:warped_sign");
+    init_sign(serv, BLOCK_CRIMSON_SIGN, "minecraft:crimson_sign");
+    init_sign(serv, BLOCK_WARPED_SIGN, "minecraft:warped_sign");
 
-    init_wall_sign_props(serv, BLOCK_CRIMSON_WALL_SIGN, "minecraft:crimson_wall_sign");
-    init_wall_sign_props(serv, BLOCK_WARPED_WALL_SIGN, "minecraft:warped_wall_sign");
+    init_wall_sign(serv, BLOCK_CRIMSON_WALL_SIGN, "minecraft:crimson_wall_sign");
+    init_wall_sign(serv, BLOCK_WARPED_WALL_SIGN, "minecraft:warped_wall_sign");
 
     register_block_type(serv, BLOCK_STRUCTURE_BLOCK, "minecraft:structure_block");
     props = serv->block_properties_table + BLOCK_STRUCTURE_BLOCK;
     add_block_prop(serv, props, "mode", "save", 4, "save", "load", "corner", "data");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_JIGSAW, "minecraft:jigsaw");
     props = serv->block_properties_table + BLOCK_JIGSAW;
     add_block_prop(serv, props, "orientation", "north_up", 12, "down_east", "down_north", "down_south", "down_west", "up_east", "up_north", "up_south", "up_west", "west_up", "east_up", "north_up", "south_up");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 
+    // @TODO(traks) collisions models
     register_block_type(serv, BLOCK_COMPOSTER, "minecraft:composter");
     props = serv->block_properties_table + BLOCK_COMPOSTER;
     add_block_range_prop(serv, props, "level", 0, 0, 8);
@@ -3045,18 +3162,21 @@ init_block_data(server * serv) {
     props = serv->block_properties_table + BLOCK_TARGET;
     add_block_range_prop(serv, props, "power", 0, 0, 15);
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_BEE_NEST, "minecraft:bee_nest");
     props = serv->block_properties_table + BLOCK_BEE_NEST;
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
     add_block_range_prop(serv, props, "honey_level", 0, 0, 5);
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_BEEHIVE, "minecraft:beehive");
     props = serv->block_properties_table + BLOCK_BEEHIVE;
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
     add_block_range_prop(serv, props, "honey_level", 0, 0, 5);
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 
     init_simple_block(serv, BLOCK_HONEY_BLOCK, "minecraft:honey_block", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_HONEYCOMB_BLOCK, "minecraft:honeycomb_block", BLOCK_MODEL_FULL);
@@ -3068,6 +3188,7 @@ init_block_data(server * serv) {
     props = serv->block_properties_table + BLOCK_RESPAWN_ANCHOR;
     add_block_range_prop(serv, props, "charges", 0, 0, 4);
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 
     init_simple_block(serv, BLOCK_POTTED_CRIMSON_FUNGUS, "minecraft:potted_crimson_fungus", BLOCK_MODEL_EMPTY);
     init_simple_block(serv, BLOCK_POTTED_WARPED_FUNGUS, "minecraft:potted_warped_fungus", BLOCK_MODEL_EMPTY);
@@ -3099,9 +3220,9 @@ init_block_data(server * serv) {
 
     init_slab_props(serv, BLOCK_POLISHED_BLACKSTONE_SLAB, "minecraft:polished_blackstone_slab");
 
-    init_pressure_plate_props(serv, BLOCK_POLISHED_BLACKSTONE_PRESSURE_PLATE, "minecraft:polished_blackstone_pressure_plate");
+    init_pressure_plate(serv, BLOCK_POLISHED_BLACKSTONE_PRESSURE_PLATE, "minecraft:polished_blackstone_pressure_plate");
 
-    init_button_props(serv, BLOCK_POLISHED_BLACKSTONE_BUTTON, "minecraft:polished_blackstone_button");
+    init_button(serv, BLOCK_POLISHED_BLACKSTONE_BUTTON, "minecraft:polished_blackstone_button");
 
     init_wall_props(serv, BLOCK_POLISHED_BLACKSTONE_WALL, "minecraft:polished_blackstone_wall");
 
