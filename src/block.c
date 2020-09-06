@@ -1378,15 +1378,21 @@ add_block_range_prop(server * serv, block_properties * props,
     add_block_prop_direct(serv, props, key, values[def - min], value_count, values);
 }
 
-static void
-finalise_block_props(server * serv, block_properties * props) {
-    mc_int block_type = props - serv->block_properties_table;
-    props->base_state = serv->block_state_count;
-
+static int
+count_block_states(server * serv, block_properties * props) {
     int block_states = 1;
     for (int i = 0; i < props->property_count; i++) {
         block_states *= serv->block_property_specs[props->property_specs[i]].value_count;
     }
+    return block_states;
+}
+
+static void
+finalise_block_props(server * serv, block_properties * props) {
+    props->base_state = serv->block_state_count;
+
+    mc_int block_type = props - serv->block_properties_table;
+    int block_states = count_block_states(serv, props);
 
     for (int i = 0; i < block_states; i++) {
         serv->block_type_by_state[serv->block_state_count + i] = block_type;
@@ -1408,10 +1414,13 @@ register_block_type(server * serv, mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_no_props(server * serv, mc_int block_type, char * resource_loc) {
+init_simple_block(server * serv, mc_int block_type, char * resource_loc,
+        int collision_model) {
     register_block_type(serv, block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     finalise_block_props(serv, props);
+
+    serv->collision_model_by_state[props->base_state] = collision_model;
 }
 
 static void
@@ -1667,8 +1676,24 @@ init_coral_wall_fan_props(server * serv, mc_int block_type, char * resource_loc)
     finalise_block_props(serv, props);
 }
 
+static void
+register_block_model(server * serv, int index,
+        int box_count, block_box * boxes) {
+    block_model * model = serv->block_models + index;
+    model->box_count = box_count;
+    assert(index < ARRAY_SIZE(model->boxes));
+    for (int i = 0; i < box_count; i++) {
+        model->boxes[i] = boxes[i];
+    }
+}
+
 void
 init_block_data(server * serv) {
+    block_box full_box = {0, 0, 0, 1, 1, 1};
+    register_block_model(serv, BLOCK_MODEL_FULL, 1, &full_box);
+
+    register_block_model(serv, BLOCK_MODEL_EMPTY, 0, &full_box);
+
     // @TODO(traks) all these resource locations were very annoying to type out.
     // Perhaps we could write a program that converts all the block type enum
     // entries into resource locations and writes them to the resource location
@@ -1676,35 +1701,35 @@ init_block_data(server * serv) {
     // there to reduce collisions.
     block_properties * props;
 
-    init_no_props(serv, BLOCK_AIR, "minecraft:air");
-    init_no_props(serv, BLOCK_STONE, "minecraft:stone");
-    init_no_props(serv, BLOCK_GRANITE, "minecraft:granite");
-    init_no_props(serv, BLOCK_POLISHED_GRANITE, "minecraft:polished_granite");
-    init_no_props(serv, BLOCK_DIORITE, "minecraft:diorite");
-    init_no_props(serv, BLOCK_POLISHED_DIORITE, "minecraft:polished_diorite");
-    init_no_props(serv, BLOCK_ANDESITE, "minecraft:andesite");
-    init_no_props(serv, BLOCK_POLISHED_ANDESITE, "minecraft:polished_andesite");
+    init_simple_block(serv, BLOCK_AIR, "minecraft:air", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_STONE, "minecraft:stone", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_GRANITE, "minecraft:granite", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POLISHED_GRANITE, "minecraft:polished_granite", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_DIORITE, "minecraft:diorite", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POLISHED_DIORITE, "minecraft:polished_diorite", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_ANDESITE, "minecraft:andesite", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POLISHED_ANDESITE, "minecraft:polished_andesite", BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_GRASS_BLOCK, "minecraft:grass_block");
     props = serv->block_properties_table + BLOCK_GRASS_BLOCK;
     add_block_prop(serv, props, "snowy", "false", 2, "true", "false");
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_DIRT, "minecraft:dirt");
-    init_no_props(serv, BLOCK_COARSE_DIRT, "minecraft:coarse_dirt");
+    init_simple_block(serv, BLOCK_DIRT, "minecraft:dirt", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_COARSE_DIRT, "minecraft:coarse_dirt", BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_PODZOL, "minecraft:podzol");
     props = serv->block_properties_table + BLOCK_PODZOL;
     add_block_prop(serv, props, "snowy", "false", 2, "true", "false");
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_COBBLESTONE, "minecraft:cobblestone");
-    init_no_props(serv, BLOCK_OAK_PLANKS, "minecraft:oak_planks");
-    init_no_props(serv, BLOCK_SPRUCE_PLANKS, "minecraft:spruce_planks");
-    init_no_props(serv, BLOCK_BIRCH_PLANKS, "minecraft:birch_planks");
-    init_no_props(serv, BLOCK_JUNGLE_PLANKS, "minecraft:jungle_planks");
-    init_no_props(serv, BLOCK_ACACIA_PLANKS, "minecraft:acacia_planks");
-    init_no_props(serv, BLOCK_DARK_OAK_PLANKS, "minecraft:dark_oak_planks");
+    init_simple_block(serv, BLOCK_COBBLESTONE, "minecraft:cobblestone", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_OAK_PLANKS, "minecraft:oak_planks", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_SPRUCE_PLANKS, "minecraft:spruce_planks", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_BIRCH_PLANKS, "minecraft:birch_planks", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_JUNGLE_PLANKS, "minecraft:jungle_planks", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_ACACIA_PLANKS, "minecraft:acacia_planks", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_DARK_OAK_PLANKS, "minecraft:dark_oak_planks", BLOCK_MODEL_FULL);
 
     init_sapling_props(serv, BLOCK_OAK_SAPLING, "minecraft:oak_sapling");
     init_sapling_props(serv, BLOCK_SPRUCE_SAPLING, "minecraft:spruce_sapling");
@@ -1713,7 +1738,7 @@ init_block_data(server * serv) {
     init_sapling_props(serv, BLOCK_ACACIA_SAPLING, "minecraft:acacia_sapling");
     init_sapling_props(serv, BLOCK_DARK_OAK_SAPLING, "minecraft:dark_oak_sapling");
 
-    init_no_props(serv, BLOCK_BEDROCK, "minecraft:bedrock");
+    init_simple_block(serv, BLOCK_BEDROCK, "minecraft:bedrock", BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_WATER, "minecraft:water");
     props = serv->block_properties_table + BLOCK_WATER;
@@ -1725,13 +1750,13 @@ init_block_data(server * serv) {
     add_block_range_prop(serv, props, "level", 0, 0, 15);
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_SAND, "minecraft:sand");
-    init_no_props(serv, BLOCK_RED_SAND, "minecraft:red_sand");
-    init_no_props(serv, BLOCK_GRAVEL, "minecraft:gravel");
-    init_no_props(serv, BLOCK_GOLD_ORE, "minecraft:gold_ore");
-    init_no_props(serv, BLOCK_IRON_ORE, "minecraft:iron_ore");
-    init_no_props(serv, BLOCK_COAL_ORE, "minecraft:coal_ore");
-    init_no_props(serv, BLOCK_NETHER_GOLD_ORE, "minecraft:nether_gold_ore");
+    init_simple_block(serv, BLOCK_SAND, "minecraft:sand", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_RED_SAND, "minecraft:red_sand", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_GRAVEL, "minecraft:gravel", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_GOLD_ORE, "minecraft:gold_ore", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_IRON_ORE, "minecraft:iron_ore", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_COAL_ORE, "minecraft:coal_ore", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_NETHER_GOLD_ORE, "minecraft:nether_gold_ore", BLOCK_MODEL_FULL);
 
     init_pillar_props(serv, BLOCK_OAK_LOG, "minecraft:oak_log");
     init_pillar_props(serv, BLOCK_SPRUCE_LOG, "minecraft:spruce_log");
@@ -1765,11 +1790,11 @@ init_block_data(server * serv) {
     init_leaves_props(serv, BLOCK_ACACIA_LEAVES, "minecraft:acacia_leaves");
     init_leaves_props(serv, BLOCK_DARK_OAK_LEAVES, "minecraft:dark_oak_leaves");
 
-    init_no_props(serv, BLOCK_SPONGE, "minecraft:sponge");
-    init_no_props(serv, BLOCK_WET_SPONGE, "minecraft:wet_sponge");
-    init_no_props(serv, BLOCK_GLASS, "minecraft:glass");
-    init_no_props(serv, BLOCK_LAPIS_ORE, "minecraft:lapis_ore");
-    init_no_props(serv, BLOCK_LAPIS_BLOCK, "minecraft:lapis_block");
+    init_simple_block(serv, BLOCK_SPONGE, "minecraft:sponge", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_WET_SPONGE, "minecraft:wet_sponge", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_GLASS, "minecraft:glass", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_LAPIS_ORE, "minecraft:lapis_ore", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_LAPIS_BLOCK, "minecraft:lapis_block", BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_DISPENSER, "minecraft:dispenser");
     props = serv->block_properties_table + BLOCK_DISPENSER;
@@ -1777,9 +1802,9 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "triggered", "false", 2, "true", "false");
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_SANDSTONE, "minecraft:sandstone");
-    init_no_props(serv, BLOCK_CHISELED_SANDSTONE, "minecraft:chiseled_sandstone");
-    init_no_props(serv, BLOCK_CUT_SANDSTONE, "minecraft:cut_sandstone");
+    init_simple_block(serv, BLOCK_SANDSTONE, "minecraft:sandstone", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_CHISELED_SANDSTONE, "minecraft:chiseled_sandstone", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_CUT_SANDSTONE, "minecraft:cut_sandstone", BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_NOTE_BLOCK, "minecraft:note_block");
     props = serv->block_properties_table + BLOCK_NOTE_BLOCK;
@@ -1823,11 +1848,12 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "facing", "north", 6, "north", "east", "south", "west", "up", "down");
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_COBWEB, "minecraft:cobweb");
-    init_no_props(serv, BLOCK_GRASS, "minecraft:grass");
-    init_no_props(serv, BLOCK_FERN, "minecraft:fern");
-    init_no_props(serv, BLOCK_DEAD_BUSH, "minecraft:dead_bush");
-    init_no_props(serv, BLOCK_SEAGRASS, "minecraft:seagrass");
+    // @TODO(traks) slow down entities in cobwebs
+    init_simple_block(serv, BLOCK_COBWEB, "minecraft:cobweb", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_GRASS, "minecraft:grass", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_FERN, "minecraft:fern", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_DEAD_BUSH, "minecraft:dead_bush", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_SEAGRASS, "minecraft:seagrass", BLOCK_MODEL_EMPTY);
 
     init_tall_plant_props(serv, BLOCK_TALL_SEAGRASS, "minecraft:tall_seagrass");
 
@@ -1844,22 +1870,22 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "type", "normal", 2, "normal", "sticky");
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_WHITE_WOOL, "minecraft:white_wool");
-    init_no_props(serv, BLOCK_ORANGE_WOOL, "minecraft:orange_wool");
-    init_no_props(serv, BLOCK_MAGENTA_WOOL, "minecraft:magenta_wool");
-    init_no_props(serv, BLOCK_LIGHT_BLUE_WOOL, "minecraft:light_blue_wool");
-    init_no_props(serv, BLOCK_YELLOW_WOOL, "minecraft:yellow_wool");
-    init_no_props(serv, BLOCK_LIME_WOOL, "minecraft:lime_wool");
-    init_no_props(serv, BLOCK_PINK_WOOL, "minecraft:pink_wool");
-    init_no_props(serv, BLOCK_GRAY_WOOL, "minecraft:gray_wool");
-    init_no_props(serv, BLOCK_LIGHT_GRAY_WOOL, "minecraft:light_gray_wool");
-    init_no_props(serv, BLOCK_CYAN_WOOL, "minecraft:cyan_wool");
-    init_no_props(serv, BLOCK_PURPLE_WOOL, "minecraft:purple_wool");
-    init_no_props(serv, BLOCK_BLUE_WOOL, "minecraft:blue_wool");
-    init_no_props(serv, BLOCK_BROWN_WOOL, "minecraft:brown_wool");
-    init_no_props(serv, BLOCK_GREEN_WOOL, "minecraft:green_wool");
-    init_no_props(serv, BLOCK_RED_WOOL, "minecraft:red_wool");
-    init_no_props(serv, BLOCK_BLACK_WOOL, "minecraft:black_wool");
+    init_simple_block(serv, BLOCK_WHITE_WOOL, "minecraft:white_wool", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_ORANGE_WOOL, "minecraft:orange_wool", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_MAGENTA_WOOL, "minecraft:magenta_wool", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_LIGHT_BLUE_WOOL, "minecraft:light_blue_wool", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_YELLOW_WOOL, "minecraft:yellow_wool", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_LIME_WOOL, "minecraft:lime_wool", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_PINK_WOOL, "minecraft:pink_wool", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_GRAY_WOOL, "minecraft:gray_wool", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_LIGHT_GRAY_WOOL, "minecraft:light_gray_wool", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_CYAN_WOOL, "minecraft:cyan_wool", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_PURPLE_WOOL, "minecraft:purple_wool", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_BLUE_WOOL, "minecraft:blue_wool", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_BROWN_WOOL, "minecraft:brown_wool", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_GREEN_WOOL, "minecraft:green_wool", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_RED_WOOL, "minecraft:red_wool", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_BLACK_WOOL, "minecraft:black_wool", BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_MOVING_PISTON, "minecraft:moving_piston");
     props = serv->block_properties_table + BLOCK_MOVING_PISTON;
@@ -1867,34 +1893,34 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "type", "normal", 2, "normal", "sticky");
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_DANDELION, "minecraft:dandelion");
-    init_no_props(serv, BLOCK_POPPY, "minecraft:poppy");
-    init_no_props(serv, BLOCK_BLUE_ORCHID, "minecraft:blue_orchid");
-    init_no_props(serv, BLOCK_ALLIUM, "minecraft:allium");
-    init_no_props(serv, BLOCK_AZURE_BLUET, "minecraft:azure_bluet");
-    init_no_props(serv, BLOCK_RED_TULIP, "minecraft:red_tulip");
-    init_no_props(serv, BLOCK_ORANGE_TULIP, "minecraft:orange_tulip");
-    init_no_props(serv, BLOCK_WHITE_TULIP, "minecraft:white_tulip");
-    init_no_props(serv, BLOCK_PINK_TULIP, "minecraft:pink_tulip");
-    init_no_props(serv, BLOCK_OXEYE_DAISY, "minecraft:oxeye_daisy");
-    init_no_props(serv, BLOCK_CORNFLOWER, "minecraft:cornflower");
-    init_no_props(serv, BLOCK_WITHER_ROSE, "minecraft:wither_rose");
-    init_no_props(serv, BLOCK_LILY_OF_THE_VALLEY, "minecraft:lily_of_the_valley");
-    init_no_props(serv, BLOCK_BROWN_MUSHROOM, "minecraft:brown_mushroom");
-    init_no_props(serv, BLOCK_RED_MUSHROOM, "minecraft:red_mushroom");
-    init_no_props(serv, BLOCK_GOLD_BLOCK, "minecraft:gold_block");
-    init_no_props(serv, BLOCK_IRON_BLOCK, "minecraft:iron_block");
-    init_no_props(serv, BLOCK_BRICKS, "minecraft:bricks");
+    init_simple_block(serv, BLOCK_DANDELION, "minecraft:dandelion", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_POPPY, "minecraft:poppy", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_BLUE_ORCHID, "minecraft:blue_orchid", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_ALLIUM, "minecraft:allium", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_AZURE_BLUET, "minecraft:azure_bluet", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_RED_TULIP, "minecraft:red_tulip", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_ORANGE_TULIP, "minecraft:orange_tulip", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_WHITE_TULIP, "minecraft:white_tulip", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_PINK_TULIP, "minecraft:pink_tulip", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_OXEYE_DAISY, "minecraft:oxeye_daisy", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_CORNFLOWER, "minecraft:cornflower", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_WITHER_ROSE, "minecraft:wither_rose", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_LILY_OF_THE_VALLEY, "minecraft:lily_of_the_valley", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_BROWN_MUSHROOM, "minecraft:brown_mushroom", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_RED_MUSHROOM, "minecraft:red_mushroom", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_GOLD_BLOCK, "minecraft:gold_block", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_IRON_BLOCK, "minecraft:iron_block", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_BRICKS, "minecraft:bricks", BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_TNT, "minecraft:tnt");
     props = serv->block_properties_table + BLOCK_TNT;
     add_block_prop(serv, props, "unstable", "false", 2, "true", "false");
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_BOOKSHELF, "minecraft:bookshelf");
-    init_no_props(serv, BLOCK_MOSSY_COBBLESTONE, "minecraft:mossy_cobblestone");
-    init_no_props(serv, BLOCK_OBSIDIAN, "minecraft:obsidian");
-    init_no_props(serv, BLOCK_TORCH, "minecraft:torch");
+    init_simple_block(serv, BLOCK_BOOKSHELF, "minecraft:bookshelf", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_MOSSY_COBBLESTONE, "minecraft:mossy_cobblestone", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_OBSIDIAN, "minecraft:obsidian", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_TORCH, "minecraft:torch", BLOCK_MODEL_EMPTY);
 
     register_block_type(serv, BLOCK_WALL_TORCH, "minecraft:wall_torch");
     props = serv->block_properties_table + BLOCK_WALL_TORCH;
@@ -1911,8 +1937,9 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "west", "false", 2, "true", "false");
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_SOUL_FIRE, "minecraft:soul_fire");
-    init_no_props(serv, BLOCK_SPAWNER, "minecraft:spawner");
+    // @TODO(traks) do damage in fire
+    init_simple_block(serv, BLOCK_SOUL_FIRE, "minecraft:soul_fire", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_SPAWNER, "minecraft:spawner", BLOCK_MODEL_FULL);
 
     init_stair_props(serv, BLOCK_OAK_STAIRS, "minecraft:oak_stairs");
 
@@ -1932,9 +1959,9 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "west", "none", 3, "up", "side", "none");
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_DIAMOND_ORE, "minecraft:diamond_ore");
-    init_no_props(serv, BLOCK_DIAMOND_BLOCK, "minecraft:diamond_block");
-    init_no_props(serv, BLOCK_CRAFTING_TABLE, "minecraft:crafting_table");
+    init_simple_block(serv, BLOCK_DIAMOND_ORE, "minecraft:diamond_ore", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_DIAMOND_BLOCK, "minecraft:diamond_block", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_CRAFTING_TABLE, "minecraft:crafting_table", BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_WHEAT, "minecraft:wheat");
     props = serv->block_properties_table + BLOCK_WHEAT;
@@ -2022,15 +2049,15 @@ init_block_data(server * serv) {
     add_block_range_prop(serv, props, "layers", 1, 1, 8);
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_ICE, "minecraft:ice");
-    init_no_props(serv, BLOCK_SNOW_BLOCK, "minecraft:snow_block");
+    init_simple_block(serv, BLOCK_ICE, "minecraft:ice", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_SNOW_BLOCK, "minecraft:snow_block", BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_CACTUS, "minecraft:cactus");
     props = serv->block_properties_table + BLOCK_CACTUS;
     add_block_range_prop(serv, props, "age", 0, 0, 15);
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_CLAY, "minecraft:clay");
+    init_simple_block(serv, BLOCK_CLAY, "minecraft:clay", BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_SUGAR_CANE, "minecraft:sugar_cane");
     props = serv->block_properties_table + BLOCK_SUGAR_CANE;
@@ -2044,22 +2071,23 @@ init_block_data(server * serv) {
 
     init_cross_props(serv, BLOCK_OAK_FENCE, "minecraft:oak_fence");
 
-    init_no_props(serv, BLOCK_PUMPKIN, "minecraft:pumpkin");
-    init_no_props(serv, BLOCK_NETHERRACK, "minecraft:netherrack");
-    init_no_props(serv, BLOCK_SOUL_SAND, "minecraft:soul_sand");
-    init_no_props(serv, BLOCK_SOUL_SOIL, "minecraft:soul_soil");
+    init_simple_block(serv, BLOCK_PUMPKIN, "minecraft:pumpkin", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_NETHERRACK, "minecraft:netherrack", BLOCK_MODEL_FULL);
+    // @TODO(traks) not really a full block
+    init_simple_block(serv, BLOCK_SOUL_SAND, "minecraft:soul_sand", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_SOUL_SOIL, "minecraft:soul_soil", BLOCK_MODEL_FULL);
 
     init_pillar_props(serv, BLOCK_BASALT, "minecraft:basalt");
     init_pillar_props(serv, BLOCK_POLISHED_BASALT, "minecraft:polished_basalt");
 
-    init_no_props(serv, BLOCK_SOUL_TORCH, "minecraft:soul_torch");
+    init_simple_block(serv, BLOCK_SOUL_TORCH, "minecraft:soul_torch", BLOCK_MODEL_EMPTY);
 
     register_block_type(serv, BLOCK_SOUL_WALL_TORCH, "minecraft:soul_wall_torch");
     props = serv->block_properties_table + BLOCK_SOUL_WALL_TORCH;
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_GLOWSTONE, "minecraft:glowsonte");
+    init_simple_block(serv, BLOCK_GLOWSTONE, "minecraft:glowstone", BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_NETHER_PORTAL, "minecraft:nether_portal");
     props = serv->block_properties_table + BLOCK_NETHER_PORTAL;
@@ -2089,22 +2117,22 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "powered", "false", 2, "true", "false");
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_WHITE_STAINED_GLASS, "minecraft:white_stained_glass");
-    init_no_props(serv, BLOCK_ORANGE_STAINED_GLASS, "minecraft:orange_stained_glass");
-    init_no_props(serv, BLOCK_MAGENTA_STAINED_GLASS, "minecraft:magenta_stained_glass");
-    init_no_props(serv, BLOCK_LIGHT_BLUE_STAINED_GLASS, "minecraft:light_blue_stained_glass");
-    init_no_props(serv, BLOCK_YELLOW_STAINED_GLASS, "minecraft:yellow_stained_glass");
-    init_no_props(serv, BLOCK_LIME_STAINED_GLASS, "minecraft:lime_stained_glass");
-    init_no_props(serv, BLOCK_PINK_STAINED_GLASS, "minecraft:pink_stained_glass");
-    init_no_props(serv, BLOCK_GRAY_STAINED_GLASS, "minecraft:gray_stained_glass");
-    init_no_props(serv, BLOCK_LIGHT_GRAY_STAINED_GLASS, "minecraft:light_gray_stained_glass");
-    init_no_props(serv, BLOCK_CYAN_STAINED_GLASS, "minecraft:cyan_stained_glass");
-    init_no_props(serv, BLOCK_PURPLE_STAINED_GLASS, "minecraft:purple_stained_glass");
-    init_no_props(serv, BLOCK_BLUE_STAINED_GLASS, "minecraft:blue_stained_glass");
-    init_no_props(serv, BLOCK_BROWN_STAINED_GLASS, "minecraft:brown_stained_glass");
-    init_no_props(serv, BLOCK_GREEN_STAINED_GLASS, "minecraft:green_stained_glass");
-    init_no_props(serv, BLOCK_RED_STAINED_GLASS, "minecraft:red_stained_glass");
-    init_no_props(serv, BLOCK_BLACK_STAINED_GLASS, "minecraft:black_stained_glass");
+    init_simple_block(serv, BLOCK_WHITE_STAINED_GLASS, "minecraft:white_stained_glass", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_ORANGE_STAINED_GLASS, "minecraft:orange_stained_glass", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_MAGENTA_STAINED_GLASS, "minecraft:magenta_stained_glass", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_LIGHT_BLUE_STAINED_GLASS, "minecraft:light_blue_stained_glass", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_YELLOW_STAINED_GLASS, "minecraft:yellow_stained_glass", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_LIME_STAINED_GLASS, "minecraft:lime_stained_glass", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_PINK_STAINED_GLASS, "minecraft:pink_stained_glass", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_GRAY_STAINED_GLASS, "minecraft:gray_stained_glass", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_LIGHT_GRAY_STAINED_GLASS, "minecraft:light_gray_stained_glass", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_CYAN_STAINED_GLASS, "minecraft:cyan_stained_glass", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_PURPLE_STAINED_GLASS, "minecraft:purple_stained_glass", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_BLUE_STAINED_GLASS, "minecraft:blue_stained_glass", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_BROWN_STAINED_GLASS, "minecraft:brown_stained_glass", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_GREEN_STAINED_GLASS, "minecraft:green_stained_glass", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_RED_STAINED_GLASS, "minecraft:red_stained_glass", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_BLACK_STAINED_GLASS, "minecraft:black_stained_glass", BLOCK_MODEL_FULL);
 
     init_trapdoor_props(serv, BLOCK_OAK_TRAPDOOR, "minecraft:oak_trapdoor");
     init_trapdoor_props(serv, BLOCK_SPRUCE_TRAPDOOR, "minecraft:spruce_trapdoor");
@@ -2113,16 +2141,16 @@ init_block_data(server * serv) {
     init_trapdoor_props(serv, BLOCK_ACACIA_TRAPDOOR, "minecraft:acacia_trapdoor");
     init_trapdoor_props(serv, BLOCK_DARK_OAK_TRAPDOOR, "minecraft:dark_oak_trapdoor");
 
-    init_no_props(serv, BLOCK_STONE_BRICKS, "minecraft:stone_bricks");
-    init_no_props(serv, BLOCK_MOSSY_STONE_BRICKS, "minecraft:mossy_stone_bricks");
-    init_no_props(serv, BLOCK_CRACKED_STONE_BRICKS, "minecraft:cracked_stone_bricks");
-    init_no_props(serv, BLOCK_CHISELED_STONE_BRICKS, "minecraft:chiseled_stone_bricks");
-    init_no_props(serv, BLOCK_INFESTED_STONE, "minecraft:infested_stone");
-    init_no_props(serv, BLOCK_INFESTED_COBBLESTONE, "minecraft:infested_cobblestone");
-    init_no_props(serv, BLOCK_INFESTED_STONE_BRICKS, "minecraft:infested_stone_bricks");
-    init_no_props(serv, BLOCK_INFESTED_MOSSY_STONE_BRICKS, "minecraft:infested_mossy_stone_bricks");
-    init_no_props(serv, BLOCK_INFESTED_CRACKED_STONE_BRICKS, "minecraft:infested_cracked_stone_bricks");
-    init_no_props(serv, BLOCK_INFESTED_CHISELED_STONE_BRICKS, "minecraft:infested_chiseled_stone_bricks");
+    init_simple_block(serv, BLOCK_STONE_BRICKS, "minecraft:stone_bricks", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_MOSSY_STONE_BRICKS, "minecraft:mossy_stone_bricks", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_CRACKED_STONE_BRICKS, "minecraft:cracked_stone_bricks", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_CHISELED_STONE_BRICKS, "minecraft:chiseled_stone_bricks", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_INFESTED_STONE, "minecraft:infested_stone", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_INFESTED_COBBLESTONE, "minecraft:infested_cobblestone", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_INFESTED_STONE_BRICKS, "minecraft:infested_stone_bricks", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_INFESTED_MOSSY_STONE_BRICKS, "minecraft:infested_mossy_stone_bricks", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_INFESTED_CRACKED_STONE_BRICKS, "minecraft:infested_cracked_stone_bricks", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_INFESTED_CHISELED_STONE_BRICKS, "minecraft:infested_chiseled_stone_bricks", BLOCK_MODEL_FULL);
 
     init_mushroom_block_props(serv, BLOCK_BROWN_MUSHROOM_BLOCK, "minecraft:brown_mushroom_block");
     init_mushroom_block_props(serv, BLOCK_RED_MUSHROOM_BLOCK, "minecraft:red_mushroom_block");
@@ -2138,7 +2166,7 @@ init_block_data(server * serv) {
 
     init_cross_props(serv, BLOCK_GLASS_PANE, "minecraft:glass_pane");
 
-    init_no_props(serv, BLOCK_MELON, "minecraft:melon");
+    init_simple_block(serv, BLOCK_MELON, "minecraft:melon", BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_ATTACHED_PUMPKIN_STEM, "minecraft:attached_pumpkin_stem");
     props = serv->block_properties_table + BLOCK_ATTACHED_PUMPKIN_STEM;
@@ -2179,8 +2207,9 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "snowy", "false", 2, "true", "false");
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_LILY_PAD, "minecraft:lily_pad");
-    init_no_props(serv, BLOCK_NETHER_BRICKS, "minecraft:nether_bricks");
+    // @TODO(traks) collision box
+    init_simple_block(serv, BLOCK_LILY_PAD, "minecraft:lily_pad", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_NETHER_BRICKS, "minecraft:nether_bricks", BLOCK_MODEL_FULL);
 
     init_cross_props(serv, BLOCK_NETHER_BRICK_FENCE, "minecraft:nether_brick_fence");
 
@@ -2191,7 +2220,8 @@ init_block_data(server * serv) {
     add_block_range_prop(serv, props, "age", 0, 0, 3);
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_ENCHANTING_TABLE, "minecraft:enchanting_table");
+    // @TODO(traks) collision box
+    init_simple_block(serv, BLOCK_ENCHANTING_TABLE, "minecraft:enchanting_table", BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_BREWING_STAND, "minecraft:brewing_stand");
     props = serv->block_properties_table + BLOCK_BREWING_STAND;
@@ -2205,7 +2235,7 @@ init_block_data(server * serv) {
     add_block_range_prop(serv, props, "level", 0, 0, 3);
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_END_PORTAL, "minecraft:end_portal");
+    init_simple_block(serv, BLOCK_END_PORTAL, "minecraft:end_portal", BLOCK_MODEL_EMPTY);
 
     register_block_type(serv, BLOCK_END_PORTAL_FRAME, "minecraft:end_portal_frame");
     props = serv->block_properties_table + BLOCK_END_PORTAL_FRAME;
@@ -2213,8 +2243,9 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "facing", "north", 4, "north", "south", "west", "east");
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_END_STONE, "minecraft:end_stone");
-    init_no_props(serv, BLOCK_DRAGON_EGG, "minecraft:dragon_egg");
+    init_simple_block(serv, BLOCK_END_STONE, "minecraft:end_stone", BLOCK_MODEL_FULL);
+    // @TODO(traks) correct block model
+    init_simple_block(serv, BLOCK_DRAGON_EGG, "minecraft:dragon_egg", BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_REDSTONE_LAMP, "minecraft:redstone_lamp");
     props = serv->block_properties_table + BLOCK_REDSTONE_LAMP;
@@ -2229,7 +2260,7 @@ init_block_data(server * serv) {
 
     init_stair_props(serv, BLOCK_SANDSTONE_STAIRS, "minecraft:sandstone_stairs");
 
-    init_no_props(serv, BLOCK_EMERALD_ORE, "minecraft:emerald_ore");
+    init_simple_block(serv, BLOCK_EMERALD_ORE, "minecraft:emerald_ore", BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_ENDER_CHEST, "minecraft:ender_chest");
     props = serv->block_properties_table + BLOCK_ENDER_CHEST;
@@ -2255,7 +2286,7 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "west", "false", 2, "true", "false");
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_EMERALD_BLOCK, "minecraft:emerald_block");
+    init_simple_block(serv, BLOCK_EMERALD_BLOCK, "minecraft:emerald_block", BLOCK_MODEL_FULL);
 
     init_stair_props(serv, BLOCK_SPRUCE_STAIRS, "minecraft:spruce_stairs");
     init_stair_props(serv, BLOCK_BIRCH_STAIRS, "minecraft:birch_stairs");
@@ -2267,36 +2298,37 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "facing", "north", 6, "north", "east", "south", "west", "up", "down");
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_BEACON, "minecraft:beacon");
+    init_simple_block(serv, BLOCK_BEACON, "minecraft:beacon", BLOCK_MODEL_FULL);
 
     init_wall_props(serv, BLOCK_COBBLESTONE_WALL, "minecraft:cobblestone_wall");
     init_wall_props(serv, BLOCK_MOSSY_COBBLESTONE_WALL, "minecraft:mossy_cobblestone_wall");
 
-    init_no_props(serv, BLOCK_FLOWER_POT, "minecraft:flower_pot");
-    init_no_props(serv, BLOCK_POTTED_OAK_SAPLING, "minecraft:potted_oak_sapling");
-    init_no_props(serv, BLOCK_POTTED_SPRUCE_SAPLING, "minecraft:potted_spruce_sapling");
-    init_no_props(serv, BLOCK_POTTED_BIRCH_SAPLING, "minecraft:potted_birch_sapling");
-    init_no_props(serv, BLOCK_POTTED_JUNGLE_SAPLING, "minecraft:potted_jungle_sapling");
-    init_no_props(serv, BLOCK_POTTED_ACACIA_SAPLING, "minecraft:potted_acacia_sapling");
-    init_no_props(serv, BLOCK_POTTED_DARK_OAK_SAPLING, "minecraft:potted_dark_oak_sapling");
-    init_no_props(serv, BLOCK_POTTED_FERN, "minecraft:potted_fern");
-    init_no_props(serv, BLOCK_POTTED_DANDELION, "minecraft:potted_dandelion");
-    init_no_props(serv, BLOCK_POTTED_POPPY, "minecraft:potted_poppy");
-    init_no_props(serv, BLOCK_POTTED_BLUE_ORCHID, "minecraft:potted_blue_orchid");
-    init_no_props(serv, BLOCK_POTTED_ALLIUM, "minecraft:potted_allium");
-    init_no_props(serv, BLOCK_POTTED_AZURE_BLUET, "minecraft:potted_azure_bluet");
-    init_no_props(serv, BLOCK_POTTED_RED_TULIP, "minecraft:potted_red_tulip");
-    init_no_props(serv, BLOCK_POTTED_ORANGE_TULIP, "minecraft:potted_orange_tulip");
-    init_no_props(serv, BLOCK_POTTED_WHITE_TULIP, "minecraft:potted_white_tulip");
-    init_no_props(serv, BLOCK_POTTED_PINK_TULIP, "minecraft:potted_pink_tulip");
-    init_no_props(serv, BLOCK_POTTED_OXEYE_DAISY, "minecraft:potted_oxeye_daisy");
-    init_no_props(serv, BLOCK_POTTED_CORNFLOWER, "minecraft:potted_cornflower");
-    init_no_props(serv, BLOCK_POTTED_LILY_OF_THE_VALLEY, "minecraft:potted_lily_of_the_valley");
-    init_no_props(serv, BLOCK_POTTED_WITHER_ROSE, "minecraft:potted_wither_rose");
-    init_no_props(serv, BLOCK_POTTED_RED_MUSHROOM, "minecraft:potted_red_mushroom");
-    init_no_props(serv, BLOCK_POTTED_BROWN_MUSHROOM, "minecraft:potted_brown_mushroom");
-    init_no_props(serv, BLOCK_POTTED_DEAD_BUSH, "minecraft:potted_dead_bush");
-    init_no_props(serv, BLOCK_POTTED_CACTUS, "minecraft:potted_cactus");
+    // @TODO(traks) correct pot models
+    init_simple_block(serv, BLOCK_FLOWER_POT, "minecraft:flower_pot", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POTTED_OAK_SAPLING, "minecraft:potted_oak_sapling", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POTTED_SPRUCE_SAPLING, "minecraft:potted_spruce_sapling", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POTTED_BIRCH_SAPLING, "minecraft:potted_birch_sapling", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POTTED_JUNGLE_SAPLING, "minecraft:potted_jungle_sapling", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POTTED_ACACIA_SAPLING, "minecraft:potted_acacia_sapling", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POTTED_DARK_OAK_SAPLING, "minecraft:potted_dark_oak_sapling", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POTTED_FERN, "minecraft:potted_fern", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POTTED_DANDELION, "minecraft:potted_dandelion", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POTTED_POPPY, "minecraft:potted_poppy", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POTTED_BLUE_ORCHID, "minecraft:potted_blue_orchid", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POTTED_ALLIUM, "minecraft:potted_allium", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POTTED_AZURE_BLUET, "minecraft:potted_azure_bluet", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POTTED_RED_TULIP, "minecraft:potted_red_tulip", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POTTED_ORANGE_TULIP, "minecraft:potted_orange_tulip", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POTTED_WHITE_TULIP, "minecraft:potted_white_tulip", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POTTED_PINK_TULIP, "minecraft:potted_pink_tulip", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POTTED_OXEYE_DAISY, "minecraft:potted_oxeye_daisy", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POTTED_CORNFLOWER, "minecraft:potted_cornflower", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POTTED_LILY_OF_THE_VALLEY, "minecraft:potted_lily_of_the_valley", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POTTED_WITHER_ROSE, "minecraft:potted_wither_rose", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POTTED_RED_MUSHROOM, "minecraft:potted_red_mushroom", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POTTED_BROWN_MUSHROOM, "minecraft:potted_brown_mushroom", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POTTED_DEAD_BUSH, "minecraft:potted_dead_bush", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POTTED_CACTUS, "minecraft:potted_cactus", BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_CARROTS, "minecraft:carrots");
     props = serv->block_properties_table + BLOCK_CARROTS;
@@ -2362,8 +2394,8 @@ init_block_data(server * serv) {
     add_block_range_prop(serv, props, "power", 0, 0, 15);
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_REDSTONE_BLOCK, "minecraft:redstone_block");
-    init_no_props(serv, BLOCK_NETHER_QUARTZ_ORE, "minecraft:nether_quartz_ore");
+    init_simple_block(serv, BLOCK_REDSTONE_BLOCK, "minecraft:redstone_block", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_NETHER_QUARTZ_ORE, "minecraft:nether_quartz_ore", BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_HOPPER, "minecraft:hopper");
     props = serv->block_properties_table + BLOCK_HOPPER;
@@ -2371,8 +2403,8 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "facing", "down", 5, "down", "north", "south", "west", "east");
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_QUARTZ_BLOCK, "minecraft:quartz_ore");
-    init_no_props(serv, BLOCK_CHISELED_QUARTZ_BLOCK, "minecraft:chiseled_quartz_block");
+    init_simple_block(serv, BLOCK_QUARTZ_BLOCK, "minecraft:quartz_ore", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_CHISELED_QUARTZ_BLOCK, "minecraft:chiseled_quartz_block", BLOCK_MODEL_FULL);
 
     init_pillar_props(serv, BLOCK_QUARTZ_PILLAR, "minecraft:quartz_piller");
 
@@ -2390,22 +2422,22 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "triggered", "false", 2, "true", "false");
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_WHITE_TERRACOTTA, "minecraft:white_terracotta");
-    init_no_props(serv, BLOCK_ORANGE_TERRACOTTA, "minecraft:orange_terracotta");
-    init_no_props(serv, BLOCK_MAGENTA_TERRACOTTA, "minecraft:magenta_terracotta");
-    init_no_props(serv, BLOCK_LIGHT_BLUE_TERRACOTTA, "minecraft:light_blue_terracotta");
-    init_no_props(serv, BLOCK_YELLOW_TERRACOTTA, "minecraft:yellow_terracotta");
-    init_no_props(serv, BLOCK_LIME_TERRACOTTA, "minecraft:lime_terracotta");
-    init_no_props(serv, BLOCK_PINK_TERRACOTTA, "minecraft:pink_terracotta");
-    init_no_props(serv, BLOCK_GRAY_TERRACOTTA, "minecraft:gray_terrcotta");
-    init_no_props(serv, BLOCK_LIGHT_GRAY_TERRACOTTA, "minecraft:light_gray_terracotta");
-    init_no_props(serv, BLOCK_CYAN_TERRACOTTA, "minecraft:cyan_terracotta");
-    init_no_props(serv, BLOCK_PURPLE_TERRACOTTA, "minecraft:purple_terracotta");
-    init_no_props(serv, BLOCK_BLUE_TERRACOTTA, "minecraft:blue_terracotta");
-    init_no_props(serv, BLOCK_BROWN_TERRACOTTA, "minecraft:brown_terracotta");
-    init_no_props(serv, BLOCK_GREEN_TERRACOTTA, "minecraft:green_terracotta");
-    init_no_props(serv, BLOCK_RED_TERRACOTTA, "minecraft:red_terracotta");
-    init_no_props(serv, BLOCK_BLACK_TERRACOTTA, "minecraft:black_terracotta");
+    init_simple_block(serv, BLOCK_WHITE_TERRACOTTA, "minecraft:white_terracotta", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_ORANGE_TERRACOTTA, "minecraft:orange_terracotta", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_MAGENTA_TERRACOTTA, "minecraft:magenta_terracotta", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_LIGHT_BLUE_TERRACOTTA, "minecraft:light_blue_terracotta", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_YELLOW_TERRACOTTA, "minecraft:yellow_terracotta", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_LIME_TERRACOTTA, "minecraft:lime_terracotta", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_PINK_TERRACOTTA, "minecraft:pink_terracotta", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_GRAY_TERRACOTTA, "minecraft:gray_terrcotta", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_LIGHT_GRAY_TERRACOTTA, "minecraft:light_gray_terracotta", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_CYAN_TERRACOTTA, "minecraft:cyan_terracotta", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_PURPLE_TERRACOTTA, "minecraft:purple_terracotta", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_BLUE_TERRACOTTA, "minecraft:blue_terracotta", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_BROWN_TERRACOTTA, "minecraft:brown_terracotta", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_GREEN_TERRACOTTA, "minecraft:green_terracotta", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_RED_TERRACOTTA, "minecraft:red_terracotta", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_BLACK_TERRACOTTA, "minecraft:black_terracotta", BLOCK_MODEL_FULL);
 
     init_cross_props(serv, BLOCK_WHITE_STAINED_GLASS_PANE, "minecraft:white_stained_glass_pane");
     init_cross_props(serv, BLOCK_ORANGE_STAINED_GLASS_PANE, "minecraft:orange_stained_glass_pane");
@@ -2427,14 +2459,14 @@ init_block_data(server * serv) {
     init_stair_props(serv, BLOCK_ACACIA_STAIRS, "minecraft:acacia_stairs");
     init_stair_props(serv, BLOCK_DARK_OAK_STAIRS, "minecraft:dark_oak_stairs");
 
-    init_no_props(serv, BLOCK_SLIME_BLOCK, "minecraft:slime_block");
-    init_no_props(serv, BLOCK_BARRIER, "minecraft:barrier");
+    init_simple_block(serv, BLOCK_SLIME_BLOCK, "minecraft:slime_block", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_BARRIER, "minecraft:barrier", BLOCK_MODEL_FULL);
 
     init_trapdoor_props(serv, BLOCK_IRON_TRAPDOOR, "minecraft:iron_trapdoor");
 
-    init_no_props(serv, BLOCK_PRISMARINE, "minecraft:prismarine");
-    init_no_props(serv, BLOCK_PRISMARINE_BRICKS, "minecraft:prismarine_bricks");
-    init_no_props(serv, BLOCK_DARK_PRISMARINE, "minecraft:dark_prismarine");
+    init_simple_block(serv, BLOCK_PRISMARINE, "minecraft:prismarine", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_PRISMARINE_BRICKS, "minecraft:prismarine_bricks", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_DARK_PRISMARINE, "minecraft:dark_prismarine", BLOCK_MODEL_FULL);
 
     init_stair_props(serv, BLOCK_PRISMARINE_STAIRS, "minecraft:prismarine_stairs");
     init_stair_props(serv, BLOCK_PRISMARINE_BRICK_STAIRS, "minecraft:prismarine_brick_stairs");
@@ -2444,29 +2476,30 @@ init_block_data(server * serv) {
     init_slab_props(serv, BLOCK_PRISMARINE_BRICK_SLAB, "minecraft:prismarine_brick_slab");
     init_slab_props(serv, BLOCK_DARK_PRISMARINE_SLAB, "minecraft:dark_prismarine_slab");
 
-    init_no_props(serv, BLOCK_SEA_LANTERN, "minecraft:sea_lantern");
+    init_simple_block(serv, BLOCK_SEA_LANTERN, "minecraft:sea_lantern", BLOCK_MODEL_FULL);
 
     init_pillar_props(serv, BLOCK_HAY_BLOCK, "minecraft:hay_block");
 
-    init_no_props(serv, BLOCK_WHITE_CARPET, "minecraft:white_carpet");
-    init_no_props(serv, BLOCK_ORANGE_CARPET, "minecraft:orange_carpet");
-    init_no_props(serv, BLOCK_MAGENTA_CARPET, "minecraft:magenta_carpet");
-    init_no_props(serv, BLOCK_LIGHT_BLUE_CARPET, "minecraft:light_blue_carpet");
-    init_no_props(serv, BLOCK_YELLOW_CARPET, "minecraft:yellow_carpet");
-    init_no_props(serv, BLOCK_LIME_CARPET, "minecraft:lime_carpet");
-    init_no_props(serv, BLOCK_PINK_CARPET, "minecraft:pink_carpet");
-    init_no_props(serv, BLOCK_GRAY_CARPET, "minecraft:gray_carpet");
-    init_no_props(serv, BLOCK_LIGHT_GRAY_CARPET, "minecraft:light_gray_carpet");
-    init_no_props(serv, BLOCK_CYAN_CARPET, "minecraft:cyan_carpet");
-    init_no_props(serv, BLOCK_PURPLE_CARPET, "minecraft:purple_carpet");
-    init_no_props(serv, BLOCK_BLUE_CARPET, "minecraft:blue_carpet");
-    init_no_props(serv, BLOCK_BROWN_CARPET, "minecraft:brown_carpet");
-    init_no_props(serv, BLOCK_GREEN_CARPET, "minecraft:green_carpet");
-    init_no_props(serv, BLOCK_RED_CARPET, "minecraft:red_carpet");
-    init_no_props(serv, BLOCK_BLACK_CARPET, "minecraft:black_carpet");
-    init_no_props(serv, BLOCK_TERRACOTTA, "minecraft:terracotta");
-    init_no_props(serv, BLOCK_COAL_BLOCK, "minecraft:coal_block");
-    init_no_props(serv, BLOCK_PACKED_ICE, "minecraft:packed_ice");
+    // @TODO(traks) better model
+    init_simple_block(serv, BLOCK_WHITE_CARPET, "minecraft:white_carpet", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_ORANGE_CARPET, "minecraft:orange_carpet", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_MAGENTA_CARPET, "minecraft:magenta_carpet", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_LIGHT_BLUE_CARPET, "minecraft:light_blue_carpet", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_YELLOW_CARPET, "minecraft:yellow_carpet", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_LIME_CARPET, "minecraft:lime_carpet", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_PINK_CARPET, "minecraft:pink_carpet", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_GRAY_CARPET, "minecraft:gray_carpet", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_LIGHT_GRAY_CARPET, "minecraft:light_gray_carpet", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_CYAN_CARPET, "minecraft:cyan_carpet", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_PURPLE_CARPET, "minecraft:purple_carpet", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_BLUE_CARPET, "minecraft:blue_carpet", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_BROWN_CARPET, "minecraft:brown_carpet", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_GREEN_CARPET, "minecraft:green_carpet", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_RED_CARPET, "minecraft:red_carpet", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_BLACK_CARPET, "minecraft:black_carpet", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_TERRACOTTA, "minecraft:terracotta", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_COAL_BLOCK, "minecraft:coal_block", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_PACKED_ICE, "minecraft:packed_ice", BLOCK_MODEL_EMPTY);
 
     init_tall_plant_props(serv, BLOCK_SUNFLOWER, "minecraft:sunflower");
     init_tall_plant_props(serv, BLOCK_LILAC, "minecraft:lilac");
@@ -2509,9 +2542,9 @@ init_block_data(server * serv) {
     init_wall_banner_props(serv, BLOCK_RED_WALL_BANNER, "minecraft:red_wall_banner");
     init_wall_banner_props(serv, BLOCK_BLACK_WALL_BANNER, "minecraft:black_wall_banner");
 
-    init_no_props(serv, BLOCK_RED_SANDSTONE, "minecraft:red_sandstone");
-    init_no_props(serv, BLOCK_CHISELED_RED_SANDSTONE, "minecraft:chiseled_red_sandstone");
-    init_no_props(serv, BLOCK_CUT_RED_SANDSTONE, "minecraft:cut_red_sandstone");
+    init_simple_block(serv, BLOCK_RED_SANDSTONE, "minecraft:red_sandstone", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_CHISELED_RED_SANDSTONE, "minecraft:chiseled_red_sandstone", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_CUT_RED_SANDSTONE, "minecraft:cut_red_sandstone", BLOCK_MODEL_FULL);
 
     init_stair_props(serv, BLOCK_RED_SANDSTONE_STAIRS, "minecraft:red_sandstone_stairs");
 
@@ -2535,10 +2568,10 @@ init_block_data(server * serv) {
     init_slab_props(serv, BLOCK_CUT_RED_SANDSTONE_SLAB, "minecraft:cut_red_sandstone_slab");
     init_slab_props(serv, BLOCK_PURPUR_SLAB, "minecraft:purpur_slab");
 
-    init_no_props(serv, BLOCK_SMOOTH_STONE, "minecraft:smooth_stone");
-    init_no_props(serv, BLOCK_SMOOTH_SANDSTONE, "minecraft:smooth_sandstone");
-    init_no_props(serv, BLOCK_SMOOTH_QUARTZ, "minecraft:smooth_quartz");
-    init_no_props(serv, BLOCK_SMOOTH_RED_SANDSTONE, "minecraft:smooth_red_sandstone");
+    init_simple_block(serv, BLOCK_SMOOTH_STONE, "minecraft:smooth_stone", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_SMOOTH_SANDSTONE, "minecraft:smooth_sandstone", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_SMOOTH_QUARTZ, "minecraft:smooth_quartz", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_SMOOTH_RED_SANDSTONE, "minecraft:smooth_red_sandstone", BLOCK_MODEL_FULL);
 
     init_fence_gate_props(serv, BLOCK_SPRUCE_FENCE_GATE, "minecraft:spruce_fence_gate");
     init_fence_gate_props(serv, BLOCK_BIRCH_FENCE_GATE, "minecraft:birch_fence_gate");
@@ -2578,21 +2611,23 @@ init_block_data(server * serv) {
     add_block_range_prop(serv, props, "age", 0, 0, 5);
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_PURPUR_BLOCK, "minecraft:purpur_block");
+    init_simple_block(serv, BLOCK_PURPUR_BLOCK, "minecraft:purpur_block", BLOCK_MODEL_FULL);
 
     init_pillar_props(serv, BLOCK_PURPUR_PILLAR, "minecraft:purpur_pillar");
 
     init_stair_props(serv, BLOCK_PURPUR_STAIRS, "minecraft:purpur_stairs");
 
-    init_no_props(serv, BLOCK_END_STONE_BRICKS, "minecraft:end_stone_bricks");
+    init_simple_block(serv, BLOCK_END_STONE_BRICKS, "minecraft:end_stone_bricks", BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_BEETROOTS, "minecraft:beetroots");
     props = serv->block_properties_table + BLOCK_BEETROOTS;
     add_block_range_prop(serv, props, "age", 0, 0, 3);
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_GRASS_PATH, "minecraft:grass_path");
-    init_no_props(serv, BLOCK_END_GATEWAY, "minecraft:end_gateway");
+    // @TODO(traks) better collision box
+    init_simple_block(serv, BLOCK_GRASS_PATH, "minecraft:grass_path", BLOCK_MODEL_FULL);
+    // @TODO(traks) better collision box
+    init_simple_block(serv, BLOCK_END_GATEWAY, "minecraft:end_gateway", BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_REPEATING_COMMAND_BLOCK, "minecraft:repeating_command_block");
     props = serv->block_properties_table + BLOCK_REPEATING_COMMAND_BLOCK;
@@ -2611,13 +2646,13 @@ init_block_data(server * serv) {
     add_block_range_prop(serv, props, "age", 0, 0, 3);
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_MAGMA_BLOCK, "minecraft:magma_block");
-    init_no_props(serv, BLOCK_NETHER_WART_BLOCK, "minecraft:nether_wart_block");
-    init_no_props(serv, BLOCK_RED_NETHER_BRICKS, "minecraft:red_nether_bricks");
+    init_simple_block(serv, BLOCK_MAGMA_BLOCK, "minecraft:magma_block", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_NETHER_WART_BLOCK, "minecraft:nether_wart_block", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_RED_NETHER_BRICKS, "minecraft:red_nether_bricks", BLOCK_MODEL_FULL);
 
     init_pillar_props(serv, BLOCK_BONE_BLOCK, "minecraft:bone_block");
 
-    init_no_props(serv, BLOCK_STRUCTURE_VOID, "minecraft:structure_void");
+    init_simple_block(serv, BLOCK_STRUCTURE_VOID, "minecraft:structure_void", BLOCK_MODEL_EMPTY);
 
     register_block_type(serv, BLOCK_OBSERVER, "minecraft:observer");
     props = serv->block_properties_table + BLOCK_OBSERVER;
@@ -2660,47 +2695,47 @@ init_block_data(server * serv) {
     init_glazed_terracotta_props(serv, BLOCK_RED_GLAZED_TERRACOTTA, "minecraft:red_glazed_terracotta");
     init_glazed_terracotta_props(serv, BLOCK_BLACK_GLAZED_TERRACOTTA, "minecraft:black_glazed_terracotta");
 
-    init_no_props(serv, BLOCK_WHITE_CONCRETE, "minecraft:white_concrete");
-    init_no_props(serv, BLOCK_ORANGE_CONCRETE, "minecraft:orange_concrete");
-    init_no_props(serv, BLOCK_MAGENTA_CONCRETE, "minecraft:magenta_concrete");
-    init_no_props(serv, BLOCK_LIGHT_BLUE_CONCRETE, "minecraft:light_blue_concrete");
-    init_no_props(serv, BLOCK_YELLOW_CONCRETE, "minecraft:yellow_concrete");
-    init_no_props(serv, BLOCK_LIME_CONCRETE, "minecraft:lime_concrete");
-    init_no_props(serv, BLOCK_PINK_CONCRETE, "minecraft:pink_concrete");
-    init_no_props(serv, BLOCK_GRAY_CONCRETE, "minecraft:gray_concrete");
-    init_no_props(serv, BLOCK_LIGHT_GRAY_CONCRETE, "minecraft:light_gray_concrete");
-    init_no_props(serv, BLOCK_CYAN_CONCRETE, "minecraft:cyan_concrete");
-    init_no_props(serv, BLOCK_PURPLE_CONCRETE, "minecraft:purple_concrete");
-    init_no_props(serv, BLOCK_BLUE_CONCRETE, "minecraft:blue_concrete");
-    init_no_props(serv, BLOCK_BROWN_CONCRETE, "minecraft:brown_concrete");
-    init_no_props(serv, BLOCK_GREEN_CONCRETE, "minecraft:green_concrete");
-    init_no_props(serv, BLOCK_RED_CONCRETE, "minecraft:red_concrete");
-    init_no_props(serv, BLOCK_BLACK_CONCRETE, "minecraft:black_concrete");
+    init_simple_block(serv, BLOCK_WHITE_CONCRETE, "minecraft:white_concrete", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_ORANGE_CONCRETE, "minecraft:orange_concrete", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_MAGENTA_CONCRETE, "minecraft:magenta_concrete", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_LIGHT_BLUE_CONCRETE, "minecraft:light_blue_concrete", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_YELLOW_CONCRETE, "minecraft:yellow_concrete", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_LIME_CONCRETE, "minecraft:lime_concrete", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_PINK_CONCRETE, "minecraft:pink_concrete", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_GRAY_CONCRETE, "minecraft:gray_concrete", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_LIGHT_GRAY_CONCRETE, "minecraft:light_gray_concrete", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_CYAN_CONCRETE, "minecraft:cyan_concrete", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_PURPLE_CONCRETE, "minecraft:purple_concrete", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_BLUE_CONCRETE, "minecraft:blue_concrete", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_BROWN_CONCRETE, "minecraft:brown_concrete", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_GREEN_CONCRETE, "minecraft:green_concrete", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_RED_CONCRETE, "minecraft:red_concrete", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_BLACK_CONCRETE, "minecraft:black_concrete", BLOCK_MODEL_FULL);
 
-    init_no_props(serv, BLOCK_WHITE_CONCRETE_POWDER, "minecraft:white_concrete_powder");
-    init_no_props(serv, BLOCK_ORANGE_CONCRETE_POWDER, "minecraft:orange_concrete_powder");
-    init_no_props(serv, BLOCK_MAGENTA_CONCRETE_POWDER, "minecraft:magenta_concrete_powder");
-    init_no_props(serv, BLOCK_LIGHT_BLUE_CONCRETE_POWDER, "minecraft:light_blue_concrete_powder");
-    init_no_props(serv, BLOCK_YELLOW_CONCRETE_POWDER, "minecraft:yellow_concrete_powder");
-    init_no_props(serv, BLOCK_LIME_CONCRETE_POWDER, "minecraft:lime_concrete_powder");
-    init_no_props(serv, BLOCK_PINK_CONCRETE_POWDER, "minecraft:pink_concrete_powder");
-    init_no_props(serv, BLOCK_GRAY_CONCRETE_POWDER, "minecraft:gray_concrete_powder");
-    init_no_props(serv, BLOCK_LIGHT_GRAY_CONCRETE_POWDER, "minecraft:light_gray_concrete_powder");
-    init_no_props(serv, BLOCK_CYAN_CONCRETE_POWDER, "minecraft:cyan_concrete_powder");
-    init_no_props(serv, BLOCK_PURPLE_CONCRETE_POWDER, "minecraft:purple_concrete_powder");
-    init_no_props(serv, BLOCK_BLUE_CONCRETE_POWDER, "minecraft:blue_concrete_powder");
-    init_no_props(serv, BLOCK_BROWN_CONCRETE_POWDER, "minecraft:brown_concrete_powder");
-    init_no_props(serv, BLOCK_GREEN_CONCRETE_POWDER, "minecraft:green_concrete_powder");
-    init_no_props(serv, BLOCK_RED_CONCRETE_POWDER, "minecraft:red_concrete_powder");
-    init_no_props(serv, BLOCK_BLACK_CONCRETE_POWDER, "minecraft:black_concrete_powder");
+    init_simple_block(serv, BLOCK_WHITE_CONCRETE_POWDER, "minecraft:white_concrete_powder", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_ORANGE_CONCRETE_POWDER, "minecraft:orange_concrete_powder", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_MAGENTA_CONCRETE_POWDER, "minecraft:magenta_concrete_powder", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_LIGHT_BLUE_CONCRETE_POWDER, "minecraft:light_blue_concrete_powder", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_YELLOW_CONCRETE_POWDER, "minecraft:yellow_concrete_powder", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_LIME_CONCRETE_POWDER, "minecraft:lime_concrete_powder", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_PINK_CONCRETE_POWDER, "minecraft:pink_concrete_powder", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_GRAY_CONCRETE_POWDER, "minecraft:gray_concrete_powder", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_LIGHT_GRAY_CONCRETE_POWDER, "minecraft:light_gray_concrete_powder", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_CYAN_CONCRETE_POWDER, "minecraft:cyan_concrete_powder", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_PURPLE_CONCRETE_POWDER, "minecraft:purple_concrete_powder", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_BLUE_CONCRETE_POWDER, "minecraft:blue_concrete_powder", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_BROWN_CONCRETE_POWDER, "minecraft:brown_concrete_powder", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_GREEN_CONCRETE_POWDER, "minecraft:green_concrete_powder", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_RED_CONCRETE_POWDER, "minecraft:red_concrete_powder", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_BLACK_CONCRETE_POWDER, "minecraft:black_concrete_powder", BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_KELP, "minecraft:kelp");
     props = serv->block_properties_table + BLOCK_KELP;
     add_block_range_prop(serv, props, "age", 0, 0, 25);
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_KELP_PLANT, "minecraft:kelp_plant");
-    init_no_props(serv, BLOCK_DRIED_KELP_BLOCK, "minecraft:dried_kelp_block");
+    init_simple_block(serv, BLOCK_KELP_PLANT, "minecraft:kelp_plant", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_DRIED_KELP_BLOCK, "minecraft:dried_kelp_block", BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_TURTLE_EGG, "minecraft:turtle_egg");
     props = serv->block_properties_table + BLOCK_TURTLE_EGG;
@@ -2708,17 +2743,17 @@ init_block_data(server * serv) {
     add_block_range_prop(serv, props, "hatch", 0, 0, 2);
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_DEAD_TUBE_CORAL_BLOCK, "minecraft:dead_tube_coral_block");
-    init_no_props(serv, BLOCK_DEAD_BRAIN_CORAL_BLOCK, "minecraft:dead_brain_coral_block");
-    init_no_props(serv, BLOCK_DEAD_BUBBLE_CORAL_BLOCK, "minecraft:dead_bubble_coral_block");
-    init_no_props(serv, BLOCK_DEAD_FIRE_CORAL_BLOCK, "minecraft:dead_fire_coral_block");
-    init_no_props(serv, BLOCK_DEAD_HORN_CORAL_BLOCK, "minecraft:dead_horn_coral_block");
+    init_simple_block(serv, BLOCK_DEAD_TUBE_CORAL_BLOCK, "minecraft:dead_tube_coral_block", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_DEAD_BRAIN_CORAL_BLOCK, "minecraft:dead_brain_coral_block", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_DEAD_BUBBLE_CORAL_BLOCK, "minecraft:dead_bubble_coral_block", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_DEAD_FIRE_CORAL_BLOCK, "minecraft:dead_fire_coral_block", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_DEAD_HORN_CORAL_BLOCK, "minecraft:dead_horn_coral_block", BLOCK_MODEL_FULL);
 
-    init_no_props(serv, BLOCK_TUBE_CORAL_BLOCK, "minecraft:tube_coral_block");
-    init_no_props(serv, BLOCK_BRAIN_CORAL_BLOCK, "minecraft:brain_coral_block");
-    init_no_props(serv, BLOCK_BUBBLE_CORAL_BLOCK, "minecraft:bubble_coral_block");
-    init_no_props(serv, BLOCK_FIRE_CORAL_BLOCK, "minecraft:fire_coral_block");
-    init_no_props(serv, BLOCK_HORN_CORAL_BLOCK, "minecraft:horn_coral_block");
+    init_simple_block(serv, BLOCK_TUBE_CORAL_BLOCK, "minecraft:tube_coral_block", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_BRAIN_CORAL_BLOCK, "minecraft:brain_coral_block", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_BUBBLE_CORAL_BLOCK, "minecraft:bubble_coral_block", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_FIRE_CORAL_BLOCK, "minecraft:fire_coral_block", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_HORN_CORAL_BLOCK, "minecraft:horn_coral_block", BLOCK_MODEL_FULL);
 
     init_coral_props(serv, BLOCK_DEAD_TUBE_CORAL, "minecraft:dead_tube_coral");
     init_coral_props(serv, BLOCK_DEAD_BRAIN_CORAL, "minecraft:dead_brain_coral");
@@ -2762,14 +2797,14 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "waterlogged", "true", 2, "true", "false");
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_BLUE_ICE, "minecraft:blue_ice");
+    init_simple_block(serv, BLOCK_BLUE_ICE, "minecraft:blue_ice", BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_CONDUIT, "minecraft:conduit");
     props = serv->block_properties_table + BLOCK_CONDUIT;
     add_block_prop(serv, props, "waterlogged", "true", 2, "true", "false");
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_BAMBOO_SAPLING, "minecraft:bamboo_sapling");
+    init_simple_block(serv, BLOCK_BAMBOO_SAPLING, "minecraft:bamboo_sapling", BLOCK_MODEL_EMPTY);
 
     register_block_type(serv, BLOCK_BAMBOO, "minecraft:bamboo");
     props = serv->block_properties_table + BLOCK_BAMBOO;
@@ -2778,9 +2813,10 @@ init_block_data(server * serv) {
     add_block_range_prop(serv, props, "stage", 0, 0, 1);
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_POTTED_BAMBOO, "minecraft:potted_bamboo");
-    init_no_props(serv, BLOCK_VOID_AIR, "minecraft:void_air");
-    init_no_props(serv, BLOCK_CAVE_AIR, "minecraft:cave_air");
+    // @TODO(traks) pot collision box
+    init_simple_block(serv, BLOCK_POTTED_BAMBOO, "minecraft:potted_bamboo", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_VOID_AIR, "minecraft:void_air", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_CAVE_AIR, "minecraft:cave_air", BLOCK_MODEL_EMPTY);
 
     register_block_type(serv, BLOCK_BUBBLE_COLUMN, "minecraft:bubble_column");
     props = serv->block_properties_table + BLOCK_BUBBLE_COLUMN;
@@ -2859,8 +2895,8 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "lit", "false", 2, "true", "false");
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_CARTOGRAPHY_TABLE, "minecraft:cartography_table");
-    init_no_props(serv, BLOCK_FLETCHING_TABLE, "minecraft:fletching_table");
+    init_simple_block(serv, BLOCK_CARTOGRAPHY_TABLE, "minecraft:cartography_table", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_FLETCHING_TABLE, "minecraft:fletching_table", BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_GRINDSTONE, "minecraft:grindstone");
     props = serv->block_properties_table + BLOCK_GRINDSTONE;
@@ -2875,7 +2911,7 @@ init_block_data(server * serv) {
     add_block_prop(serv, props, "powered", "false", 2, "true", "false");
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_SMITHING_TABLE, "minecraft:smithing_table");
+    init_simple_block(serv, BLOCK_SMITHING_TABLE, "minecraft:smithing_table", BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_STONECUTTER, "minecraft:stonecutter");
     props = serv->block_properties_table + BLOCK_STONECUTTER;
@@ -2927,38 +2963,38 @@ init_block_data(server * serv) {
     init_pillar_props(serv, BLOCK_WARPED_HYPHAE, "minecraft:warped_hyphae");
     init_pillar_props(serv, BLOCK_STRIPPED_WARPED_HYPHAE, "minecraft:stripped_warped_hyphae");
 
-    init_no_props(serv, BLOCK_WARPED_NYLIUM, "minecraft:warped_nylium");
-    init_no_props(serv, BLOCK_WARPED_FUNGUS, "minecraft:warped_fungus");
-    init_no_props(serv, BLOCK_WARPED_WART_BLOCK, "minecraft:warped_wart_block");
-    init_no_props(serv, BLOCK_WARPED_ROOTS, "minecraft:warped_roots");
-    init_no_props(serv, BLOCK_NETHER_SPROUTS, "minecraft:nether_sprouts");
+    init_simple_block(serv, BLOCK_WARPED_NYLIUM, "minecraft:warped_nylium", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_WARPED_FUNGUS, "minecraft:warped_fungus", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_WARPED_WART_BLOCK, "minecraft:warped_wart_block", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_WARPED_ROOTS, "minecraft:warped_roots", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_NETHER_SPROUTS, "minecraft:nether_sprouts", BLOCK_MODEL_EMPTY);
 
     init_pillar_props(serv, BLOCK_CRIMSON_STEM, "minecraft:crimson_stem");
     init_pillar_props(serv, BLOCK_STRIPPED_CRIMSON_STEM, "minecraft:stripped_crimson_stem");
     init_pillar_props(serv, BLOCK_CRIMSON_HYPHAE, "minecraft:crimson_hyphae");
     init_pillar_props(serv, BLOCK_STRIPPED_CRIMSON_HYPHAE, "minecraft:stripped_crimson_hyphae");
 
-    init_no_props(serv, BLOCK_CRIMSON_NYLIUM, "minecraft:crimson_nylium");
-    init_no_props(serv, BLOCK_CRIMSON_FUNGUS, "minecraft:crimson_fungus");
-    init_no_props(serv, BLOCK_SHROOMLIGHT, "minecraft:shroomlight");
+    init_simple_block(serv, BLOCK_CRIMSON_NYLIUM, "minecraft:crimson_nylium", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_CRIMSON_FUNGUS, "minecraft:crimson_fungus", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_SHROOMLIGHT, "minecraft:shroomlight", BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_WEEPING_VINES, "minecraft:weeping_vines");
     props = serv->block_properties_table + BLOCK_WEEPING_VINES;
     add_block_range_prop(serv, props, "age", 0, 0, 25);
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_WEEPING_VINES_PLANT, "minecraft:weeping_vines_plant");
+    init_simple_block(serv, BLOCK_WEEPING_VINES_PLANT, "minecraft:weeping_vines_plant", BLOCK_MODEL_EMPTY);
 
     register_block_type(serv, BLOCK_TWISTING_VINES, "minecraft:twisting_vines");
     props = serv->block_properties_table + BLOCK_TWISTING_VINES;
     add_block_range_prop(serv, props, "age", 0, 0, 25);
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_TWISTING_VINES_PLANT, "minecraft:twisting_vines_plant");
+    init_simple_block(serv, BLOCK_TWISTING_VINES_PLANT, "minecraft:twisting_vines_plant", BLOCK_MODEL_EMPTY);
 
-    init_no_props(serv, BLOCK_CRIMSON_ROOTS, "minecraft:crimson_roots");
-    init_no_props(serv, BLOCK_CRIMSON_PLANKS, "minecraft:crimson_planks");
-    init_no_props(serv, BLOCK_WARPED_PLANKS, "minecraft:warped_planks");
+    init_simple_block(serv, BLOCK_CRIMSON_ROOTS, "minecraft:crimson_roots", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_CRIMSON_PLANKS, "minecraft:crimson_planks", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_WARPED_PLANKS, "minecraft:warped_planks", BLOCK_MODEL_FULL);
 
     init_slab_props(serv, BLOCK_CRIMSON_SLAB, "minecraft:crimson_slab");
     init_slab_props(serv, BLOCK_WARPED_SLAB, "minecraft:warped_slab");
@@ -3022,23 +3058,23 @@ init_block_data(server * serv) {
     add_block_range_prop(serv, props, "honey_level", 0, 0, 5);
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_HONEY_BLOCK, "minecraft:honey_block");
-    init_no_props(serv, BLOCK_HONEYCOMB_BLOCK, "minecraft:honeycomb_block");
-    init_no_props(serv, BLOCK_NETHERITE_BLOCK, "minecraft:netherite_block");
-    init_no_props(serv, BLOCK_ANCIENT_DEBRIS, "minecraft:ancient_debris");
-    init_no_props(serv, BLOCK_CRYING_OBSIDIAN, "minecraft:crying_obsidian");
+    init_simple_block(serv, BLOCK_HONEY_BLOCK, "minecraft:honey_block", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_HONEYCOMB_BLOCK, "minecraft:honeycomb_block", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_NETHERITE_BLOCK, "minecraft:netherite_block", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_ANCIENT_DEBRIS, "minecraft:ancient_debris", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_CRYING_OBSIDIAN, "minecraft:crying_obsidian", BLOCK_MODEL_FULL);
 
     register_block_type(serv, BLOCK_RESPAWN_ANCHOR, "minecraft:respawn_anchor");
     props = serv->block_properties_table + BLOCK_RESPAWN_ANCHOR;
     add_block_range_prop(serv, props, "charges", 0, 0, 4);
     finalise_block_props(serv, props);
 
-    init_no_props(serv, BLOCK_POTTED_CRIMSON_FUNGUS, "minecraft:potted_crimson_fungus");
-    init_no_props(serv, BLOCK_POTTED_WARPED_FUNGUS, "minecraft:potted_warped_fungus");
-    init_no_props(serv, BLOCK_POTTED_CRIMSON_ROOTS, "minecraft:potted_crimson_roots");
-    init_no_props(serv, BLOCK_POTTED_WARPED_ROOTS, "minecraft:potted_warped_roots");
-    init_no_props(serv, BLOCK_LODESTONE, "minecraft:lodestone");
-    init_no_props(serv, BLOCK_BLACKSTONE, "minecraft:blackstone");
+    init_simple_block(serv, BLOCK_POTTED_CRIMSON_FUNGUS, "minecraft:potted_crimson_fungus", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_POTTED_WARPED_FUNGUS, "minecraft:potted_warped_fungus", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_POTTED_CRIMSON_ROOTS, "minecraft:potted_crimson_roots", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_POTTED_WARPED_ROOTS, "minecraft:potted_warped_roots", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_LODESTONE, "minecraft:lodestone", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_BLACKSTONE, "minecraft:blackstone", BLOCK_MODEL_FULL);
 
     init_stair_props(serv, BLOCK_BLACKSTONE_STAIRS, "minecraft:blackstone_stairs");
 
@@ -3046,10 +3082,10 @@ init_block_data(server * serv) {
 
     init_slab_props(serv, BLOCK_BLACKSTONE_SLAB, "minecraft:blackstone_slab");
 
-    init_no_props(serv, BLOCK_POLISHED_BLACKSTONE, "minecraft:polished_blackstone");
-    init_no_props(serv, BLOCK_POLISHED_BLACKSTONE_BRICKS, "minecraft:polished_blackstone_bricks");
-    init_no_props(serv, BLOCK_CRACKED_POLISHED_BLACKSTONE_BRICKS, "minecraft:cracked_polished_blackstone_bricks");
-    init_no_props(serv, BLOCK_CHISELED_POLISHED_BLACKSTONE, "minecraft:chiseled_polished_blackstone");
+    init_simple_block(serv, BLOCK_POLISHED_BLACKSTONE, "minecraft:polished_blackstone", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POLISHED_BLACKSTONE_BRICKS, "minecraft:polished_blackstone_bricks", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_CRACKED_POLISHED_BLACKSTONE_BRICKS, "minecraft:cracked_polished_blackstone_bricks", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_CHISELED_POLISHED_BLACKSTONE, "minecraft:chiseled_polished_blackstone", BLOCK_MODEL_FULL);
 
     init_slab_props(serv, BLOCK_POLISHED_BLACKSTONE_BRICK_SLAB, "minecraft:polished_blackstone_brick_slab");
 
@@ -3057,7 +3093,7 @@ init_block_data(server * serv) {
 
     init_wall_props(serv, BLOCK_POLISHED_BLACKSTONE_BRICK_WALL, "minecraft:polished_blackstone_brick_wall");
 
-    init_no_props(serv, BLOCK_GILDED_BLACKSTONE, "minecraft:gilded_blackstone");
+    init_simple_block(serv, BLOCK_GILDED_BLACKSTONE, "minecraft:gilded_blackstone", BLOCK_MODEL_FULL);
 
     init_stair_props(serv, BLOCK_POLISHED_BLACKSTONE_STAIRS, "minecraft:polished_blackstone_stairs");
 
@@ -3069,7 +3105,7 @@ init_block_data(server * serv) {
 
     init_wall_props(serv, BLOCK_POLISHED_BLACKSTONE_WALL, "minecraft:polished_blackstone_wall");
 
-    init_no_props(serv, BLOCK_CHISELED_NETHER_BRICKS, "minecraft:chiseled_nether_bricks");
-    init_no_props(serv, BLOCK_CRACKED_NETHER_BRICKS, "minecraft:crakced_nether_bricks");
-    init_no_props(serv, BLOCK_QUARTZ_BRICKS, "minecraft:quartz_bricks");
+    init_simple_block(serv, BLOCK_CHISELED_NETHER_BRICKS, "minecraft:chiseled_nether_bricks", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_CRACKED_NETHER_BRICKS, "minecraft:crakced_nether_bricks", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_QUARTZ_BRICKS, "minecraft:quartz_bricks", BLOCK_MODEL_FULL);
 }

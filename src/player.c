@@ -1318,31 +1318,85 @@ degree_diff(float to, float from) {
     return res;
 }
 
+static void
+merge_stack_to_player_slot(entity_base * player, int slot, item_stack * to_add) {
+    // @TODO(traks) also ensure damage levels and NBT data are similar
+    item_stack * is = player->player.slots + slot;
+
+    if (is->type == to_add->type) {
+        int max_stack_size = get_max_stack_size(is->type);
+        int add = MIN(max_stack_size - is->size, to_add->size);
+        is->size += add;
+        to_add->size -= add;
+        if (to_add->size == 0) {
+            to_add->type = ITEM_AIR;
+        }
+
+        if (add != 0) {
+            player->player.slots_needing_update |= (mc_ulong) 1 << slot;
+        }
+    }
+}
+
+static void
+add_stack_to_player_inventory(entity_base * player, item_stack * to_add) {
+    merge_stack_to_player_slot(player, player->player.selected_slot, to_add);
+    merge_stack_to_player_slot(player, PLAYER_OFF_HAND_SLOT, to_add);
+
+    for (int i = PLAYER_FIRST_HOTBAR_SLOT; i <= PLAYER_LAST_HOTBAR_SLOT; i++) {
+        merge_stack_to_player_slot(player, i, to_add);
+    }
+    for (int i = PLAYER_FIRST_MAIN_INV_SLOT; i <= PLAYER_LAST_MAIN_INV_SLOT; i++) {
+        merge_stack_to_player_slot(player, i, to_add);
+    }
+
+    if (to_add->size != 0) {
+        // try to put remaining stack in empty spot of inventory
+        for (int i = PLAYER_FIRST_HOTBAR_SLOT; i <= PLAYER_LAST_HOTBAR_SLOT; i++) {
+            item_stack * is = player->player.slots + i;
+            if (is->type == ITEM_AIR) {
+                *is = *to_add;
+                *to_add = (item_stack) {0};
+                player->player.slots_needing_update |= (mc_ulong) 1 << i;
+                return;
+            }
+        }
+        for (int i = PLAYER_FIRST_MAIN_INV_SLOT; i <= PLAYER_LAST_MAIN_INV_SLOT; i++) {
+            item_stack * is = player->player.slots + i;
+            if (is->type == ITEM_AIR) {
+                *is = *to_add;
+                *to_add = (item_stack) {0};
+                player->player.slots_needing_update |= (mc_ulong) 1 << i;
+                return;
+            }
+        }
+    }
+}
+
 void
-tick_player(entity_base * entity, server * serv,
+tick_player(entity_base * player, server * serv,
         memory_arena * tick_arena) {
     begin_timed_block("tick player");
 
-    entity_player * player = &entity->player;
-    assert(entity->type == ENTITY_PLAYER);
-    int sock = player->sock;
-    ssize_t rec_size = recv(sock, player->rec_buf + player->rec_cursor,
-            player->rec_buf_size - player->rec_cursor, 0);
+    assert(player->type == ENTITY_PLAYER);
+    int sock = player->player.sock;
+    ssize_t rec_size = recv(sock, player->player.rec_buf + player->player.rec_cursor,
+            player->player.rec_buf_size - player->player.rec_cursor, 0);
 
     if (rec_size == 0) {
-        disconnect_player_now(entity, serv);
+        disconnect_player_now(player, serv);
     } else if (rec_size == -1) {
         // EAGAIN means no data received
         if (errno != EAGAIN) {
             logs_errno("Couldn't receive protocol data: %s");
-            disconnect_player_now(entity, serv);
+            disconnect_player_now(player, serv);
         }
     } else {
-        player->rec_cursor += rec_size;
+        player->player.rec_cursor += rec_size;
 
         buffer_cursor rec_cursor = {
-            .buf = player->rec_buf,
-            .limit = player->rec_cursor
+            .buf = player->player.rec_buf,
+            .limit = player->player.rec_cursor
         };
 
         // @TODO(traks) rate limit incoming packets per player
@@ -1355,8 +1409,8 @@ tick_player(entity_base * entity, server * serv,
                 // packet size not fully received yet
                 break;
             }
-            if (packet_size > player->rec_buf_size - 5 || packet_size <= 0) {
-                disconnect_player_now(entity, serv);
+            if (packet_size > player->player.rec_buf_size - 5 || packet_size <= 0) {
+                disconnect_player_now(player, serv);
                 break;
             }
             if (packet_size > packet_cursor.limit - packet_cursor.index) {
@@ -1368,7 +1422,7 @@ tick_player(entity_base * entity, server * serv,
             packet_cursor.limit = packet_cursor.index + packet_size;
             rec_cursor.index = packet_cursor.limit;
 
-            if (entity->flags & PLAYER_PACKET_COMPRESSION) {
+            if (player->flags & PLAYER_PACKET_COMPRESSION) {
                 // ignore the uncompressed packet size, since we require all
                 // packets to be compressed
                 net_read_varint(&packet_cursor);
@@ -1385,7 +1439,7 @@ tick_player(entity_base * entity, server * serv,
 
                 if (inflateInit2(&zstream, 0) != Z_OK) {
                     logs("inflateInit failed");
-                    disconnect_player_now(entity, serv);
+                    disconnect_player_now(player, serv);
                     break;
                 }
 
@@ -1401,19 +1455,19 @@ tick_player(entity_base * entity, server * serv,
 
                 if (inflate(&zstream, Z_FINISH) != Z_STREAM_END) {
                     logs("Failed to finish inflating packet: %s", zstream.msg);
-                    disconnect_player_now(entity, serv);
+                    disconnect_player_now(player, serv);
                     break;
                 }
 
                 if (inflateEnd(&zstream) != Z_OK) {
                     logs("inflateEnd failed");
-                    disconnect_player_now(entity, serv);
+                    disconnect_player_now(player, serv);
                     break;
                 }
 
                 if (zstream.avail_in != 0) {
                     logs("Didn't inflate entire packet");
-                    disconnect_player_now(entity, serv);
+                    disconnect_player_now(player, serv);
                     break;
                 }
 
@@ -1423,32 +1477,84 @@ tick_player(entity_base * entity, server * serv,
                 };
             }
 
-            process_packet(entity, &packet_cursor, serv, &process_arena);
+            process_packet(player, &packet_cursor, serv, &process_arena);
 
             if (packet_cursor.error != 0) {
                 logs("Player protocol error occurred");
-                disconnect_player_now(entity, serv);
+                disconnect_player_now(player, serv);
                 break;
             }
 
             if (packet_cursor.index != packet_cursor.limit) {
                 logs("Player protocol packet not fully read");
-                disconnect_player_now(entity, serv);
+                disconnect_player_now(player, serv);
                 break;
             }
         }
 
         memmove(rec_cursor.buf, rec_cursor.buf + rec_cursor.index,
                 rec_cursor.limit - rec_cursor.index);
-        player->rec_cursor = rec_cursor.limit - rec_cursor.index;
+        player->player.rec_cursor = rec_cursor.limit - rec_cursor.index;
     }
 
     // @TODO(traks) only here because players could be disconnected and get
     // all their data cleaned up immediately if some packet handling error
     // occurs above. Eventually we should handle errors more gracefully.
     // Then this check shouldn't be necessary anymore.
-    if (!(entity->flags & ENTITY_IN_USE)) {
+    if (!(player->flags & ENTITY_IN_USE)) {
         goto bail;
+    }
+
+    // try to pick up nearby items
+    for (int i = 0; i < ARRAY_SIZE(serv->entities); i++) {
+        entity_base * entity = serv->entities + i;
+        if ((entity->flags & ENTITY_IN_USE) == 0) {
+            continue;
+        }
+        if (entity->type != ENTITY_ITEM) {
+            continue;
+        }
+        if (entity->item.pickup_timeout != 0) {
+            continue;
+        }
+
+        double test_min_x = player->x - player->collision_width / 2 - 1;
+        double test_min_y = player->y - 0.5;
+        double test_min_z = player->z - player->collision_width / 2 - 1;
+        double test_max_x = player->x + player->collision_width / 2 + 1;
+        double test_max_y = player->y + player->collision_height + 0.5;
+        double test_max_z = player->z + player->collision_width / 2 + 1;
+
+        double bb_min_x = entity->x - entity->collision_width / 2;
+        double bb_min_y = entity->y;
+        double bb_min_z = entity->z - entity->collision_width / 2;
+        double bb_max_x = entity->x + entity->collision_width / 2;
+        double bb_max_y = entity->y + entity->collision_height;
+        double bb_max_z = entity->z + entity->collision_width / 2;
+
+        if (test_min_x <= bb_max_x && test_max_x >= bb_min_x
+                && test_min_y <= bb_max_y && test_max_y >= bb_min_y
+                && test_min_z <= bb_max_z && test_max_z >= bb_min_z) {
+            // boxes intersect
+
+            item_stack * contents = &entity->item.contents;
+            int initial_size = contents->size;
+            add_stack_to_player_inventory(player, contents);
+
+            int picked_up_size = initial_size - contents->size;
+
+            if (picked_up_size != 0) {
+                // prepare to send a packet for the pickup animation
+                player->player.picked_up_item_id = entity->eid;
+                player->player.picked_up_item_size = picked_up_size;
+                player->player.picked_up_tick = serv->current_tick;
+
+                // @TODO(traks) we currently restrict to at most one pickup per
+                // tick. Should this be increased? 1 stack per tick is probably
+                // fast enough.
+                break;
+            }
+        }
     }
 
 bail:
@@ -1809,6 +1915,16 @@ send_changed_entity_data(buffer_cursor * send_cursor, entity_base * player,
 }
 
 static void
+send_take_item_entity_packet(entity_base * player, buffer_cursor * send_cursor,
+        entity_id taker_id, entity_id pickup_id, mc_ubyte pickup_size) {
+    begin_packet(send_cursor, CBP_TAKE_ITEM_ENTITY);
+    net_write_varint(send_cursor, pickup_id);
+    net_write_varint(send_cursor, taker_id);
+    net_write_varint(send_cursor, pickup_size);
+    finish_packet(send_cursor, player);
+}
+
+static void
 try_update_tracked_entity(entity_base * player, server * serv,
         buffer_cursor * send_cursor, memory_arena * tick_arena,
         tracked_entity * tracked, entity_base * entity) {
@@ -1928,6 +2044,12 @@ try_update_tracked_entity(entity_base * player, server * serv,
             net_write_varint(send_cursor, entity->eid);
             net_write_ubyte(send_cursor, encoded_rot_y);
             finish_packet(send_cursor, player);
+        }
+
+        if (entity->player.picked_up_tick == serv->current_tick) {
+            send_take_item_entity_packet(player, send_cursor,
+                    entity->eid, entity->player.picked_up_item_id,
+                    entity->player.picked_up_item_size);
         }
         break;
     }
@@ -2290,6 +2412,12 @@ send_packets_to_player(entity_base * player, server * serv,
     }
 
     send_changed_entity_data(send_cursor, player, player, player->changed_data);
+
+    if (player->player.picked_up_tick == serv->current_tick) {
+        send_take_item_entity_packet(player, send_cursor,
+                player->eid, player->player.picked_up_item_id,
+                player->player.picked_up_item_size);
+    }
 
     // send block break acks
     for (int i = 0; i < player->player.block_break_ack_count; i++) {
@@ -2681,7 +2809,7 @@ send_packets_to_player(entity_base * player, server * serv,
             double dy = candidate->y - player->y;
             double dz = candidate->z - player->z;
 
-            if (dx * dx + dy * dy + dz * dz > 40 * 40) {
+            if (dx * dx + dy * dy + dz * dz > 100 * 100) {
                 continue;
             }
 

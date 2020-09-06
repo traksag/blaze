@@ -999,6 +999,25 @@ typedef struct {
     unsigned char default_value_indices[8];
 } block_properties;
 
+typedef struct {
+    float min_x;
+    float min_y;
+    float min_z;
+    float max_x;
+    float max_y;
+    float max_z;
+} block_box;
+
+typedef struct {
+    unsigned char box_count;
+    block_box boxes[8];
+} block_model;
+
+enum block_model {
+    BLOCK_MODEL_FULL,
+    BLOCK_MODEL_EMPTY,
+};
+
 enum item_type {
     ITEM_AIR,
     ITEM_STONE,
@@ -2200,6 +2219,8 @@ enum entity_data {
 //
 // Here are some defines for convenience.
 #define PLAYER_SLOTS (46)
+#define PLAYER_FIRST_MAIN_INV_SLOT (9)
+#define PLAYER_LAST_MAIN_INV_SLOT (35)
 #define PLAYER_FIRST_HOTBAR_SLOT (36)
 #define PLAYER_LAST_HOTBAR_SLOT (44)
 #define PLAYER_OFF_HAND_SLOT (45)
@@ -2243,6 +2264,10 @@ typedef struct {
     static_assert(PLAYER_SLOTS <= 64, "Too many player slots");
     mc_ulong slots_needing_update;
     unsigned char selected_slot;
+
+    entity_id picked_up_item_id;
+    mc_ubyte picked_up_item_size;
+    mc_long picked_up_tick;
 
     unsigned char gamemode;
 
@@ -2597,6 +2622,9 @@ typedef struct {
 
     block_property_spec block_property_specs[128];
     int block_property_spec_count;
+
+    block_model block_models[128];
+    mc_ubyte collision_model_by_state[18000];
 
     dimension_type dimension_types[32];
     int dimension_type_count;

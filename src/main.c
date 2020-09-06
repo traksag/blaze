@@ -410,6 +410,8 @@ move_entity(entity_base * entity, server * serv) {
 
     double remaining_dt = 1;
 
+    int on_ground = 0;
+
     for (int iter = 0; iter < 4; iter++) {
         // @TODO(traks) drag depending on block state below
 
@@ -471,52 +473,56 @@ move_entity(entity_base * entity, server * serv) {
                         continue;
                     }
 
-                    // @TODO(traks) use block model depending on block state
+                    block_model * model = serv->block_models + serv->collision_model_by_state[cur_state];
 
-                    double test_min_x = block_x - width / 2;
-                    double test_max_x = block_x + 1 + width / 2;
-                    double test_min_y = block_y - height;
-                    double test_max_y = block_y + 1;
-                    double test_min_z = block_z - width / 2;
-                    double test_max_z = block_z + 1 + width / 2;
+                    for (int boxi = 0; boxi < model->box_count; boxi++) {
+                        block_box * box = model->boxes + boxi;
 
-                    typedef struct {
-                        double wall_a;
-                        double min_b;
-                        double max_b;
-                        double min_c;
-                        double max_c;
-                        double da;
-                        double db;
-                        double dc;
-                        double a;
-                        double b;
-                        double c;
-                        int face;
-                    } hit_test;
+                        double test_min_x = block_x + box->min_x - width / 2;
+                        double test_max_x = block_x + box->max_x + width / 2;
+                        double test_min_y = block_y + box->min_y - height;
+                        double test_max_y = block_y + box->max_y;
+                        double test_min_z = block_z + box->min_z - width / 2;
+                        double test_max_z = block_z + box->max_z + width / 2;
 
-                    hit_test tests[] = {
-                        {test_min_x, test_min_y, test_max_y, test_min_z, test_max_z, dx, dy, dz, x, y, z, DIRECTION_NEG_X},
-                        {test_max_x, test_min_y, test_max_y, test_min_z, test_max_z, dx, dy, dz, x, y, z, DIRECTION_POS_X},
-                        {test_min_y, test_min_x, test_max_x, test_min_z, test_max_z, dy, dx, dz, y, x, z, DIRECTION_NEG_Y},
-                        {test_max_y, test_min_x, test_max_x, test_min_z, test_max_z, dy, dx, dz, y, x, z, DIRECTION_POS_Y},
-                        {test_min_z, test_min_y, test_max_y, test_min_x, test_max_x, dz, dy, dx, z, y, x, DIRECTION_NEG_Z},
-                        {test_max_z, test_min_y, test_max_y, test_min_x, test_max_x, dz, dy, dx, z, y, x, DIRECTION_POS_Z},
-                    };
+                        typedef struct {
+                            double wall_a;
+                            double min_b;
+                            double max_b;
+                            double min_c;
+                            double max_c;
+                            double da;
+                            double db;
+                            double dc;
+                            double a;
+                            double b;
+                            double c;
+                            int face;
+                        } hit_test;
 
-                    for (int i = 0; i < ARRAY_SIZE(tests); i++) {
-                        hit_test * test = tests + i;
-                        if (test->da != 0) {
-                            double hit_time = (test->wall_a - test->a) / test->da;
-                            if (hit_time >= 0 && dt > hit_time) {
-                                double hit_b = test->b + hit_time * test->db;
-                                if (test->min_b <= hit_b && hit_b <= test->max_b) {
-                                    double hit_c = test->c + hit_time * test->dc;
-                                    if (test->min_c <= hit_c && hit_c <= test->max_c) {
-                                        // @TODO(traks) epsilon
-                                        dt = MAX(0, hit_time - 0.001);
-                                        hit_state = cur_state;
-                                        hit_face = test->face;
+                        hit_test tests[] = {
+                            {test_min_x, test_min_y, test_max_y, test_min_z, test_max_z, dx, dy, dz, x, y, z, DIRECTION_NEG_X},
+                            {test_max_x, test_min_y, test_max_y, test_min_z, test_max_z, dx, dy, dz, x, y, z, DIRECTION_POS_X},
+                            {test_min_y, test_min_x, test_max_x, test_min_z, test_max_z, dy, dx, dz, y, x, z, DIRECTION_NEG_Y},
+                            {test_max_y, test_min_x, test_max_x, test_min_z, test_max_z, dy, dx, dz, y, x, z, DIRECTION_POS_Y},
+                            {test_min_z, test_min_y, test_max_y, test_min_x, test_max_x, dz, dy, dx, z, y, x, DIRECTION_NEG_Z},
+                            {test_max_z, test_min_y, test_max_y, test_min_x, test_max_x, dz, dy, dx, z, y, x, DIRECTION_POS_Z},
+                        };
+
+                        for (int i = 0; i < ARRAY_SIZE(tests); i++) {
+                            hit_test * test = tests + i;
+                            if (test->da != 0) {
+                                double hit_time = (test->wall_a - test->a) / test->da;
+                                if (hit_time >= 0 && dt > hit_time) {
+                                    double hit_b = test->b + hit_time * test->db;
+                                    if (test->min_b <= hit_b && hit_b <= test->max_b) {
+                                        double hit_c = test->c + hit_time * test->dc;
+                                        if (test->min_c <= hit_c && hit_c <= test->max_c) {
+                                            // @TODO(traks) epsilon
+                                            dt = MAX(0, hit_time - 0.001);
+                                            hit_state = cur_state;
+                                            hit_face = test->face;
+                                        }
                                     }
                                 }
                             }
@@ -580,6 +586,7 @@ move_entity(entity_base * entity, server * serv) {
                     break;
                 default:
                     vy = 0;
+                    on_ground = 1;
                 }
                 break;
             }
@@ -599,6 +606,11 @@ move_entity(entity_base * entity, server * serv) {
     entity->vx = vx;
     entity->vy = vy;
     entity->vz = vz;
+
+    entity->flags &= ~ENTITY_ON_GROUND;
+    if (on_ground) {
+        entity->flags |= ENTITY_ON_GROUND;
+    }
 }
 
 static void
@@ -627,10 +639,49 @@ tick_entity(entity_base * entity, server * serv, memory_arena * tick_arena) {
 
         move_entity(entity, serv);
 
-        // @NOTE(traks) not sure why Minecraft does this
-        entity->vx *= 0.98;
+        float drag = 0.98;
+
+        if (entity->flags & ENTITY_ON_GROUND) {
+            // Bit weird, but this is how MC works. Allows items to slide on
+            // slabs if ice is below it.
+            mc_int ground_x = floor(entity->x);
+            mc_int ground_y = floor(entity->y - 0.99);
+            mc_int ground_z = floor(entity->z);
+
+            chunk_pos ch_pos = {
+                .x = ground_x >> 4,
+                .z = ground_z >> 4
+            };
+
+            chunk * ch = get_chunk_if_loaded(ch_pos);
+            if (ch != NULL) {
+                // @TODO(traks) make sure this works if Y is out of bounds
+                mc_ushort ground_state = chunk_get_block_state(ch,
+                        ground_x & 0xf, ground_y, ground_z & 0xf);
+                mc_int ground_type = serv->block_type_by_state[ground_state];
+
+                // Minecraft block friction
+                float friction;
+                switch (ground_type) {
+                case BLOCK_ICE: friction = 0.98f; break;
+                case BLOCK_SLIME_BLOCK: friction = 0.8f; break;
+                case BLOCK_PACKED_ICE: friction = 0.98f; break;
+                case BLOCK_FROSTED_ICE: friction = 0.98f; break;
+                case BLOCK_BLUE_ICE: friction = 0.989f; break;
+                default: friction = 0.6f; break;
+                }
+
+                drag *= friction;
+            }
+        }
+
+        entity->vx *= drag;
         entity->vy *= 0.98;
-        entity->vz *= 0.98;
+        entity->vz *= drag;
+
+        if (entity->flags & ENTITY_ON_GROUND) {
+            entity->vy *= -0.5;
+        }
         break;
     }
     }
