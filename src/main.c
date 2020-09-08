@@ -1234,16 +1234,15 @@ static buffer_cursor
 read_file(memory_arena * arena, char * file_name) {
     int fd = open(file_name, O_RDONLY);
     if (fd == -1) {
-        logs("Failed to open file: %s", file_name);
-        logs_errno("Reason is: %s");
+        logs_errno("Failed to open file: %s");
+        logs("File in question was '%s'", file_name);
         exit(1);
     }
 
     struct stat stat;
     if (fstat(fd, &stat)) {
-        close(fd);
-        logs("Failed to fstat file: %s", file_name);
-        logs_errno("Reason is: %s");
+        logs_errno("Failed to fstat file: %s");
+        logs("File in question was '%s'", file_name);
         exit(1);
     }
 
@@ -1254,14 +1253,12 @@ read_file(memory_arena * arena, char * file_name) {
     while (read_index < file_size) {
         int bytes_read = read(fd, buf + read_index, file_size - read_index);
         if (bytes_read == -1) {
-            close(fd);
-            logs("Failed to read file: %s", file_name);
-            logs_errno("Reason is: %s");
+            logs_errno("Failed to read: %s");
+            logs("File in question was '%s'", file_name);
             exit(1);
         }
         if (bytes_read == 0) {
-            close(fd);
-            logs("File size changed while reading: %s");
+            logs("File size changed while reading '%s'", file_name);
             exit(1);
         }
 
