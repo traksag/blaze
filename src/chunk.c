@@ -255,6 +255,33 @@ ceil_log2u(mc_uint x) {
     return res;
 }
 
+static void
+fill_buffer_from_file(int fd, buffer_cursor * cursor) {
+    int start_index = cursor->index;
+
+    while (cursor->index < cursor->limit) {
+        int bytes_read = read(fd, cursor->buf + cursor->index,
+                cursor->limit - cursor->index);
+        if (bytes_read == -1) {
+            logs_errno("Failed to read region file: %s");
+            cursor->error = 1;
+            break;
+        }
+        if (bytes_read == 0) {
+            logs("Wanted %d bytes from region file, but got %d",
+                    cursor->limit - start_index,
+                    cursor->index - start_index);
+            cursor->error = 1;
+            break;
+        }
+
+        cursor->index += bytes_read;
+    }
+
+    cursor->limit = cursor->index;
+    cursor->index = start_index;
+}
+
 void
 try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
         memory_arena * scratch_arena, server * serv) {
@@ -279,34 +306,23 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     struct stat region_stat;
     if (fstat(region_fd, &region_stat)) {
         logs_errno("Failed to get region file stat: %s");
-        close(region_fd);
         goto bail;
     }
 
-    // @TODO(traks) should we unmap this or something?
-    // begin_timed_block("mmap");
-    void * region_mmap = mmap(NULL, region_stat.st_size, PROT_READ,
-            MAP_PRIVATE, region_fd, 0);
-    // end_timed_block();
-    if (region_mmap == MAP_FAILED) {
-        logs_errno("Failed to mmap region file: %s");
-        close(region_fd);
-        goto bail;
-    }
-
-    // after mmaping we can close the file descriptor
-    close(region_fd);
-
-    buffer_cursor cursor = {
-        .buf = region_mmap,
-        .limit = region_stat.st_size
+    buffer_cursor header_cursor = {
+        .buf = alloc_in_arena(scratch_arena, 4096),
+        .limit = 4096
     };
+    fill_buffer_from_file(region_fd, &header_cursor);
+    if (header_cursor.error) {
+        goto bail;
+    }
 
     // First read from the chunk location table at which sector (4096 byte
     // block) the chunk data starts.
     int index = ((pos.z & 0x1f) << 5) | (pos.x & 0x1f);
-    cursor.index = index << 2;
-    mc_uint loc = net_read_uint(&cursor);
+    header_cursor.index = index << 2;
+    mc_uint loc = net_read_uint(&header_cursor);
 
     if (loc == 0) {
         // chunk not present in region file
@@ -324,15 +340,25 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
         logs("Chunk data uses 0 sectors");
         goto bail;
     }
-    if (sector_offset + sector_count > (cursor.limit >> 12)) {
+    if (((sector_offset + sector_count) << 12) > region_stat.st_size) {
         logs("Chunk data out of bounds");
         goto bail;
     }
 
-    cursor.index = sector_offset << 12;
+    if (lseek(region_fd, sector_offset << 12, SEEK_SET) == -1) {
+        logs_errno("Failed to seek to chunk data: %s");
+        goto bail;
+    }
+
+    buffer_cursor cursor = {
+        .buf = alloc_in_arena(scratch_arena, sector_count << 12),
+        .limit = sector_count << 12
+    };
+    fill_buffer_from_file(region_fd, &cursor);
+
     mc_uint size_in_bytes = net_read_uint(&cursor);
 
-    if (size_in_bytes > (sector_count << 12)) {
+    if (size_in_bytes > cursor.limit - cursor.index) {
         logs("Chunk data outside of its sectors");
         goto bail;
     }
@@ -603,6 +629,10 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
 
 bail:
     end_timed_block();
+
+    if (region_fd != -1) {
+        close(region_fd);
+    }
 }
 
 chunk *

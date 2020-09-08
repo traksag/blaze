@@ -11,7 +11,6 @@
 #include <fcntl.h>
 #include <string.h>
 #include <limits.h>
-#include <sys/mman.h>
 #include <sys/stat.h>
 #include <stdalign.h>
 #include <math.h>
@@ -1231,31 +1230,61 @@ parse_database_line(buffer_cursor * cursor, net_string * args) {
     return arg_count;
 }
 
-static void
-load_item_types(server * serv) {
-    int fd = open("itemtypes.txt", O_RDONLY);
+static buffer_cursor
+read_file(memory_arena * arena, char * file_name) {
+    int fd = open(file_name, O_RDONLY);
     if (fd == -1) {
-        return;
+        logs("Failed to open file: %s", file_name);
+        logs_errno("Reason is: %s");
+        exit(1);
     }
 
     struct stat stat;
     if (fstat(fd, &stat)) {
         close(fd);
-        return;
+        logs("Failed to fstat file: %s", file_name);
+        logs_errno("Reason is: %s");
+        exit(1);
     }
 
-    // @TODO(traks) should we unmap this or something?
-    unsigned char * fmmap = mmap(NULL, stat.st_size, PROT_READ,
-            MAP_PRIVATE, fd, 0);
-    if (fmmap == MAP_FAILED) {
-        close(fd);
-        return;
+    int file_size = stat.st_size;
+    unsigned char * buf = alloc_in_arena(arena, file_size);
+    int read_index = 0;
+
+    while (read_index < file_size) {
+        int bytes_read = read(fd, buf + read_index, file_size - read_index);
+        if (bytes_read == -1) {
+            close(fd);
+            logs("Failed to read file: %s", file_name);
+            logs_errno("Reason is: %s");
+            exit(1);
+        }
+        if (bytes_read == 0) {
+            close(fd);
+            logs("File size changed while reading: %s");
+            exit(1);
+        }
+
+        read_index += bytes_read;
     }
 
-    // after mmaping we can close the file descriptor
     close(fd);
 
-    buffer_cursor cursor = {.buf = fmmap, .limit = stat.st_size};
+    buffer_cursor res = {
+        .buf = buf,
+        .limit = file_size
+    };
+    return res;
+}
+
+static void
+load_item_types(server * serv) {
+    memory_arena arena = {
+        .ptr = serv->short_lived_scratch,
+        .size = serv->short_lived_scratch_size,
+    };
+    buffer_cursor cursor = read_file(&arena, "itemtypes.txt");
+
     net_string args[16];
     mc_ushort id = 0;
 
@@ -1277,29 +1306,12 @@ load_item_types(server * serv) {
 
 static void
 load_entity_types(server * serv) {
-    int fd = open("entitytypes.txt", O_RDONLY);
-    if (fd == -1) {
-        return;
-    }
+    memory_arena arena = {
+        .ptr = serv->short_lived_scratch,
+        .size = serv->short_lived_scratch_size,
+    };
+    buffer_cursor cursor = read_file(&arena, "entitytypes.txt");
 
-    struct stat stat;
-    if (fstat(fd, &stat)) {
-        close(fd);
-        return;
-    }
-
-    // @TODO(traks) should we unmap this or something?
-    unsigned char * fmmap = mmap(NULL, stat.st_size, PROT_READ,
-            MAP_PRIVATE, fd, 0);
-    if (fmmap == MAP_FAILED) {
-        close(fd);
-        return;
-    }
-
-    // after mmaping we can close the file descriptor
-    close(fd);
-
-    buffer_cursor cursor = {.buf = fmmap, .limit = stat.st_size};
     net_string args[16];
     mc_ushort entity_types = 0;
 
@@ -1322,29 +1334,12 @@ load_entity_types(server * serv) {
 
 static void
 load_fluid_types(server * serv) {
-    int fd = open("fluidtypes.txt", O_RDONLY);
-    if (fd == -1) {
-        return;
-    }
+    memory_arena arena = {
+        .ptr = serv->short_lived_scratch,
+        .size = serv->short_lived_scratch_size,
+    };
+    buffer_cursor cursor = read_file(&arena, "fluidtypes.txt");
 
-    struct stat stat;
-    if (fstat(fd, &stat)) {
-        close(fd);
-        return;
-    }
-
-    // @TODO(traks) should we unmap this or something?
-    unsigned char * fmmap = mmap(NULL, stat.st_size, PROT_READ,
-            MAP_PRIVATE, fd, 0);
-    if (fmmap == MAP_FAILED) {
-        close(fd);
-        return;
-    }
-
-    // after mmaping we can close the file descriptor
-    close(fd);
-
-    buffer_cursor cursor = {.buf = fmmap, .limit = stat.st_size};
     net_string args[16];
     mc_ushort fluid_types = 0;
 
@@ -1368,30 +1363,12 @@ load_fluid_types(server * serv) {
 static void
 load_tags(char * file_name, tag_list * tags,
         resource_loc_table * table, server * serv) {
-    tags->size = 0;
-    int fd = open(file_name, O_RDONLY);
-    if (fd == -1) {
-        return;
-    }
+    memory_arena arena = {
+        .ptr = serv->short_lived_scratch,
+        .size = serv->short_lived_scratch_size,
+    };
+    buffer_cursor cursor = read_file(&arena, file_name);
 
-    struct stat stat;
-    if (fstat(fd, &stat)) {
-        close(fd);
-        return;
-    }
-
-    // @TODO(traks) should we unmap this or something?
-    unsigned char * fmmap = mmap(NULL, stat.st_size, PROT_READ,
-            MAP_PRIVATE, fd, 0);
-    if (fmmap == MAP_FAILED) {
-        close(fd);
-        return;
-    }
-
-    // after mmaping we can close the file descriptor
-    close(fd);
-
-    buffer_cursor cursor = {.buf = fmmap, .limit = stat.st_size};
     net_string args[16];
     tag_spec * tag;
 
