@@ -980,11 +980,6 @@ enum block_type {
     BLOCK_TYPE_COUNT,
 };
 
-enum block_property_bool {
-    BLOCK_PROPERTY_TRUE,
-    BLOCK_PROPERTY_FALSE,
-};
-
 enum slab_type {
     SLAB_TOP,
     SLAB_BOTTOM,
@@ -1126,6 +1121,20 @@ enum jigsaw_orientation {
     JIGSAW_ORIENTATION_SOUTH_UP,
 };
 
+enum fluid_level {
+    FLUID_LEVEL_SOURCE,
+    FLUID_LEVEL_FLOWING_7,
+    FLUID_LEVEL_FLOWING_6,
+    FLUID_LEVEL_FLOWING_5,
+    FLUID_LEVEL_FLOWING_4,
+    FLUID_LEVEL_FLOWING_3,
+    FLUID_LEVEL_FLOWING_2,
+    FLUID_LEVEL_FLOWING_1,
+    FLUID_LEVEL_FALLING,
+    // @NOTE(traks) there are 7 more possible values for fluid levels, but
+    // vanilla Minecraft doesn't actually seem to do anything with these
+};
+
 typedef struct {
     unsigned char value_count;
     // name size, name, value size, value, value size, value, etc.
@@ -1191,12 +1200,15 @@ enum block_property {
     BLOCK_PROPERTY_VINE_END,
     BLOCK_PROPERTY_HORIZONTAL_AXIS,
     BLOCK_PROPERTY_AXIS,
-    BLOCK_PROPERTY_UP,
-    BLOCK_PROPERTY_DOWN,
-    BLOCK_PROPERTY_NORTH,
-    BLOCK_PROPERTY_EAST,
-    BLOCK_PROPERTY_SOUTH,
-    BLOCK_PROPERTY_WEST,
+
+    // same order as direction enum
+    BLOCK_PROPERTY_NEG_Y,
+    BLOCK_PROPERTY_POS_Y,
+    BLOCK_PROPERTY_NEG_Z,
+    BLOCK_PROPERTY_POS_Z,
+    BLOCK_PROPERTY_NEG_X,
+    BLOCK_PROPERTY_POS_X,
+
     BLOCK_PROPERTY_FACING,
     BLOCK_PROPERTY_FACING_HOPPER,
     BLOCK_PROPERTY_HORIZONTAL_FACING,
@@ -1254,9 +1266,120 @@ enum block_property {
     BLOCK_PROPERTY_COUNT,
 };
 
+// @NOTE(traks) This struct is used to modify block properties in a more
+// 'natural' way. We don't have to input block property strides and value
+// indices manually whenever we want to create a block state with certain
+// properties, and we don't have to manually 'decode' block states into usable
+// block properties either.
+//
+// Another benefit is that block states can be treated abstractly: if we want to
+// figure out whether a block state is waterlogged, one can easily use this
+// struct; we don't need a giant switch statement.
+//
+// We also transform some value indices into proper values, so e.g. true is 1
+// instead of 0, directions always use the direction enum values, and axis
+// always use the axis enum values.
 typedef struct {
     mc_ulong available_properties[2];
-    mc_ubyte values[BLOCK_PROPERTY_COUNT];
+    mc_ushort block_type;
+
+    union {
+        mc_ubyte values[BLOCK_PROPERTY_COUNT];
+        struct {
+            mc_ubyte attached;
+            mc_ubyte bottom;
+            mc_ubyte conditional;
+            mc_ubyte disarmed;
+            mc_ubyte drag;
+            mc_ubyte enabled;
+            mc_ubyte extended;
+            mc_ubyte eye;
+            mc_ubyte falling;
+            mc_ubyte hanging;
+            mc_ubyte has_bottle_0;
+            mc_ubyte has_bottle_1;
+            mc_ubyte has_bottle_2;
+            mc_ubyte has_record;
+            mc_ubyte has_book;
+            mc_ubyte inverted;
+            mc_ubyte in_wall;
+            mc_ubyte lit;
+            mc_ubyte locked;
+            mc_ubyte occupied;
+            mc_ubyte open;
+            mc_ubyte persistent;
+            mc_ubyte powered;
+            mc_ubyte short_piston;
+            mc_ubyte signal_fire;
+            mc_ubyte snowy;
+            mc_ubyte triggered;
+            mc_ubyte unstable;
+            mc_ubyte waterlogged;
+            mc_ubyte vine_end;
+            mc_ubyte horizontal_axis;
+            mc_ubyte axis;
+            mc_ubyte neg_y;
+            mc_ubyte pos_y;
+            mc_ubyte neg_z;
+            mc_ubyte pos_z;
+            mc_ubyte neg_x;
+            mc_ubyte pos_x;
+            mc_ubyte facing;
+            mc_ubyte facing_hopper;
+            mc_ubyte horizontal_facing;
+            mc_ubyte jigsaw_orientation;
+            mc_ubyte attach_face;
+            mc_ubyte bell_attachment;
+            mc_ubyte east_wall;
+            mc_ubyte north_wall;
+            mc_ubyte south_wall;
+            mc_ubyte west_wall;
+            mc_ubyte east_redstone;
+            mc_ubyte north_redstone;
+            mc_ubyte south_redstone;
+            mc_ubyte west_redstone;
+            mc_ubyte double_block_half;
+            mc_ubyte half;
+            mc_ubyte rail_shape;
+            mc_ubyte rail_shape_straight;
+            mc_ubyte age_1;
+            mc_ubyte age_2;
+            mc_ubyte age_3;
+            mc_ubyte age_5;
+            mc_ubyte age_7;
+            mc_ubyte age_15;
+            mc_ubyte age_25;
+            mc_ubyte bites;
+            mc_ubyte delay;
+            mc_ubyte distance;
+            mc_ubyte eggs;
+            mc_ubyte hatch;
+            mc_ubyte layers;
+            mc_ubyte level_cauldron;
+            mc_ubyte level_composter;
+            mc_ubyte level_flowing;
+            mc_ubyte level_honey;
+            mc_ubyte level;
+            mc_ubyte moisture;
+            mc_ubyte note;
+            mc_ubyte pickles;
+            mc_ubyte power;
+            mc_ubyte stage;
+            mc_ubyte stability_distance;
+            mc_ubyte respawn_anchor_charges;
+            mc_ubyte rotation_16;
+            mc_ubyte bed_part;
+            mc_ubyte chest_type;
+            mc_ubyte mode_comparator;
+            mc_ubyte door_hinge;
+            mc_ubyte noteblock_instrument;
+            mc_ubyte piston_type;
+            mc_ubyte slab_type;
+            mc_ubyte stairs_shape;
+            mc_ubyte structureblock_mode;
+            mc_ubyte bamboo_leaves;
+        };
+    };
 } block_state_info;
 
 enum item_type {
@@ -3103,5 +3226,20 @@ get_opposite_direction(int direction);
 
 void
 init_block_data(server * serv);
+
+int
+has_block_state_property(block_state_info * info, int prop);
+
+block_state_info
+describe_block_state(server * serv, mc_ushort block_state);
+
+mc_ushort
+get_default_block_state(server * serv, mc_int block_type);
+
+block_state_info
+describe_default_block_state(server * serv, mc_int block_type);
+
+mc_ushort
+make_block_state(server * serv, block_state_info * info);
 
 #endif

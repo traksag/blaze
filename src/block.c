@@ -32,11 +32,221 @@ describe_block_state(server * serv, mc_ushort block_state) {
         int value_index = offset % spec->value_count;
 
         mark_block_state_property(&res, id);
-        res.values[id] = value_index;
+
+        // decode value index for easier use
+        int value;
+        switch (id) {
+        case BLOCK_PROPERTY_ATTACHED:
+        case BLOCK_PROPERTY_BOTTOM:
+        case BLOCK_PROPERTY_CONDITIONAL:
+        case BLOCK_PROPERTY_DISARMED:
+        case BLOCK_PROPERTY_DRAG:
+        case BLOCK_PROPERTY_ENABLED:
+        case BLOCK_PROPERTY_EXTENDED:
+        case BLOCK_PROPERTY_EYE:
+        case BLOCK_PROPERTY_FALLING:
+        case BLOCK_PROPERTY_HANGING:
+        case BLOCK_PROPERTY_HAS_BOTTLE_0:
+        case BLOCK_PROPERTY_HAS_BOTTLE_1:
+        case BLOCK_PROPERTY_HAS_BOTTLE_2:
+        case BLOCK_PROPERTY_HAS_RECORD:
+        case BLOCK_PROPERTY_HAS_BOOK:
+        case BLOCK_PROPERTY_INVERTED:
+        case BLOCK_PROPERTY_IN_WALL:
+        case BLOCK_PROPERTY_LIT:
+        case BLOCK_PROPERTY_LOCKED:
+        case BLOCK_PROPERTY_OCCUPIED:
+        case BLOCK_PROPERTY_OPEN:
+        case BLOCK_PROPERTY_PERSISTENT:
+        case BLOCK_PROPERTY_POWERED:
+        case BLOCK_PROPERTY_SHORT_PISTON:
+        case BLOCK_PROPERTY_SIGNAL_FIRE:
+        case BLOCK_PROPERTY_SNOWY:
+        case BLOCK_PROPERTY_TRIGGERED:
+        case BLOCK_PROPERTY_UNSTABLE:
+        case BLOCK_PROPERTY_WATERLOGGED:
+        case BLOCK_PROPERTY_VINE_END:
+        case BLOCK_PROPERTY_NEG_Y:
+        case BLOCK_PROPERTY_POS_Y:
+        case BLOCK_PROPERTY_NEG_Z:
+        case BLOCK_PROPERTY_POS_Z:
+        case BLOCK_PROPERTY_NEG_X:
+        case BLOCK_PROPERTY_POS_X:
+            value = !value_index;
+            break;
+        case BLOCK_PROPERTY_HORIZONTAL_AXIS:
+            value = value_index == 0 ? AXIS_X : AXIS_Z;
+            break;
+        case BLOCK_PROPERTY_FACING:
+            switch (value_index) {
+            case 0: value = DIRECTION_NEG_Z; break;
+            case 1: value = DIRECTION_POS_X; break;
+            case 2: value = DIRECTION_POS_Z; break;
+            case 3: value = DIRECTION_NEG_X; break;
+            case 4: value = DIRECTION_POS_Y; break;
+            case 5: value = DIRECTION_NEG_Y; break;
+            }
+            break;
+        case BLOCK_PROPERTY_FACING_HOPPER:
+            switch (value_index) {
+            case 0: value = DIRECTION_NEG_Y; break;
+            case 1: value = DIRECTION_NEG_Z; break;
+            case 2: value = DIRECTION_POS_Z; break;
+            case 3: value = DIRECTION_NEG_X; break;
+            case 4: value = DIRECTION_POS_X; break;
+            }
+            break;
+        case BLOCK_PROPERTY_HORIZONTAL_FACING:
+            switch (value_index) {
+            case 0: value = DIRECTION_NEG_Z; break;
+            case 1: value = DIRECTION_POS_Z; break;
+            case 2: value = DIRECTION_NEG_X; break;
+            case 3: value = DIRECTION_POS_X; break;
+            }
+            break;
+        case BLOCK_PROPERTY_DELAY:
+        case BLOCK_PROPERTY_DISTANCE:
+        case BLOCK_PROPERTY_EGGS:
+        case BLOCK_PROPERTY_LAYERS:
+        case BLOCK_PROPERTY_LEVEL_FLOWING:
+        case BLOCK_PROPERTY_PICKLES:
+        case BLOCK_PROPERTY_ROTATION_16:
+            value = value_index + 1;
+            break;
+        default:
+            value = value_index;
+        }
+
+        res.values[id] = value;
 
         offset = offset / spec->value_count;
     }
 
+    res.block_type = block_type;
+    return res;
+}
+
+mc_ushort
+get_default_block_state(server * serv, mc_int block_type) {
+    block_properties * props = serv->block_properties_table + block_type;
+    int offset = 0;
+
+    for (int i = 0; i < props->property_count; i++) {
+        int id = props->property_specs[i];
+        int value_index = props->default_value_indices[i];
+        int value_count = serv->block_property_specs[id].value_count;
+
+        offset = offset * value_count + value_index;
+    }
+
+    mc_ushort default_state = props->base_state + offset;
+    return default_state;
+}
+
+block_state_info
+describe_default_block_state(server * serv, mc_int block_type) {
+    return describe_block_state(serv, get_default_block_state(serv, block_type));
+}
+
+mc_ushort
+make_block_state(server * serv, block_state_info * info) {
+    block_properties * props = serv->block_properties_table + info->block_type;
+    int offset = 0;
+
+    for (int i = 0; i < props->property_count; i++) {
+        int id = props->property_specs[i];
+
+        int value = info->values[id];
+        int value_index;
+        // convert value to value index
+        switch (id) {
+        case BLOCK_PROPERTY_ATTACHED:
+        case BLOCK_PROPERTY_BOTTOM:
+        case BLOCK_PROPERTY_CONDITIONAL:
+        case BLOCK_PROPERTY_DISARMED:
+        case BLOCK_PROPERTY_DRAG:
+        case BLOCK_PROPERTY_ENABLED:
+        case BLOCK_PROPERTY_EXTENDED:
+        case BLOCK_PROPERTY_EYE:
+        case BLOCK_PROPERTY_FALLING:
+        case BLOCK_PROPERTY_HANGING:
+        case BLOCK_PROPERTY_HAS_BOTTLE_0:
+        case BLOCK_PROPERTY_HAS_BOTTLE_1:
+        case BLOCK_PROPERTY_HAS_BOTTLE_2:
+        case BLOCK_PROPERTY_HAS_RECORD:
+        case BLOCK_PROPERTY_HAS_BOOK:
+        case BLOCK_PROPERTY_INVERTED:
+        case BLOCK_PROPERTY_IN_WALL:
+        case BLOCK_PROPERTY_LIT:
+        case BLOCK_PROPERTY_LOCKED:
+        case BLOCK_PROPERTY_OCCUPIED:
+        case BLOCK_PROPERTY_OPEN:
+        case BLOCK_PROPERTY_PERSISTENT:
+        case BLOCK_PROPERTY_POWERED:
+        case BLOCK_PROPERTY_SHORT_PISTON:
+        case BLOCK_PROPERTY_SIGNAL_FIRE:
+        case BLOCK_PROPERTY_SNOWY:
+        case BLOCK_PROPERTY_TRIGGERED:
+        case BLOCK_PROPERTY_UNSTABLE:
+        case BLOCK_PROPERTY_WATERLOGGED:
+        case BLOCK_PROPERTY_VINE_END:
+        case BLOCK_PROPERTY_NEG_Y:
+        case BLOCK_PROPERTY_POS_Y:
+        case BLOCK_PROPERTY_NEG_Z:
+        case BLOCK_PROPERTY_POS_Z:
+        case BLOCK_PROPERTY_NEG_X:
+        case BLOCK_PROPERTY_POS_X:
+            value_index = !value;
+            break;
+        case BLOCK_PROPERTY_HORIZONTAL_AXIS:
+            value_index = value == AXIS_X ? 0 : 1;
+            break;
+        case BLOCK_PROPERTY_FACING:
+            switch (value) {
+            case DIRECTION_NEG_Z: value_index = 0; break;
+            case DIRECTION_POS_X: value_index = 1; break;
+            case DIRECTION_POS_Z: value_index = 2; break;
+            case DIRECTION_NEG_X: value_index = 3; break;
+            case DIRECTION_POS_Y: value_index = 4; break;
+            case DIRECTION_NEG_Y: value_index = 5; break;
+            }
+            break;
+        case BLOCK_PROPERTY_FACING_HOPPER:
+            switch (value) {
+            case DIRECTION_NEG_Y: value_index = 0; break;
+            case DIRECTION_NEG_Z: value_index = 1; break;
+            case DIRECTION_POS_Z: value_index = 2; break;
+            case DIRECTION_NEG_X: value_index = 3; break;
+            case DIRECTION_POS_X: value_index = 4; break;
+            }
+            break;
+        case BLOCK_PROPERTY_HORIZONTAL_FACING:
+            switch (value) {
+            case DIRECTION_NEG_Z: value_index = 0; break;
+            case DIRECTION_POS_Z: value_index = 1; break;
+            case DIRECTION_NEG_X: value_index = 2; break;
+            case DIRECTION_POS_X: value_index = 3; break;
+            }
+            break;
+        case BLOCK_PROPERTY_DELAY:
+        case BLOCK_PROPERTY_DISTANCE:
+        case BLOCK_PROPERTY_EGGS:
+        case BLOCK_PROPERTY_LAYERS:
+        case BLOCK_PROPERTY_LEVEL_FLOWING:
+        case BLOCK_PROPERTY_PICKLES:
+        case BLOCK_PROPERTY_ROTATION_16:
+            value_index = value - 1;
+            break;
+        default:
+            value_index = value;
+        }
+
+        int value_count = serv->block_property_specs[id].value_count;
+
+        offset = offset * value_count + value_index;
+    }
+
+    mc_ushort res = props->base_state + offset;
     return res;
 }
 
@@ -136,7 +346,8 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
 
     mc_ushort cur_state = chunk_get_block_state(cur_ch,
             pos.x & 0xf, pos.y, pos.z & 0xf);
-    mc_int cur_type = serv->block_type_by_state[cur_state];
+    block_state_info cur_info = describe_block_state(serv, cur_state);
+    mc_int cur_type = cur_info.block_type;
 
     net_block_pos from_pos = get_relative_block_pos(pos, from_direction);
     chunk_pos from_ch_pos = {
@@ -150,7 +361,8 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
 
     mc_ushort from_state = chunk_get_block_state(from_ch,
             from_pos.x & 0xf, from_pos.y, from_pos.z & 0xf);
-    mc_int from_type = serv->block_type_by_state[from_state];
+    block_state_info from_info = describe_block_state(serv, from_state);
+    mc_int from_type = from_info.block_type;
 
     // @TODO(traks) drop items if the block is broken
 
@@ -164,14 +376,14 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
             return 0;
         }
 
-        mc_ushort new_state = serv->block_properties_table[cur_type].base_state;
         mc_int type_above = from_type;
         if (type_above == BLOCK_SNOW_BLOCK || type_above == BLOCK_SNOW) {
-            new_state += 0;
+            cur_info.snowy = 1;
         } else {
-            new_state += 1;
+            cur_info.snowy = 0;
         }
 
+        mc_ushort new_state = make_block_state(serv, &cur_info);
         if (new_state != cur_state) {
             chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, new_state);
             return 1;
@@ -717,11 +929,9 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
     case BLOCK_PEONY:
     case BLOCK_TALL_GRASS:
     case BLOCK_LARGE_FERN: {
-        mc_ushort base_state = serv->block_properties_table[cur_type].base_state;
-        mc_ushort upper_state = base_state;
-        mc_ushort lower_state = base_state + 1;
-        if (cur_state == upper_state) {
-            if (from_direction == DIRECTION_NEG_Y && from_type != lower_state) {
+        if (cur_info.double_block_half == DOUBLE_BLOCK_HALF_UPPER) {
+            if (from_direction == DIRECTION_NEG_Y && (from_type != cur_type
+                    || from_info.double_block_half != DOUBLE_BLOCK_HALF_LOWER)) {
                 chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, 0);
                 return 1;
             }
@@ -732,7 +942,8 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
                     return 1;
                 }
             } else if (from_direction == DIRECTION_POS_Y) {
-                if (from_state != upper_state) {
+                if (from_type != cur_type
+                        || from_info.double_block_half != DOUBLE_BLOCK_HALF_UPPER) {
                     chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, 0);
                     return 1;
                 }
@@ -1578,7 +1789,7 @@ init_wall_props(server * serv, mc_int block_type, char * resource_loc) {
     add_block_property(serv, props, BLOCK_PROPERTY_EAST_WALL, "none");
     add_block_property(serv, props, BLOCK_PROPERTY_NORTH_WALL, "none");
     add_block_property(serv, props, BLOCK_PROPERTY_SOUTH_WALL, "none");
-    add_block_property(serv, props, BLOCK_PROPERTY_UP, "true");
+    add_block_property(serv, props, BLOCK_PROPERTY_POS_Y, "true");
     add_block_property(serv, props, BLOCK_PROPERTY_WATERLOGGED, "false");
     add_block_property(serv, props, BLOCK_PROPERTY_WEST_WALL, "none");
     finalise_block_props(serv, props);
@@ -1597,11 +1808,11 @@ static void
 init_cross_props(server * serv, mc_int block_type, char * resource_loc) {
     register_block_type(serv, block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
-    add_block_property(serv, props, BLOCK_PROPERTY_EAST, "false");
-    add_block_property(serv, props, BLOCK_PROPERTY_NORTH, "false");
-    add_block_property(serv, props, BLOCK_PROPERTY_SOUTH, "false");
+    add_block_property(serv, props, BLOCK_PROPERTY_POS_X, "false");
+    add_block_property(serv, props, BLOCK_PROPERTY_NEG_Z, "false");
+    add_block_property(serv, props, BLOCK_PROPERTY_POS_Z, "false");
     add_block_property(serv, props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    add_block_property(serv, props, BLOCK_PROPERTY_WEST, "false");
+    add_block_property(serv, props, BLOCK_PROPERTY_NEG_X, "false");
     finalise_block_props(serv, props);
 }
 
@@ -1655,12 +1866,12 @@ static void
 init_mushroom_block(server * serv, mc_int block_type, char * resource_loc) {
     register_block_type(serv, block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
-    add_block_property(serv, props, BLOCK_PROPERTY_DOWN, "true");
-    add_block_property(serv, props, BLOCK_PROPERTY_EAST, "true");
-    add_block_property(serv, props, BLOCK_PROPERTY_NORTH, "true");
-    add_block_property(serv, props, BLOCK_PROPERTY_SOUTH, "true");
-    add_block_property(serv, props, BLOCK_PROPERTY_UP, "true");
-    add_block_property(serv, props, BLOCK_PROPERTY_WEST, "true");
+    add_block_property(serv, props, BLOCK_PROPERTY_NEG_Y, "true");
+    add_block_property(serv, props, BLOCK_PROPERTY_POS_X, "true");
+    add_block_property(serv, props, BLOCK_PROPERTY_NEG_Z, "true");
+    add_block_property(serv, props, BLOCK_PROPERTY_POS_Z, "true");
+    add_block_property(serv, props, BLOCK_PROPERTY_POS_Y, "true");
+    add_block_property(serv, props, BLOCK_PROPERTY_NEG_X, "true");
     finalise_block_props(serv, props);
     set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 }
@@ -1788,12 +1999,12 @@ init_block_data(server * serv) {
     register_bool_property(serv, BLOCK_PROPERTY_VINE_END, "vine_end");
     register_property_v(serv, BLOCK_PROPERTY_HORIZONTAL_AXIS, "axis", 2, "x", "z");
     register_property_v(serv, BLOCK_PROPERTY_AXIS, "axis", 3, "x", "y", "z");
-    register_bool_property(serv, BLOCK_PROPERTY_UP, "up");
-    register_bool_property(serv, BLOCK_PROPERTY_DOWN, "down");
-    register_bool_property(serv, BLOCK_PROPERTY_NORTH, "north");
-    register_bool_property(serv, BLOCK_PROPERTY_EAST, "east");
-    register_bool_property(serv, BLOCK_PROPERTY_SOUTH, "south");
-    register_bool_property(serv, BLOCK_PROPERTY_WEST, "west");
+    register_bool_property(serv, BLOCK_PROPERTY_POS_Y, "up");
+    register_bool_property(serv, BLOCK_PROPERTY_NEG_Y, "down");
+    register_bool_property(serv, BLOCK_PROPERTY_NEG_Z, "north");
+    register_bool_property(serv, BLOCK_PROPERTY_POS_X, "east");
+    register_bool_property(serv, BLOCK_PROPERTY_POS_Z, "south");
+    register_bool_property(serv, BLOCK_PROPERTY_NEG_X, "west");
     register_property_v(serv, BLOCK_PROPERTY_FACING, "facing", 6, "north", "east", "south", "west", "up", "down");
     register_property_v(serv, BLOCK_PROPERTY_FACING_HOPPER, "facing", 5, "down", "north", "south", "west", "east");
     register_property_v(serv, BLOCK_PROPERTY_HORIZONTAL_FACING, "facing", 4, "north", "south", "west", "east");
@@ -2085,11 +2296,11 @@ init_block_data(server * serv) {
     register_block_type(serv, BLOCK_FIRE, "minecraft:fire");
     props = serv->block_properties_table + BLOCK_FIRE;
     add_block_property(serv, props, BLOCK_PROPERTY_AGE_15, "0");
-    add_block_property(serv, props, BLOCK_PROPERTY_EAST, "false");
-    add_block_property(serv, props, BLOCK_PROPERTY_NORTH, "false");
-    add_block_property(serv, props, BLOCK_PROPERTY_SOUTH, "false");
-    add_block_property(serv, props, BLOCK_PROPERTY_UP, "false");
-    add_block_property(serv, props, BLOCK_PROPERTY_WEST, "false");
+    add_block_property(serv, props, BLOCK_PROPERTY_POS_X, "false");
+    add_block_property(serv, props, BLOCK_PROPERTY_NEG_Z, "false");
+    add_block_property(serv, props, BLOCK_PROPERTY_POS_Z, "false");
+    add_block_property(serv, props, BLOCK_PROPERTY_POS_Y, "false");
+    add_block_property(serv, props, BLOCK_PROPERTY_NEG_X, "false");
     finalise_block_props(serv, props);
     set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
@@ -2375,11 +2586,11 @@ init_block_data(server * serv) {
 
     register_block_type(serv, BLOCK_VINE, "minecraft:vine");
     props = serv->block_properties_table + BLOCK_VINE;
-    add_block_property(serv, props, BLOCK_PROPERTY_EAST, "false");
-    add_block_property(serv, props, BLOCK_PROPERTY_NORTH, "false");
-    add_block_property(serv, props, BLOCK_PROPERTY_SOUTH, "false");
-    add_block_property(serv, props, BLOCK_PROPERTY_UP, "false");
-    add_block_property(serv, props, BLOCK_PROPERTY_WEST, "false");
+    add_block_property(serv, props, BLOCK_PROPERTY_POS_X, "false");
+    add_block_property(serv, props, BLOCK_PROPERTY_NEG_Z, "false");
+    add_block_property(serv, props, BLOCK_PROPERTY_POS_Z, "false");
+    add_block_property(serv, props, BLOCK_PROPERTY_POS_Y, "false");
+    add_block_property(serv, props, BLOCK_PROPERTY_NEG_X, "false");
     finalise_block_props(serv, props);
     set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
@@ -2471,11 +2682,11 @@ init_block_data(server * serv) {
     props = serv->block_properties_table + BLOCK_TRIPWIRE;
     add_block_property(serv, props, BLOCK_PROPERTY_ATTACHED, "false");
     add_block_property(serv, props, BLOCK_PROPERTY_DISARMED, "false");
-    add_block_property(serv, props, BLOCK_PROPERTY_EAST, "false");
-    add_block_property(serv, props, BLOCK_PROPERTY_NORTH, "false");
+    add_block_property(serv, props, BLOCK_PROPERTY_POS_X, "false");
+    add_block_property(serv, props, BLOCK_PROPERTY_NEG_Z, "false");
     add_block_property(serv, props, BLOCK_PROPERTY_POWERED, "false");
-    add_block_property(serv, props, BLOCK_PROPERTY_SOUTH, "false");
-    add_block_property(serv, props, BLOCK_PROPERTY_WEST, "false");
+    add_block_property(serv, props, BLOCK_PROPERTY_POS_Z, "false");
+    add_block_property(serv, props, BLOCK_PROPERTY_NEG_X, "false");
     finalise_block_props(serv, props);
     set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 
@@ -2810,12 +3021,12 @@ init_block_data(server * serv) {
     // @TODO(traks) collision models
     register_block_type(serv, BLOCK_CHORUS_PLANT, "minecraft:chorus_plant");
     props = serv->block_properties_table + BLOCK_CHORUS_PLANT;
-    add_block_property(serv, props, BLOCK_PROPERTY_DOWN, "false");
-    add_block_property(serv, props, BLOCK_PROPERTY_EAST, "false");
-    add_block_property(serv, props, BLOCK_PROPERTY_NORTH, "false");
-    add_block_property(serv, props, BLOCK_PROPERTY_SOUTH, "false");
-    add_block_property(serv, props, BLOCK_PROPERTY_UP, "false");
-    add_block_property(serv, props, BLOCK_PROPERTY_WEST, "false");
+    add_block_property(serv, props, BLOCK_PROPERTY_NEG_Y, "false");
+    add_block_property(serv, props, BLOCK_PROPERTY_POS_X, "false");
+    add_block_property(serv, props, BLOCK_PROPERTY_NEG_Z, "false");
+    add_block_property(serv, props, BLOCK_PROPERTY_POS_Z, "false");
+    add_block_property(serv, props, BLOCK_PROPERTY_POS_Y, "false");
+    add_block_property(serv, props, BLOCK_PROPERTY_NEG_X, "false");
     finalise_block_props(serv, props);
 
     // @TODO(traks) collision models

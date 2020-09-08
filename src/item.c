@@ -126,7 +126,7 @@ place_simple_block(place_context context, mc_int place_type) {
         return;
     }
 
-    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
+    mc_ushort place_state = get_default_block_state(context.serv, place_type);
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
@@ -140,17 +140,18 @@ place_snowy_grassy_block(place_context context, mc_int place_type) {
         return;
     }
 
-    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
+    block_state_info place_info = describe_default_block_state(context.serv, place_type);
     mc_ushort state_above = chunk_get_block_state(target.ch,
             target.pos.x & 0xf, target.pos.y + 1, target.pos.z & 0xf);
     mc_int type_above = context.serv->block_type_by_state[state_above];
 
     if (type_above == BLOCK_SNOW_BLOCK || type_above == BLOCK_SNOW) {
-        place_state += 0;
+        place_info.snowy = 1;
     } else {
-        place_state += 1;
+        place_info.snowy = 0;
     }
 
+    mc_ushort place_state = make_block_state(context.serv, &place_info);
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
@@ -164,7 +165,6 @@ place_plant(place_context context, mc_int place_type) {
         return;
     }
 
-    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
     mc_ushort state_below = chunk_get_block_state(target.ch,
             target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
     mc_int type_below = context.serv->block_type_by_state[state_below];
@@ -173,6 +173,7 @@ place_plant(place_context context, mc_int place_type) {
         return;
     }
 
+    mc_ushort place_state = get_default_block_state(context.serv, place_type);
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
@@ -186,7 +187,6 @@ place_dead_bush(place_context context, mc_int place_type) {
         return;
     }
 
-    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
     mc_ushort state_below = chunk_get_block_state(target.ch,
             target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
     mc_int type_below = context.serv->block_type_by_state[state_below];
@@ -195,6 +195,7 @@ place_dead_bush(place_context context, mc_int place_type) {
         return;
     }
 
+    mc_ushort place_state = get_default_block_state(context.serv, place_type);
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
@@ -208,7 +209,6 @@ place_wither_rose(place_context context, mc_int place_type) {
         return;
     }
 
-    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
     mc_ushort state_below = chunk_get_block_state(target.ch,
             target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
     mc_int type_below = context.serv->block_type_by_state[state_below];
@@ -217,6 +217,7 @@ place_wither_rose(place_context context, mc_int place_type) {
         return;
     }
 
+    mc_ushort place_state = get_default_block_state(context.serv, place_type);
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
@@ -230,7 +231,6 @@ place_nether_plant(place_context context, mc_int place_type) {
         return;
     }
 
-    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
     mc_ushort state_below = chunk_get_block_state(target.ch,
             target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
     mc_int type_below = context.serv->block_type_by_state[state_below];
@@ -239,9 +239,28 @@ place_nether_plant(place_context context, mc_int place_type) {
         return;
     }
 
+    mc_ushort place_state = get_default_block_state(context.serv, place_type);
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+}
+
+static void
+set_axis_by_clicked_face(block_state_info * place_info, int clicked_face) {
+    switch (clicked_face) {
+    case DIRECTION_NEG_X:
+    case DIRECTION_POS_X:
+        place_info->axis = AXIS_X;
+        break;
+    case DIRECTION_NEG_Y:
+    case DIRECTION_POS_Y:
+        place_info->axis = AXIS_Y;
+        break;
+    case DIRECTION_NEG_Z:
+    case DIRECTION_POS_Z:
+        place_info->axis = AXIS_Z;
+        break;
+    }
 }
 
 static void
@@ -252,26 +271,29 @@ place_simple_pillar(place_context context, mc_int place_type) {
         return;
     }
 
-    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
+    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    set_axis_by_clicked_face(&place_info, context.clicked_face);
 
-    switch (context.clicked_face) {
-    case DIRECTION_NEG_X:
-    case DIRECTION_POS_X:
-        place_state += 0;
-        break;
-    case DIRECTION_NEG_Y:
-    case DIRECTION_POS_Y:
-        place_state += 1;
-        break;
-    case DIRECTION_NEG_Z:
-    case DIRECTION_POS_Z:
-        place_state += 2;
-        break;
-    }
-
+    mc_ushort place_state = make_block_state(context.serv, &place_info);
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+}
+
+static void
+modify_waterlogged(block_state_info * place_info, server * serv, mc_ushort cur_state) {
+    block_state_info cur_info = describe_block_state(serv, cur_state);
+
+    if (cur_info.block_type == BLOCK_WATER) {
+        if (cur_info.level == 0) {
+            // waterlogged
+            place_info->waterlogged = 1;
+        } else {
+            place_info->waterlogged = 0;
+        }
+    } else {
+        place_info->waterlogged = 0;
+    }
 }
 
 static void
@@ -282,35 +304,11 @@ place_chain(place_context context, mc_int place_type) {
         return;
     }
 
-    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
+    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    set_axis_by_clicked_face(&place_info, context.clicked_face);
+    modify_waterlogged(&place_info, context.serv, target.cur_type);
 
-    switch (context.clicked_face) {
-    case DIRECTION_NEG_X:
-    case DIRECTION_POS_X:
-        place_state += 0 * 2;
-        break;
-    case DIRECTION_NEG_Y:
-    case DIRECTION_POS_Y:
-        place_state += 1 * 2;
-        break;
-    case DIRECTION_NEG_Z:
-    case DIRECTION_POS_Z:
-        place_state += 2 * 2;
-        break;
-    }
-
-    if (target.cur_type == BLOCK_WATER) {
-        int water_level = target.cur_state - context.serv->block_properties_table[target.cur_type].base_state;
-        if (water_level == 0) {
-            // waterlogged
-            place_state += 0;
-        } else {
-            place_state += 1;
-        }
-    } else {
-        place_state += 1;
-    }
-
+    mc_ushort place_state = make_block_state(context.serv, &place_info);
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
@@ -330,15 +328,15 @@ place_slab(place_context context, mc_int place_type) {
 
     mc_ushort cur_state = chunk_get_block_state(ch,
             target_pos.x & 0xf, target_pos.y, target_pos.z & 0xf);
-    mc_int cur_type = context.serv->block_type_by_state[cur_state];
+    block_state_info cur_info = describe_block_state(context.serv, cur_state);
+    mc_int cur_type = cur_info.block_type;
 
     int replace_cur = 0;
     if (cur_type == place_type) {
-        int cur_slab = (cur_state - context.serv->block_properties_table[cur_type].base_state) / 2;
-        if (cur_slab == SLAB_TOP) {
+        if (cur_info.slab_type == SLAB_TOP) {
             replace_cur = context.clicked_face == DIRECTION_NEG_Y
                     || (context.clicked_face != DIRECTION_POS_Y && context.click_offset_y <= 0.5f);
-        } else if  (cur_slab == SLAB_BOTTOM) {
+        } else if  (cur_info.slab_type == SLAB_BOTTOM) {
             replace_cur = context.clicked_face == DIRECTION_POS_Y
                     || (context.clicked_face != DIRECTION_NEG_Y && context.click_offset_y > 0.5f);
         }
@@ -359,41 +357,33 @@ place_slab(place_context context, mc_int place_type) {
 
         cur_state = chunk_get_block_state(ch,
                 target_pos.x & 0xf, target_pos.y, target_pos.z & 0xf);
-        cur_type = context.serv->block_type_by_state[cur_state];
+        cur_info = describe_block_state(context.serv, cur_state);
+        cur_type = cur_info.block_type;
 
         if (cur_type != place_type && !can_replace(place_type, cur_type)) {
             return;
         }
     }
 
-    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
+    block_state_info place_info = describe_default_block_state(context.serv, place_type);
 
     if (place_type == cur_type) {
-        place_state += 4;
+        place_info.slab_type = SLAB_DOUBLE;
     } else {
         if (context.clicked_face == DIRECTION_POS_Y) {
-            place_state += 2;
+            place_info.slab_type = SLAB_BOTTOM;
         } else if (context.clicked_face == DIRECTION_NEG_Y) {
-            place_state += 0;
+            place_info.slab_type = SLAB_TOP;
         } else if (context.click_offset_y <= 0.5f) {
-            place_state += 2;
+            place_info.slab_type = SLAB_BOTTOM;
         } else {
-            place_state += 0;
+            place_info.slab_type = SLAB_TOP;
         }
     }
 
-    if (cur_type == BLOCK_WATER) {
-        int water_level = cur_state - context.serv->block_properties_table[cur_type].base_state;
-        if (water_level == 0) {
-            // waterlogged slab
-            place_state += 0;
-        } else {
-            place_state += 1;
-        }
-    } else {
-        place_state += 1;
-    }
+    modify_waterlogged(&place_info, context.serv, cur_state);
 
+    mc_ushort place_state = make_block_state(context.serv, &place_info);
     chunk_set_block_state(ch, target_pos.x & 0xf, target_pos.y,
             target_pos.z & 0xf, place_state);
     propagate_block_updates_after_change(target_pos, context.serv, context.scratch_arena);
@@ -418,6 +408,28 @@ place_leaves(place_context context, mc_int place_type) {
 }
 
 static void
+set_horizontal_facing_by_player_facing(block_state_info * place_info,
+        entity_base * player) {
+    // facing direction is opposite of player facing direction
+    float rot_y = player->rot_y;
+    int int_rot = (int) floor(rot_y / 90.0f + 0.5f) & 0x3;
+    switch (int_rot) {
+    case 0: // +Z
+        place_info->horizontal_facing = DIRECTION_NEG_Z;
+        break;
+    case 1: // -X
+        place_info->horizontal_facing = DIRECTION_POS_X;
+        break;
+    case 2: // -Z
+        place_info->horizontal_facing = DIRECTION_POS_Z;
+        break;
+    case 3: // +X
+        place_info->horizontal_facing = DIRECTION_NEG_X;
+        break;
+    }
+}
+
+static void
 place_horizontal_facing(place_context context, mc_int place_type) {
     place_target target = determine_place_target(context.serv,
             context.clicked_pos, context.clicked_face, place_type);
@@ -425,26 +437,10 @@ place_horizontal_facing(place_context context, mc_int place_type) {
         return;
     }
 
-    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
+    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    set_horizontal_facing_by_player_facing(&place_info, context.player);
 
-    // facing direction is opposite of player facing direction
-    float rot_y = context.player->rot_y;
-    int int_rot = (int) floor(rot_y / 90.0f + 0.5f) & 0x3;
-    switch (int_rot) {
-    case 0: // +Z = south
-        place_state += 0;
-        break;
-    case 1: // -X = west
-        place_state += 3;
-        break;
-    case 2: // -Z = north
-        place_state += 1;
-        break;
-    case 3: // +X = east
-        place_state += 2;
-        break;
-    }
-
+    mc_ushort place_state = make_block_state(context.serv, &place_info);
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
@@ -458,29 +454,11 @@ place_end_portal_frame(place_context context, mc_int place_type) {
         return;
     }
 
-    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
+    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    set_horizontal_facing_by_player_facing(&place_info, context.player);
+    place_info.eye = 0;
 
-    // facing direction is opposite of player facing direction
-    float rot_y = context.player->rot_y;
-    int int_rot = (int) floor(rot_y / 90.0f + 0.5f) & 0x3;
-    switch (int_rot) {
-    case 0: // +Z = south
-        place_state += 0;
-        break;
-    case 1: // -X = west
-        place_state += 3;
-        break;
-    case 2: // -Z = north
-        place_state += 1;
-        break;
-    case 3: // +X = east
-        place_state += 2;
-        break;
-    }
-
-    // no eye
-    place_state += 4;
-
+    mc_ushort place_state = make_block_state(context.serv, &place_info);
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
@@ -494,8 +472,6 @@ place_crop(place_context context, mc_int place_type) {
         return;
     }
 
-    // base state has age 0
-    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
     mc_ushort state_below = chunk_get_block_state(target.ch,
             target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
     mc_int type_below = context.serv->block_type_by_state[state_below];
@@ -508,6 +484,7 @@ place_crop(place_context context, mc_int place_type) {
         return;
     }
 
+    mc_ushort place_state = get_default_block_state(context.serv, place_type);
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
@@ -521,8 +498,6 @@ place_nether_wart(place_context context, mc_int place_type) {
         return;
     }
 
-    // base state has age 0
-    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
     mc_ushort state_below = chunk_get_block_state(target.ch,
             target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
     mc_int type_below = context.serv->block_type_by_state[state_below];
@@ -534,6 +509,7 @@ place_nether_wart(place_context context, mc_int place_type) {
         return;
     }
 
+    mc_ushort place_state = get_default_block_state(context.serv, place_type);
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
@@ -547,8 +523,7 @@ place_carpet(place_context context, mc_int place_type) {
         return;
     }
 
-    // base state has age 0
-    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
+    mc_ushort place_state = get_default_block_state(context.serv, place_type);
     mc_ushort state_below = chunk_get_block_state(target.ch,
             target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
     mc_int type_below = context.serv->block_type_by_state[state_below];
@@ -570,22 +545,12 @@ place_mushroom_block(place_context context, mc_int place_type) {
         return;
     }
 
-    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
+    block_state_info place_info = describe_default_block_state(context.serv, place_type);
 
-    net_block_pos neighbour_pos[6];
-    for (int i = 0; i < 6; i++) {
-        neighbour_pos[i] = target.pos;
-    }
-    neighbour_pos[DIRECTION_NEG_Y].y--;
-    neighbour_pos[DIRECTION_POS_Y].y++;
-    neighbour_pos[DIRECTION_NEG_Z].z--;
-    neighbour_pos[DIRECTION_POS_Z].z++;
-    neighbour_pos[DIRECTION_NEG_X].x--;
-    neighbour_pos[DIRECTION_POS_X].x++;
+    int directions[] = {0, 1, 2, 3, 4, 5};
 
-    mc_int neighbour_types[6];
     for (int i = 0; i < 6; i++) {
-        net_block_pos pos = neighbour_pos[i];
+        net_block_pos pos = get_relative_block_pos(target.pos, directions[i]);
         chunk_pos ch_pos = {
             .x = pos.x >> 4,
             .z = pos.z >> 4
@@ -597,30 +562,18 @@ place_mushroom_block(place_context context, mc_int place_type) {
 
         mc_ushort state = chunk_get_block_state(ch,
                 pos.x & 0xf, pos.y, pos.z & 0xf);
-        neighbour_types[i] = context.serv->block_type_by_state[state];
+        mc_int type = context.serv->block_type_by_state[state];
+
+        // connect to neighbouring mushroom blocks of the same type by setting
+        // the six facing properties to true if connected
+        if (type == place_type) {
+            place_info.values[BLOCK_PROPERTY_NEG_Y + directions[i]] = 1;
+        } else {
+            place_info.values[BLOCK_PROPERTY_NEG_Y + directions[i]] = 0;
+        }
     }
 
-    // connect to neighbouring mushroom blocks of the same type by setting the
-    // six facing properties to true if connected
-    if (neighbour_types[DIRECTION_NEG_Y] == place_type) {
-        place_state += 32;
-    }
-    if (neighbour_types[DIRECTION_POS_X] == place_type) {
-        place_state += 16;
-    }
-    if (neighbour_types[DIRECTION_NEG_Z] == place_type) {
-        place_state += 8;
-    }
-    if (neighbour_types[DIRECTION_POS_Z] == place_type) {
-        place_state += 4;
-    }
-    if (neighbour_types[DIRECTION_POS_Y] == place_type) {
-        place_state += 2;
-    }
-    if (neighbour_types[DIRECTION_NEG_X] == place_type) {
-        place_state += 1;
-    }
-
+    mc_ushort place_state = make_block_state(context.serv, &place_info);
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
@@ -634,17 +587,9 @@ place_end_rod(place_context context, mc_int place_type) {
         return;
     }
 
-    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
+    block_state_info place_info = describe_default_block_state(context.serv, place_type);
 
-    int opposite_face;
-    switch (context.clicked_face) {
-    case DIRECTION_NEG_Y: opposite_face = DIRECTION_POS_Y; break;
-    case DIRECTION_POS_Y: opposite_face = DIRECTION_NEG_Y; break;
-    case DIRECTION_NEG_Z: opposite_face = DIRECTION_POS_Z; break;
-    case DIRECTION_POS_Z: opposite_face = DIRECTION_NEG_Z; break;
-    case DIRECTION_NEG_X: opposite_face = DIRECTION_POS_X; break;
-    case DIRECTION_POS_X: opposite_face = DIRECTION_NEG_X; break;
-    }
+    int opposite_face = get_opposite_direction(context.clicked_face);
 
     net_block_pos opposite_pos = get_relative_block_pos(target.pos, opposite_face);
     chunk_pos opposite_ch_pos = {
@@ -658,53 +603,19 @@ place_end_rod(place_context context, mc_int place_type) {
 
     mc_ushort opposite_state = chunk_get_block_state(opposite_ch,
             opposite_pos.x & 0xf, opposite_pos.y, opposite_pos.z & 0xf);
-    mc_int opposite_type = context.serv->block_type_by_state[opposite_state];
+    block_state_info opposite_info = describe_block_state(context.serv, opposite_state);
 
-    if (opposite_type == place_type) {
-        int facing = opposite_state - context.serv->block_properties_table[opposite_type].base_state;
-        int facing_direction;
-        switch (facing) {
-        case 0: facing_direction = DIRECTION_NEG_Z; break;
-        case 1: facing_direction = DIRECTION_POS_X; break;
-        case 2: facing_direction = DIRECTION_POS_Z; break;
-        case 3: facing_direction = DIRECTION_NEG_X; break;
-        case 4: facing_direction = DIRECTION_POS_Y; break;
-        case 5: facing_direction = DIRECTION_NEG_Y; break;
-        }
-
-        if (facing_direction == context.clicked_face) {
-            // set placed block facing to opposite of clicked face
-            switch (context.clicked_face) {
-            case DIRECTION_NEG_Y: place_state += 4; break;
-            case DIRECTION_POS_Y: place_state += 5; break;
-            case DIRECTION_NEG_Z: place_state += 2; break;
-            case DIRECTION_POS_Z: place_state += 0; break;
-            case DIRECTION_NEG_X: place_state += 1; break;
-            case DIRECTION_POS_X: place_state += 3; break;
-            }
+    if (opposite_info.block_type == place_type) {
+        if (opposite_info.facing == context.clicked_face) {
+            place_info.facing = opposite_face;
         } else {
-            // set placed block facing to clicked face
-            switch (context.clicked_face) {
-            case DIRECTION_NEG_Y: place_state += 5; break;
-            case DIRECTION_POS_Y: place_state += 4; break;
-            case DIRECTION_NEG_Z: place_state += 0; break;
-            case DIRECTION_POS_Z: place_state += 2; break;
-            case DIRECTION_NEG_X: place_state += 3; break;
-            case DIRECTION_POS_X: place_state += 1; break;
-            }
+            place_info.facing = context.clicked_face;
         }
     } else {
-        // set placed block facing to clicked face
-        switch (context.clicked_face) {
-        case DIRECTION_NEG_Y: place_state += 5; break;
-        case DIRECTION_POS_Y: place_state += 4; break;
-        case DIRECTION_NEG_Z: place_state += 0; break;
-        case DIRECTION_POS_Z: place_state += 2; break;
-        case DIRECTION_NEG_X: place_state += 3; break;
-        case DIRECTION_POS_X: place_state += 1; break;
-        }
+        place_info.facing = context.clicked_face;
     }
 
+    mc_ushort place_state = make_block_state(context.serv, &place_info);
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
@@ -718,8 +629,6 @@ place_sugar_cane(place_context context, mc_int place_type) {
         return;
     }
 
-    // base state has age 0
-    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
     mc_ushort state_below = chunk_get_block_state(target.ch,
             target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
     mc_int type_below = context.serv->block_type_by_state[state_below];
@@ -759,11 +668,15 @@ place_sugar_cane(place_context context, mc_int place_type) {
                     pos.x & 0xf, pos.y, pos.z & 0xf);
             mc_int neighbour_type = context.serv->block_type_by_state[neighbour_state];
             switch (neighbour_type) {
-            // @TODO(traks) use fluid state so that waterlogged blocks also
-            // allow sugar cane to be placed
             case BLOCK_WATER:
             case BLOCK_FROSTED_ICE:
                 goto set_block;
+            default: {
+                block_state_info neighbour_info = describe_block_state(context.serv, neighbour_state);
+                if (neighbour_info.waterlogged) {
+                    goto set_block;
+                }
+            }
             }
         }
 
@@ -774,7 +687,8 @@ place_sugar_cane(place_context context, mc_int place_type) {
         return;
     }
 
-set_block:
+set_block:;
+    mc_ushort place_state = get_default_block_state(context.serv, place_type);
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
@@ -1213,7 +1127,7 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_plant(context, BLOCK_LILY_OF_THE_VALLEY);
         break;
     case ITEM_WITHER_ROSE:
-        place_plant(context, BLOCK_WITHER_ROSE);
+        place_wither_rose(context, BLOCK_WITHER_ROSE);
         break;
     case ITEM_BROWN_MUSHROOM:
         break;
@@ -2422,7 +2336,6 @@ process_use_item_on_packet(server * serv, entity_base * player,
     case ITEM_BREWING_STAND:
         break;
     case ITEM_CAULDRON:
-        // base state has level 0
         place_simple_block(context, BLOCK_CAULDRON);
         break;
     case ITEM_ENDER_EYE:
@@ -2664,7 +2577,6 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_horizontal_facing(context, BLOCK_LOOM);
         break;
     case ITEM_COMPOSTER:
-        // base state has level 0
         place_simple_block(context, BLOCK_COMPOSTER);
         break;
     case ITEM_BARREL:
@@ -2724,7 +2636,6 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_simple_block(context, BLOCK_ANCIENT_DEBRIS);
         break;
     case ITEM_TARGET:
-        // base state has power 0
         place_simple_block(context, BLOCK_TARGET);
         break;
     case ITEM_CRYING_OBSIDIAN:
@@ -2764,7 +2675,6 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_simple_block(context, BLOCK_CRACKED_POLISHED_BLACKSTONE_BRICKS);
         break;
     case ITEM_RESPAWN_ANCHOR:
-        // base state has charge 0
         place_simple_block(context, BLOCK_RESPAWN_ANCHOR);
         break;
     default:
