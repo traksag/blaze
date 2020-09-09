@@ -1133,6 +1133,9 @@ enum fluid_level {
     FLUID_LEVEL_FALLING,
     // @NOTE(traks) there are 7 more possible values for fluid levels, but
     // vanilla Minecraft doesn't actually seem to do anything with these
+
+    // custom fluid level
+    FLUID_LEVEL_NONE,
 };
 
 typedef struct {
@@ -1253,7 +1256,6 @@ enum block_property {
     BLOCK_PROPERTY_LAYERS,
     BLOCK_PROPERTY_LEVEL_CAULDRON,
     BLOCK_PROPERTY_LEVEL_COMPOSTER,
-    BLOCK_PROPERTY_LEVEL_FLOWING,
     BLOCK_PROPERTY_LEVEL_HONEY,
     BLOCK_PROPERTY_LEVEL,
     BLOCK_PROPERTY_MOISTURE,
@@ -1368,7 +1370,6 @@ typedef struct {
             mc_ubyte layers;
             mc_ubyte level_cauldron;
             mc_ubyte level_composter;
-            mc_ubyte level_flowing;
             mc_ubyte level_honey;
             mc_ubyte level;
             mc_ubyte moisture;

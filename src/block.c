@@ -108,11 +108,23 @@ describe_block_state(server * serv, mc_ushort block_state) {
         case BLOCK_PROPERTY_DISTANCE:
         case BLOCK_PROPERTY_EGGS:
         case BLOCK_PROPERTY_LAYERS:
-        case BLOCK_PROPERTY_LEVEL_FLOWING:
         case BLOCK_PROPERTY_PICKLES:
         case BLOCK_PROPERTY_ROTATION_16:
             value = value_index + 1;
             break;
+        case BLOCK_PROPERTY_LEVEL:
+            switch (value_index) {
+            case 0: value = FLUID_LEVEL_SOURCE; break;
+            case 1: value = FLUID_LEVEL_FLOWING_7; break;
+            case 2: value = FLUID_LEVEL_FLOWING_6; break;
+            case 3: value = FLUID_LEVEL_FLOWING_5; break;
+            case 4: value = FLUID_LEVEL_FLOWING_4; break;
+            case 5: value = FLUID_LEVEL_FLOWING_3; break;
+            case 6: value = FLUID_LEVEL_FLOWING_2; break;
+            case 7: value = FLUID_LEVEL_FLOWING_1; break;
+            // minecraft doesn't distinguish falling levels [8, 15]
+            default: value = FLUID_LEVEL_FALLING; break;
+            }
         default:
             value = value_index;
         }
@@ -232,11 +244,22 @@ make_block_state(server * serv, block_state_info * info) {
         case BLOCK_PROPERTY_DISTANCE:
         case BLOCK_PROPERTY_EGGS:
         case BLOCK_PROPERTY_LAYERS:
-        case BLOCK_PROPERTY_LEVEL_FLOWING:
         case BLOCK_PROPERTY_PICKLES:
         case BLOCK_PROPERTY_ROTATION_16:
             value_index = value - 1;
             break;
+        case BLOCK_PROPERTY_LEVEL:
+            switch (value) {
+            case FLUID_LEVEL_SOURCE: value_index = 0; break;
+            case FLUID_LEVEL_FLOWING_7: value_index = 1; break;
+            case FLUID_LEVEL_FLOWING_6: value_index = 2; break;
+            case FLUID_LEVEL_FLOWING_5: value_index = 3; break;
+            case FLUID_LEVEL_FLOWING_4: value_index = 4; break;
+            case FLUID_LEVEL_FLOWING_3: value_index = 5; break;
+            case FLUID_LEVEL_FLOWING_2: value_index = 6; break;
+            case FLUID_LEVEL_FLOWING_1: value_index = 7; break;
+            case FLUID_LEVEL_FALLING: value_index = 8; break;
+            }
         default:
             value_index = value;
         }
@@ -2146,7 +2169,6 @@ init_block_data(server * serv) {
     register_range_property(serv, BLOCK_PROPERTY_LAYERS, "layers", 1, 8);
     register_range_property(serv, BLOCK_PROPERTY_LEVEL_CAULDRON, "level", 0, 3);
     register_range_property(serv, BLOCK_PROPERTY_LEVEL_COMPOSTER, "level", 0, 8);
-    register_range_property(serv, BLOCK_PROPERTY_LEVEL_FLOWING, "level", 1, 8);
     register_range_property(serv, BLOCK_PROPERTY_LEVEL_HONEY, "honey_level", 0, 5);
     register_range_property(serv, BLOCK_PROPERTY_LEVEL, "level", 0, 15);
     register_range_property(serv, BLOCK_PROPERTY_MOISTURE, "moisture", 0, 7);

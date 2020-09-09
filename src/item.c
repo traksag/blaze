@@ -284,20 +284,38 @@ place_simple_pillar(place_context context, mc_int place_type) {
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
-static void
-modify_waterlogged(block_state_info * place_info, server * serv, mc_ushort cur_state) {
-    block_state_info cur_info = describe_block_state(serv, cur_state);
+static int
+get_water_level(server * serv, mc_ushort state) {
+    block_state_info info = describe_block_state(serv, state);
 
-    if (cur_info.block_type == BLOCK_WATER) {
-        if (cur_info.level == 0) {
-            // waterlogged
-            place_info->waterlogged = 1;
-        } else {
-            place_info->waterlogged = 0;
+    switch (info.block_type) {
+    case BLOCK_WATER:
+        return info.level;
+    case BLOCK_BUBBLE_COLUMN:
+    case BLOCK_KELP:
+    case BLOCK_KELP_PLANT:
+    case BLOCK_SEAGRASS:
+    case BLOCK_TALL_SEAGRASS:
+        return FLUID_LEVEL_SOURCE;
+    default:
+        if (info.waterlogged) {
+            return FLUID_LEVEL_SOURCE;
         }
-    } else {
-        place_info->waterlogged = 0;
+        return FLUID_LEVEL_NONE;
     }
+}
+
+static int
+is_water_source(server * serv, mc_ushort state) {
+    return get_water_level(serv, state) == FLUID_LEVEL_SOURCE;
+}
+
+static int
+is_full_water(server * serv, mc_ushort state) {
+    int level = get_water_level(serv, state);
+    // @TODO(traks) maybe ensure falling level is 8, although Minecraft doesn't
+    // differentiate between falling water levels
+    return level == FLUID_LEVEL_SOURCE || level == FLUID_LEVEL_FALLING;
 }
 
 static void
@@ -310,7 +328,7 @@ place_chain(place_context context, mc_int place_type) {
 
     block_state_info place_info = describe_default_block_state(context.serv, place_type);
     set_axis_by_clicked_face(&place_info, context.clicked_face);
-    modify_waterlogged(&place_info, context.serv, target.cur_type);
+    place_info.waterlogged = is_water_source(context.serv, target.cur_state);
 
     mc_ushort place_state = make_block_state(context.serv, &place_info);
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
@@ -373,6 +391,7 @@ place_slab(place_context context, mc_int place_type) {
 
     if (place_type == cur_type) {
         place_info.slab_type = SLAB_DOUBLE;
+        place_info.waterlogged = 0;
     } else {
         if (context.clicked_face == DIRECTION_POS_Y) {
             place_info.slab_type = SLAB_BOTTOM;
@@ -383,9 +402,9 @@ place_slab(place_context context, mc_int place_type) {
         } else {
             place_info.slab_type = SLAB_TOP;
         }
-    }
 
-    modify_waterlogged(&place_info, context.serv, cur_state);
+        place_info.waterlogged = is_water_source(context.serv, cur_state);
+    }
 
     mc_ushort place_state = make_block_state(context.serv, &place_info);
     chunk_set_block_state(ch, target_pos.x & 0xf, target_pos.y,
@@ -716,7 +735,7 @@ place_dead_coral(place_context context, mc_int place_type) {
     }
 
     block_state_info place_info = describe_default_block_state(context.serv, place_type);
-    modify_waterlogged(&place_info, context.serv, target.cur_state);
+    place_info.waterlogged = is_full_water(context.serv, target.cur_state);
 
     mc_ushort place_state = make_block_state(context.serv, &place_info);
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
@@ -878,7 +897,7 @@ place_dead_coral_fan(place_context context, mc_int base_place_type,
     mc_int place_type = selected_dir == DIRECTION_NEG_Y ?
             base_place_type : wall_place_type;
     block_state_info place_info = describe_default_block_state(context.serv, place_type);
-    modify_waterlogged(&place_info, context.serv, target.cur_state);
+    place_info.waterlogged = is_full_water(context.serv, target.cur_state);
     place_info.horizontal_facing = get_opposite_direction(selected_dir);
 
     mc_ushort place_state = make_block_state(context.serv, &place_info);
