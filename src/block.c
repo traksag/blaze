@@ -1950,6 +1950,83 @@ init_snowy_grassy_block(server * serv, mc_int block_type, char * resource_loc) {
     set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 }
 
+static int
+block_box_faces_contain(int face_count, block_box_face * faces,
+        block_box_face test) {
+    // start at minimum a and b. First we try to move our best_b to the
+    // maximum b by checking whether faces contain the coordinate
+    // (best_a, best_b). After that we can move best_a forward by a bit. We then
+    // reset best_b and repeat the whole process, until best_a doesn't move
+    // anymore or hits the maximum a.
+    //
+    // Currently our algorithm assumes that each of the faces has positive area!
+    // So no lines as input please. This is to ensure progress is made in the
+    // loops below.
+
+    float best_a = test.min_a;
+    float best_b = test.min_b;
+
+    for (int loop = 0; loop < 1000; loop++) {
+        float old_best_a = best_a;
+
+        // first try to move best_b forward
+        float big_number = 1000;
+        float min_found_a = big_number;
+
+        for (;;) {
+            float old_best_b = best_b;
+
+            for (int i = 0; i < face_count; i++) {
+                block_box_face * face = faces + i;
+
+                if (face->min_a <= best_a && best_a <= face->max_a
+                        && face->min_b <= best_b && best_b <= face->max_b) {
+                    // face contains our coordinate, so move best_b forward
+                    best_b = face->max_b;
+                    min_found_a = MIN(face->max_a, min_found_a);
+                }
+            }
+
+            if (old_best_b == best_b) {
+                // best b didn't change, so test face not contained inside our
+                // list of faces
+                return 0;
+            }
+
+            if (best_b >= test.max_b) {
+                // reached maximum b, so move best_a forward and reset best_b
+                best_b = test.min_b;
+                best_a = min_found_a;
+                break;
+            }
+        }
+
+        if (best_a >= test.max_a) {
+            // reached maximum a, so done!
+            return 1;
+        }
+
+        if (old_best_a == best_a) {
+            // best_a didn't change, so test face not contained inside our
+            // list of faces
+            return 0;
+        }
+    }
+
+    // maximum number of loops reached, very bad!
+    assert(0);
+}
+
+typedef struct {
+    float min_a;
+    float min_b;
+    float max_a;
+    float max_b;
+    float axis_min;
+    float axis_max;
+    float axis_cut;
+} intersect_test;
+
 static void
 register_block_model(server * serv, int index,
         int box_count, block_box * boxes) {
@@ -1958,6 +2035,37 @@ register_block_model(server * serv, int index,
     assert(index < ARRAY_SIZE(model->boxes));
     for (int i = 0; i < box_count; i++) {
         model->boxes[i] = boxes[i];
+    }
+
+    // compute full faces
+    for (int dir = 0; dir < 6; dir++) {
+        // intersect boxes with 1x1x1 cube and get the faces
+        int face_count = 0;
+        block_box_face faces[box_count];
+
+        for (int i = 0; i < box_count; i++) {
+            block_box box = boxes[i];
+            intersect_test test;
+
+            switch (dir) {
+            case DIRECTION_NEG_Y: test = (intersect_test) {box.min_x, box.min_z, box.max_x, box.max_z, box.min_y, box.max_y, 0}; break;
+            case DIRECTION_POS_Y: test = (intersect_test) {box.min_x, box.min_z, box.max_x, box.max_z, box.min_y, box.max_y, 1}; break;
+            case DIRECTION_NEG_Z: test = (intersect_test) {box.min_x, box.min_y, box.max_x, box.max_y, box.min_z, box.max_z, 0}; break;
+            case DIRECTION_POS_Z: test = (intersect_test) {box.min_x, box.min_y, box.max_x, box.max_y, box.min_z, box.max_z, 1}; break;
+            case DIRECTION_NEG_X: test = (intersect_test) {box.min_y, box.min_z, box.max_y, box.max_z, box.min_x, box.max_x, 0}; break;
+            case DIRECTION_POS_X: test = (intersect_test) {box.min_y, box.min_z, box.max_y, box.max_z, box.min_x, box.max_x, 1}; break;
+            }
+
+            if (test.axis_min <= test.axis_cut && test.axis_cut <= test.axis_max) {
+                faces[face_count] = (block_box_face) {test.min_a, test.min_b, test.max_a, test.max_b};
+                face_count++;
+            }
+        }
+
+        block_box_face test = {0, 0, 1, 1};
+        if (block_box_faces_contain(face_count, faces, test)) {
+            model->full_face_flags |= 1 << dir;
+        }
     }
 }
 

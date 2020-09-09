@@ -694,6 +694,32 @@ set_block:;
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
+static void
+place_dead_coral(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
+    if (target.ch == NULL) {
+        return;
+    }
+
+    mc_ushort state_below = chunk_get_block_state(target.ch,
+            target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
+    // @TODO(traks) don't use collision model for this
+    block_model * model_below = context.serv->block_models + context.serv->collision_model_by_state[state_below];
+    if (!(model_below->full_face_flags & (1 << DIRECTION_POS_Y))) {
+        // face below is not sturdy
+        return;
+    }
+
+    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    modify_waterlogged(&place_info, context.serv, target.cur_state);
+
+    mc_ushort place_state = make_block_state(context.serv, &place_info);
+    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
+            target.pos.z & 0xf, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+}
+
 void
 process_use_item_on_packet(server * serv, entity_base * player,
         mc_int hand, net_block_pos clicked_pos, mc_int clicked_face,
@@ -2081,14 +2107,19 @@ process_use_item_on_packet(server * serv, entity_base * player,
     case ITEM_HORN_CORAL:
         break;
     case ITEM_DEAD_BRAIN_CORAL:
+        place_dead_coral(context, BLOCK_DEAD_BRAIN_CORAL);
         break;
     case ITEM_DEAD_BUBBLE_CORAL:
+        place_dead_coral(context, BLOCK_DEAD_BUBBLE_CORAL);
         break;
     case ITEM_DEAD_FIRE_CORAL:
+        place_dead_coral(context, BLOCK_DEAD_FIRE_CORAL);
         break;
     case ITEM_DEAD_HORN_CORAL:
+        place_dead_coral(context, BLOCK_DEAD_HORN_CORAL);
         break;
     case ITEM_DEAD_TUBE_CORAL:
+        place_dead_coral(context, BLOCK_DEAD_TUBE_CORAL);
         break;
     case ITEM_TUBE_CORAL_FAN:
         break;

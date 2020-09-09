@@ -1158,7 +1158,18 @@ typedef struct {
 } block_box;
 
 typedef struct {
+    float min_a;
+    float min_b;
+    float max_a;
+    float max_b;
+} block_box_face;
+
+typedef struct {
     unsigned char box_count;
+
+    // bit flags indexed by direction of full faces
+    unsigned char full_face_flags;
+
     block_box boxes[8];
 } block_model;
 
@@ -2985,7 +2996,14 @@ typedef struct {
     int block_state_count;
     block_property_spec block_property_specs[BLOCK_PROPERTY_COUNT];
     block_model block_models[128];
+    // @TODO(traks) a function should be used to access these. Some blocks
+    // require some computation to get their actual collision box depending on
+    // their coordinates in the world, such as bamboo. Another issue is that
+    // shulker box collision models depend on their tile entity state (opened or
+    // not) and not on their block state.
     mc_ubyte collision_model_by_state[18000];
+    // @TODO(traks) there should be a separate array for support models (some
+    // blocks use a different support model than collision model)
 
     dimension_type dimension_types[32];
     int dimension_type_count;
