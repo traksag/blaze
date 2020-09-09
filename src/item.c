@@ -7,6 +7,7 @@ typedef struct {
     net_block_pos pos;
     mc_ushort cur_state;
     mc_int cur_type;
+    int replacing;
 } place_target;
 
 typedef struct {
@@ -87,6 +88,7 @@ determine_place_target(server * serv, net_block_pos clicked_pos,
     mc_ushort cur_state = chunk_get_block_state(ch,
             target_pos.x & 0xf, target_pos.y, target_pos.z & 0xf);
     mc_int cur_type = serv->block_type_by_state[cur_state];
+    int replacing = 1;
 
     if (!can_replace(place_type, cur_type)) {
         target_pos = get_relative_block_pos(target_pos, clicked_face);
@@ -102,6 +104,7 @@ determine_place_target(server * serv, net_block_pos clicked_pos,
         cur_state = chunk_get_block_state(ch,
                 target_pos.x & 0xf, target_pos.y, target_pos.z & 0xf);
         cur_type = serv->block_type_by_state[cur_state];
+        replacing = 0;
 
         if (!can_replace(place_type, cur_type)) {
             return res;
@@ -113,7 +116,8 @@ determine_place_target(server * serv, net_block_pos clicked_pos,
         .ch_pos = ch_pos,
         .pos = target_pos,
         .cur_state = cur_state,
-        .cur_type = cur_type
+        .cur_type = cur_type,
+        .replacing = replacing,
     };
     return res;
 }
@@ -713,6 +717,169 @@ place_dead_coral(place_context context, mc_int place_type) {
 
     block_state_info place_info = describe_default_block_state(context.serv, place_type);
     modify_waterlogged(&place_info, context.serv, target.cur_state);
+
+    mc_ushort place_state = make_block_state(context.serv, &place_info);
+    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
+            target.pos.z & 0xf, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+}
+
+typedef struct {
+    unsigned char directions[6];
+} direction_list;
+
+static direction_list
+get_directions_by_player_rot(entity_base * player) {
+    direction_list res = {0};
+
+    float sin_rot_y = sinf(player->rot_y * RADIANS_PER_DEGREE);
+    float cos_rot_y = cosf(player->rot_y * RADIANS_PER_DEGREE);
+    float sin_rot_x = sinf(player->rot_x * RADIANS_PER_DEGREE);
+    float cos_rot_x = cosf(player->rot_x * RADIANS_PER_DEGREE);
+
+    float look_dist_x = ABS(sin_rot_y * cos_rot_x);
+    float look_dist_z = ABS(cos_rot_y * cos_rot_x);
+    float look_dist_y = ABS(sin_rot_x);
+
+    int ix;
+    int iy;
+    int iz;
+
+    if (look_dist_x > look_dist_y) {
+        if (look_dist_x > look_dist_z) {
+            ix = 0;
+
+            if (look_dist_y > look_dist_z) {
+                iy = 1;
+                iz = 2;
+            } else {
+                iy = 2;
+                iz = 1;
+            }
+        } else {
+            iz = 0;
+            ix = 1;
+            iy = 2;
+        }
+    } else {
+        if (look_dist_x < look_dist_z) {
+            ix = 2;
+
+            if (look_dist_y > look_dist_z) {
+                iy = 0;
+                iz = 1;
+            } else {
+                iy = 1;
+                iz = 0;
+            }
+        } else {
+            iy = 0;
+            ix = 1;
+            iz = 2;
+        }
+    }
+
+    if (sin_rot_y > 0) {
+        res.directions[0 + ix] = DIRECTION_NEG_X;
+        res.directions[5 - ix] = DIRECTION_POS_X;
+    } else {
+        res.directions[0 + ix] = DIRECTION_POS_X;
+        res.directions[5 - ix] = DIRECTION_NEG_X;
+    }
+
+    if (cos_rot_y < 0) {
+        res.directions[0 + iz] = DIRECTION_NEG_Z;
+        res.directions[5 - iz] = DIRECTION_POS_Z;
+    } else {
+        res.directions[0 + iz] = DIRECTION_POS_Z;
+        res.directions[5 - iz] = DIRECTION_NEG_Z;
+    }
+
+    if (sin_rot_x > 0) {
+        res.directions[0 + iy] = DIRECTION_NEG_Y;
+        res.directions[5 - iy] = DIRECTION_POS_Y;
+    } else {
+        res.directions[0 + iy] = DIRECTION_POS_Y;
+        res.directions[5 - iy] = DIRECTION_NEG_Y;
+    }
+
+    return res;
+}
+
+static direction_list
+get_attach_directions_by_preferrence(place_context context, place_target target) {
+    if (target.replacing) {
+        return get_directions_by_player_rot(context.player);
+    } else {
+        direction_list res = get_directions_by_player_rot(context.player);
+
+        // now modify the direction list to prioritise the face they clicked
+        int best_dir = get_opposite_direction(context.clicked_face);
+
+        int last_dir = res.directions[0];
+        int i = 1;
+        while (last_dir != best_dir) {
+            int cur_dir = res.directions[i];
+            res.directions[i] = last_dir;
+            last_dir = cur_dir;
+            i++;
+        }
+        res.directions[0] = best_dir;
+
+        return res;
+    }
+}
+
+static void
+place_dead_coral_fan(place_context context, mc_int base_place_type,
+        mc_int wall_place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, base_place_type);
+    if (target.ch == NULL) {
+        return;
+    }
+
+    direction_list list = get_attach_directions_by_preferrence(context, target);
+    int selected_dir = -1;
+
+    for (int i = 0; i < 6; i++) {
+        int dir = list.directions[i];
+        if (dir == DIRECTION_POS_Y) {
+            continue;
+        }
+
+        net_block_pos attach_pos = get_relative_block_pos(target.pos, dir);
+        chunk_pos ch_pos = {
+            .x = attach_pos.x >> 4,
+            .z = attach_pos.z >> 4,
+        };
+        chunk * attach_ch = get_chunk_if_loaded(ch_pos);
+        if (attach_ch == NULL) {
+            return;
+        }
+
+        mc_ushort wall_state = chunk_get_block_state(attach_ch,
+                attach_pos.x & 0xf, attach_pos.y, attach_pos.z & 0xf);
+        // @TODO(traks) don't use collision model for this
+        block_model * wall_model = context.serv->block_models + context.serv->collision_model_by_state[wall_state];
+        int wall_face = get_opposite_direction(dir);
+        if (!(wall_model->full_face_flags & (1 << wall_face))) {
+            // wall face is not sturdy
+            continue;
+        }
+
+        selected_dir = dir;
+        break;
+    }
+    if (selected_dir == -1) {
+        return;
+    }
+
+    mc_int place_type = selected_dir == DIRECTION_NEG_Y ?
+            base_place_type : wall_place_type;
+    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    modify_waterlogged(&place_info, context.serv, target.cur_state);
+    place_info.horizontal_facing = get_opposite_direction(selected_dir);
 
     mc_ushort place_state = make_block_state(context.serv, &place_info);
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
@@ -2132,14 +2299,19 @@ process_use_item_on_packet(server * serv, entity_base * player,
     case ITEM_HORN_CORAL_FAN:
         break;
     case ITEM_DEAD_TUBE_CORAL_FAN:
+        place_dead_coral_fan(context, BLOCK_DEAD_TUBE_CORAL_FAN, BLOCK_DEAD_TUBE_CORAL_WALL_FAN);
         break;
     case ITEM_DEAD_BRAIN_CORAL_FAN:
+        place_dead_coral_fan(context, BLOCK_DEAD_BRAIN_CORAL_FAN, BLOCK_DEAD_BRAIN_CORAL_WALL_FAN);
         break;
     case ITEM_DEAD_BUBBLE_CORAL_FAN:
+        place_dead_coral_fan(context, BLOCK_DEAD_BUBBLE_CORAL_FAN, BLOCK_DEAD_BUBBLE_CORAL_WALL_FAN);
         break;
     case ITEM_DEAD_FIRE_CORAL_FAN:
+        place_dead_coral_fan(context, BLOCK_DEAD_FIRE_CORAL_FAN, BLOCK_DEAD_FIRE_CORAL_WALL_FAN);
         break;
     case ITEM_DEAD_HORN_CORAL_FAN:
+        place_dead_coral_fan(context, BLOCK_DEAD_HORN_CORAL_FAN, BLOCK_DEAD_HORN_CORAL_WALL_FAN);
         break;
     case ITEM_BLUE_ICE:
         place_simple_block(context, BLOCK_BLUE_ICE);
