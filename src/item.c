@@ -1024,7 +1024,13 @@ process_use_item_on_packet(server * serv, entity_base * player,
     // the clicked block
     if (!((player->flags & PLAYER_SHIFTING)
             && (main->type != ITEM_AIR || off->type != ITEM_AIR))) {
-        // @TODO(traks) use clicked block (button, door, etc.)
+        int used_block = use_block(serv, player,
+                hand, clicked_pos, clicked_face,
+                click_offset_x, click_offset_y, click_offset_z,
+                is_inside, scratch_arena);
+        if (used_block) {
+            return;
+        }
     }
 
     // try to use the held item

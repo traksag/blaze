@@ -1548,6 +1548,413 @@ propagate_block_updates_after_change(net_block_pos change_pos,
     }
 }
 
+int
+use_block(server * serv, entity_base * player,
+        mc_int hand, net_block_pos clicked_pos, mc_int clicked_face,
+        float click_offset_x, float click_offset_y, float click_offset_z,
+        mc_ubyte is_inside, memory_arena * scratch_arena) {
+    chunk_pos ch_pos = {
+        .x = clicked_pos.x >> 4,
+        .z = clicked_pos.z >> 4
+    };
+    chunk * ch = get_chunk_if_loaded(ch_pos);
+    if (ch == NULL) {
+        return 0;
+    }
+
+    mc_ushort cur_state = chunk_get_block_state(ch,
+            clicked_pos.x & 0xf, clicked_pos.y, clicked_pos.z & 0xf);
+    block_state_info cur_info = describe_block_state(serv, cur_state);
+    mc_int cur_type = cur_info.block_type;
+
+    switch (cur_type) {
+    case BLOCK_DISPENSER:
+        // @TODO
+        return 0;
+    case BLOCK_NOTE_BLOCK:
+        // @TODO
+        return 0;
+    case BLOCK_WHITE_BED:
+    case BLOCK_ORANGE_BED:
+    case BLOCK_MAGENTA_BED:
+    case BLOCK_LIGHT_BLUE_BED:
+    case BLOCK_YELLOW_BED:
+    case BLOCK_LIME_BED:
+    case BLOCK_PINK_BED:
+    case BLOCK_GRAY_BED:
+    case BLOCK_LIGHT_GRAY_BED:
+    case BLOCK_CYAN_BED:
+    case BLOCK_PURPLE_BED:
+    case BLOCK_BLUE_BED:
+    case BLOCK_BROWN_BED:
+    case BLOCK_GREEN_BED:
+    case BLOCK_RED_BED:
+    case BLOCK_BLACK_BED:
+        // @TODO
+        return 0;
+    case BLOCK_TNT:
+        // @TODO
+        return 0;
+    case BLOCK_CHEST:
+        // @TODO
+        return 0;
+    case BLOCK_REDSTONE_WIRE:
+        // @TODO
+        return 0;
+    case BLOCK_CRAFTING_TABLE:
+        // @TODO
+        return 0;
+    case BLOCK_FURNACE:
+        // @TODO
+        return 0;
+    case BLOCK_OAK_SIGN:
+    case BLOCK_SPRUCE_SIGN:
+    case BLOCK_BIRCH_SIGN:
+    case BLOCK_ACACIA_SIGN:
+    case BLOCK_JUNGLE_SIGN:
+    case BLOCK_DARK_OAK_SIGN:
+    case BLOCK_OAK_WALL_SIGN:
+    case BLOCK_CRIMSON_SIGN:
+    case BLOCK_WARPED_SIGN:
+        // @TODO
+        return 0;
+    case BLOCK_SPRUCE_WALL_SIGN:
+    case BLOCK_BIRCH_WALL_SIGN:
+    case BLOCK_ACACIA_WALL_SIGN:
+    case BLOCK_JUNGLE_WALL_SIGN:
+    case BLOCK_DARK_OAK_WALL_SIGN:
+    case BLOCK_CRIMSON_WALL_SIGN:
+    case BLOCK_WARPED_WALL_SIGN:
+        // @TODO
+        return 0;
+    case BLOCK_LEVER: {
+        // @TODO play flip sound
+        cur_info.powered = !cur_info.powered;
+        mc_ushort new_state = make_block_state(serv, &cur_info);
+        chunk_set_block_state(ch, clicked_pos.x & 0xf, clicked_pos.y,
+                clicked_pos.z & 0xf, new_state);
+        propagate_block_updates_after_change(clicked_pos, serv, scratch_arena);
+        return 1;
+    }
+    case BLOCK_SPRUCE_DOOR:
+    case BLOCK_BIRCH_DOOR:
+    case BLOCK_JUNGLE_DOOR:
+    case BLOCK_ACACIA_DOOR:
+    case BLOCK_DARK_OAK_DOOR:
+    case BLOCK_CRIMSON_DOOR:
+    case BLOCK_WARPED_DOOR: {
+        // @TODO(traks) play opening/closing sound
+        cur_info.open = !cur_info.open;
+        mc_ushort new_state = make_block_state(serv, &cur_info);
+        chunk_set_block_state(ch, clicked_pos.x & 0xf, clicked_pos.y,
+                clicked_pos.z & 0xf, new_state);
+        // this will cause the other half of the door to switch states
+        propagate_block_updates_after_change(clicked_pos, serv, scratch_arena);
+        return 1;
+    }
+    case BLOCK_REDSTONE_ORE:
+        // @TODO
+        return 0;
+    case BLOCK_STONE_BUTTON:
+    case BLOCK_OAK_BUTTON:
+    case BLOCK_SPRUCE_BUTTON:
+    case BLOCK_BIRCH_BUTTON:
+    case BLOCK_JUNGLE_BUTTON:
+    case BLOCK_ACACIA_BUTTON:
+    case BLOCK_DARK_OAK_BUTTON:
+    case BLOCK_CRIMSON_BUTTON:
+    case BLOCK_WARPED_BUTTON:
+    case BLOCK_POLISHED_BLACKSTONE_BUTTON:
+        // @TODO
+        return 0;
+    case BLOCK_JUKEBOX:
+        // @TODO
+        return 0;
+    case BLOCK_OAK_FENCE:
+    case BLOCK_NETHER_BRICK_FENCE:
+    case BLOCK_SPRUCE_FENCE:
+    case BLOCK_BIRCH_FENCE:
+    case BLOCK_JUNGLE_FENCE:
+    case BLOCK_ACACIA_FENCE:
+    case BLOCK_DARK_OAK_FENCE:
+    case BLOCK_CRIMSON_FENCE:
+    case BLOCK_WARPED_FENCE:
+        // @TODO
+        return 0;
+    case BLOCK_PUMPKIN:
+        // @TODO
+        return 0;
+    case BLOCK_CAKE:
+        // @TODO
+        return 0;
+    case BLOCK_REPEATER: {
+        // @TODO(traks) do stuff if there's a signal going through the repeater
+        // currently?
+        cur_info.delay = (cur_info.delay & 0x3) + 1;
+        mc_ushort new_state = make_block_state(serv, &cur_info);
+        chunk_set_block_state(ch, clicked_pos.x & 0xf, clicked_pos.y,
+                clicked_pos.z & 0xf, new_state);
+        propagate_block_updates_after_change(clicked_pos, serv, scratch_arena);
+        return 1;
+    }
+    case BLOCK_OAK_TRAPDOOR:
+    case BLOCK_SPRUCE_TRAPDOOR:
+    case BLOCK_BIRCH_TRAPDOOR:
+    case BLOCK_JUNGLE_TRAPDOOR:
+    case BLOCK_ACACIA_TRAPDOOR:
+    case BLOCK_DARK_OAK_TRAPDOOR:
+    case BLOCK_CRIMSON_TRAPDOOR:
+    case BLOCK_WARPED_TRAPDOOR: {
+        // @TODO(traks) play opening/closing sound
+        cur_info.open = !cur_info.open;
+        mc_ushort new_state = make_block_state(serv, &cur_info);
+        chunk_set_block_state(ch, clicked_pos.x & 0xf, clicked_pos.y,
+                clicked_pos.z & 0xf, new_state);
+        propagate_block_updates_after_change(clicked_pos, serv, scratch_arena);
+        return 1;
+    }
+    case BLOCK_OAK_FENCE_GATE:
+    case BLOCK_SPRUCE_FENCE_GATE:
+    case BLOCK_BIRCH_FENCE_GATE:
+    case BLOCK_JUNGLE_FENCE_GATE:
+    case BLOCK_ACACIA_FENCE_GATE:
+    case BLOCK_DARK_OAK_FENCE_GATE:
+    case BLOCK_CRIMSON_FENCE_GATE:
+    case BLOCK_WARPED_FENCE_GATE:
+        // @TODO
+        return 0;
+    case BLOCK_ENCHANTING_TABLE:
+        // @TODO
+        return 0;
+    case BLOCK_BREWING_STAND:
+        // @TODO
+        return 0;
+    case BLOCK_CAULDRON:
+        // @TODO
+        return 0;
+    case BLOCK_DRAGON_EGG:
+        // @TODO
+        return 0;
+    case BLOCK_ENDER_CHEST:
+        // @TODO
+        return 0;
+    case BLOCK_COMMAND_BLOCK:
+        // @TODO
+        return 0;
+    case BLOCK_REPEATING_COMMAND_BLOCK:
+        // @TODO
+        return 0;
+    case BLOCK_CHAIN_COMMAND_BLOCK:
+        // @TODO
+        return 0;
+    case BLOCK_BEACON:
+        // @TODO
+        return 0;
+    case BLOCK_FLOWER_POT:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_OAK_SAPLING:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_SPRUCE_SAPLING:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_BIRCH_SAPLING:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_JUNGLE_SAPLING:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_ACACIA_SAPLING:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_DARK_OAK_SAPLING:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_FERN:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_DANDELION:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_POPPY:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_BLUE_ORCHID:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_ALLIUM:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_AZURE_BLUET:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_RED_TULIP:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_ORANGE_TULIP:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_WHITE_TULIP:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_PINK_TULIP:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_OXEYE_DAISY:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_CORNFLOWER:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_LILY_OF_THE_VALLEY:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_WITHER_ROSE:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_RED_MUSHROOM:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_BROWN_MUSHROOM:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_DEAD_BUSH:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_CACTUS:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_BAMBOO:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_CRIMSON_FUNGUS:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_WARPED_FUNGUS:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_CRIMSON_ROOTS:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_WARPED_ROOTS:
+        // @TODO
+        return 0;
+    case BLOCK_ANVIL:
+    case BLOCK_CHIPPED_ANVIL:
+    case BLOCK_DAMAGED_ANVIL:
+        // @TODO
+        return 0;
+    case BLOCK_TRAPPED_CHEST:
+        // @TODO
+        return 0;
+    case BLOCK_COMPARATOR: {
+        // @TODO(traks) do stuff if there's a signal going through the
+        // comparator currently
+        // @TODO(traks) play sound
+        cur_info.mode_comparator = !cur_info.mode_comparator;
+        mc_ushort new_state = make_block_state(serv, &cur_info);
+        chunk_set_block_state(ch, clicked_pos.x & 0xf, clicked_pos.y,
+                clicked_pos.z & 0xf, new_state);
+        propagate_block_updates_after_change(clicked_pos, serv, scratch_arena);
+        return 1;
+    }
+    case BLOCK_DAYLIGHT_DETECTOR: {
+        // @TODO(traks) update output signal
+        cur_info.inverted = !cur_info.inverted;
+        mc_ushort new_state = make_block_state(serv, &cur_info);
+        chunk_set_block_state(ch, clicked_pos.x & 0xf, clicked_pos.y,
+                clicked_pos.z & 0xf, new_state);
+        propagate_block_updates_after_change(clicked_pos, serv, scratch_arena);
+        return 1;
+    }
+    case BLOCK_HOPPER:
+        // @TODO
+        return 0;
+    case BLOCK_DROPPER:
+        // @TODO
+        return 0;
+    case BLOCK_SHULKER_BOX:
+    case BLOCK_WHITE_SHULKER_BOX:
+    case BLOCK_ORANGE_SHULKER_BOX:
+    case BLOCK_MAGENTA_SHULKER_BOX:
+    case BLOCK_LIGHT_BLUE_SHULKER_BOX:
+    case BLOCK_YELLOW_SHULKER_BOX:
+    case BLOCK_LIME_SHULKER_BOX:
+    case BLOCK_PINK_SHULKER_BOX:
+    case BLOCK_GRAY_SHULKER_BOX:
+    case BLOCK_LIGHT_GRAY_SHULKER_BOX:
+    case BLOCK_CYAN_SHULKER_BOX:
+    case BLOCK_PURPLE_SHULKER_BOX:
+    case BLOCK_BLUE_SHULKER_BOX:
+    case BLOCK_BROWN_SHULKER_BOX:
+    case BLOCK_GREEN_SHULKER_BOX:
+    case BLOCK_RED_SHULKER_BOX:
+    case BLOCK_BLACK_SHULKER_BOX:
+        // @TODO
+        return 0;
+    case BLOCK_LOOM:
+        // @TODO
+        return 0;
+    case BLOCK_BARREL:
+        // @TODO
+        return 0;
+    case BLOCK_SMOKER:
+        // @TODO
+        return 0;
+    case BLOCK_BLAST_FURNACE:
+        // @TODO
+        return 0;
+    case BLOCK_CARTOGRAPHY_TABLE:
+        // @TODO
+        return 0;
+    case BLOCK_FLETCHING_TABLE:
+        // @TODO
+        return 0;
+    case BLOCK_GRINDSTONE:
+        // @TODO
+        return 0;
+    case BLOCK_LECTERN:
+        // @TODO
+        return 0;
+    case BLOCK_SMITHING_TABLE:
+        // @TODO
+        return 0;
+    case BLOCK_STONECUTTER:
+        // @TODO
+        return 0;
+    case BLOCK_BELL:
+        // @TODO
+        return 0;
+    case BLOCK_CAMPFIRE:
+    case BLOCK_SOUL_CAMPFIRE:
+        // @TODO
+        return 0;
+    case BLOCK_SWEET_BERRY_BUSH:
+        // @TODO
+        return 0;
+    case BLOCK_STRUCTURE_BLOCK:
+        // @TODO
+        return 0;
+    case BLOCK_JIGSAW:
+        // @TODO
+        return 0;
+    case BLOCK_COMPOSTER:
+        // @TODO
+        return 0;
+    case BLOCK_BEE_NEST:
+    case BLOCK_BEEHIVE:
+        // @TODO
+        return 0;
+    case BLOCK_RESPAWN_ANCHOR:
+        // @TODO
+        return 0;
+    default:
+        // other blocks have no use action
+        return 0;
+    }
+}
+
 static void
 register_block_property(server * serv, int id, char * name,
         int value_count, char * * values) {
@@ -2116,7 +2523,7 @@ init_block_data(server * serv) {
     block_box full_box = {0, 0, 0, 1, 1, 1};
     register_block_model(serv, BLOCK_MODEL_FULL, 1, &full_box);
     register_block_model(serv, BLOCK_MODEL_EMPTY, 0, NULL);
-    block_box flower_pot_box = {5.0f / 16, 0, 5.0f / 16, 11.0f / 16, 6, 11.0f / 16};
+    block_box flower_pot_box = {5.0f / 16, 0, 5.0f / 16, 11.0f / 16, 6.0f / 16, 11.0f / 16};
     register_block_model(serv, BLOCK_MODEL_FLOWER_POT, 1, &flower_pot_box);
 
     register_bool_property(serv, BLOCK_PROPERTY_ATTACHED, "attached");

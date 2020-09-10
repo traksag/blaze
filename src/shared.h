@@ -3211,6 +3211,12 @@ process_use_item_on_packet(server * serv, entity_base * player,
         float click_offset_x, float click_offset_y, float click_offset_z,
         mc_ubyte is_inside, memory_arena * scratch_arena);
 
+int
+use_block(server * serv, entity_base * player,
+        mc_int hand, net_block_pos clicked_pos, mc_int clicked_face,
+        float click_offset_x, float click_offset_y, float click_offset_z,
+        mc_ubyte is_inside, memory_arena * scratch_arena);
+
 mc_ubyte
 get_max_stack_size(mc_int item_type);
 
