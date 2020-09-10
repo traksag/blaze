@@ -399,6 +399,17 @@ evict_entity(server * serv, entity_id eid) {
 
 static void
 move_entity(entity_base * entity, server * serv) {
+    // @TODO(traks) Currently our collision system seems to be very different
+    // from Minecraft's collision system, which causes client-server desyncs
+    // when dropping item entities, etc. There are currently also uses with
+    // items following through the ground and then popping back up on the
+    // client's side.
+
+    // @TODO(traks) when you drop an item from high in the air, it often
+    // teleports slightly up after falling for a little while. From what I
+    // recall, vanilla was sometimes doing two item entity movements in one
+    // tick. What's really going on?
+
     double x = entity->x;
     double y = entity->y;
     double z = entity->z;
