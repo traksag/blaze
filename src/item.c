@@ -826,7 +826,7 @@ get_directions_by_player_rot(entity_base * player) {
 }
 
 static direction_list
-get_attach_directions_by_preferrence(place_context context, place_target target) {
+get_attach_directions_by_preference(place_context context, place_target target) {
     if (target.replacing) {
         return get_directions_by_player_rot(context.player);
     } else {
@@ -858,7 +858,11 @@ place_dead_coral_fan(place_context context, mc_int base_place_type,
         return;
     }
 
-    direction_list list = get_attach_directions_by_preferrence(context, target);
+    // @NOTE(traks) Minecraft prefers horizontal directions over block below, if
+    // a horizontal direction appears in this list before NEG_Y.
+    direction_list list = get_attach_directions_by_preference(context, target);
+    int try_horizontal_dirs = 0;
+    int seen_neg_y = 0;
     int selected_dir = -1;
 
     for (int i = 0; i < 6; i++) {
@@ -882,13 +886,26 @@ place_dead_coral_fan(place_context context, mc_int base_place_type,
         // @TODO(traks) don't use collision model for this
         block_model * wall_model = context.serv->block_models + context.serv->collision_model_by_state[wall_state];
         int wall_face = get_opposite_direction(dir);
-        if (!(wall_model->full_face_flags & (1 << wall_face))) {
-            // wall face is not sturdy
-            continue;
-        }
 
-        selected_dir = dir;
-        break;
+        if (dir == DIRECTION_NEG_Y) {
+            seen_neg_y = 1;
+            if (wall_model->full_face_flags & (1 << wall_face)) {
+                // wall face is sturdy
+                selected_dir = dir;
+                if (!try_horizontal_dirs) {
+                    break;
+                }
+            }
+        } else {
+            if (!seen_neg_y) {
+                try_horizontal_dirs = 1;
+            }
+            if (wall_model->full_face_flags & (1 << wall_face)) {
+                // wall face is sturdy
+                selected_dir = dir;
+                break;
+            }
+        }
     }
     if (selected_dir == -1) {
         return;
@@ -898,6 +915,79 @@ place_dead_coral_fan(place_context context, mc_int base_place_type,
             base_place_type : wall_place_type;
     block_state_info place_info = describe_default_block_state(context.serv, place_type);
     place_info.waterlogged = is_full_water(context.serv, target.cur_state);
+    place_info.horizontal_facing = get_opposite_direction(selected_dir);
+
+    mc_ushort place_state = make_block_state(context.serv, &place_info);
+    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
+            target.pos.z & 0xf, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+}
+
+static void
+place_torch(place_context context, mc_int base_place_type,
+        mc_int wall_place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, base_place_type);
+    if (target.ch == NULL) {
+        return;
+    }
+
+    // @NOTE(traks) Minecraft prefers horizontal directions over block below, if
+    // a horizontal direction appears in this list before NEG_Y.
+    direction_list list = get_attach_directions_by_preference(context, target);
+    int try_horizontal_dirs = 0;
+    int seen_neg_y = 0;
+    int selected_dir = -1;
+
+    for (int i = 0; i < 6; i++) {
+        int dir = list.directions[i];
+        if (dir == DIRECTION_POS_Y) {
+            continue;
+        }
+
+        net_block_pos attach_pos = get_relative_block_pos(target.pos, dir);
+        chunk_pos ch_pos = {
+            .x = attach_pos.x >> 4,
+            .z = attach_pos.z >> 4,
+        };
+        chunk * attach_ch = get_chunk_if_loaded(ch_pos);
+        if (attach_ch == NULL) {
+            return;
+        }
+
+        mc_ushort wall_state = chunk_get_block_state(attach_ch,
+                attach_pos.x & 0xf, attach_pos.y, attach_pos.z & 0xf);
+        // @TODO(traks) don't use collision model for this
+        block_model * wall_model = context.serv->block_models + context.serv->collision_model_by_state[wall_state];
+        int wall_face = get_opposite_direction(dir);
+
+        if (dir == DIRECTION_NEG_Y) {
+            seen_neg_y = 1;
+            if (wall_model->pole_face_flags & (1 << wall_face)) {
+                // block has full centre for supporting blocks
+                selected_dir = dir;
+                if (!try_horizontal_dirs) {
+                    break;
+                }
+            }
+        } else {
+            if (!seen_neg_y) {
+                try_horizontal_dirs = 1;
+            }
+            if (wall_model->full_face_flags & (1 << wall_face)) {
+                // wall face is sturdy
+                selected_dir = dir;
+                break;
+            }
+        }
+    }
+    if (selected_dir == -1) {
+        return;
+    }
+
+    mc_int place_type = selected_dir == DIRECTION_NEG_Y ?
+            base_place_type : wall_place_type;
+    block_state_info place_info = describe_default_block_state(context.serv, place_type);
     place_info.horizontal_facing = get_opposite_direction(selected_dir);
 
     mc_ushort place_state = make_block_state(context.serv, &place_info);
@@ -1477,6 +1567,7 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_simple_block(context, BLOCK_OBSIDIAN);
         break;
     case ITEM_TORCH:
+        place_torch(context, BLOCK_TORCH, BLOCK_WALL_TORCH);
         break;
     case ITEM_END_ROD:
         place_end_rod(context, BLOCK_END_ROD);
@@ -1544,6 +1635,7 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_simple_block(context, BLOCK_REDSTONE_ORE);
         break;
     case ITEM_REDSTONE_TORCH:
+        place_torch(context, BLOCK_REDSTONE_TORCH, BLOCK_REDSTONE_WALL_TORCH);
         break;
     case ITEM_SNOW:
         break;
@@ -1599,6 +1691,7 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_simple_pillar(context, BLOCK_POLISHED_BASALT);
         break;
     case ITEM_SOUL_TORCH:
+        place_torch(context, BLOCK_SOUL_TORCH, BLOCK_SOUL_WALL_TORCH);
         break;
     case ITEM_GLOWSTONE:
         place_simple_block(context, BLOCK_GLOWSTONE);

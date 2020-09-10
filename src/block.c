@@ -1973,9 +1973,51 @@ init_snowy_grassy_block(server * serv, mc_int block_type, char * resource_loc) {
     set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 }
 
+typedef struct {
+    float min_a;
+    float min_b;
+    float max_a;
+    float max_b;
+} block_box_face;
+
+typedef struct {
+    float min_a;
+    float min_b;
+    float max_a;
+    float max_b;
+    float axis_min;
+    float axis_max;
+    float axis_cut;
+} intersect_test;
+
 static int
-block_box_faces_contain(int face_count, block_box_face * faces,
-        block_box_face test) {
+block_boxes_contain_face(int box_count, block_box * boxes,
+        block_box slice, int direction) {
+    // intersect boxes with 1x1x1 cube and get the faces
+    int face_count = 0;
+    block_box_face faces[box_count];
+
+    for (int i = 0; i < box_count; i++) {
+        block_box box = boxes[i];
+        intersect_test test;
+
+        switch (direction) {
+        case DIRECTION_NEG_Y: test = (intersect_test) {box.min_x, box.min_z, box.max_x, box.max_z, box.min_y, box.max_y, slice.min_y}; break;
+        case DIRECTION_POS_Y: test = (intersect_test) {box.min_x, box.min_z, box.max_x, box.max_z, box.min_y, box.max_y, slice.max_y}; break;
+        case DIRECTION_NEG_Z: test = (intersect_test) {box.min_x, box.min_y, box.max_x, box.max_y, box.min_z, box.max_z, slice.min_z}; break;
+        case DIRECTION_POS_Z: test = (intersect_test) {box.min_x, box.min_y, box.max_x, box.max_y, box.min_z, box.max_z, slice.max_z}; break;
+        case DIRECTION_NEG_X: test = (intersect_test) {box.min_y, box.min_z, box.max_y, box.max_z, box.min_x, box.max_x, slice.min_x}; break;
+        case DIRECTION_POS_X: test = (intersect_test) {box.min_y, box.min_z, box.max_y, box.max_z, box.min_x, box.max_x, slice.max_x}; break;
+        }
+
+        if (test.axis_min <= test.axis_cut && test.axis_cut <= test.axis_max) {
+            faces[face_count] = (block_box_face) {test.min_a, test.min_b, test.max_a, test.max_b};
+            face_count++;
+        }
+    }
+
+    block_box_face test = {0, 0, 1, 1};
+
     // start at minimum a and b. First we try to move our best_b to the
     // maximum b by checking whether faces contain the coordinate
     // (best_a, best_b). After that we can move best_a forward by a bit. We then
@@ -2040,16 +2082,6 @@ block_box_faces_contain(int face_count, block_box_face * faces,
     assert(0);
 }
 
-typedef struct {
-    float min_a;
-    float min_b;
-    float max_a;
-    float max_b;
-    float axis_min;
-    float axis_max;
-    float axis_cut;
-} intersect_test;
-
 static void
 register_block_model(server * serv, int index,
         int box_count, block_box * boxes) {
@@ -2062,32 +2094,14 @@ register_block_model(server * serv, int index,
 
     // compute full faces
     for (int dir = 0; dir < 6; dir++) {
-        // intersect boxes with 1x1x1 cube and get the faces
-        int face_count = 0;
-        block_box_face faces[box_count];
-
-        for (int i = 0; i < box_count; i++) {
-            block_box box = boxes[i];
-            intersect_test test;
-
-            switch (dir) {
-            case DIRECTION_NEG_Y: test = (intersect_test) {box.min_x, box.min_z, box.max_x, box.max_z, box.min_y, box.max_y, 0}; break;
-            case DIRECTION_POS_Y: test = (intersect_test) {box.min_x, box.min_z, box.max_x, box.max_z, box.min_y, box.max_y, 1}; break;
-            case DIRECTION_NEG_Z: test = (intersect_test) {box.min_x, box.min_y, box.max_x, box.max_y, box.min_z, box.max_z, 0}; break;
-            case DIRECTION_POS_Z: test = (intersect_test) {box.min_x, box.min_y, box.max_x, box.max_y, box.min_z, box.max_z, 1}; break;
-            case DIRECTION_NEG_X: test = (intersect_test) {box.min_y, box.min_z, box.max_y, box.max_z, box.min_x, box.max_x, 0}; break;
-            case DIRECTION_POS_X: test = (intersect_test) {box.min_y, box.min_z, box.max_y, box.max_z, box.min_x, box.max_x, 1}; break;
-            }
-
-            if (test.axis_min <= test.axis_cut && test.axis_cut <= test.axis_max) {
-                faces[face_count] = (block_box_face) {test.min_a, test.min_b, test.max_a, test.max_b};
-                face_count++;
-            }
+        block_box full_box = {0, 0, 0, 1, 1, 1};
+        if (block_boxes_contain_face(box_count, boxes, full_box, dir)) {
+            model->full_face_flags |= 1 << dir;
         }
 
-        block_box_face test = {0, 0, 1, 1};
-        if (block_box_faces_contain(face_count, faces, test)) {
-            model->full_face_flags |= 1 << dir;
+        block_box pole = {7.0f / 16, 0, 7.0f / 16, 9.0f / 16, 1, 9.0f / 16};
+        if (block_boxes_contain_face(box_count, boxes, pole, dir)) {
+            model->pole_face_flags |= 1 << dir;
         }
     }
 }
@@ -2548,7 +2562,7 @@ init_block_data(server * serv) {
     register_block_type(serv, BLOCK_REDSTONE_WALL_TORCH, "minecraft:redstone_wall_torch");
     props = serv->block_properties_table + BLOCK_REDSTONE_WALL_TORCH;
     add_block_property(serv, props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    add_block_property(serv, props, BLOCK_PROPERTY_LIT, "false");
+    add_block_property(serv, props, BLOCK_PROPERTY_LIT, "true");
     finalise_block_props(serv, props);
     set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 

@@ -1161,17 +1161,12 @@ typedef struct {
 } block_box;
 
 typedef struct {
-    float min_a;
-    float min_b;
-    float max_a;
-    float max_b;
-} block_box_face;
-
-typedef struct {
     unsigned char box_count;
 
     // bit flags indexed by direction of full faces
     unsigned char full_face_flags;
+    // bit flags for pole supporting faces
+    unsigned char pole_face_flags;
 
     block_box boxes[8];
 } block_model;
