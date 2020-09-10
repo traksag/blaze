@@ -1174,6 +1174,7 @@ typedef struct {
 enum block_model {
     BLOCK_MODEL_FULL,
     BLOCK_MODEL_EMPTY,
+    BLOCK_MODEL_FLOWER_POT,
 };
 
 enum block_property {

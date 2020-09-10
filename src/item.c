@@ -2792,6 +2792,7 @@ process_use_item_on_packet(server * serv, entity_base * player,
     case ITEM_ITEM_FRAME:
         break;
     case ITEM_FLOWER_POT:
+        place_simple_block(context, BLOCK_FLOWER_POT);
         break;
     case ITEM_CARROT:
         place_crop(context, BLOCK_CARROTS);

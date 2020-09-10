@@ -1924,44 +1924,49 @@ init_anvil_props(server * serv, mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_banner_props(server * serv, mc_int block_type, char * resource_loc) {
+init_banner(server * serv, mc_int block_type, char * resource_loc) {
     register_block_type(serv, block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(serv, props, BLOCK_PROPERTY_ROTATION_16, "0");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 }
 
 static void
-init_wall_banner_props(server * serv, mc_int block_type, char * resource_loc) {
+init_wall_banner(server * serv, mc_int block_type, char * resource_loc) {
     register_block_type(serv, block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(serv, props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 }
 
 static void
-init_coral_props(server * serv, mc_int block_type, char * resource_loc) {
+init_coral(server * serv, mc_int block_type, char * resource_loc) {
     register_block_type(serv, block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(serv, props, BLOCK_PROPERTY_WATERLOGGED, "true");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 }
 
 static void
-init_coral_fan_props(server * serv, mc_int block_type, char * resource_loc) {
+init_coral_fan(server * serv, mc_int block_type, char * resource_loc) {
     register_block_type(serv, block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(serv, props, BLOCK_PROPERTY_WATERLOGGED, "true");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 }
 
 static void
-init_coral_wall_fan_props(server * serv, mc_int block_type, char * resource_loc) {
+init_coral_wall_fan(server * serv, mc_int block_type, char * resource_loc) {
     register_block_type(serv, block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(serv, props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(serv, props, BLOCK_PROPERTY_WATERLOGGED, "true");
     finalise_block_props(serv, props);
+    set_collision_model_for_all_states(serv, props, BLOCK_MODEL_EMPTY);
 }
 
 static void
@@ -2111,6 +2116,8 @@ init_block_data(server * serv) {
     block_box full_box = {0, 0, 0, 1, 1, 1};
     register_block_model(serv, BLOCK_MODEL_FULL, 1, &full_box);
     register_block_model(serv, BLOCK_MODEL_EMPTY, 0, NULL);
+    block_box flower_pot_box = {5.0f / 16, 0, 5.0f / 16, 11.0f / 16, 6, 11.0f / 16};
+    register_block_model(serv, BLOCK_MODEL_FLOWER_POT, 1, &flower_pot_box);
 
     register_bool_property(serv, BLOCK_PROPERTY_ATTACHED, "attached");
     register_bool_property(serv, BLOCK_PROPERTY_BOTTOM, "bottom");
@@ -2854,31 +2861,31 @@ init_block_data(server * serv) {
     init_wall_props(serv, BLOCK_MOSSY_COBBLESTONE_WALL, "minecraft:mossy_cobblestone_wall");
 
     // @TODO(traks) correct pot models
-    init_simple_block(serv, BLOCK_FLOWER_POT, "minecraft:flower_pot", BLOCK_MODEL_FULL);
-    init_simple_block(serv, BLOCK_POTTED_OAK_SAPLING, "minecraft:potted_oak_sapling", BLOCK_MODEL_FULL);
-    init_simple_block(serv, BLOCK_POTTED_SPRUCE_SAPLING, "minecraft:potted_spruce_sapling", BLOCK_MODEL_FULL);
-    init_simple_block(serv, BLOCK_POTTED_BIRCH_SAPLING, "minecraft:potted_birch_sapling", BLOCK_MODEL_FULL);
-    init_simple_block(serv, BLOCK_POTTED_JUNGLE_SAPLING, "minecraft:potted_jungle_sapling", BLOCK_MODEL_FULL);
-    init_simple_block(serv, BLOCK_POTTED_ACACIA_SAPLING, "minecraft:potted_acacia_sapling", BLOCK_MODEL_FULL);
-    init_simple_block(serv, BLOCK_POTTED_DARK_OAK_SAPLING, "minecraft:potted_dark_oak_sapling", BLOCK_MODEL_FULL);
-    init_simple_block(serv, BLOCK_POTTED_FERN, "minecraft:potted_fern", BLOCK_MODEL_FULL);
-    init_simple_block(serv, BLOCK_POTTED_DANDELION, "minecraft:potted_dandelion", BLOCK_MODEL_FULL);
-    init_simple_block(serv, BLOCK_POTTED_POPPY, "minecraft:potted_poppy", BLOCK_MODEL_FULL);
-    init_simple_block(serv, BLOCK_POTTED_BLUE_ORCHID, "minecraft:potted_blue_orchid", BLOCK_MODEL_FULL);
-    init_simple_block(serv, BLOCK_POTTED_ALLIUM, "minecraft:potted_allium", BLOCK_MODEL_FULL);
-    init_simple_block(serv, BLOCK_POTTED_AZURE_BLUET, "minecraft:potted_azure_bluet", BLOCK_MODEL_FULL);
-    init_simple_block(serv, BLOCK_POTTED_RED_TULIP, "minecraft:potted_red_tulip", BLOCK_MODEL_FULL);
-    init_simple_block(serv, BLOCK_POTTED_ORANGE_TULIP, "minecraft:potted_orange_tulip", BLOCK_MODEL_FULL);
-    init_simple_block(serv, BLOCK_POTTED_WHITE_TULIP, "minecraft:potted_white_tulip", BLOCK_MODEL_FULL);
-    init_simple_block(serv, BLOCK_POTTED_PINK_TULIP, "minecraft:potted_pink_tulip", BLOCK_MODEL_FULL);
-    init_simple_block(serv, BLOCK_POTTED_OXEYE_DAISY, "minecraft:potted_oxeye_daisy", BLOCK_MODEL_FULL);
-    init_simple_block(serv, BLOCK_POTTED_CORNFLOWER, "minecraft:potted_cornflower", BLOCK_MODEL_FULL);
-    init_simple_block(serv, BLOCK_POTTED_LILY_OF_THE_VALLEY, "minecraft:potted_lily_of_the_valley", BLOCK_MODEL_FULL);
-    init_simple_block(serv, BLOCK_POTTED_WITHER_ROSE, "minecraft:potted_wither_rose", BLOCK_MODEL_FULL);
-    init_simple_block(serv, BLOCK_POTTED_RED_MUSHROOM, "minecraft:potted_red_mushroom", BLOCK_MODEL_FULL);
-    init_simple_block(serv, BLOCK_POTTED_BROWN_MUSHROOM, "minecraft:potted_brown_mushroom", BLOCK_MODEL_FULL);
-    init_simple_block(serv, BLOCK_POTTED_DEAD_BUSH, "minecraft:potted_dead_bush", BLOCK_MODEL_FULL);
-    init_simple_block(serv, BLOCK_POTTED_CACTUS, "minecraft:potted_cactus", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_FLOWER_POT, "minecraft:flower_pot", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_OAK_SAPLING, "minecraft:potted_oak_sapling", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_SPRUCE_SAPLING, "minecraft:potted_spruce_sapling", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_BIRCH_SAPLING, "minecraft:potted_birch_sapling", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_JUNGLE_SAPLING, "minecraft:potted_jungle_sapling", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_ACACIA_SAPLING, "minecraft:potted_acacia_sapling", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_DARK_OAK_SAPLING, "minecraft:potted_dark_oak_sapling", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_FERN, "minecraft:potted_fern", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_DANDELION, "minecraft:potted_dandelion", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_POPPY, "minecraft:potted_poppy", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_BLUE_ORCHID, "minecraft:potted_blue_orchid", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_ALLIUM, "minecraft:potted_allium", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_AZURE_BLUET, "minecraft:potted_azure_bluet", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_RED_TULIP, "minecraft:potted_red_tulip", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_ORANGE_TULIP, "minecraft:potted_orange_tulip", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_WHITE_TULIP, "minecraft:potted_white_tulip", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_PINK_TULIP, "minecraft:potted_pink_tulip", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_OXEYE_DAISY, "minecraft:potted_oxeye_daisy", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_CORNFLOWER, "minecraft:potted_cornflower", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_LILY_OF_THE_VALLEY, "minecraft:potted_lily_of_the_valley", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_WITHER_ROSE, "minecraft:potted_wither_rose", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_RED_MUSHROOM, "minecraft:potted_red_mushroom", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_BROWN_MUSHROOM, "minecraft:potted_brown_mushroom", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_DEAD_BUSH, "minecraft:potted_dead_bush", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_CACTUS, "minecraft:potted_cactus", BLOCK_MODEL_FLOWER_POT);
 
     register_block_type(serv, BLOCK_CARROTS, "minecraft:carrots");
     props = serv->block_properties_table + BLOCK_CARROTS;
@@ -3070,41 +3077,39 @@ init_block_data(server * serv) {
     init_tall_plant(serv, BLOCK_TALL_GRASS, "minecraft:tall_grass");
     init_tall_plant(serv, BLOCK_LARGE_FERN, "minecraft:large_fern");
 
-    // @TODO(traks) collision models
-    init_banner_props(serv, BLOCK_WHITE_BANNER, "minecraft:white_banner");
-    init_banner_props(serv, BLOCK_ORANGE_BANNER, "minecraft:orange_banner");
-    init_banner_props(serv, BLOCK_MAGENTA_BANNER, "minecraft:magenta_banner");
-    init_banner_props(serv, BLOCK_LIGHT_BLUE_BANNER, "minecraft:light_blue_banner");
-    init_banner_props(serv, BLOCK_YELLOW_BANNER, "minecraft:yellow_banner");
-    init_banner_props(serv, BLOCK_LIME_BANNER, "minecraft:lime_banner");
-    init_banner_props(serv, BLOCK_PINK_BANNER, "minecraft:pink_banner");
-    init_banner_props(serv, BLOCK_GRAY_BANNER, "minecraft:gray_banner");
-    init_banner_props(serv, BLOCK_LIGHT_GRAY_BANNER, "minecraft:light_gray_banner");
-    init_banner_props(serv, BLOCK_CYAN_BANNER, "minecraft:cyan_banner");
-    init_banner_props(serv, BLOCK_PURPLE_BANNER, "minecraft:purple_banner");
-    init_banner_props(serv, BLOCK_BLUE_BANNER, "minecraft:blue_banner");
-    init_banner_props(serv, BLOCK_BROWN_BANNER, "minecraft:brown_banner");
-    init_banner_props(serv, BLOCK_GREEN_BANNER, "minecraft:green_banner");
-    init_banner_props(serv, BLOCK_RED_BANNER, "minecraft:red_banner");
-    init_banner_props(serv, BLOCK_BLACK_BANNER, "minecraft:black_banner");
+    init_banner(serv, BLOCK_WHITE_BANNER, "minecraft:white_banner");
+    init_banner(serv, BLOCK_ORANGE_BANNER, "minecraft:orange_banner");
+    init_banner(serv, BLOCK_MAGENTA_BANNER, "minecraft:magenta_banner");
+    init_banner(serv, BLOCK_LIGHT_BLUE_BANNER, "minecraft:light_blue_banner");
+    init_banner(serv, BLOCK_YELLOW_BANNER, "minecraft:yellow_banner");
+    init_banner(serv, BLOCK_LIME_BANNER, "minecraft:lime_banner");
+    init_banner(serv, BLOCK_PINK_BANNER, "minecraft:pink_banner");
+    init_banner(serv, BLOCK_GRAY_BANNER, "minecraft:gray_banner");
+    init_banner(serv, BLOCK_LIGHT_GRAY_BANNER, "minecraft:light_gray_banner");
+    init_banner(serv, BLOCK_CYAN_BANNER, "minecraft:cyan_banner");
+    init_banner(serv, BLOCK_PURPLE_BANNER, "minecraft:purple_banner");
+    init_banner(serv, BLOCK_BLUE_BANNER, "minecraft:blue_banner");
+    init_banner(serv, BLOCK_BROWN_BANNER, "minecraft:brown_banner");
+    init_banner(serv, BLOCK_GREEN_BANNER, "minecraft:green_banner");
+    init_banner(serv, BLOCK_RED_BANNER, "minecraft:red_banner");
+    init_banner(serv, BLOCK_BLACK_BANNER, "minecraft:black_banner");
 
-    // @TODO(traks) collision models
-    init_wall_banner_props(serv, BLOCK_WHITE_WALL_BANNER, "minecraft:white_wall_banner");
-    init_wall_banner_props(serv, BLOCK_ORANGE_WALL_BANNER, "minecraft:orange_wall_banner");
-    init_wall_banner_props(serv, BLOCK_MAGENTA_WALL_BANNER, "minecraft:magenta_wall_banner");
-    init_wall_banner_props(serv, BLOCK_LIGHT_BLUE_WALL_BANNER, "minecraft:light_blue_wall_banner");
-    init_wall_banner_props(serv, BLOCK_YELLOW_WALL_BANNER, "minecraft:yellow_wall_banner");
-    init_wall_banner_props(serv, BLOCK_LIME_WALL_BANNER, "minecraft:lime_wall_banner");
-    init_wall_banner_props(serv, BLOCK_PINK_WALL_BANNER, "minecraft:pink_wall_banner");
-    init_wall_banner_props(serv, BLOCK_GRAY_WALL_BANNER, "minecraft:gray_wall_banner");
-    init_wall_banner_props(serv, BLOCK_LIGHT_GRAY_WALL_BANNER, "minecraft:light_gray_wall_banner");
-    init_wall_banner_props(serv, BLOCK_CYAN_WALL_BANNER, "minecraft:cyan_wall_banner");
-    init_wall_banner_props(serv, BLOCK_PURPLE_WALL_BANNER, "minecraft:purple_wall_banner");
-    init_wall_banner_props(serv, BLOCK_BLUE_WALL_BANNER, "minecraft:blue_wall_banner");
-    init_wall_banner_props(serv, BLOCK_BROWN_WALL_BANNER, "minecraft:brown_wall_banner");
-    init_wall_banner_props(serv, BLOCK_GREEN_WALL_BANNER, "minecraft:green_wall_banner");
-    init_wall_banner_props(serv, BLOCK_RED_WALL_BANNER, "minecraft:red_wall_banner");
-    init_wall_banner_props(serv, BLOCK_BLACK_WALL_BANNER, "minecraft:black_wall_banner");
+    init_wall_banner(serv, BLOCK_WHITE_WALL_BANNER, "minecraft:white_wall_banner");
+    init_wall_banner(serv, BLOCK_ORANGE_WALL_BANNER, "minecraft:orange_wall_banner");
+    init_wall_banner(serv, BLOCK_MAGENTA_WALL_BANNER, "minecraft:magenta_wall_banner");
+    init_wall_banner(serv, BLOCK_LIGHT_BLUE_WALL_BANNER, "minecraft:light_blue_wall_banner");
+    init_wall_banner(serv, BLOCK_YELLOW_WALL_BANNER, "minecraft:yellow_wall_banner");
+    init_wall_banner(serv, BLOCK_LIME_WALL_BANNER, "minecraft:lime_wall_banner");
+    init_wall_banner(serv, BLOCK_PINK_WALL_BANNER, "minecraft:pink_wall_banner");
+    init_wall_banner(serv, BLOCK_GRAY_WALL_BANNER, "minecraft:gray_wall_banner");
+    init_wall_banner(serv, BLOCK_LIGHT_GRAY_WALL_BANNER, "minecraft:light_gray_wall_banner");
+    init_wall_banner(serv, BLOCK_CYAN_WALL_BANNER, "minecraft:cyan_wall_banner");
+    init_wall_banner(serv, BLOCK_PURPLE_WALL_BANNER, "minecraft:purple_wall_banner");
+    init_wall_banner(serv, BLOCK_BLUE_WALL_BANNER, "minecraft:blue_wall_banner");
+    init_wall_banner(serv, BLOCK_BROWN_WALL_BANNER, "minecraft:brown_wall_banner");
+    init_wall_banner(serv, BLOCK_GREEN_WALL_BANNER, "minecraft:green_wall_banner");
+    init_wall_banner(serv, BLOCK_RED_WALL_BANNER, "minecraft:red_wall_banner");
+    init_wall_banner(serv, BLOCK_BLACK_WALL_BANNER, "minecraft:black_wall_banner");
 
     init_simple_block(serv, BLOCK_RED_SANDSTONE, "minecraft:red_sandstone", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_CHISELED_RED_SANDSTONE, "minecraft:chiseled_red_sandstone", BLOCK_MODEL_FULL);
@@ -3331,41 +3336,38 @@ init_block_data(server * serv) {
     init_simple_block(serv, BLOCK_FIRE_CORAL_BLOCK, "minecraft:fire_coral_block", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_HORN_CORAL_BLOCK, "minecraft:horn_coral_block", BLOCK_MODEL_FULL);
 
-    // @TODO(traks) collision models
-    init_coral_props(serv, BLOCK_DEAD_TUBE_CORAL, "minecraft:dead_tube_coral");
-    init_coral_props(serv, BLOCK_DEAD_BRAIN_CORAL, "minecraft:dead_brain_coral");
-    init_coral_props(serv, BLOCK_DEAD_BUBBLE_CORAL, "minecraft:dead_bubble_coral");
-    init_coral_props(serv, BLOCK_DEAD_FIRE_CORAL, "minecraft:dead_fire_coral");
-    init_coral_props(serv, BLOCK_DEAD_HORN_CORAL, "minecraft:dead_horn_coral");
-    init_coral_props(serv, BLOCK_TUBE_CORAL, "minecraft:tube_coral");
-    init_coral_props(serv, BLOCK_BRAIN_CORAL, "minecraft:brain_coral");
-    init_coral_props(serv, BLOCK_BUBBLE_CORAL, "minecraft:bubble_coral");
-    init_coral_props(serv, BLOCK_FIRE_CORAL, "minecraft:fire_coral");
-    init_coral_props(serv, BLOCK_HORN_CORAL, "minecraft:horn_coral");
+    init_coral(serv, BLOCK_DEAD_TUBE_CORAL, "minecraft:dead_tube_coral");
+    init_coral(serv, BLOCK_DEAD_BRAIN_CORAL, "minecraft:dead_brain_coral");
+    init_coral(serv, BLOCK_DEAD_BUBBLE_CORAL, "minecraft:dead_bubble_coral");
+    init_coral(serv, BLOCK_DEAD_FIRE_CORAL, "minecraft:dead_fire_coral");
+    init_coral(serv, BLOCK_DEAD_HORN_CORAL, "minecraft:dead_horn_coral");
+    init_coral(serv, BLOCK_TUBE_CORAL, "minecraft:tube_coral");
+    init_coral(serv, BLOCK_BRAIN_CORAL, "minecraft:brain_coral");
+    init_coral(serv, BLOCK_BUBBLE_CORAL, "minecraft:bubble_coral");
+    init_coral(serv, BLOCK_FIRE_CORAL, "minecraft:fire_coral");
+    init_coral(serv, BLOCK_HORN_CORAL, "minecraft:horn_coral");
 
-    // @TODO(traks) collision models
-    init_coral_fan_props(serv, BLOCK_DEAD_TUBE_CORAL_FAN, "minecraft:dead_tube_coral_fan");
-    init_coral_fan_props(serv, BLOCK_DEAD_BRAIN_CORAL_FAN, "minecraft:dead_brain_coral_fan");
-    init_coral_fan_props(serv, BLOCK_DEAD_BUBBLE_CORAL_FAN, "minecraft:dead_bubble_coral_fan");
-    init_coral_fan_props(serv, BLOCK_DEAD_FIRE_CORAL_FAN, "minecraft:dead_fire_coral_fan");
-    init_coral_fan_props(serv, BLOCK_DEAD_HORN_CORAL_FAN, "minecraft:dead_horn_coral_fan");
-    init_coral_fan_props(serv, BLOCK_TUBE_CORAL_FAN, "minecraft:tube_coral_fan");
-    init_coral_fan_props(serv, BLOCK_BRAIN_CORAL_FAN, "minecraft:brain_coral_fan");
-    init_coral_fan_props(serv, BLOCK_BUBBLE_CORAL_FAN, "minecraft:bubble_coral_fan");
-    init_coral_fan_props(serv, BLOCK_FIRE_CORAL_FAN, "minecraft:fire_coral_fan");
-    init_coral_fan_props(serv, BLOCK_HORN_CORAL_FAN, "minecraft:horn_coral_fan");
+    init_coral_fan(serv, BLOCK_DEAD_TUBE_CORAL_FAN, "minecraft:dead_tube_coral_fan");
+    init_coral_fan(serv, BLOCK_DEAD_BRAIN_CORAL_FAN, "minecraft:dead_brain_coral_fan");
+    init_coral_fan(serv, BLOCK_DEAD_BUBBLE_CORAL_FAN, "minecraft:dead_bubble_coral_fan");
+    init_coral_fan(serv, BLOCK_DEAD_FIRE_CORAL_FAN, "minecraft:dead_fire_coral_fan");
+    init_coral_fan(serv, BLOCK_DEAD_HORN_CORAL_FAN, "minecraft:dead_horn_coral_fan");
+    init_coral_fan(serv, BLOCK_TUBE_CORAL_FAN, "minecraft:tube_coral_fan");
+    init_coral_fan(serv, BLOCK_BRAIN_CORAL_FAN, "minecraft:brain_coral_fan");
+    init_coral_fan(serv, BLOCK_BUBBLE_CORAL_FAN, "minecraft:bubble_coral_fan");
+    init_coral_fan(serv, BLOCK_FIRE_CORAL_FAN, "minecraft:fire_coral_fan");
+    init_coral_fan(serv, BLOCK_HORN_CORAL_FAN, "minecraft:horn_coral_fan");
 
-    // @TODO(traks) collision models
-    init_coral_wall_fan_props(serv, BLOCK_DEAD_TUBE_CORAL_WALL_FAN, "minecraft:dead_tube_coral_wall_fan");
-    init_coral_wall_fan_props(serv, BLOCK_DEAD_BRAIN_CORAL_WALL_FAN, "minecraft:dead_brain_coral_wall_fan");
-    init_coral_wall_fan_props(serv, BLOCK_DEAD_BUBBLE_CORAL_WALL_FAN, "minecraft:dead_bubble_coral_wall_fan");
-    init_coral_wall_fan_props(serv, BLOCK_DEAD_FIRE_CORAL_WALL_FAN, "minecraft:dead_fire_coral_wall_fan");
-    init_coral_wall_fan_props(serv, BLOCK_DEAD_HORN_CORAL_WALL_FAN, "minecraft:dead_horn_coral_wall_fan");
-    init_coral_wall_fan_props(serv, BLOCK_TUBE_CORAL_WALL_FAN, "minecraft:tube_coral_wall_fan");
-    init_coral_wall_fan_props(serv, BLOCK_BRAIN_CORAL_WALL_FAN, "minecraft:brain_coral_wall_fan");
-    init_coral_wall_fan_props(serv, BLOCK_BUBBLE_CORAL_WALL_FAN, "minecraft:bubble_coral_wall_fan");
-    init_coral_wall_fan_props(serv, BLOCK_FIRE_CORAL_WALL_FAN, "minecraft:fire_coral_wall_fan");
-    init_coral_wall_fan_props(serv, BLOCK_HORN_CORAL_WALL_FAN, "minecraft:horn_coral_wall_fan");
+    init_coral_wall_fan(serv, BLOCK_DEAD_TUBE_CORAL_WALL_FAN, "minecraft:dead_tube_coral_wall_fan");
+    init_coral_wall_fan(serv, BLOCK_DEAD_BRAIN_CORAL_WALL_FAN, "minecraft:dead_brain_coral_wall_fan");
+    init_coral_wall_fan(serv, BLOCK_DEAD_BUBBLE_CORAL_WALL_FAN, "minecraft:dead_bubble_coral_wall_fan");
+    init_coral_wall_fan(serv, BLOCK_DEAD_FIRE_CORAL_WALL_FAN, "minecraft:dead_fire_coral_wall_fan");
+    init_coral_wall_fan(serv, BLOCK_DEAD_HORN_CORAL_WALL_FAN, "minecraft:dead_horn_coral_wall_fan");
+    init_coral_wall_fan(serv, BLOCK_TUBE_CORAL_WALL_FAN, "minecraft:tube_coral_wall_fan");
+    init_coral_wall_fan(serv, BLOCK_BRAIN_CORAL_WALL_FAN, "minecraft:brain_coral_wall_fan");
+    init_coral_wall_fan(serv, BLOCK_BUBBLE_CORAL_WALL_FAN, "minecraft:bubble_coral_wall_fan");
+    init_coral_wall_fan(serv, BLOCK_FIRE_CORAL_WALL_FAN, "minecraft:fire_coral_wall_fan");
+    init_coral_wall_fan(serv, BLOCK_HORN_CORAL_WALL_FAN, "minecraft:horn_coral_wall_fan");
 
     // @TODO(traks) collision models
     register_block_type(serv, BLOCK_SEA_PICKLE, "minecraft:sea_pickle");
@@ -3393,7 +3395,7 @@ init_block_data(server * serv) {
     finalise_block_props(serv, props);
 
     // @TODO(traks) pot collision box
-    init_simple_block(serv, BLOCK_POTTED_BAMBOO, "minecraft:potted_bamboo", BLOCK_MODEL_FULL);
+    init_simple_block(serv, BLOCK_POTTED_BAMBOO, "minecraft:potted_bamboo", BLOCK_MODEL_FLOWER_POT);
     init_simple_block(serv, BLOCK_VOID_AIR, "minecraft:void_air", BLOCK_MODEL_EMPTY);
     init_simple_block(serv, BLOCK_CAVE_AIR, "minecraft:cave_air", BLOCK_MODEL_EMPTY);
 
@@ -3672,10 +3674,10 @@ init_block_data(server * serv) {
     finalise_block_props(serv, props);
     set_collision_model_for_all_states(serv, props, BLOCK_MODEL_FULL);
 
-    init_simple_block(serv, BLOCK_POTTED_CRIMSON_FUNGUS, "minecraft:potted_crimson_fungus", BLOCK_MODEL_EMPTY);
-    init_simple_block(serv, BLOCK_POTTED_WARPED_FUNGUS, "minecraft:potted_warped_fungus", BLOCK_MODEL_EMPTY);
-    init_simple_block(serv, BLOCK_POTTED_CRIMSON_ROOTS, "minecraft:potted_crimson_roots", BLOCK_MODEL_EMPTY);
-    init_simple_block(serv, BLOCK_POTTED_WARPED_ROOTS, "minecraft:potted_warped_roots", BLOCK_MODEL_EMPTY);
+    init_simple_block(serv, BLOCK_POTTED_CRIMSON_FUNGUS, "minecraft:potted_crimson_fungus", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_WARPED_FUNGUS, "minecraft:potted_warped_fungus", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_CRIMSON_ROOTS, "minecraft:potted_crimson_roots", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(serv, BLOCK_POTTED_WARPED_ROOTS, "minecraft:potted_warped_roots", BLOCK_MODEL_FLOWER_POT);
     init_simple_block(serv, BLOCK_LODESTONE, "minecraft:lodestone", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_BLACKSTONE, "minecraft:blackstone", BLOCK_MODEL_FULL);
 
