@@ -30,6 +30,10 @@ can_replace(mc_int place_type, mc_int cur_type) {
         return 0;
     }
 
+    // @TODO(traks) revisit which blocks can be replaced by which blocks. E.g.
+    // tall flower can't be replaced, slabs can be replaced by slabs of the same
+    // type to form a double slab, etc.
+
     switch (cur_type) {
     // air
     case BLOCK_AIR:
@@ -430,25 +434,18 @@ place_leaves(place_context context, mc_int place_type) {
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
-static void
-set_horizontal_facing_by_player_facing(block_state_info * place_info,
-        entity_base * player) {
-    // facing direction is opposite of player facing direction
+static int
+get_player_facing(entity_base * player) {
     float rot_y = player->rot_y;
     int int_rot = (int) floor(rot_y / 90.0f + 0.5f) & 0x3;
     switch (int_rot) {
-    case 0: // +Z
-        place_info->horizontal_facing = DIRECTION_NEG_Z;
-        break;
-    case 1: // -X
-        place_info->horizontal_facing = DIRECTION_POS_X;
-        break;
-    case 2: // -Z
-        place_info->horizontal_facing = DIRECTION_POS_Z;
-        break;
-    case 3: // +X
-        place_info->horizontal_facing = DIRECTION_NEG_X;
-        break;
+    case 0: return DIRECTION_POS_Z;
+    case 1: return DIRECTION_NEG_X;
+    case 2: return DIRECTION_NEG_Z;
+    case 3: return DIRECTION_POS_X;
+    default:
+        assert(0);
+        return -1;
     }
 }
 
@@ -461,7 +458,7 @@ place_horizontal_facing(place_context context, mc_int place_type) {
     }
 
     block_state_info place_info = describe_default_block_state(context.serv, place_type);
-    set_horizontal_facing_by_player_facing(&place_info, context.player);
+    place_info.horizontal_facing = get_opposite_direction(get_player_facing(context.player));
 
     mc_ushort place_state = make_block_state(context.serv, &place_info);
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
@@ -478,7 +475,7 @@ place_end_portal_frame(place_context context, mc_int place_type) {
     }
 
     block_state_info place_info = describe_default_block_state(context.serv, place_type);
-    set_horizontal_facing_by_player_facing(&place_info, context.player);
+    place_info.horizontal_facing = get_opposite_direction(get_player_facing(context.player));
     place_info.eye = 0;
 
     mc_ushort place_state = make_block_state(context.serv, &place_info);
@@ -994,6 +991,60 @@ place_torch(place_context context, mc_int base_place_type,
     chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
             target.pos.z & 0xf, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+}
+
+static void
+place_door(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
+    if (target.ch == NULL) {
+        return;
+    }
+    if (target.pos.y >= MAX_WORLD_Y) {
+        return;
+    }
+
+    mc_ushort state_below = chunk_get_block_state(target.ch,
+            target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
+    // @TODO(traks) don't use collision model for this
+    block_model * model_below = context.serv->block_models + context.serv->collision_model_by_state[state_below];
+    if (!(model_below->full_face_flags & (1 << DIRECTION_POS_Y))) {
+        // face below is not sturdy
+        return;
+    }
+
+    mc_ushort state_above = chunk_get_block_state(target.ch,
+            target.pos.x & 0xf, target.pos.y + 1, target.pos.z & 0xf);
+    mc_int type_above = context.serv->block_type_by_state[state_above];
+
+    if (!can_replace(place_type, type_above)) {
+        return;
+    }
+
+    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    place_info.horizontal_facing = get_player_facing(context.player);
+    place_info.double_block_half = DOUBLE_BLOCK_HALF_LOWER;
+    // @TODO(traks) determine side of the hinge
+    place_info.door_hinge = DOOR_HINGE_LEFT;
+    // @TODO(traks) placed opened door if powered
+    place_info.open = 0;
+    place_info.powered = 0;
+
+    // place lower half
+    mc_ushort place_state = make_block_state(context.serv, &place_info);
+    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
+            target.pos.z & 0xf, place_state);
+
+    // place upper half
+    place_info.double_block_half = DOUBLE_BLOCK_HALF_UPPER;
+    place_state = make_block_state(context.serv, &place_info);
+    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y + 1,
+            target.pos.z & 0xf, place_state);
+
+    // @TODO(traks) process updates for both halves in one loop
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    propagate_block_updates_after_change(get_relative_block_pos(target.pos, DIRECTION_POS_Y),
+            context.serv, context.scratch_arena);
 }
 
 void
@@ -2506,22 +2557,31 @@ process_use_item_on_packet(server * serv, entity_base * player,
     case ITEM_SCAFFOLDING:
         break;
     case ITEM_IRON_DOOR:
+        place_door(context, BLOCK_IRON_DOOR);
         break;
     case ITEM_OAK_DOOR:
+        place_door(context, BLOCK_OAK_DOOR);
         break;
     case ITEM_SPRUCE_DOOR:
+        place_door(context, BLOCK_SPRUCE_DOOR);
         break;
     case ITEM_BIRCH_DOOR:
+        place_door(context, BLOCK_BIRCH_DOOR);
         break;
     case ITEM_JUNGLE_DOOR:
+        place_door(context, BLOCK_JUNGLE_DOOR);
         break;
     case ITEM_ACACIA_DOOR:
+        place_door(context, BLOCK_ACACIA_DOOR);
         break;
     case ITEM_DARK_OAK_DOOR:
+        place_door(context, BLOCK_DARK_OAK_DOOR);
         break;
     case ITEM_CRIMSON_DOOR:
+        place_door(context, BLOCK_CRIMSON_DOOR);
         break;
     case ITEM_WARPED_DOOR:
+        place_door(context, BLOCK_WARPED_DOOR);
         break;
     case ITEM_REPEATER:
         break;

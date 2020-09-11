@@ -555,9 +555,37 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
     case BLOCK_TNT:
         break;
     case BLOCK_TORCH:
-        break;
+    case BLOCK_SOUL_TORCH: {
+        if (from_direction != DIRECTION_NEG_Y) {
+            return 0;
+        }
+
+        // @TODO(traks) don't use collision models for this
+        block_model * model = serv->block_models + serv->collision_model_by_state[from_state];
+        if (model->pole_face_flags & DIRECTION_POS_Y) {
+            return 0;
+        }
+
+        // block below cannot support torch
+        chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, 0);
+        return 1;
+    }
     case BLOCK_WALL_TORCH:
-        break;
+    case BLOCK_SOUL_WALL_TORCH: {
+        if (from_direction != get_opposite_direction(cur_info.horizontal_facing)) {
+            return 0;
+        }
+
+        // @TODO(traks) don't use collision models for this
+        block_model * model = serv->block_models + serv->collision_model_by_state[from_state];
+        if (model->full_face_flags & cur_info.horizontal_facing) {
+            return 0;
+        }
+
+        // wall block cannot support torch
+        chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, 0);
+        return 1;
+    }
     case BLOCK_FIRE:
         break;
     case BLOCK_SOUL_FIRE:
@@ -604,7 +632,64 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
     case BLOCK_DARK_OAK_SIGN:
         break;
     case BLOCK_OAK_DOOR:
-        break;
+    case BLOCK_IRON_DOOR:
+    case BLOCK_SPRUCE_DOOR:
+    case BLOCK_BIRCH_DOOR:
+    case BLOCK_JUNGLE_DOOR:
+    case BLOCK_ACACIA_DOOR:
+    case BLOCK_DARK_OAK_DOOR:
+    case BLOCK_CRIMSON_DOOR:
+    case BLOCK_WARPED_DOOR: {
+        if (from_direction == DIRECTION_POS_Y) {
+            if (cur_info.double_block_half == DOUBLE_BLOCK_HALF_LOWER) {
+                mc_ushort new_state;
+                if (from_type == cur_type
+                        && from_info.double_block_half == DOUBLE_BLOCK_HALF_UPPER) {
+                    cur_info = from_info;
+                    cur_info.double_block_half = DOUBLE_BLOCK_HALF_LOWER;
+                    new_state = make_block_state(serv, &cur_info);
+
+                    if (new_state == cur_state) {
+                        return 0;
+                    }
+                } else {
+                    new_state = 0;
+                }
+
+                chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, new_state);
+                return 1;
+            }
+        } else if (from_direction == DIRECTION_NEG_Y) {
+            if (cur_info.double_block_half == DOUBLE_BLOCK_HALF_UPPER) {
+                mc_ushort new_state;
+                if (from_type == cur_type
+                        && from_info.double_block_half == DOUBLE_BLOCK_HALF_LOWER) {
+                    cur_info = from_info;
+                    cur_info.double_block_half = DOUBLE_BLOCK_HALF_UPPER;
+                    new_state = make_block_state(serv, &cur_info);
+
+                    if (new_state == cur_state) {
+                        return 0;
+                    }
+                } else {
+                    new_state = 0;
+                }
+
+                chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, new_state);
+                return 1;
+            } else {
+                // @TODO(traks) don't use collision models for this
+                block_model * model_below = serv->block_models + serv->collision_model_by_state[from_state];
+                if (model_below->full_face_flags & DIRECTION_POS_Y) {
+                    return 0;
+                }
+
+                chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, 0);
+                return 1;
+            }
+        }
+        return 0;
+    }
     case BLOCK_LADDER:
         break;
     case BLOCK_RAIL:
@@ -626,8 +711,6 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
     case BLOCK_LEVER:
         break;
     case BLOCK_STONE_PRESSURE_PLATE:
-        break;
-    case BLOCK_IRON_DOOR:
         break;
     case BLOCK_OAK_PRESSURE_PLATE:
         break;
@@ -660,10 +743,6 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
     case BLOCK_NETHERRACK:
         break;
     case BLOCK_SOUL_SAND:
-        break;
-    case BLOCK_SOUL_TORCH:
-        break;
-    case BLOCK_SOUL_WALL_TORCH:
         break;
     case BLOCK_NETHER_PORTAL:
         break;
@@ -777,56 +856,6 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
     case BLOCK_COBBLESTONE_WALL:
         break;
     case BLOCK_MOSSY_COBBLESTONE_WALL:
-        break;
-    case BLOCK_FLOWER_POT:
-        break;
-    case BLOCK_POTTED_OAK_SAPLING:
-        break;
-    case BLOCK_POTTED_SPRUCE_SAPLING:
-        break;
-    case BLOCK_POTTED_BIRCH_SAPLING:
-        break;
-    case BLOCK_POTTED_JUNGLE_SAPLING:
-        break;
-    case BLOCK_POTTED_ACACIA_SAPLING:
-        break;
-    case BLOCK_POTTED_DARK_OAK_SAPLING:
-        break;
-    case BLOCK_POTTED_FERN:
-        break;
-    case BLOCK_POTTED_DANDELION:
-        break;
-    case BLOCK_POTTED_POPPY:
-        break;
-    case BLOCK_POTTED_BLUE_ORCHID:
-        break;
-    case BLOCK_POTTED_ALLIUM:
-        break;
-    case BLOCK_POTTED_AZURE_BLUET:
-        break;
-    case BLOCK_POTTED_RED_TULIP:
-        break;
-    case BLOCK_POTTED_ORANGE_TULIP:
-        break;
-    case BLOCK_POTTED_WHITE_TULIP:
-        break;
-    case BLOCK_POTTED_PINK_TULIP:
-        break;
-    case BLOCK_POTTED_OXEYE_DAISY:
-        break;
-    case BLOCK_POTTED_CORNFLOWER:
-        break;
-    case BLOCK_POTTED_LILY_OF_THE_VALLEY:
-        break;
-    case BLOCK_POTTED_WITHER_ROSE:
-        break;
-    case BLOCK_POTTED_RED_MUSHROOM:
-        break;
-    case BLOCK_POTTED_BROWN_MUSHROOM:
-        break;
-    case BLOCK_POTTED_DEAD_BUSH:
-        break;
-    case BLOCK_POTTED_CACTUS:
         break;
     case BLOCK_OAK_BUTTON:
         break;
@@ -1098,16 +1127,6 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
         break;
     case BLOCK_DARK_OAK_FENCE:
         break;
-    case BLOCK_SPRUCE_DOOR:
-        break;
-    case BLOCK_BIRCH_DOOR:
-        break;
-    case BLOCK_JUNGLE_DOOR:
-        break;
-    case BLOCK_ACACIA_DOOR:
-        break;
-    case BLOCK_DARK_OAK_DOOR:
-        break;
     case BLOCK_CHORUS_PLANT:
         break;
     case BLOCK_CHORUS_FLOWER:
@@ -1278,8 +1297,6 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
         break;
     case BLOCK_BAMBOO:
         break;
-    case BLOCK_POTTED_BAMBOO:
-        break;
     case BLOCK_BUBBLE_COLUMN:
         break;
     case BLOCK_POLISHED_GRANITE_STAIRS:
@@ -1426,10 +1443,6 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
         break;
     case BLOCK_WARPED_BUTTON:
         break;
-    case BLOCK_CRIMSON_DOOR:
-        break;
-    case BLOCK_WARPED_DOOR:
-        break;
     case BLOCK_CRIMSON_SIGN:
         break;
     case BLOCK_WARPED_SIGN:
@@ -1451,14 +1464,6 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
     case BLOCK_BEEHIVE:
         break;
     case BLOCK_RESPAWN_ANCHOR:
-        break;
-    case BLOCK_POTTED_CRIMSON_FUNGUS:
-        break;
-    case BLOCK_POTTED_WARPED_FUNGUS:
-        break;
-    case BLOCK_POTTED_CRIMSON_ROOTS:
-        break;
-    case BLOCK_POTTED_WARPED_ROOTS:
         break;
     case BLOCK_BLACKSTONE_STAIRS:
         break;
@@ -1636,6 +1641,7 @@ use_block(server * serv, entity_base * player,
         propagate_block_updates_after_change(clicked_pos, serv, scratch_arena);
         return 1;
     }
+    case BLOCK_OAK_DOOR:
     case BLOCK_SPRUCE_DOOR:
     case BLOCK_BIRCH_DOOR:
     case BLOCK_JUNGLE_DOOR:
