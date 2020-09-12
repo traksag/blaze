@@ -3243,6 +3243,9 @@ int
 can_nether_plant_survive_on(mc_int type_below);
 
 int
+is_bamboo_plantable_on(mc_int type_below);
+
+int
 get_opposite_direction(int direction);
 
 void

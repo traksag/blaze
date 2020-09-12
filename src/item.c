@@ -1047,6 +1047,45 @@ place_door(place_context context, mc_int place_type) {
             context.serv, context.scratch_arena);
 }
 
+static void
+place_bamboo(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
+    if (target.ch == NULL) {
+        return;
+    }
+
+    if (get_water_level(context.serv, target.cur_state) != FLUID_LEVEL_NONE
+            || target.cur_type == BLOCK_LAVA) {
+        return;
+    }
+
+    mc_ushort state_below = chunk_get_block_state(target.ch,
+            target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
+    mc_int type_below = context.serv->block_type_by_state[state_below];
+
+    if (!is_bamboo_plantable_on(type_below)) {
+        return;
+    }
+
+    mc_ushort place_state;
+
+    switch (type_below) {
+    case BLOCK_BAMBOO_SAPLING:
+        place_state = get_default_block_state(context.serv, place_type);
+        break;
+    case BLOCK_BAMBOO:
+        place_state = state_below;
+        break;
+    default:
+        place_state = get_default_block_state(context.serv, BLOCK_BAMBOO_SAPLING);
+    }
+
+    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
+            target.pos.z & 0xf, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+}
+
 void
 process_use_item_on_packet(server * serv, entity_base * player,
         mc_int hand, net_block_pos clicked_pos, mc_int clicked_face,
@@ -1517,6 +1556,7 @@ process_use_item_on_packet(server * serv, entity_base * player,
     case ITEM_KELP:
         break;
     case ITEM_BAMBOO:
+        place_bamboo(context, BLOCK_BAMBOO);
         break;
     case ITEM_GOLD_BLOCK:
         place_simple_block(context, BLOCK_GOLD_BLOCK);

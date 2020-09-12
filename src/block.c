@@ -353,6 +353,26 @@ can_nether_plant_survive_on(mc_int type_below) {
     }
 }
 
+// @TODO(traks) generate block tag from this
+int
+is_bamboo_plantable_on(mc_int type_below) {
+    switch (type_below) {
+    case BLOCK_SAND:
+    case BLOCK_RED_SAND:
+    case BLOCK_BAMBOO:
+    case BLOCK_BAMBOO_SAPLING:
+    case BLOCK_GRAVEL:
+    case BLOCK_DIRT:
+    case BLOCK_GRASS_BLOCK:
+    case BLOCK_PODZOL:
+    case BLOCK_COARSE_DIRT:
+    case BLOCK_MYCELIUM:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
 static int
 update_block(net_block_pos pos, int from_direction, server * serv) {
     // @TODO(traks) ideally all these chunk lookups and block lookups should be
@@ -1293,10 +1313,39 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
         break;
     case BLOCK_CONDUIT:
         break;
-    case BLOCK_BAMBOO_SAPLING:
+    case BLOCK_BAMBOO_SAPLING: {
+        if (from_direction == DIRECTION_NEG_Y) {
+            if (!is_bamboo_plantable_on(from_type)) {
+                chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, 0);
+                return 1;
+            }
+        } else if (from_direction == DIRECTION_POS_Y) {
+            if (from_type == BLOCK_BAMBOO) {
+                mc_ushort new_state = from_state;
+                chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, new_state);
+                return 1;
+            }
+        }
+        return 0;
+    }
+    case BLOCK_BAMBOO: {
+        if (from_direction == DIRECTION_NEG_Y) {
+            if (!is_bamboo_plantable_on(from_type)) {
+                // @TODO(traks) schedule block tick instead of immediately
+                // setting to air
+                chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, 0);
+                return 1;
+            }
+        } else if (from_direction == DIRECTION_POS_Y) {
+            if (from_type == BLOCK_BAMBOO && from_info.age_1 > cur_info.age_1) {
+                mc_ushort new_state = from_state;
+                chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, new_state);
+                return 1;
+            }
+        }
+        return 0;
         break;
-    case BLOCK_BAMBOO:
-        break;
+    }
     case BLOCK_BUBBLE_COLUMN:
         break;
     case BLOCK_POLISHED_GRANITE_STAIRS:
