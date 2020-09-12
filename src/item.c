@@ -2334,36 +2334,52 @@ process_use_item_on_packet(server * serv, entity_base * player,
     case ITEM_BLACK_SHULKER_BOX:
         break;
     case ITEM_WHITE_GLAZED_TERRACOTTA:
+        place_horizontal_facing(context, BLOCK_WHITE_GLAZED_TERRACOTTA);
         break;
     case ITEM_ORANGE_GLAZED_TERRACOTTA:
+        place_horizontal_facing(context, BLOCK_ORANGE_GLAZED_TERRACOTTA);
         break;
     case ITEM_MAGENTA_GLAZED_TERRACOTTA:
+        place_horizontal_facing(context, BLOCK_MAGENTA_GLAZED_TERRACOTTA);
         break;
     case ITEM_LIGHT_BLUE_GLAZED_TERRACOTTA:
+        place_horizontal_facing(context, BLOCK_LIGHT_BLUE_GLAZED_TERRACOTTA);
         break;
     case ITEM_YELLOW_GLAZED_TERRACOTTA:
+        place_horizontal_facing(context, BLOCK_YELLOW_GLAZED_TERRACOTTA);
         break;
     case ITEM_LIME_GLAZED_TERRACOTTA:
+        place_horizontal_facing(context, BLOCK_LIME_GLAZED_TERRACOTTA);
         break;
     case ITEM_PINK_GLAZED_TERRACOTTA:
+        place_horizontal_facing(context, BLOCK_PINK_GLAZED_TERRACOTTA);
         break;
     case ITEM_GRAY_GLAZED_TERRACOTTA:
+        place_horizontal_facing(context, BLOCK_GRAY_GLAZED_TERRACOTTA);
         break;
     case ITEM_LIGHT_GRAY_GLAZED_TERRACOTTA:
+        place_horizontal_facing(context, BLOCK_LIGHT_GRAY_GLAZED_TERRACOTTA);
         break;
     case ITEM_CYAN_GLAZED_TERRACOTTA:
+        place_horizontal_facing(context, BLOCK_CYAN_GLAZED_TERRACOTTA);
         break;
     case ITEM_PURPLE_GLAZED_TERRACOTTA:
+        place_horizontal_facing(context, BLOCK_PURPLE_GLAZED_TERRACOTTA);
         break;
     case ITEM_BLUE_GLAZED_TERRACOTTA:
+        place_horizontal_facing(context, BLOCK_BLUE_GLAZED_TERRACOTTA);
         break;
     case ITEM_BROWN_GLAZED_TERRACOTTA:
+        place_horizontal_facing(context, BLOCK_BROWN_GLAZED_TERRACOTTA);
         break;
     case ITEM_GREEN_GLAZED_TERRACOTTA:
+        place_horizontal_facing(context, BLOCK_GREEN_GLAZED_TERRACOTTA);
         break;
     case ITEM_RED_GLAZED_TERRACOTTA:
+        place_horizontal_facing(context, BLOCK_RED_GLAZED_TERRACOTTA);
         break;
     case ITEM_BLACK_GLAZED_TERRACOTTA:
+        place_horizontal_facing(context, BLOCK_BLACK_GLAZED_TERRACOTTA);
         break;
     case ITEM_WHITE_CONCRETE:
         place_simple_block(context, BLOCK_WHITE_CONCRETE);
