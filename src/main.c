@@ -462,22 +462,13 @@ move_entity(entity_base * entity, server * serv) {
 
         double dt = 1;
 
+        // @TODO(traks) some blocks may have a collision box that is larger than
+        // 1x1x1. Should account for those if they really exist.
         for (int block_x = iter_min_x; block_x <= iter_max_x; block_x++) {
             for (int block_y = iter_min_y; block_y <= iter_max_y; block_y++) {
                 for (int block_z = iter_min_z; block_z <= iter_max_z; block_z++) {
-                    chunk_pos ch_pos = {
-                        .x = block_x >> 4,
-                        .z = block_z >> 4,
-                    };
-                    chunk * ch = get_chunk_if_loaded(ch_pos);
-                    if (ch == NULL) {
-                        // @TODO(traks) what now?
-                        return;
-                    }
-
-                    // @TODO(traks) can fail if y out of bounds
-                    mc_ushort cur_state = chunk_get_block_state(ch,
-                            block_x & 0xf, block_y, block_z & 0xf);
+                    net_block_pos block_pos = {.x = block_x, .y = block_y, .z = block_z};
+                    mc_ushort cur_state = try_get_block_state(serv, block_pos);
 
                     if (cur_state == 0) {
                         continue;
@@ -654,35 +645,27 @@ tick_entity(entity_base * entity, server * serv, memory_arena * tick_arena) {
         if (entity->flags & ENTITY_ON_GROUND) {
             // Bit weird, but this is how MC works. Allows items to slide on
             // slabs if ice is below it.
-            mc_int ground_x = floor(entity->x);
-            mc_int ground_y = floor(entity->y - 0.99);
-            mc_int ground_z = floor(entity->z);
-
-            chunk_pos ch_pos = {
-                .x = ground_x >> 4,
-                .z = ground_z >> 4
+            net_block_pos ground = {
+                .x = floor(entity->x),
+                .y = floor(entity->y - 0.99),
+                .z = floor(entity->z),
             };
 
-            chunk * ch = get_chunk_if_loaded(ch_pos);
-            if (ch != NULL) {
-                // @TODO(traks) make sure this works if Y is out of bounds
-                mc_ushort ground_state = chunk_get_block_state(ch,
-                        ground_x & 0xf, ground_y, ground_z & 0xf);
-                mc_int ground_type = serv->block_type_by_state[ground_state];
+            mc_ushort ground_state = try_get_block_state(serv, ground);
+            mc_int ground_type = serv->block_type_by_state[ground_state];
 
-                // Minecraft block friction
-                float friction;
-                switch (ground_type) {
-                case BLOCK_ICE: friction = 0.98f; break;
-                case BLOCK_SLIME_BLOCK: friction = 0.8f; break;
-                case BLOCK_PACKED_ICE: friction = 0.98f; break;
-                case BLOCK_FROSTED_ICE: friction = 0.98f; break;
-                case BLOCK_BLUE_ICE: friction = 0.989f; break;
-                default: friction = 0.6f; break;
-                }
-
-                drag *= friction;
+            // Minecraft block friction
+            float friction;
+            switch (ground_type) {
+            case BLOCK_ICE: friction = 0.98f; break;
+            case BLOCK_SLIME_BLOCK: friction = 0.8f; break;
+            case BLOCK_PACKED_ICE: friction = 0.98f; break;
+            case BLOCK_FROSTED_ICE: friction = 0.98f; break;
+            case BLOCK_BLUE_ICE: friction = 0.989f; break;
+            default: friction = 0.6f; break;
             }
+
+            drag *= friction;
         }
 
         entity->vx *= drag;
@@ -1594,7 +1577,7 @@ main(void) {
     }
 
     // @TODO(traks) better sizes
-    alloc_resource_loc_table(&serv->block_resource_table, 1 << 10, 1 << 16, BLOCK_TYPE_COUNT);
+    alloc_resource_loc_table(&serv->block_resource_table, 1 << 10, 1 << 16, ACTUAL_BLOCK_TYPE_COUNT);
     alloc_resource_loc_table(&serv->item_resource_table, 1 << 10, 1 << 16, ITEM_TYPE_COUNT);
     alloc_resource_loc_table(&serv->entity_resource_table, 1 << 10, 1 << 12, ENTITY_TYPE_COUNT);
     alloc_resource_loc_table(&serv->fluid_resource_table, 1 << 10, 1 << 10, 5);

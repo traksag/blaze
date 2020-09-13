@@ -977,7 +977,10 @@ enum block_type {
     BLOCK_CHISELED_NETHER_BRICKS,
     BLOCK_CRACKED_NETHER_BRICKS,
     BLOCK_QUARTZ_BRICKS,
-    BLOCK_TYPE_COUNT,
+    VANILLA_BLOCK_TYPE_COUNT,
+    // unknown block type used e.g. if you get a block from an unloaded chunk
+    BLOCK_UNKNOWN = VANILLA_BLOCK_TYPE_COUNT,
+    ACTUAL_BLOCK_TYPE_COUNT,
 };
 
 enum slab_type {
@@ -2989,8 +2992,9 @@ typedef struct {
     resource_loc_table entity_resource_table;
     resource_loc_table fluid_resource_table;
 
-    block_properties block_properties_table[BLOCK_TYPE_COUNT];
-    int block_state_count;
+    block_properties block_properties_table[ACTUAL_BLOCK_TYPE_COUNT];
+    int vanilla_block_state_count;
+    int actual_block_state_count;
     block_property_spec block_property_specs[BLOCK_PROPERTY_COUNT];
     block_model block_models[128];
     // @TODO(traks) a function should be used to access these. Some blocks
@@ -3147,6 +3151,12 @@ get_chunk_if_loaded(chunk_pos pos);
 
 chunk *
 get_chunk_if_available(chunk_pos pos);
+
+mc_ushort
+try_get_block_state(server * serv, net_block_pos pos);
+
+void
+try_set_block_state(server * serv, net_block_pos pos, mc_ushort block_state);
 
 void
 chunk_set_block_state(chunk * ch, int x, int y, int z, mc_ushort block_state);

@@ -378,32 +378,13 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
     // @TODO(traks) ideally all these chunk lookups and block lookups should be
     // cached to make a single block update as fast as possible. It is after all
     // incredibly easy to create tons of block updates in a single tick.
-    chunk_pos cur_ch_pos = {
-        .x = pos.x >> 4,
-        .z = pos.z >> 4,
-    };
-    chunk * cur_ch = get_chunk_if_loaded(cur_ch_pos);
-    if (cur_ch == NULL) {
-        return 0;
-    }
 
-    mc_ushort cur_state = chunk_get_block_state(cur_ch,
-            pos.x & 0xf, pos.y, pos.z & 0xf);
+    mc_ushort cur_state = try_get_block_state(serv, pos);
     block_state_info cur_info = describe_block_state(serv, cur_state);
     mc_int cur_type = cur_info.block_type;
 
     net_block_pos from_pos = get_relative_block_pos(pos, from_direction);
-    chunk_pos from_ch_pos = {
-        .x = from_pos.x >> 4,
-        .z = from_pos.z >> 4,
-    };
-    chunk * from_ch = get_chunk_if_loaded(from_ch_pos);
-    if (from_ch == NULL) {
-        return 0;
-    }
-
-    mc_ushort from_state = chunk_get_block_state(from_ch,
-            from_pos.x & 0xf, from_pos.y, from_pos.z & 0xf);
+    mc_ushort from_state = try_get_block_state(serv, from_pos);
     block_state_info from_info = describe_block_state(serv, from_state);
     mc_int from_type = from_info.block_type;
 
@@ -428,7 +409,7 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
 
         mc_ushort new_state = make_block_state(serv, &cur_info);
         if (new_state != cur_state) {
-            chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, new_state);
+            try_set_block_state(serv, pos, new_state);
             return 1;
         }
         return 0;
@@ -463,7 +444,7 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
             return 0;
         }
 
-        chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, 0);
+        try_set_block_state(serv, pos, 0);
         return 1;
     }
     case BLOCK_WATER:
@@ -542,7 +523,7 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
             return 0;
         }
 
-        chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, 0);
+        try_set_block_state(serv, pos, 0);
         return 1;
     }
     case BLOCK_SEAGRASS:
@@ -565,7 +546,7 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
             return 0;
         }
 
-        chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, 0);
+        try_set_block_state(serv, pos, 0);
         return 1;
     }
     case BLOCK_BROWN_MUSHROOM:
@@ -587,7 +568,7 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
         }
 
         // block below cannot support torch
-        chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, 0);
+        try_set_block_state(serv, pos, 0);
         return 1;
     }
     case BLOCK_WALL_TORCH:
@@ -603,7 +584,7 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
         }
 
         // wall block cannot support torch
-        chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, 0);
+        try_set_block_state(serv, pos, 0);
         return 1;
     }
     case BLOCK_FIRE:
@@ -632,7 +613,7 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
             return 0;
         }
 
-        chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, 0);
+        try_set_block_state(serv, pos, 0);
         return 1;
     }
     case BLOCK_FARMLAND:
@@ -676,7 +657,7 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
                     new_state = 0;
                 }
 
-                chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, new_state);
+                try_set_block_state(serv, pos, new_state);
                 return 1;
             }
         } else if (from_direction == DIRECTION_NEG_Y) {
@@ -695,7 +676,7 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
                     new_state = 0;
                 }
 
-                chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, new_state);
+                try_set_block_state(serv, pos, new_state);
                 return 1;
             } else {
                 // @TODO(traks) don't use collision models for this
@@ -704,7 +685,7 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
                     return 0;
                 }
 
-                chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, 0);
+                try_set_block_state(serv, pos, 0);
                 return 1;
             }
         }
@@ -809,7 +790,7 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
             return 0;
         }
 
-        chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, 0);
+        try_set_block_state(serv, pos, 0);
         return 1;
     }
     case BLOCK_VINE:
@@ -836,7 +817,7 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
             return 0;
         }
 
-        chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, 0);
+        try_set_block_state(serv, pos, 0);
         return 1;
     }
     case BLOCK_ENCHANTING_TABLE:
@@ -992,7 +973,7 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
             return 0;
         }
 
-        chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, 0);
+        try_set_block_state(serv, pos, 0);
         return 1;
     }
     case BLOCK_SUNFLOWER:
@@ -1004,19 +985,19 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
         if (cur_info.double_block_half == DOUBLE_BLOCK_HALF_UPPER) {
             if (from_direction == DIRECTION_NEG_Y && (from_type != cur_type
                     || from_info.double_block_half != DOUBLE_BLOCK_HALF_LOWER)) {
-                chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, 0);
+                try_set_block_state(serv, pos, 0);
                 return 1;
             }
         } else {
             if (from_direction == DIRECTION_NEG_Y) {
                 if (!can_plant_survive_on(from_type)) {
-                    chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, 0);
+                    try_set_block_state(serv, pos, 0);
                     return 1;
                 }
             } else if (from_direction == DIRECTION_POS_Y) {
                 if (from_type != cur_type
                         || from_info.double_block_half != DOUBLE_BLOCK_HALF_UPPER) {
-                    chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, 0);
+                    try_set_block_state(serv, pos, 0);
                     return 1;
                 }
             }
@@ -1316,13 +1297,13 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
     case BLOCK_BAMBOO_SAPLING: {
         if (from_direction == DIRECTION_NEG_Y) {
             if (!is_bamboo_plantable_on(from_type)) {
-                chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, 0);
+                try_set_block_state(serv, pos, 0);
                 return 1;
             }
         } else if (from_direction == DIRECTION_POS_Y) {
             if (from_type == BLOCK_BAMBOO) {
                 mc_ushort new_state = from_state;
-                chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, new_state);
+                try_set_block_state(serv, pos, new_state);
                 return 1;
             }
         }
@@ -1333,13 +1314,13 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
             if (!is_bamboo_plantable_on(from_type)) {
                 // @TODO(traks) schedule block tick instead of immediately
                 // setting to air
-                chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, 0);
+                try_set_block_state(serv, pos, 0);
                 return 1;
             }
         } else if (from_direction == DIRECTION_POS_Y) {
             if (from_type == BLOCK_BAMBOO && from_info.age_1 > cur_info.age_1) {
                 mc_ushort new_state = from_state;
-                chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, new_state);
+                try_set_block_state(serv, pos, new_state);
                 return 1;
             }
         }
@@ -1454,7 +1435,7 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
             return 0;
         }
 
-        chunk_set_block_state(cur_ch, pos.x & 0xf, pos.y, pos.z & 0xf, 0);
+        try_set_block_state(serv, pos, 0);
         return 1;
     case BLOCK_WEEPING_VINES:
         break;
@@ -1607,17 +1588,7 @@ use_block(server * serv, entity_base * player,
         mc_int hand, net_block_pos clicked_pos, mc_int clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
         mc_ubyte is_inside, memory_arena * scratch_arena) {
-    chunk_pos ch_pos = {
-        .x = clicked_pos.x >> 4,
-        .z = clicked_pos.z >> 4
-    };
-    chunk * ch = get_chunk_if_loaded(ch_pos);
-    if (ch == NULL) {
-        return 0;
-    }
-
-    mc_ushort cur_state = chunk_get_block_state(ch,
-            clicked_pos.x & 0xf, clicked_pos.y, clicked_pos.z & 0xf);
+    mc_ushort cur_state = try_get_block_state(serv, clicked_pos);
     block_state_info cur_info = describe_block_state(serv, cur_state);
     mc_int cur_type = cur_info.block_type;
 
@@ -1685,8 +1656,7 @@ use_block(server * serv, entity_base * player,
         // @TODO play flip sound
         cur_info.powered = !cur_info.powered;
         mc_ushort new_state = make_block_state(serv, &cur_info);
-        chunk_set_block_state(ch, clicked_pos.x & 0xf, clicked_pos.y,
-                clicked_pos.z & 0xf, new_state);
+        try_set_block_state(serv, clicked_pos, new_state);
         propagate_block_updates_after_change(clicked_pos, serv, scratch_arena);
         return 1;
     }
@@ -1701,8 +1671,7 @@ use_block(server * serv, entity_base * player,
         // @TODO(traks) play opening/closing sound
         cur_info.open = !cur_info.open;
         mc_ushort new_state = make_block_state(serv, &cur_info);
-        chunk_set_block_state(ch, clicked_pos.x & 0xf, clicked_pos.y,
-                clicked_pos.z & 0xf, new_state);
+        try_set_block_state(serv, clicked_pos, new_state);
         // this will cause the other half of the door to switch states
         propagate_block_updates_after_change(clicked_pos, serv, scratch_arena);
         return 1;
@@ -1747,8 +1716,7 @@ use_block(server * serv, entity_base * player,
         // currently?
         cur_info.delay = (cur_info.delay & 0x3) + 1;
         mc_ushort new_state = make_block_state(serv, &cur_info);
-        chunk_set_block_state(ch, clicked_pos.x & 0xf, clicked_pos.y,
-                clicked_pos.z & 0xf, new_state);
+        try_set_block_state(serv, clicked_pos, new_state);
         propagate_block_updates_after_change(clicked_pos, serv, scratch_arena);
         return 1;
     }
@@ -1763,8 +1731,7 @@ use_block(server * serv, entity_base * player,
         // @TODO(traks) play opening/closing sound
         cur_info.open = !cur_info.open;
         mc_ushort new_state = make_block_state(serv, &cur_info);
-        chunk_set_block_state(ch, clicked_pos.x & 0xf, clicked_pos.y,
-                clicked_pos.z & 0xf, new_state);
+        try_set_block_state(serv, clicked_pos, new_state);
         propagate_block_updates_after_change(clicked_pos, serv, scratch_arena);
         return 1;
     }
@@ -1909,8 +1876,7 @@ use_block(server * serv, entity_base * player,
         // @TODO(traks) play sound
         cur_info.mode_comparator = !cur_info.mode_comparator;
         mc_ushort new_state = make_block_state(serv, &cur_info);
-        chunk_set_block_state(ch, clicked_pos.x & 0xf, clicked_pos.y,
-                clicked_pos.z & 0xf, new_state);
+        try_set_block_state(serv, clicked_pos, new_state);
         propagate_block_updates_after_change(clicked_pos, serv, scratch_arena);
         return 1;
     }
@@ -1918,8 +1884,7 @@ use_block(server * serv, entity_base * player,
         // @TODO(traks) update output signal
         cur_info.inverted = !cur_info.inverted;
         mc_ushort new_state = make_block_state(serv, &cur_info);
-        chunk_set_block_state(ch, clicked_pos.x & 0xf, clicked_pos.y,
-                clicked_pos.z & 0xf, new_state);
+        try_set_block_state(serv, clicked_pos, new_state);
         propagate_block_updates_after_change(clicked_pos, serv, scratch_arena);
         return 1;
     }
@@ -2120,16 +2085,16 @@ count_block_states(server * serv, block_properties * props) {
 
 static void
 finalise_block_props(server * serv, block_properties * props) {
-    props->base_state = serv->block_state_count;
+    props->base_state = serv->actual_block_state_count;
 
     mc_int block_type = props - serv->block_properties_table;
     int block_states = count_block_states(serv, props);
 
     for (int i = 0; i < block_states; i++) {
-        serv->block_type_by_state[serv->block_state_count + i] = block_type;
+        serv->block_type_by_state[serv->actual_block_state_count + i] = block_type;
     }
 
-    serv->block_state_count += block_states;
+    serv->actual_block_state_count += block_states;
 }
 
 static void
@@ -4175,4 +4140,8 @@ init_block_data(server * serv) {
     init_simple_block(serv, BLOCK_CHISELED_NETHER_BRICKS, "minecraft:chiseled_nether_bricks", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_CRACKED_NETHER_BRICKS, "minecraft:crakced_nether_bricks", BLOCK_MODEL_FULL);
     init_simple_block(serv, BLOCK_QUARTZ_BRICKS, "minecraft:quartz_bricks", BLOCK_MODEL_FULL);
+
+    serv->vanilla_block_state_count = serv->actual_block_state_count;
+
+    init_simple_block(serv, BLOCK_UNKNOWN, "blaze:unknown", BLOCK_MODEL_FULL);
 }

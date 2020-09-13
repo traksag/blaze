@@ -125,6 +125,57 @@ hash_chunk_pos(chunk_pos pos) {
 }
 
 mc_ushort
+try_get_block_state(server * serv, net_block_pos pos) {
+    if (pos.y < 0) {
+        return get_default_block_state(serv, BLOCK_VOID_AIR);
+    }
+    if (pos.y > MAX_WORLD_Y) {
+        return get_default_block_state(serv, BLOCK_AIR);
+    }
+
+    chunk_pos ch_pos = {
+        .x = pos.x >> 4,
+        .z = pos.z >> 4
+    };
+
+    chunk * ch = get_chunk_if_loaded(ch_pos);
+    if (ch == NULL) {
+        return get_default_block_state(serv, BLOCK_UNKNOWN);
+    }
+
+    return chunk_get_block_state(ch, pos.x & 0xf, pos.y, pos.z & 0xf);
+}
+
+void
+try_set_block_state(server * serv, net_block_pos pos, mc_ushort block_state) {
+    if (pos.y < 0) {
+        assert(0);
+        return;
+    }
+    if (pos.y > MAX_WORLD_Y) {
+        assert(0);
+        return;
+    }
+    if (block_state >= serv->vanilla_block_state_count) {
+        // catches unknown blocks
+        assert(0);
+        return;
+    }
+
+    chunk_pos ch_pos = {
+        .x = pos.x >> 4,
+        .z = pos.z >> 4
+    };
+
+    chunk * ch = get_chunk_if_loaded(ch_pos);
+    if (ch == NULL) {
+        return;
+    }
+
+    return chunk_set_block_state(ch, pos.x & 0xf, pos.y, pos.z & 0xf, block_state);
+}
+
+mc_ushort
 chunk_get_block_state(chunk * ch, int x, int y, int z) {
     assert(0 <= x && x < 16);
     assert(0 <= y && y < 256);
@@ -134,6 +185,9 @@ chunk_get_block_state(chunk * ch, int x, int y, int z) {
     chunk_section * section = ch->sections[section_y];
 
     if (section == NULL) {
+        // @TODO(traks) would it be possible to have a block type -> default state
+        // lookup here and have it expand to a constant once we pregenerate all
+        // the data tables?
         return 0;
     }
 
@@ -177,7 +231,7 @@ chunk_set_block_state(chunk * ch, int x, int y, int z, mc_ushort block_state) {
 
     if (section == NULL) {
         // @TODO(traks) instead of making block setting fallible, perhaps
-        // getting the chunk should be if chunk sections cannot be allocated
+        // getting the chunk should fail if chunk sections cannot be allocated
         section = alloc_chunk_section();
         if (section == NULL) {
             logs_errno("Failed to allocate section: %s");

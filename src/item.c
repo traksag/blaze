@@ -1,13 +1,14 @@
 #include <math.h>
 #include "shared.h"
 
+#define PLACE_REPLACING ((unsigned) (1 << 0))
+#define PLACE_CAN_PLACE ((unsigned) (1 << 1))
+
 typedef struct {
-    chunk * ch;
-    chunk_pos ch_pos;
     net_block_pos pos;
     mc_ushort cur_state;
+    unsigned char flags;
     mc_int cur_type;
-    int replacing;
 } place_target;
 
 typedef struct {
@@ -80,33 +81,13 @@ determine_place_target(server * serv, net_block_pos clicked_pos,
         mc_int clicked_face, mc_int place_type) {
     place_target res = {0};
     net_block_pos target_pos = clicked_pos;
-    chunk_pos ch_pos = {
-        .x = target_pos.x >> 4,
-        .z = target_pos.z >> 4
-    };
-    chunk * ch = get_chunk_if_loaded(ch_pos);
-    if (ch == NULL) {
-        return res;
-    }
-
-    mc_ushort cur_state = chunk_get_block_state(ch,
-            target_pos.x & 0xf, target_pos.y, target_pos.z & 0xf);
+    mc_ushort cur_state = try_get_block_state(serv, target_pos);
     mc_int cur_type = serv->block_type_by_state[cur_state];
-    int replacing = 1;
+    int replacing = PLACE_REPLACING;
 
     if (!can_replace(place_type, cur_type)) {
         target_pos = get_relative_block_pos(target_pos, clicked_face);
-        ch_pos = (chunk_pos) {
-            .x = target_pos.x >> 4,
-            .z = target_pos.z >> 4
-        };
-        ch = get_chunk_if_loaded(ch_pos);
-        if (ch == NULL) {
-            return res;
-        }
-
-        cur_state = chunk_get_block_state(ch,
-                target_pos.x & 0xf, target_pos.y, target_pos.z & 0xf);
+        cur_state = try_get_block_state(serv, target_pos);
         cur_type = serv->block_type_by_state[cur_state];
         replacing = 0;
 
@@ -116,12 +97,10 @@ determine_place_target(server * serv, net_block_pos clicked_pos,
     }
 
     res = (place_target) {
-        .ch = ch,
-        .ch_pos = ch_pos,
         .pos = target_pos,
         .cur_state = cur_state,
         .cur_type = cur_type,
-        .replacing = replacing,
+        .flags = PLACE_CAN_PLACE | replacing,
     };
     return res;
 }
@@ -130,13 +109,12 @@ static void
 place_simple_block(place_context context, mc_int place_type) {
     place_target target = determine_place_target(context.serv,
             context.clicked_pos, context.clicked_face, place_type);
-    if (target.ch == NULL) {
+    if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
     mc_ushort place_state = get_default_block_state(context.serv, place_type);
-    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
-            target.pos.z & 0xf, place_state);
+    try_set_block_state(context.serv, target.pos, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
@@ -144,13 +122,13 @@ static void
 place_snowy_grassy_block(place_context context, mc_int place_type) {
     place_target target = determine_place_target(context.serv,
             context.clicked_pos, context.clicked_face, place_type);
-    if (target.ch == NULL) {
+    if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
     block_state_info place_info = describe_default_block_state(context.serv, place_type);
-    mc_ushort state_above = chunk_get_block_state(target.ch,
-            target.pos.x & 0xf, target.pos.y + 1, target.pos.z & 0xf);
+    mc_ushort state_above = try_get_block_state(context.serv,
+            get_relative_block_pos(target.pos, DIRECTION_POS_Y));
     mc_int type_above = context.serv->block_type_by_state[state_above];
 
     if (type_above == BLOCK_SNOW_BLOCK || type_above == BLOCK_SNOW) {
@@ -160,8 +138,7 @@ place_snowy_grassy_block(place_context context, mc_int place_type) {
     }
 
     mc_ushort place_state = make_block_state(context.serv, &place_info);
-    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
-            target.pos.z & 0xf, place_state);
+    try_set_block_state(context.serv, target.pos, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
@@ -169,12 +146,12 @@ static void
 place_plant(place_context context, mc_int place_type) {
     place_target target = determine_place_target(context.serv,
             context.clicked_pos, context.clicked_face, place_type);
-    if (target.ch == NULL) {
+    if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort state_below = chunk_get_block_state(target.ch,
-            target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
+    mc_ushort state_below = try_get_block_state(context.serv,
+            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
     mc_int type_below = context.serv->block_type_by_state[state_below];
 
     if (!can_plant_survive_on(type_below)) {
@@ -182,8 +159,7 @@ place_plant(place_context context, mc_int place_type) {
     }
 
     mc_ushort place_state = get_default_block_state(context.serv, place_type);
-    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
-            target.pos.z & 0xf, place_state);
+    try_set_block_state(context.serv, target.pos, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
@@ -191,12 +167,12 @@ static void
 place_dead_bush(place_context context, mc_int place_type) {
     place_target target = determine_place_target(context.serv,
             context.clicked_pos, context.clicked_face, place_type);
-    if (target.ch == NULL) {
+    if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort state_below = chunk_get_block_state(target.ch,
-            target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
+    mc_ushort state_below = try_get_block_state(context.serv,
+            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
     mc_int type_below = context.serv->block_type_by_state[state_below];
 
     if (!can_dead_bush_survive_on(type_below)) {
@@ -204,8 +180,7 @@ place_dead_bush(place_context context, mc_int place_type) {
     }
 
     mc_ushort place_state = get_default_block_state(context.serv, place_type);
-    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
-            target.pos.z & 0xf, place_state);
+    try_set_block_state(context.serv, target.pos, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
@@ -213,12 +188,12 @@ static void
 place_wither_rose(place_context context, mc_int place_type) {
     place_target target = determine_place_target(context.serv,
             context.clicked_pos, context.clicked_face, place_type);
-    if (target.ch == NULL) {
+    if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort state_below = chunk_get_block_state(target.ch,
-            target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
+    mc_ushort state_below = try_get_block_state(context.serv,
+            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
     mc_int type_below = context.serv->block_type_by_state[state_below];
 
     if (!can_wither_rose_survive_on(type_below)) {
@@ -226,8 +201,7 @@ place_wither_rose(place_context context, mc_int place_type) {
     }
 
     mc_ushort place_state = get_default_block_state(context.serv, place_type);
-    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
-            target.pos.z & 0xf, place_state);
+    try_set_block_state(context.serv, target.pos, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
@@ -235,12 +209,12 @@ static void
 place_nether_plant(place_context context, mc_int place_type) {
     place_target target = determine_place_target(context.serv,
             context.clicked_pos, context.clicked_face, place_type);
-    if (target.ch == NULL) {
+    if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort state_below = chunk_get_block_state(target.ch,
-            target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
+    mc_ushort state_below = try_get_block_state(context.serv,
+            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
     mc_int type_below = context.serv->block_type_by_state[state_below];
 
     if (!can_nether_plant_survive_on(type_below)) {
@@ -248,8 +222,7 @@ place_nether_plant(place_context context, mc_int place_type) {
     }
 
     mc_ushort place_state = get_default_block_state(context.serv, place_type);
-    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
-            target.pos.z & 0xf, place_state);
+    try_set_block_state(context.serv, target.pos, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
@@ -275,7 +248,7 @@ static void
 place_simple_pillar(place_context context, mc_int place_type) {
     place_target target = determine_place_target(context.serv,
             context.clicked_pos, context.clicked_face, place_type);
-    if (target.ch == NULL) {
+    if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
@@ -283,8 +256,7 @@ place_simple_pillar(place_context context, mc_int place_type) {
     set_axis_by_clicked_face(&place_info, context.clicked_face);
 
     mc_ushort place_state = make_block_state(context.serv, &place_info);
-    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
-            target.pos.z & 0xf, place_state);
+    try_set_block_state(context.serv, target.pos, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
@@ -326,7 +298,7 @@ static void
 place_chain(place_context context, mc_int place_type) {
     place_target target = determine_place_target(context.serv,
             context.clicked_pos, context.clicked_face, place_type);
-    if (target.ch == NULL) {
+    if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
@@ -335,25 +307,14 @@ place_chain(place_context context, mc_int place_type) {
     place_info.waterlogged = is_water_source(context.serv, target.cur_state);
 
     mc_ushort place_state = make_block_state(context.serv, &place_info);
-    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
-            target.pos.z & 0xf, place_state);
+    try_set_block_state(context.serv, target.pos, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
 static void
 place_slab(place_context context, mc_int place_type) {
     net_block_pos target_pos = context.clicked_pos;
-    chunk_pos ch_pos = {
-        .x = target_pos.x >> 4,
-        .z = target_pos.z >> 4
-    };
-    chunk * ch = get_chunk_if_loaded(ch_pos);
-    if (ch == NULL) {
-        return;
-    }
-
-    mc_ushort cur_state = chunk_get_block_state(ch,
-            target_pos.x & 0xf, target_pos.y, target_pos.z & 0xf);
+    mc_ushort cur_state = try_get_block_state(context.serv, target_pos);
     block_state_info cur_info = describe_block_state(context.serv, cur_state);
     mc_int cur_type = cur_info.block_type;
 
@@ -372,17 +333,7 @@ place_slab(place_context context, mc_int place_type) {
 
     if (!replace_cur) {
         target_pos = get_relative_block_pos(target_pos, context.clicked_face);
-        ch_pos = (chunk_pos) {
-            .x = target_pos.x >> 4,
-            .z = target_pos.z >> 4
-        };
-        ch = get_chunk_if_loaded(ch_pos);
-        if (ch == NULL) {
-            return;
-        }
-
-        cur_state = chunk_get_block_state(ch,
-                target_pos.x & 0xf, target_pos.y, target_pos.z & 0xf);
+        cur_state = try_get_block_state(context.serv, target_pos);
         cur_info = describe_block_state(context.serv, cur_state);
         cur_type = cur_info.block_type;
 
@@ -411,8 +362,7 @@ place_slab(place_context context, mc_int place_type) {
     }
 
     mc_ushort place_state = make_block_state(context.serv, &place_info);
-    chunk_set_block_state(ch, target_pos.x & 0xf, target_pos.y,
-            target_pos.z & 0xf, place_state);
+    try_set_block_state(context.serv, target_pos, place_state);
     propagate_block_updates_after_change(target_pos, context.serv, context.scratch_arena);
 }
 
@@ -420,7 +370,7 @@ static void
 place_leaves(place_context context, mc_int place_type) {
     place_target target = determine_place_target(context.serv,
             context.clicked_pos, context.clicked_face, place_type);
-    if (target.ch == NULL) {
+    if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
@@ -429,8 +379,7 @@ place_leaves(place_context context, mc_int place_type) {
     mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
     place_state += 0; // persistent = true
 
-    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
-            target.pos.z & 0xf, place_state);
+    try_set_block_state(context.serv, target.pos, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
@@ -453,7 +402,7 @@ static void
 place_horizontal_facing(place_context context, mc_int place_type) {
     place_target target = determine_place_target(context.serv,
             context.clicked_pos, context.clicked_face, place_type);
-    if (target.ch == NULL) {
+    if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
@@ -461,8 +410,7 @@ place_horizontal_facing(place_context context, mc_int place_type) {
     place_info.horizontal_facing = get_opposite_direction(get_player_facing(context.player));
 
     mc_ushort place_state = make_block_state(context.serv, &place_info);
-    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
-            target.pos.z & 0xf, place_state);
+    try_set_block_state(context.serv, target.pos, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
@@ -470,7 +418,7 @@ static void
 place_end_portal_frame(place_context context, mc_int place_type) {
     place_target target = determine_place_target(context.serv,
             context.clicked_pos, context.clicked_face, place_type);
-    if (target.ch == NULL) {
+    if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
@@ -479,8 +427,7 @@ place_end_portal_frame(place_context context, mc_int place_type) {
     place_info.eye = 0;
 
     mc_ushort place_state = make_block_state(context.serv, &place_info);
-    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
-            target.pos.z & 0xf, place_state);
+    try_set_block_state(context.serv, target.pos, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
@@ -488,12 +435,12 @@ static void
 place_crop(place_context context, mc_int place_type) {
     place_target target = determine_place_target(context.serv,
             context.clicked_pos, context.clicked_face, place_type);
-    if (target.ch == NULL) {
+    if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort state_below = chunk_get_block_state(target.ch,
-            target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
+    mc_ushort state_below = try_get_block_state(context.serv,
+            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
     mc_int type_below = context.serv->block_type_by_state[state_below];
 
     // @TODO(traks) light level also needs to be sufficient
@@ -505,8 +452,7 @@ place_crop(place_context context, mc_int place_type) {
     }
 
     mc_ushort place_state = get_default_block_state(context.serv, place_type);
-    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
-            target.pos.z & 0xf, place_state);
+    try_set_block_state(context.serv, target.pos, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
@@ -514,12 +460,12 @@ static void
 place_nether_wart(place_context context, mc_int place_type) {
     place_target target = determine_place_target(context.serv,
             context.clicked_pos, context.clicked_face, place_type);
-    if (target.ch == NULL) {
+    if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort state_below = chunk_get_block_state(target.ch,
-            target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
+    mc_ushort state_below = try_get_block_state(context.serv,
+            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
     mc_int type_below = context.serv->block_type_by_state[state_below];
 
     switch (type_below) {
@@ -530,8 +476,7 @@ place_nether_wart(place_context context, mc_int place_type) {
     }
 
     mc_ushort place_state = get_default_block_state(context.serv, place_type);
-    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
-            target.pos.z & 0xf, place_state);
+    try_set_block_state(context.serv, target.pos, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
@@ -539,21 +484,20 @@ static void
 place_carpet(place_context context, mc_int place_type) {
     place_target target = determine_place_target(context.serv,
             context.clicked_pos, context.clicked_face, place_type);
-    if (target.ch == NULL) {
+    if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
     mc_ushort place_state = get_default_block_state(context.serv, place_type);
-    mc_ushort state_below = chunk_get_block_state(target.ch,
-            target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
+    mc_ushort state_below = try_get_block_state(context.serv,
+            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
     mc_int type_below = context.serv->block_type_by_state[state_below];
 
     if (!can_carpet_survive_on(type_below)) {
         return;
     }
 
-    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
-            target.pos.z & 0xf, place_state);
+    try_set_block_state(context.serv, target.pos, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
@@ -561,7 +505,7 @@ static void
 place_mushroom_block(place_context context, mc_int place_type) {
     place_target target = determine_place_target(context.serv,
             context.clicked_pos, context.clicked_face, place_type);
-    if (target.ch == NULL) {
+    if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
@@ -571,17 +515,7 @@ place_mushroom_block(place_context context, mc_int place_type) {
 
     for (int i = 0; i < 6; i++) {
         net_block_pos pos = get_relative_block_pos(target.pos, directions[i]);
-        chunk_pos ch_pos = {
-            .x = pos.x >> 4,
-            .z = pos.z >> 4
-        };
-        chunk * ch = get_chunk_if_loaded(ch_pos);
-        if (ch == NULL) {
-            return;
-        }
-
-        mc_ushort state = chunk_get_block_state(ch,
-                pos.x & 0xf, pos.y, pos.z & 0xf);
+        mc_ushort state = try_get_block_state(context.serv, pos);
         mc_int type = context.serv->block_type_by_state[state];
 
         // connect to neighbouring mushroom blocks of the same type by setting
@@ -594,8 +528,7 @@ place_mushroom_block(place_context context, mc_int place_type) {
     }
 
     mc_ushort place_state = make_block_state(context.serv, &place_info);
-    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
-            target.pos.z & 0xf, place_state);
+    try_set_block_state(context.serv, target.pos, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
@@ -603,7 +536,7 @@ static void
 place_end_rod(place_context context, mc_int place_type) {
     place_target target = determine_place_target(context.serv,
             context.clicked_pos, context.clicked_face, place_type);
-    if (target.ch == NULL) {
+    if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
@@ -612,17 +545,7 @@ place_end_rod(place_context context, mc_int place_type) {
     int opposite_face = get_opposite_direction(context.clicked_face);
 
     net_block_pos opposite_pos = get_relative_block_pos(target.pos, opposite_face);
-    chunk_pos opposite_ch_pos = {
-        .x = opposite_pos.x >> 4,
-        .z = opposite_pos.z >> 4
-    };
-    chunk * opposite_ch = get_chunk_if_loaded(opposite_ch_pos);
-    if (opposite_ch == NULL) {
-        return;
-    }
-
-    mc_ushort opposite_state = chunk_get_block_state(opposite_ch,
-            opposite_pos.x & 0xf, opposite_pos.y, opposite_pos.z & 0xf);
+    mc_ushort opposite_state = try_get_block_state(context.serv, opposite_pos);
     block_state_info opposite_info = describe_block_state(context.serv, opposite_state);
 
     if (opposite_info.block_type == place_type) {
@@ -636,8 +559,7 @@ place_end_rod(place_context context, mc_int place_type) {
     }
 
     mc_ushort place_state = make_block_state(context.serv, &place_info);
-    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
-            target.pos.z & 0xf, place_state);
+    try_set_block_state(context.serv, target.pos, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
@@ -645,12 +567,12 @@ static void
 place_sugar_cane(place_context context, mc_int place_type) {
     place_target target = determine_place_target(context.serv,
             context.clicked_pos, context.clicked_face, place_type);
-    if (target.ch == NULL) {
+    if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort state_below = chunk_get_block_state(target.ch,
-            target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
+    mc_ushort state_below = try_get_block_state(context.serv,
+            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
     mc_int type_below = context.serv->block_type_by_state[state_below];
 
     switch (type_below) {
@@ -675,17 +597,7 @@ place_sugar_cane(place_context context, mc_int place_type) {
 
         for (int i = 0; i < 6; i++) {
             net_block_pos pos = neighbour_pos[i];
-            chunk_pos ch_pos = {
-                .x = pos.x >> 4,
-                .z = pos.z >> 4
-            };
-            chunk * ch = get_chunk_if_loaded(ch_pos);
-            if (ch == NULL) {
-                return;
-            }
-
-            mc_ushort neighbour_state = chunk_get_block_state(ch,
-                    pos.x & 0xf, pos.y, pos.z & 0xf);
+            mc_ushort neighbour_state = try_get_block_state(context.serv, pos);
             mc_int neighbour_type = context.serv->block_type_by_state[neighbour_state];
             switch (neighbour_type) {
             case BLOCK_WATER:
@@ -709,8 +621,7 @@ place_sugar_cane(place_context context, mc_int place_type) {
 
 set_block:;
     mc_ushort place_state = get_default_block_state(context.serv, place_type);
-    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
-            target.pos.z & 0xf, place_state);
+    try_set_block_state(context.serv, target.pos, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
@@ -718,12 +629,12 @@ static void
 place_dead_coral(place_context context, mc_int place_type) {
     place_target target = determine_place_target(context.serv,
             context.clicked_pos, context.clicked_face, place_type);
-    if (target.ch == NULL) {
+    if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort state_below = chunk_get_block_state(target.ch,
-            target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
+    mc_ushort state_below = try_get_block_state(context.serv,
+            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
     // @TODO(traks) don't use collision model for this
     block_model * model_below = context.serv->block_models + context.serv->collision_model_by_state[state_below];
     if (!(model_below->full_face_flags & (1 << DIRECTION_POS_Y))) {
@@ -735,8 +646,7 @@ place_dead_coral(place_context context, mc_int place_type) {
     place_info.waterlogged = is_full_water(context.serv, target.cur_state);
 
     mc_ushort place_state = make_block_state(context.serv, &place_info);
-    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
-            target.pos.z & 0xf, place_state);
+    try_set_block_state(context.serv, target.pos, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
@@ -824,7 +734,7 @@ get_directions_by_player_rot(entity_base * player) {
 
 static direction_list
 get_attach_directions_by_preference(place_context context, place_target target) {
-    if (target.replacing) {
+    if (target.flags & PLACE_REPLACING) {
         return get_directions_by_player_rot(context.player);
     } else {
         direction_list res = get_directions_by_player_rot(context.player);
@@ -851,7 +761,7 @@ place_dead_coral_fan(place_context context, mc_int base_place_type,
         mc_int wall_place_type) {
     place_target target = determine_place_target(context.serv,
             context.clicked_pos, context.clicked_face, base_place_type);
-    if (target.ch == NULL) {
+    if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
@@ -869,17 +779,7 @@ place_dead_coral_fan(place_context context, mc_int base_place_type,
         }
 
         net_block_pos attach_pos = get_relative_block_pos(target.pos, dir);
-        chunk_pos ch_pos = {
-            .x = attach_pos.x >> 4,
-            .z = attach_pos.z >> 4,
-        };
-        chunk * attach_ch = get_chunk_if_loaded(ch_pos);
-        if (attach_ch == NULL) {
-            return;
-        }
-
-        mc_ushort wall_state = chunk_get_block_state(attach_ch,
-                attach_pos.x & 0xf, attach_pos.y, attach_pos.z & 0xf);
+        mc_ushort wall_state = try_get_block_state(context.serv, attach_pos);
         // @TODO(traks) don't use collision model for this
         block_model * wall_model = context.serv->block_models + context.serv->collision_model_by_state[wall_state];
         int wall_face = get_opposite_direction(dir);
@@ -915,8 +815,7 @@ place_dead_coral_fan(place_context context, mc_int base_place_type,
     place_info.horizontal_facing = get_opposite_direction(selected_dir);
 
     mc_ushort place_state = make_block_state(context.serv, &place_info);
-    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
-            target.pos.z & 0xf, place_state);
+    try_set_block_state(context.serv, target.pos, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
@@ -925,7 +824,7 @@ place_torch(place_context context, mc_int base_place_type,
         mc_int wall_place_type) {
     place_target target = determine_place_target(context.serv,
             context.clicked_pos, context.clicked_face, base_place_type);
-    if (target.ch == NULL) {
+    if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
@@ -943,17 +842,7 @@ place_torch(place_context context, mc_int base_place_type,
         }
 
         net_block_pos attach_pos = get_relative_block_pos(target.pos, dir);
-        chunk_pos ch_pos = {
-            .x = attach_pos.x >> 4,
-            .z = attach_pos.z >> 4,
-        };
-        chunk * attach_ch = get_chunk_if_loaded(ch_pos);
-        if (attach_ch == NULL) {
-            return;
-        }
-
-        mc_ushort wall_state = chunk_get_block_state(attach_ch,
-                attach_pos.x & 0xf, attach_pos.y, attach_pos.z & 0xf);
+        mc_ushort wall_state = try_get_block_state(context.serv, attach_pos);
         // @TODO(traks) don't use collision model for this
         block_model * wall_model = context.serv->block_models + context.serv->collision_model_by_state[wall_state];
         int wall_face = get_opposite_direction(dir);
@@ -988,8 +877,7 @@ place_torch(place_context context, mc_int base_place_type,
     place_info.horizontal_facing = get_opposite_direction(selected_dir);
 
     mc_ushort place_state = make_block_state(context.serv, &place_info);
-    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
-            target.pos.z & 0xf, place_state);
+    try_set_block_state(context.serv, target.pos, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
@@ -997,15 +885,15 @@ static void
 place_door(place_context context, mc_int place_type) {
     place_target target = determine_place_target(context.serv,
             context.clicked_pos, context.clicked_face, place_type);
-    if (target.ch == NULL) {
+    if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
     if (target.pos.y >= MAX_WORLD_Y) {
         return;
     }
 
-    mc_ushort state_below = chunk_get_block_state(target.ch,
-            target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
+    mc_ushort state_below = try_get_block_state(context.serv,
+            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
     // @TODO(traks) don't use collision model for this
     block_model * model_below = context.serv->block_models + context.serv->collision_model_by_state[state_below];
     if (!(model_below->full_face_flags & (1 << DIRECTION_POS_Y))) {
@@ -1013,8 +901,8 @@ place_door(place_context context, mc_int place_type) {
         return;
     }
 
-    mc_ushort state_above = chunk_get_block_state(target.ch,
-            target.pos.x & 0xf, target.pos.y + 1, target.pos.z & 0xf);
+    mc_ushort state_above = try_get_block_state(context.serv,
+            get_relative_block_pos(target.pos, DIRECTION_POS_Y));
     mc_int type_above = context.serv->block_type_by_state[state_above];
 
     if (!can_replace(place_type, type_above)) {
@@ -1032,14 +920,12 @@ place_door(place_context context, mc_int place_type) {
 
     // place lower half
     mc_ushort place_state = make_block_state(context.serv, &place_info);
-    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
-            target.pos.z & 0xf, place_state);
+    try_set_block_state(context.serv, target.pos, place_state);
 
     // place upper half
     place_info.double_block_half = DOUBLE_BLOCK_HALF_UPPER;
     place_state = make_block_state(context.serv, &place_info);
-    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y + 1,
-            target.pos.z & 0xf, place_state);
+    try_set_block_state(context.serv, get_relative_block_pos(target.pos, DIRECTION_POS_Y), place_state);
 
     // @TODO(traks) process updates for both halves in one loop
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
@@ -1051,7 +937,7 @@ static void
 place_bamboo(place_context context, mc_int place_type) {
     place_target target = determine_place_target(context.serv,
             context.clicked_pos, context.clicked_face, place_type);
-    if (target.ch == NULL) {
+    if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
@@ -1060,8 +946,8 @@ place_bamboo(place_context context, mc_int place_type) {
         return;
     }
 
-    mc_ushort state_below = chunk_get_block_state(target.ch,
-            target.pos.x & 0xf, target.pos.y - 1, target.pos.z & 0xf);
+    mc_ushort state_below = try_get_block_state(context.serv,
+            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
     mc_int type_below = context.serv->block_type_by_state[state_below];
 
     if (!is_bamboo_plantable_on(type_below)) {
@@ -1081,8 +967,7 @@ place_bamboo(place_context context, mc_int place_type) {
         place_state = get_default_block_state(context.serv, BLOCK_BAMBOO_SAPLING);
     }
 
-    chunk_set_block_state(target.ch, target.pos.x & 0xf, target.pos.y,
-            target.pos.z & 0xf, place_state);
+    try_set_block_state(context.serv, target.pos, place_state);
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 

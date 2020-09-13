@@ -2435,17 +2435,11 @@ send_packets_to_player(entity_base * player, server * serv,
     // send block changes for this player only
     for (int i = 0; i < player->player.changed_block_count; i++) {
         net_block_pos pos = player->player.changed_blocks[i];
-        chunk_pos ch_pos = {
-            .x = pos.x >> 4,
-            .z = pos.z >> 4
-        };
-        chunk * ch = get_chunk_if_loaded(ch_pos);
-        if (ch == NULL) {
+        mc_ushort block_state = try_get_block_state(serv, pos);
+        if (block_state >= serv->vanilla_block_state_count) {
+            // catches unknown blocks
             continue;
         }
-
-        mc_ushort block_state = chunk_get_block_state(ch,
-                pos.x & 0xf, pos.y, pos.z & 0xf);
 
         begin_packet(send_cursor, CBP_BLOCK_UPDATE);
         net_write_block_pos(send_cursor, pos);
