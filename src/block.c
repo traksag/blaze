@@ -373,6 +373,143 @@ is_bamboo_plantable_on(mc_int type_below) {
     }
 }
 
+// @TODO(traks) maybe store this kind of info in block properties and block
+// state info structs
+static int
+is_stairs(mc_int block_type) {
+    switch (block_type) {
+    case BLOCK_OAK_STAIRS:
+    case BLOCK_COBBLESTONE_STAIRS:
+    case BLOCK_BRICK_STAIRS:
+    case BLOCK_STONE_BRICK_STAIRS:
+    case BLOCK_NETHER_BRICK_STAIRS:
+    case BLOCK_SANDSTONE_STAIRS:
+    case BLOCK_SPRUCE_STAIRS:
+    case BLOCK_BIRCH_STAIRS:
+    case BLOCK_JUNGLE_STAIRS:
+    case BLOCK_QUARTZ_STAIRS:
+    case BLOCK_ACACIA_STAIRS:
+    case BLOCK_DARK_OAK_STAIRS:
+    case BLOCK_PRISMARINE_STAIRS:
+    case BLOCK_PRISMARINE_BRICK_STAIRS:
+    case BLOCK_DARK_PRISMARINE_STAIRS:
+    case BLOCK_RED_SANDSTONE_STAIRS:
+    case BLOCK_PURPUR_STAIRS:
+    case BLOCK_POLISHED_GRANITE_STAIRS:
+    case BLOCK_SMOOTH_RED_SANDSTONE_STAIRS:
+    case BLOCK_MOSSY_STONE_BRICK_STAIRS:
+    case BLOCK_POLISHED_DIORITE_STAIRS:
+    case BLOCK_MOSSY_COBBLESTONE_STAIRS:
+    case BLOCK_END_STONE_BRICK_STAIRS:
+    case BLOCK_STONE_STAIRS:
+    case BLOCK_SMOOTH_SANDSTONE_STAIRS:
+    case BLOCK_SMOOTH_QUARTZ_STAIRS:
+    case BLOCK_GRANITE_STAIRS:
+    case BLOCK_ANDESITE_STAIRS:
+    case BLOCK_RED_NETHER_BRICK_STAIRS:
+    case BLOCK_POLISHED_ANDESITE_STAIRS:
+    case BLOCK_DIORITE_STAIRS:
+    case BLOCK_CRIMSON_STAIRS:
+    case BLOCK_WARPED_STAIRS:
+    case BLOCK_BLACKSTONE_STAIRS:
+    case BLOCK_POLISHED_BLACKSTONE_BRICK_STAIRS:
+    case BLOCK_POLISHED_BLACKSTONE_STAIRS:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static int
+rotate_direction_clockwise(int direction) {
+    switch (direction) {
+    case DIRECTION_NEG_Z: return DIRECTION_POS_X;
+    case DIRECTION_POS_X: return DIRECTION_POS_Z;
+    case DIRECTION_POS_Z: return DIRECTION_NEG_X;
+    case DIRECTION_NEG_X: return DIRECTION_NEG_Z;
+    default:
+        assert(0);
+    }
+}
+
+static int
+rotate_direction_counter_clockwise(int direction) {
+    switch (direction) {
+    case DIRECTION_NEG_Z: return DIRECTION_NEG_X;
+    case DIRECTION_NEG_X: return DIRECTION_POS_Z;
+    case DIRECTION_POS_Z: return DIRECTION_POS_X;
+    case DIRECTION_POS_X: return DIRECTION_NEG_Z;
+    default:
+        assert(0);
+    }
+}
+
+void
+update_stairs_shape(server * serv, net_block_pos pos,
+        block_state_info * cur_info) {
+    cur_info->stairs_shape = STAIRS_SHAPE_STRAIGHT;
+
+    // first look on left and right of stairs block to see if there are other
+    // stairs there it must connect to
+    int force_connect_right = 0;
+    int force_connect_left = 0;
+
+    mc_ushort state_right = try_get_block_state(serv,
+            get_relative_block_pos(pos, rotate_direction_clockwise(cur_info->horizontal_facing)));
+    block_state_info info_right = describe_block_state(serv, state_right);
+    if (is_stairs(info_right.block_type)) {
+        if (info_right.half == cur_info->half && info_right.horizontal_facing == cur_info->horizontal_facing) {
+            force_connect_right = 1;
+        }
+    }
+
+    mc_ushort state_left = try_get_block_state(serv,
+            get_relative_block_pos(pos, rotate_direction_counter_clockwise(cur_info->horizontal_facing)));
+    block_state_info info_left = describe_block_state(serv, state_left);
+    if (is_stairs(info_left.block_type)) {
+        if (info_left.half == cur_info->half && info_left.horizontal_facing == cur_info->horizontal_facing) {
+            force_connect_left = 1;
+        }
+    }
+
+    // try to connect with stairs in front
+    mc_ushort state_front = try_get_block_state(serv,
+            get_relative_block_pos(pos,
+                get_opposite_direction(cur_info->horizontal_facing)));
+    block_state_info info_front = describe_block_state(serv, state_front);
+    if (is_stairs(info_front.block_type)) {
+        if (info_front.half == cur_info->half) {
+            if (cur_info->horizontal_facing == rotate_direction_clockwise(info_front.horizontal_facing)) {
+                if (!force_connect_left) {
+                    cur_info->stairs_shape = STAIRS_SHAPE_INNER_LEFT;
+                }
+            } else if (rotate_direction_clockwise(cur_info->horizontal_facing) == info_front.horizontal_facing) {
+                if (!force_connect_right) {
+                    cur_info->stairs_shape = STAIRS_SHAPE_INNER_RIGHT;
+                }
+            }
+        }
+    }
+
+    // try to connect with stairs behind
+    mc_ushort state_behind = try_get_block_state(serv,
+            get_relative_block_pos(pos, cur_info->horizontal_facing));
+    block_state_info info_behind = describe_block_state(serv, state_behind);
+    if (is_stairs(info_behind.block_type)) {
+        if (info_behind.half == cur_info->half) {
+            if (cur_info->horizontal_facing == rotate_direction_clockwise(info_behind.horizontal_facing)) {
+                if (!force_connect_right) {
+                    cur_info->stairs_shape = STAIRS_SHAPE_OUTER_LEFT;
+                }
+            } else if (rotate_direction_clockwise(cur_info->horizontal_facing) == info_behind.horizontal_facing) {
+                if (!force_connect_left) {
+                    cur_info->stairs_shape = STAIRS_SHAPE_OUTER_RIGHT;
+                }
+            }
+        }
+    }
+}
+
 static int
 update_block(net_block_pos pos, int from_direction, server * serv) {
     // @TODO(traks) ideally all these chunk lookups and block lookups should be
@@ -594,7 +731,53 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
     case BLOCK_SPAWNER:
         break;
     case BLOCK_OAK_STAIRS:
-        break;
+    case BLOCK_COBBLESTONE_STAIRS:
+    case BLOCK_BRICK_STAIRS:
+    case BLOCK_STONE_BRICK_STAIRS:
+    case BLOCK_NETHER_BRICK_STAIRS:
+    case BLOCK_SANDSTONE_STAIRS:
+    case BLOCK_SPRUCE_STAIRS:
+    case BLOCK_BIRCH_STAIRS:
+    case BLOCK_JUNGLE_STAIRS:
+    case BLOCK_QUARTZ_STAIRS:
+    case BLOCK_ACACIA_STAIRS:
+    case BLOCK_DARK_OAK_STAIRS:
+    case BLOCK_PRISMARINE_STAIRS:
+    case BLOCK_PRISMARINE_BRICK_STAIRS:
+    case BLOCK_DARK_PRISMARINE_STAIRS:
+    case BLOCK_RED_SANDSTONE_STAIRS:
+    case BLOCK_PURPUR_STAIRS:
+    case BLOCK_POLISHED_GRANITE_STAIRS:
+    case BLOCK_SMOOTH_RED_SANDSTONE_STAIRS:
+    case BLOCK_MOSSY_STONE_BRICK_STAIRS:
+    case BLOCK_POLISHED_DIORITE_STAIRS:
+    case BLOCK_MOSSY_COBBLESTONE_STAIRS:
+    case BLOCK_END_STONE_BRICK_STAIRS:
+    case BLOCK_STONE_STAIRS:
+    case BLOCK_SMOOTH_SANDSTONE_STAIRS:
+    case BLOCK_SMOOTH_QUARTZ_STAIRS:
+    case BLOCK_GRANITE_STAIRS:
+    case BLOCK_ANDESITE_STAIRS:
+    case BLOCK_RED_NETHER_BRICK_STAIRS:
+    case BLOCK_POLISHED_ANDESITE_STAIRS:
+    case BLOCK_DIORITE_STAIRS:
+    case BLOCK_CRIMSON_STAIRS:
+    case BLOCK_WARPED_STAIRS:
+    case BLOCK_BLACKSTONE_STAIRS:
+    case BLOCK_POLISHED_BLACKSTONE_BRICK_STAIRS:
+    case BLOCK_POLISHED_BLACKSTONE_STAIRS: {
+        if (from_direction == DIRECTION_NEG_Y || from_direction == DIRECTION_POS_Y) {
+            return 0;
+        }
+
+        int cur_shape = cur_info.stairs_shape;
+        update_stairs_shape(serv, pos, &cur_info);
+        if (cur_shape == cur_info.stairs_shape) {
+            return 0;
+        }
+        try_set_block_state(serv, pos, make_block_state(serv, &cur_info));
+        return 1;
+    }
     case BLOCK_CHEST:
         break;
     case BLOCK_REDSTONE_WIRE:
@@ -694,8 +877,6 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
     case BLOCK_LADDER:
         break;
     case BLOCK_RAIL:
-        break;
-    case BLOCK_COBBLESTONE_STAIRS:
         break;
     case BLOCK_OAK_WALL_SIGN:
         break;
@@ -797,15 +978,9 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
         break;
     case BLOCK_OAK_FENCE_GATE:
         break;
-    case BLOCK_BRICK_STAIRS:
-        break;
-    case BLOCK_STONE_BRICK_STAIRS:
-        break;
     case BLOCK_LILY_PAD:
         break;
     case BLOCK_NETHER_BRICK_FENCE:
-        break;
-    case BLOCK_NETHER_BRICK_STAIRS:
         break;
     case BLOCK_NETHER_WART: {
         if (from_direction != DIRECTION_NEG_Y) {
@@ -836,19 +1011,11 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
         break;
     case BLOCK_COCOA:
         break;
-    case BLOCK_SANDSTONE_STAIRS:
-        break;
     case BLOCK_ENDER_CHEST:
         break;
     case BLOCK_TRIPWIRE_HOOK:
         break;
     case BLOCK_TRIPWIRE:
-        break;
-    case BLOCK_SPRUCE_STAIRS:
-        break;
-    case BLOCK_BIRCH_STAIRS:
-        break;
-    case BLOCK_JUNGLE_STAIRS:
         break;
     case BLOCK_COMMAND_BLOCK:
         break;
@@ -890,8 +1057,6 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
         break;
     case BLOCK_HOPPER:
         break;
-    case BLOCK_QUARTZ_STAIRS:
-        break;
     case BLOCK_ACTIVATOR_RAIL:
         break;
     case BLOCK_DROPPER:
@@ -928,19 +1093,9 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
         break;
     case BLOCK_BLACK_STAINED_GLASS_PANE:
         break;
-    case BLOCK_ACACIA_STAIRS:
-        break;
-    case BLOCK_DARK_OAK_STAIRS:
-        break;
     case BLOCK_SLIME_BLOCK:
         break;
     case BLOCK_IRON_TRAPDOOR:
-        break;
-    case BLOCK_PRISMARINE_STAIRS:
-        break;
-    case BLOCK_PRISMARINE_BRICK_STAIRS:
-        break;
-    case BLOCK_DARK_PRISMARINE_STAIRS:
         break;
     case BLOCK_PRISMARINE_SLAB:
         break;
@@ -1068,8 +1223,6 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
         break;
     case BLOCK_BLACK_WALL_BANNER:
         break;
-    case BLOCK_RED_SANDSTONE_STAIRS:
-        break;
     case BLOCK_OAK_SLAB:
         break;
     case BLOCK_SPRUCE_SLAB:
@@ -1131,8 +1284,6 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
     case BLOCK_CHORUS_PLANT:
         break;
     case BLOCK_CHORUS_FLOWER:
-        break;
-    case BLOCK_PURPUR_STAIRS:
         break;
     case BLOCK_GRASS_PATH:
         break;
@@ -1329,34 +1480,6 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
     }
     case BLOCK_BUBBLE_COLUMN:
         break;
-    case BLOCK_POLISHED_GRANITE_STAIRS:
-        break;
-    case BLOCK_SMOOTH_RED_SANDSTONE_STAIRS:
-        break;
-    case BLOCK_MOSSY_STONE_BRICK_STAIRS:
-        break;
-    case BLOCK_POLISHED_DIORITE_STAIRS:
-        break;
-    case BLOCK_MOSSY_COBBLESTONE_STAIRS:
-        break;
-    case BLOCK_END_STONE_BRICK_STAIRS:
-        break;
-    case BLOCK_STONE_STAIRS:
-        break;
-    case BLOCK_SMOOTH_SANDSTONE_STAIRS:
-        break;
-    case BLOCK_SMOOTH_QUARTZ_STAIRS:
-        break;
-    case BLOCK_GRANITE_STAIRS:
-        break;
-    case BLOCK_ANDESITE_STAIRS:
-        break;
-    case BLOCK_RED_NETHER_BRICK_STAIRS:
-        break;
-    case BLOCK_POLISHED_ANDESITE_STAIRS:
-        break;
-    case BLOCK_DIORITE_STAIRS:
-        break;
     case BLOCK_POLISHED_GRANITE_SLAB:
         break;
     case BLOCK_SMOOTH_RED_SANDSTONE_SLAB:
@@ -1465,10 +1588,6 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
         break;
     case BLOCK_WARPED_FENCE_GATE:
         break;
-    case BLOCK_CRIMSON_STAIRS:
-        break;
-    case BLOCK_WARPED_STAIRS:
-        break;
     case BLOCK_CRIMSON_BUTTON:
         break;
     case BLOCK_WARPED_BUTTON:
@@ -1495,19 +1614,13 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
         break;
     case BLOCK_RESPAWN_ANCHOR:
         break;
-    case BLOCK_BLACKSTONE_STAIRS:
-        break;
     case BLOCK_BLACKSTONE_WALL:
         break;
     case BLOCK_BLACKSTONE_SLAB:
         break;
     case BLOCK_POLISHED_BLACKSTONE_BRICK_SLAB:
         break;
-    case BLOCK_POLISHED_BLACKSTONE_BRICK_STAIRS:
-        break;
     case BLOCK_POLISHED_BLACKSTONE_BRICK_WALL:
-        break;
-    case BLOCK_POLISHED_BLACKSTONE_STAIRS:
         break;
     case BLOCK_POLISHED_BLACKSTONE_SLAB:
         break;

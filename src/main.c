@@ -241,6 +241,20 @@ get_opposite_direction(int direction) {
     }
 }
 
+int
+get_direction_axis(int direction) {
+    switch (direction) {
+    case DIRECTION_NEG_Y: return AXIS_Y;
+    case DIRECTION_POS_Y: return AXIS_Y;
+    case DIRECTION_NEG_Z: return AXIS_Z;
+    case DIRECTION_POS_Z: return AXIS_Z;
+    case DIRECTION_NEG_X: return AXIS_X;
+    case DIRECTION_POS_X: return AXIS_X;
+    default:
+        assert(0);
+    }
+}
+
 static mc_ushort
 hash_resource_loc(net_string resource_loc, resource_loc_table * table) {
     mc_ushort res = 0;

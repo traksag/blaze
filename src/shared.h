@@ -3258,6 +3258,9 @@ is_bamboo_plantable_on(mc_int type_below);
 int
 get_opposite_direction(int direction);
 
+int
+get_direction_axis(int direction);
+
 void
 init_block_data(server * serv);
 
@@ -3275,5 +3278,9 @@ describe_default_block_state(server * serv, mc_int block_type);
 
 mc_ushort
 make_block_state(server * serv, block_state_info * info);
+
+void
+update_stairs_shape(server * serv, net_block_pos pos,
+        block_state_info * cur_info);
 
 #endif

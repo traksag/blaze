@@ -971,6 +971,29 @@ place_bamboo(place_context context, mc_int place_type) {
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
+static void
+place_stairs(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
+    if (!(target.flags & PLACE_CAN_PLACE)) {
+        return;
+    }
+
+    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    place_info.horizontal_facing = get_player_facing(context.player);
+    if (context.clicked_face == DIRECTION_POS_Y || context.click_offset_y <= 0.5f) {
+        place_info.half = BLOCK_HALF_BOTTOM;
+    } else {
+        place_info.half = BLOCK_HALF_TOP;
+    }
+    place_info.waterlogged = is_water_source(context.serv, target.cur_state);
+    update_stairs_shape(context.serv, target.pos, &place_info);
+
+    mc_ushort place_state = make_block_state(context.serv, &place_info);
+    try_set_block_state(context.serv, target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+}
+
 void
 process_use_item_on_packet(server * serv, entity_base * player,
         mc_int hand, net_block_pos clicked_pos, mc_int clicked_face,
@@ -1565,10 +1588,12 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_simple_pillar(context, BLOCK_PURPUR_PILLAR);
         break;
     case ITEM_PURPUR_STAIRS:
+        place_stairs(context, BLOCK_PURPUR_STAIRS);
         break;
     case ITEM_SPAWNER:
         break;
     case ITEM_OAK_STAIRS:
+        place_stairs(context, BLOCK_OAK_STAIRS);
         break;
     case ITEM_CHEST:
         break;
@@ -1590,6 +1615,7 @@ process_use_item_on_packet(server * serv, entity_base * player,
     case ITEM_RAIL:
         break;
     case ITEM_COBBLESTONE_STAIRS:
+        place_stairs(context, BLOCK_COBBLESTONE_STAIRS);
         break;
     case ITEM_LEVER:
         break;
@@ -1766,8 +1792,10 @@ process_use_item_on_packet(server * serv, entity_base * player,
     case ITEM_WARPED_FENCE_GATE:
         break;
     case ITEM_BRICK_STAIRS:
+        place_stairs(context, BLOCK_BRICK_STAIRS);
         break;
     case ITEM_STONE_BRICK_STAIRS:
+        place_stairs(context, BLOCK_STONE_BRICK_STAIRS);
         break;
     case ITEM_MYCELIUM:
         place_snowy_grassy_block(context, BLOCK_MYCELIUM);
@@ -1784,6 +1812,7 @@ process_use_item_on_packet(server * serv, entity_base * player,
     case ITEM_NETHER_BRICK_FENCE:
         break;
     case ITEM_NETHER_BRICK_STAIRS:
+        place_stairs(context, BLOCK_NETHER_BRICK_STAIRS);
         break;
     case ITEM_ENCHANTING_TABLE:
         break;
@@ -1801,6 +1830,7 @@ process_use_item_on_packet(server * serv, entity_base * player,
     case ITEM_REDSTONE_LAMP:
         break;
     case ITEM_SANDSTONE_STAIRS:
+        place_stairs(context, BLOCK_SANDSTONE_STAIRS);
         break;
     case ITEM_EMERALD_ORE:
         place_simple_block(context, BLOCK_EMERALD_ORE);
@@ -1813,14 +1843,19 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_simple_block(context, BLOCK_EMERALD_BLOCK);
         break;
     case ITEM_SPRUCE_STAIRS:
+        place_stairs(context, BLOCK_SPRUCE_STAIRS);
         break;
     case ITEM_BIRCH_STAIRS:
+        place_stairs(context, BLOCK_BIRCH_STAIRS);
         break;
     case ITEM_JUNGLE_STAIRS:
+        place_stairs(context, BLOCK_JUNGLE_STAIRS);
         break;
     case ITEM_CRIMSON_STAIRS:
+        place_stairs(context, BLOCK_CRIMSON_STAIRS);
         break;
     case ITEM_WARPED_STAIRS:
+        place_stairs(context, BLOCK_WARPED_STAIRS);
         break;
     case ITEM_COMMAND_BLOCK:
         break;
@@ -1914,6 +1949,7 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_simple_pillar(context, BLOCK_QUARTZ_PILLAR);
         break;
     case ITEM_QUARTZ_STAIRS:
+        place_stairs(context, BLOCK_QUARTZ_STAIRS);
         break;
     case ITEM_ACTIVATOR_RAIL:
         break;
@@ -2032,8 +2068,10 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_simple_block(context, BLOCK_PACKED_ICE);
         break;
     case ITEM_ACACIA_STAIRS:
+        place_stairs(context, BLOCK_ACACIA_STAIRS);
         break;
     case ITEM_DARK_OAK_STAIRS:
+        place_stairs(context, BLOCK_DARK_OAK_STAIRS);
         break;
     case ITEM_SLIME_BLOCK:
         place_simple_block(context, BLOCK_SLIME_BLOCK);
@@ -2142,10 +2180,13 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_simple_block(context, BLOCK_DARK_PRISMARINE);
         break;
     case ITEM_PRISMARINE_STAIRS:
+        place_stairs(context, BLOCK_PRISMARINE_STAIRS);
         break;
     case ITEM_PRISMARINE_BRICK_STAIRS:
+        place_stairs(context, BLOCK_PRISMARINE_BRICK_STAIRS);
         break;
     case ITEM_DARK_PRISMARINE_STAIRS:
+        place_stairs(context, BLOCK_DARK_PRISMARINE_STAIRS);
         break;
     case ITEM_SEA_LANTERN:
         place_simple_block(context, BLOCK_SEA_LANTERN);
@@ -2160,6 +2201,7 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_simple_block(context, BLOCK_CUT_RED_SANDSTONE);
         break;
     case ITEM_RED_SANDSTONE_STAIRS:
+        place_stairs(context, BLOCK_RED_SANDSTONE_STAIRS);
         break;
     case ITEM_REPEATING_COMMAND_BLOCK:
         break;
@@ -2429,32 +2471,46 @@ process_use_item_on_packet(server * serv, entity_base * player,
     case ITEM_CONDUIT:
         break;
     case ITEM_POLISHED_GRANITE_STAIRS:
+        place_stairs(context, BLOCK_POLISHED_GRANITE_STAIRS);
         break;
     case ITEM_SMOOTH_RED_SANDSTONE_STAIRS:
+        place_stairs(context, BLOCK_SMOOTH_RED_SANDSTONE_STAIRS);
         break;
     case ITEM_MOSSY_STONE_BRICK_STAIRS:
+        place_stairs(context, BLOCK_MOSSY_STONE_BRICK_STAIRS);
         break;
     case ITEM_POLISHED_DIORITE_STAIRS:
+        place_stairs(context, BLOCK_POLISHED_DIORITE_STAIRS);
         break;
     case ITEM_MOSSY_COBBLESTONE_STAIRS:
+        place_stairs(context, BLOCK_MOSSY_COBBLESTONE_STAIRS);
         break;
     case ITEM_END_STONE_BRICK_STAIRS:
+        place_stairs(context, BLOCK_END_STONE_BRICK_STAIRS);
         break;
     case ITEM_STONE_STAIRS:
+        place_stairs(context, BLOCK_STONE_STAIRS);
         break;
     case ITEM_SMOOTH_SANDSTONE_STAIRS:
+        place_stairs(context, BLOCK_SMOOTH_SANDSTONE_STAIRS);
         break;
     case ITEM_SMOOTH_QUARTZ_STAIRS:
+        place_stairs(context, BLOCK_SMOOTH_QUARTZ_STAIRS);
         break;
     case ITEM_GRANITE_STAIRS:
+        place_stairs(context, BLOCK_GRANITE_STAIRS);
         break;
     case ITEM_ANDESITE_STAIRS:
+        place_stairs(context, BLOCK_ANDESITE_STAIRS);
         break;
     case ITEM_RED_NETHER_BRICK_STAIRS:
+        place_stairs(context, BLOCK_RED_NETHER_BRICK_STAIRS);
         break;
     case ITEM_POLISHED_ANDESITE_STAIRS:
+        place_stairs(context, BLOCK_POLISHED_ANDESITE_STAIRS);
         break;
     case ITEM_DIORITE_STAIRS:
+        place_stairs(context, BLOCK_DIORITE_STAIRS);
         break;
     case ITEM_POLISHED_GRANITE_SLAB:
         place_slab(context, BLOCK_POLISHED_GRANITE_SLAB);
@@ -2971,6 +3027,7 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_slab(context, BLOCK_BLACKSTONE_SLAB);
         break;
     case ITEM_BLACKSTONE_STAIRS:
+        place_stairs(context, BLOCK_BLACKSTONE_STAIRS);
         break;
     case ITEM_GILDED_BLACKSTONE:
         place_simple_block(context, BLOCK_GILDED_BLACKSTONE);
@@ -2982,6 +3039,7 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_slab(context, BLOCK_POLISHED_BLACKSTONE_SLAB);
         break;
     case ITEM_POLISHED_BLACKSTONE_STAIRS:
+        place_stairs(context, BLOCK_POLISHED_BLACKSTONE_STAIRS);
         break;
     case ITEM_CHISELED_POLISHED_BLACKSTONE:
         place_simple_block(context, BLOCK_CHISELED_POLISHED_BLACKSTONE);
@@ -2993,6 +3051,7 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_slab(context, BLOCK_POLISHED_BLACKSTONE_BRICK_SLAB);
         break;
     case ITEM_POLISHED_BLACKSTONE_BRICK_STAIRS:
+        place_stairs(context, BLOCK_POLISHED_BLACKSTONE_BRICK_STAIRS);
         break;
     case ITEM_CRACKED_POLISHED_BLACKSTONE_BRICKS:
         place_simple_block(context, BLOCK_CRACKED_POLISHED_BLACKSTONE_BRICKS);
