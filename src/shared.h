@@ -3283,4 +3283,12 @@ void
 update_stairs_shape(server * serv, net_block_pos pos,
         block_state_info * cur_info);
 
+void
+update_pane_shape(server * serv, net_block_pos pos,
+        block_state_info * cur_info, int from_direction);
+
+void
+update_fence_shape(server * serv, net_block_pos pos,
+        block_state_info * cur_info, int from_direction);
+
 #endif

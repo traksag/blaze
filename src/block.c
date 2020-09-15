@@ -510,6 +510,179 @@ update_stairs_shape(server * serv, net_block_pos pos,
     }
 }
 
+void
+update_pane_shape(server * serv, net_block_pos pos,
+        block_state_info * cur_info, int from_direction) {
+    net_block_pos neighbour_pos = get_relative_block_pos(pos, from_direction);
+    mc_ushort neighbour_state = try_get_block_state(serv, neighbour_pos);
+    mc_int neighbour_type = serv->block_type_by_state[neighbour_state];
+
+    *(&cur_info->neg_y + from_direction) = 0;
+
+    switch (neighbour_type) {
+    case BLOCK_IRON_BARS:
+    case BLOCK_GLASS_PANE:
+    case BLOCK_WHITE_STAINED_GLASS_PANE:
+    case BLOCK_ORANGE_STAINED_GLASS_PANE:
+    case BLOCK_MAGENTA_STAINED_GLASS_PANE:
+    case BLOCK_LIGHT_BLUE_STAINED_GLASS_PANE:
+    case BLOCK_YELLOW_STAINED_GLASS_PANE:
+    case BLOCK_LIME_STAINED_GLASS_PANE:
+    case BLOCK_PINK_STAINED_GLASS_PANE:
+    case BLOCK_GRAY_STAINED_GLASS_PANE:
+    case BLOCK_LIGHT_GRAY_STAINED_GLASS_PANE:
+    case BLOCK_CYAN_STAINED_GLASS_PANE:
+    case BLOCK_PURPLE_STAINED_GLASS_PANE:
+    case BLOCK_BLUE_STAINED_GLASS_PANE:
+    case BLOCK_BROWN_STAINED_GLASS_PANE:
+    case BLOCK_GREEN_STAINED_GLASS_PANE:
+    case BLOCK_RED_STAINED_GLASS_PANE:
+    case BLOCK_BLACK_STAINED_GLASS_PANE:
+    case BLOCK_COBBLESTONE_WALL:
+    case BLOCK_MOSSY_COBBLESTONE_WALL:
+    case BLOCK_BRICK_WALL:
+    case BLOCK_PRISMARINE_WALL:
+    case BLOCK_RED_SANDSTONE_WALL:
+    case BLOCK_MOSSY_STONE_BRICK_WALL:
+    case BLOCK_GRANITE_WALL:
+    case BLOCK_STONE_BRICK_WALL:
+    case BLOCK_NETHER_BRICK_WALL:
+    case BLOCK_ANDESITE_WALL:
+    case BLOCK_RED_NETHER_BRICK_WALL:
+    case BLOCK_SANDSTONE_WALL:
+    case BLOCK_END_STONE_BRICK_WALL:
+    case BLOCK_DIORITE_WALL:
+    case BLOCK_BLACKSTONE_WALL:
+    case BLOCK_POLISHED_BLACKSTONE_BRICK_WALL:
+    case BLOCK_POLISHED_BLACKSTONE_WALL:
+        // can attach to these blocks
+        break;
+    case BLOCK_JUNGLE_LEAVES:
+    case BLOCK_OAK_LEAVES:
+    case BLOCK_SPRUCE_LEAVES:
+    case BLOCK_DARK_OAK_LEAVES:
+    case BLOCK_ACACIA_LEAVES:
+    case BLOCK_BIRCH_LEAVES:
+    case BLOCK_BARRIER:
+    case BLOCK_PUMPKIN:
+    case BLOCK_CARVED_PUMPKIN:
+    case BLOCK_JACK_O_LANTERN:
+    case BLOCK_MELON:
+    case BLOCK_SHULKER_BOX:
+    case BLOCK_BLACK_SHULKER_BOX:
+    case BLOCK_BLUE_SHULKER_BOX:
+    case BLOCK_BROWN_SHULKER_BOX:
+    case BLOCK_CYAN_SHULKER_BOX:
+    case BLOCK_GRAY_SHULKER_BOX:
+    case BLOCK_GREEN_SHULKER_BOX:
+    case BLOCK_LIGHT_BLUE_SHULKER_BOX:
+    case BLOCK_LIGHT_GRAY_SHULKER_BOX:
+    case BLOCK_LIME_SHULKER_BOX:
+    case BLOCK_MAGENTA_SHULKER_BOX:
+    case BLOCK_ORANGE_SHULKER_BOX:
+    case BLOCK_PINK_SHULKER_BOX:
+    case BLOCK_PURPLE_SHULKER_BOX:
+    case BLOCK_RED_SHULKER_BOX:
+    case BLOCK_WHITE_SHULKER_BOX:
+    case BLOCK_YELLOW_SHULKER_BOX:
+        // can't attach to these blocks
+        return;
+    default: {
+        // @TODO(traks) don't use collision models for this
+        block_model * neighbour_model = serv->block_models
+                + serv->collision_model_by_state[neighbour_state];
+        if (neighbour_model->full_face_flags & (1 << get_opposite_direction(from_direction))) {
+            // can connect to sturdy faces of remaining blocks
+            break;
+        }
+        return;
+    }
+    }
+
+    *(&cur_info->neg_y + from_direction) = 1;
+}
+
+// @TODO(traks) block tag?
+static int
+is_wooden_fence(mc_int block_type) {
+    switch (block_type) {
+    case BLOCK_OAK_FENCE:
+    case BLOCK_ACACIA_FENCE:
+    case BLOCK_DARK_OAK_FENCE:
+    case BLOCK_SPRUCE_FENCE:
+    case BLOCK_BIRCH_FENCE:
+    case BLOCK_JUNGLE_FENCE:
+    case BLOCK_CRIMSON_FENCE:
+    case BLOCK_WARPED_FENCE:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+void
+update_fence_shape(server * serv, net_block_pos pos,
+        block_state_info * cur_info, int from_direction) {
+    net_block_pos neighbour_pos = get_relative_block_pos(pos, from_direction);
+    mc_ushort neighbour_state = try_get_block_state(serv, neighbour_pos);
+    mc_int neighbour_type = serv->block_type_by_state[neighbour_state];
+
+    *(&cur_info->neg_y + from_direction) = 0;
+
+    switch (neighbour_type) {
+    case BLOCK_JUNGLE_LEAVES:
+    case BLOCK_OAK_LEAVES:
+    case BLOCK_SPRUCE_LEAVES:
+    case BLOCK_DARK_OAK_LEAVES:
+    case BLOCK_ACACIA_LEAVES:
+    case BLOCK_BIRCH_LEAVES:
+    case BLOCK_BARRIER:
+    case BLOCK_PUMPKIN:
+    case BLOCK_CARVED_PUMPKIN:
+    case BLOCK_JACK_O_LANTERN:
+    case BLOCK_MELON:
+    case BLOCK_SHULKER_BOX:
+    case BLOCK_BLACK_SHULKER_BOX:
+    case BLOCK_BLUE_SHULKER_BOX:
+    case BLOCK_BROWN_SHULKER_BOX:
+    case BLOCK_CYAN_SHULKER_BOX:
+    case BLOCK_GRAY_SHULKER_BOX:
+    case BLOCK_GREEN_SHULKER_BOX:
+    case BLOCK_LIGHT_BLUE_SHULKER_BOX:
+    case BLOCK_LIGHT_GRAY_SHULKER_BOX:
+    case BLOCK_LIME_SHULKER_BOX:
+    case BLOCK_MAGENTA_SHULKER_BOX:
+    case BLOCK_ORANGE_SHULKER_BOX:
+    case BLOCK_PINK_SHULKER_BOX:
+    case BLOCK_PURPLE_SHULKER_BOX:
+    case BLOCK_RED_SHULKER_BOX:
+    case BLOCK_WHITE_SHULKER_BOX:
+    case BLOCK_YELLOW_SHULKER_BOX:
+        // can't attach to these blocks
+        return;
+    default: {
+        if (is_wooden_fence(neighbour_type) && is_wooden_fence(cur_info->block_type)) {
+            break;
+        }
+        if (neighbour_type == cur_info->block_type) {
+            // allow nether brick fences to connect
+            break;
+        }
+
+        // @TODO(traks) don't use collision models for this
+        block_model * neighbour_model = serv->block_models
+                + serv->collision_model_by_state[neighbour_state];
+        if (neighbour_model->full_face_flags & (1 << get_opposite_direction(from_direction))) {
+            // can connect to sturdy faces of remaining blocks
+            break;
+        }
+        return;
+    }
+    }
+
+    *(&cur_info->neg_y + from_direction) = 1;
+}
+
 static int
 update_block(net_block_pos pos, int from_direction, server * serv) {
     // @TODO(traks) ideally all these chunk lookups and block lookups should be
@@ -921,7 +1094,27 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
     case BLOCK_JUKEBOX:
         break;
     case BLOCK_OAK_FENCE:
-        break;
+    case BLOCK_NETHER_BRICK_FENCE:
+    case BLOCK_SPRUCE_FENCE:
+    case BLOCK_BIRCH_FENCE:
+    case BLOCK_JUNGLE_FENCE:
+    case BLOCK_ACACIA_FENCE:
+    case BLOCK_DARK_OAK_FENCE:
+    case BLOCK_CRIMSON_FENCE:
+    case BLOCK_WARPED_FENCE: {
+        // @TODO(traks) update water
+
+        if (from_direction == DIRECTION_NEG_Y || from_direction == DIRECTION_POS_Y) {
+            return 0;
+        }
+        update_fence_shape(serv, pos, &cur_info, from_direction);
+        mc_ushort new_state = make_block_state(serv, &cur_info);
+        if (new_state == cur_state) {
+            return 0;
+        }
+        try_set_block_state(serv, pos, new_state);
+        return 1;
+    }
     case BLOCK_NETHERRACK:
         break;
     case BLOCK_SOUL_SAND:
@@ -951,10 +1144,37 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
     case BLOCK_MUSHROOM_STEM:
         break;
     case BLOCK_IRON_BARS:
-        break;
-    case BLOCK_CHAIN:
-        break;
     case BLOCK_GLASS_PANE:
+    case BLOCK_WHITE_STAINED_GLASS_PANE:
+    case BLOCK_ORANGE_STAINED_GLASS_PANE:
+    case BLOCK_MAGENTA_STAINED_GLASS_PANE:
+    case BLOCK_LIGHT_BLUE_STAINED_GLASS_PANE:
+    case BLOCK_YELLOW_STAINED_GLASS_PANE:
+    case BLOCK_LIME_STAINED_GLASS_PANE:
+    case BLOCK_PINK_STAINED_GLASS_PANE:
+    case BLOCK_GRAY_STAINED_GLASS_PANE:
+    case BLOCK_LIGHT_GRAY_STAINED_GLASS_PANE:
+    case BLOCK_CYAN_STAINED_GLASS_PANE:
+    case BLOCK_PURPLE_STAINED_GLASS_PANE:
+    case BLOCK_BLUE_STAINED_GLASS_PANE:
+    case BLOCK_BROWN_STAINED_GLASS_PANE:
+    case BLOCK_GREEN_STAINED_GLASS_PANE:
+    case BLOCK_RED_STAINED_GLASS_PANE:
+    case BLOCK_BLACK_STAINED_GLASS_PANE: {
+        // @TODO(traks) update water
+
+        if (from_direction == DIRECTION_NEG_Y || from_direction == DIRECTION_POS_Y) {
+            return 0;
+        }
+        update_pane_shape(serv, pos, &cur_info, from_direction);
+        mc_ushort new_state = make_block_state(serv, &cur_info);
+        if (new_state == cur_state) {
+            return 0;
+        }
+        try_set_block_state(serv, pos, new_state);
+        return 1;
+    }
+    case BLOCK_CHAIN:
         break;
     case BLOCK_ATTACHED_PUMPKIN_STEM:
         break;
@@ -979,8 +1199,6 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
     case BLOCK_OAK_FENCE_GATE:
         break;
     case BLOCK_LILY_PAD:
-        break;
-    case BLOCK_NETHER_BRICK_FENCE:
         break;
     case BLOCK_NETHER_WART: {
         if (from_direction != DIRECTION_NEG_Y) {
@@ -1060,38 +1278,6 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
     case BLOCK_ACTIVATOR_RAIL:
         break;
     case BLOCK_DROPPER:
-        break;
-    case BLOCK_WHITE_STAINED_GLASS_PANE:
-        break;
-    case BLOCK_ORANGE_STAINED_GLASS_PANE:
-        break;
-    case BLOCK_MAGENTA_STAINED_GLASS_PANE:
-        break;
-    case BLOCK_LIGHT_BLUE_STAINED_GLASS_PANE:
-        break;
-    case BLOCK_YELLOW_STAINED_GLASS_PANE:
-        break;
-    case BLOCK_LIME_STAINED_GLASS_PANE:
-        break;
-    case BLOCK_PINK_STAINED_GLASS_PANE:
-        break;
-    case BLOCK_GRAY_STAINED_GLASS_PANE:
-        break;
-    case BLOCK_LIGHT_GRAY_STAINED_GLASS_PANE:
-        break;
-    case BLOCK_CYAN_STAINED_GLASS_PANE:
-        break;
-    case BLOCK_PURPLE_STAINED_GLASS_PANE:
-        break;
-    case BLOCK_BLUE_STAINED_GLASS_PANE:
-        break;
-    case BLOCK_BROWN_STAINED_GLASS_PANE:
-        break;
-    case BLOCK_GREEN_STAINED_GLASS_PANE:
-        break;
-    case BLOCK_RED_STAINED_GLASS_PANE:
-        break;
-    case BLOCK_BLACK_STAINED_GLASS_PANE:
         break;
     case BLOCK_SLIME_BLOCK:
         break;
@@ -1270,16 +1456,6 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
     case BLOCK_ACACIA_FENCE_GATE:
         break;
     case BLOCK_DARK_OAK_FENCE_GATE:
-        break;
-    case BLOCK_SPRUCE_FENCE:
-        break;
-    case BLOCK_BIRCH_FENCE:
-        break;
-    case BLOCK_JUNGLE_FENCE:
-        break;
-    case BLOCK_ACACIA_FENCE:
-        break;
-    case BLOCK_DARK_OAK_FENCE:
         break;
     case BLOCK_CHORUS_PLANT:
         break;
@@ -1575,10 +1751,6 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
     case BLOCK_CRIMSON_PRESSURE_PLATE:
         break;
     case BLOCK_WARPED_PRESSURE_PLATE:
-        break;
-    case BLOCK_CRIMSON_FENCE:
-        break;
-    case BLOCK_WARPED_FENCE:
         break;
     case BLOCK_CRIMSON_TRAPDOOR:
         break;

@@ -994,6 +994,48 @@ place_stairs(place_context context, mc_int place_type) {
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
+static void
+place_fence(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
+    if (!(target.flags & PLACE_CAN_PLACE)) {
+        return;
+    }
+
+    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    place_info.waterlogged = is_water_source(context.serv, target.cur_state);
+    int neighbour_directions[] = {DIRECTION_NEG_Z, DIRECTION_POS_Z, DIRECTION_NEG_X, DIRECTION_POS_X};
+    for (int i = 0; i < 4; i++) {
+        int face = neighbour_directions[i];
+        update_fence_shape(context.serv, target.pos, &place_info, face);
+    }
+
+    mc_ushort place_state = make_block_state(context.serv, &place_info);
+    try_set_block_state(context.serv, target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+}
+
+static void
+place_pane(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
+    if (!(target.flags & PLACE_CAN_PLACE)) {
+        return;
+    }
+
+    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    place_info.waterlogged = is_water_source(context.serv, target.cur_state);
+    int neighbour_directions[] = {DIRECTION_NEG_Z, DIRECTION_POS_Z, DIRECTION_NEG_X, DIRECTION_POS_X};
+    for (int i = 0; i < 4; i++) {
+        int face = neighbour_directions[i];
+        update_pane_shape(context.serv, target.pos, &place_info, face);
+    }
+
+    mc_ushort place_state = make_block_state(context.serv, &place_info);
+    try_set_block_state(context.serv, target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+}
+
 void
 process_use_item_on_packet(server * serv, entity_base * player,
         mc_int hand, net_block_pos clicked_pos, mc_int clicked_face,
@@ -1661,20 +1703,28 @@ process_use_item_on_packet(server * serv, entity_base * player,
     case ITEM_JUKEBOX:
         break;
     case ITEM_OAK_FENCE:
+        place_fence(context, BLOCK_OAK_FENCE);
         break;
     case ITEM_SPRUCE_FENCE:
+        place_fence(context, BLOCK_SPRUCE_FENCE);
         break;
     case ITEM_BIRCH_FENCE:
+        place_fence(context, BLOCK_BIRCH_FENCE);
         break;
     case ITEM_JUNGLE_FENCE:
+        place_fence(context, BLOCK_JUNGLE_FENCE);
         break;
     case ITEM_ACACIA_FENCE:
+        place_fence(context, BLOCK_ACACIA_FENCE);
         break;
     case ITEM_DARK_OAK_FENCE:
+        place_fence(context, BLOCK_DARK_OAK_FENCE);
         break;
     case ITEM_CRIMSON_FENCE:
+        place_fence(context, BLOCK_CRIMSON_FENCE);
         break;
     case ITEM_WARPED_FENCE:
+        place_fence(context, BLOCK_WARPED_FENCE);
         break;
     case ITEM_PUMPKIN:
         place_simple_block(context, BLOCK_PUMPKIN);
@@ -1764,11 +1814,13 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_mushroom_block(context, BLOCK_MUSHROOM_STEM);
         break;
     case ITEM_IRON_BARS:
+        place_pane(context, BLOCK_IRON_BARS);
         break;
     case ITEM_CHAIN:
         place_chain(context, BLOCK_CHAIN);
         break;
     case ITEM_GLASS_PANE:
+        place_pane(context, BLOCK_GLASS_PANE);
         break;
     case ITEM_MELON:
         place_simple_block(context, BLOCK_MELON);
@@ -1810,6 +1862,7 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_simple_block(context, BLOCK_CHISELED_NETHER_BRICKS);
         break;
     case ITEM_NETHER_BRICK_FENCE:
+        place_fence(context, BLOCK_NETHER_BRICK_FENCE);
         break;
     case ITEM_NETHER_BRICK_STAIRS:
         place_stairs(context, BLOCK_NETHER_BRICK_STAIRS);
@@ -2139,36 +2192,52 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_simple_block(context, BLOCK_BLACK_STAINED_GLASS);
         break;
     case ITEM_WHITE_STAINED_GLASS_PANE:
+        place_pane(context, BLOCK_WHITE_STAINED_GLASS_PANE);
         break;
     case ITEM_ORANGE_STAINED_GLASS_PANE:
+        place_pane(context, BLOCK_ORANGE_STAINED_GLASS_PANE);
         break;
     case ITEM_MAGENTA_STAINED_GLASS_PANE:
+        place_pane(context, BLOCK_MAGENTA_STAINED_GLASS_PANE);
         break;
     case ITEM_LIGHT_BLUE_STAINED_GLASS_PANE:
+        place_pane(context, BLOCK_LIGHT_BLUE_STAINED_GLASS_PANE);
         break;
     case ITEM_YELLOW_STAINED_GLASS_PANE:
+        place_pane(context, BLOCK_YELLOW_STAINED_GLASS_PANE);
         break;
     case ITEM_LIME_STAINED_GLASS_PANE:
+        place_pane(context, BLOCK_LIME_STAINED_GLASS_PANE);
         break;
     case ITEM_PINK_STAINED_GLASS_PANE:
+        place_pane(context, BLOCK_PINK_STAINED_GLASS_PANE);
         break;
     case ITEM_GRAY_STAINED_GLASS_PANE:
+        place_pane(context, BLOCK_GRAY_STAINED_GLASS_PANE);
         break;
     case ITEM_LIGHT_GRAY_STAINED_GLASS_PANE:
+        place_pane(context, BLOCK_LIGHT_GRAY_STAINED_GLASS_PANE);
         break;
     case ITEM_CYAN_STAINED_GLASS_PANE:
+        place_pane(context, BLOCK_CYAN_STAINED_GLASS_PANE);
         break;
     case ITEM_PURPLE_STAINED_GLASS_PANE:
+        place_pane(context, BLOCK_PURPLE_STAINED_GLASS_PANE);
         break;
     case ITEM_BLUE_STAINED_GLASS_PANE:
+        place_pane(context, BLOCK_BLUE_STAINED_GLASS_PANE);
         break;
     case ITEM_BROWN_STAINED_GLASS_PANE:
+        place_pane(context, BLOCK_BROWN_STAINED_GLASS_PANE);
         break;
     case ITEM_GREEN_STAINED_GLASS_PANE:
+        place_pane(context, BLOCK_GREEN_STAINED_GLASS_PANE);
         break;
     case ITEM_RED_STAINED_GLASS_PANE:
+        place_pane(context, BLOCK_RED_STAINED_GLASS_PANE);
         break;
     case ITEM_BLACK_STAINED_GLASS_PANE:
+        place_pane(context, BLOCK_BLACK_STAINED_GLASS_PANE);
         break;
     case ITEM_PRISMARINE:
         place_simple_block(context, BLOCK_PRISMARINE);
