@@ -1170,6 +1170,8 @@ typedef struct {
     unsigned char full_face_flags;
     // bit flags for pole supporting faces
     unsigned char pole_face_flags;
+    // bit flags for faces that are non-empty as 1x1x1 cube
+    unsigned char non_empty_face_flags;
 
     block_box boxes[8];
 } block_model;
@@ -3254,6 +3256,9 @@ can_nether_plant_survive_on(mc_int type_below);
 
 int
 is_bamboo_plantable_on(mc_int type_below);
+
+int
+can_sea_pickle_survive_on(server * serv, mc_ushort state_below);
 
 int
 get_opposite_direction(int direction);

@@ -373,6 +373,15 @@ is_bamboo_plantable_on(mc_int type_below) {
     }
 }
 
+int
+can_sea_pickle_survive_on(server * serv, mc_ushort state_below) {
+    block_model * model = serv->block_models + serv->collision_model_by_state[state_below];
+    if (model->non_empty_face_flags & (1 << DIRECTION_POS_Y)) {
+        return 1;
+    }
+    return 0;
+}
+
 // @TODO(traks) maybe store this kind of info in block properties and block
 // state info structs
 static int
@@ -1617,8 +1626,16 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
         break;
     case BLOCK_HORN_CORAL_WALL_FAN:
         break;
-    case BLOCK_SEA_PICKLE:
-        break;
+    case BLOCK_SEA_PICKLE: {
+        // @TODO(traks) water scheduled tick
+        if (from_direction == DIRECTION_NEG_Y) {
+            if (!can_sea_pickle_survive_on(serv, from_state)) {
+                try_set_block_state(serv, pos, 0);
+                return 1;
+            }
+        }
+        return 0;
+    }
     case BLOCK_CONDUIT:
         break;
     case BLOCK_BAMBOO_SAPLING: {
@@ -2799,6 +2816,30 @@ block_boxes_contain_face(int box_count, block_box * boxes,
     assert(0);
 }
 
+static int
+block_boxes_intersect_face(int box_count, block_box * boxes,
+        block_box slice, int direction) {
+    switch (direction) {
+    case DIRECTION_NEG_Y: slice.max_y = slice.min_y; break;
+    case DIRECTION_POS_Y: slice.min_y = slice.max_y; break;
+    case DIRECTION_NEG_Z: slice.max_z = slice.min_z; break;
+    case DIRECTION_POS_Z: slice.min_z = slice.max_z; break;
+    case DIRECTION_NEG_X: slice.max_x = slice.min_x; break;
+    case DIRECTION_POS_X: slice.min_x = slice.max_x; break;
+    }
+
+    // check if the selected face intersects any of the boxes
+    for (int i = 0; i < box_count; i++) {
+        block_box * box = boxes + i;
+        if (box->min_x <= slice.max_x && box->max_x >= slice.min_x
+                && box->min_y <= slice.max_y && box->max_y >= slice.min_y
+                && box->min_z <= slice.max_z && box->max_z >= slice.min_z) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static void
 register_block_model(server * serv, int index,
         int box_count, block_box * boxes) {
@@ -2819,6 +2860,10 @@ register_block_model(server * serv, int index,
         block_box pole = {7.0f / 16, 0, 7.0f / 16, 9.0f / 16, 1, 9.0f / 16};
         if (block_boxes_contain_face(box_count, boxes, pole, dir)) {
             model->pole_face_flags |= 1 << dir;
+        }
+
+        if (block_boxes_intersect_face(box_count, boxes, full_box, dir)) {
+            model->non_empty_face_flags |= 1 << dir;
         }
     }
 }

@@ -367,6 +367,56 @@ place_slab(place_context context, mc_int place_type) {
 }
 
 static void
+place_sea_pickle(place_context context, mc_int place_type) {
+    net_block_pos target_pos = context.clicked_pos;
+    mc_ushort cur_state = try_get_block_state(context.serv, target_pos);
+    block_state_info cur_info = describe_block_state(context.serv, cur_state);
+    mc_int cur_type = cur_info.block_type;
+
+    int replace_cur = 0;
+    if (cur_type == place_type) {
+        if (cur_info.pickles < 4) {
+            replace_cur = 1;
+        }
+    } else {
+        replace_cur = can_replace(place_type, cur_type);
+    }
+
+    if (!replace_cur) {
+        target_pos = get_relative_block_pos(target_pos, context.clicked_face);
+        cur_state = try_get_block_state(context.serv, target_pos);
+        cur_info = describe_block_state(context.serv, cur_state);
+        cur_type = cur_info.block_type;
+
+        if (cur_type == place_type) {
+            if (cur_info.pickles >= 4) {
+                return;
+            }
+        } else if (!can_replace(place_type, cur_type)) {
+            return;
+        }
+    }
+
+    mc_ushort state_below = try_get_block_state(context.serv,
+            get_relative_block_pos(target_pos, DIRECTION_NEG_Y));
+    mc_int type_below = context.serv->block_type_by_state[state_below];
+    if (!can_sea_pickle_survive_on(context.serv, state_below)) {
+        return;
+    }
+
+    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+
+    if (place_type == cur_type) {
+        place_info.pickles = cur_info.pickles + 1;
+    }
+    place_info.waterlogged = is_water_source(context.serv, cur_state);
+
+    mc_ushort place_state = make_block_state(context.serv, &place_info);
+    try_set_block_state(context.serv, target_pos, place_state);
+    propagate_block_updates_after_change(target_pos, context.serv, context.scratch_arena);
+}
+
+static void
 place_leaves(place_context context, mc_int place_type) {
     place_target target = determine_place_target(context.serv,
             context.clicked_pos, context.clicked_face, place_type);
@@ -1387,6 +1437,7 @@ process_use_item_on_packet(server * serv, entity_base * player,
     case ITEM_SEAGRASS:
         break;
     case ITEM_SEA_PICKLE:
+        place_sea_pickle(context, BLOCK_SEA_PICKLE);
         break;
     case ITEM_PISTON:
         break;
