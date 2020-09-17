@@ -3299,4 +3299,10 @@ void
 update_fence_shape(server * serv, net_block_pos pos,
         block_state_info * cur_info, int from_direction);
 
+int
+get_player_facing(entity_base * player);
+
+int
+is_wall(mc_int block_type);
+
 #endif

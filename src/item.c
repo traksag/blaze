@@ -481,21 +481,6 @@ place_leaves(place_context context, mc_int place_type) {
     propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
 }
 
-static int
-get_player_facing(entity_base * player) {
-    float rot_y = player->rot_y;
-    int int_rot = (int) floor(rot_y / 90.0f + 0.5f) & 0x3;
-    switch (int_rot) {
-    case 0: return DIRECTION_POS_Z;
-    case 1: return DIRECTION_NEG_X;
-    case 2: return DIRECTION_NEG_Z;
-    case 3: return DIRECTION_POS_X;
-    default:
-        assert(0);
-        return -1;
-    }
-}
-
 static void
 place_horizontal_facing(place_context context, mc_int place_type) {
     place_target target = determine_place_target(context.serv,
@@ -523,6 +508,81 @@ place_end_portal_frame(place_context context, mc_int place_type) {
     block_state_info place_info = describe_default_block_state(context.serv, place_type);
     place_info.horizontal_facing = get_opposite_direction(get_player_facing(context.player));
     place_info.eye = 0;
+
+    mc_ushort place_state = make_block_state(context.serv, &place_info);
+    try_set_block_state(context.serv, target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+}
+
+static void
+place_trapdoor(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
+    if (!(target.flags & PLACE_CAN_PLACE)) {
+        return;
+    }
+
+    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    if (target.flags & PLACE_REPLACING) {
+        place_info.half = context.clicked_face == DIRECTION_POS_Y ?
+                BLOCK_HALF_BOTTOM : BLOCK_HALF_TOP;
+        place_info.horizontal_facing = get_opposite_direction(
+                get_player_facing(context.player));
+    } else if (context.clicked_face == DIRECTION_POS_Y) {
+        place_info.half = BLOCK_HALF_BOTTOM;
+        place_info.horizontal_facing = get_opposite_direction(
+                get_player_facing(context.player));
+    } else if (context.clicked_face == DIRECTION_NEG_Y) {
+        place_info.half = BLOCK_HALF_TOP;
+        place_info.horizontal_facing = get_opposite_direction(
+                get_player_facing(context.player));
+    } else {
+        place_info.half = context.click_offset_y > 0.5f ?
+                BLOCK_HALF_TOP : BLOCK_HALF_BOTTOM;
+        place_info.horizontal_facing = context.clicked_face;
+    }
+    place_info.waterlogged = is_water_source(context.serv, target.cur_state);
+
+    // @TODO(traks) open trapdoor and set powered if necessary
+
+    mc_ushort place_state = make_block_state(context.serv, &place_info);
+    try_set_block_state(context.serv, target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+}
+
+static void
+place_fence_gate(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
+    if (!(target.flags & PLACE_CAN_PLACE)) {
+        return;
+    }
+
+    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    int player_facing = get_player_facing(context.player);
+    place_info.horizontal_facing = player_facing;
+    if (player_facing == DIRECTION_POS_X || player_facing == DIRECTION_NEG_X) {
+        int neighbour_state_pos = try_get_block_state(context.serv,
+                get_relative_block_pos(target.pos, DIRECTION_POS_Z));
+        int neighbour_state_neg = try_get_block_state(context.serv,
+                get_relative_block_pos(target.pos, DIRECTION_NEG_Z));
+        if (is_wall(context.serv->block_type_by_state[neighbour_state_pos])
+                || is_wall(context.serv->block_type_by_state[neighbour_state_neg])) {
+            place_info.in_wall = 1;
+        }
+    } else {
+        // facing along z axis
+        int neighbour_state_pos = try_get_block_state(context.serv,
+                get_relative_block_pos(target.pos, DIRECTION_POS_X));
+        int neighbour_state_neg = try_get_block_state(context.serv,
+                get_relative_block_pos(target.pos, DIRECTION_NEG_X));
+        if (is_wall(context.serv->block_type_by_state[neighbour_state_pos])
+                || is_wall(context.serv->block_type_by_state[neighbour_state_neg])) {
+            place_info.in_wall = 1;
+        }
+    }
+
+    // @TODO(traks) open fence gate and set powered if necessary
 
     mc_ushort place_state = make_block_state(context.serv, &place_info);
     try_set_block_state(context.serv, target.pos, place_state);
@@ -1945,6 +2005,7 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_simple_block(context, BLOCK_SNOW_BLOCK);
         break;
     case ITEM_CACTUS:
+        // @TODO(traks) need to determine solid materials to implement this
         break;
     case ITEM_CLAY:
         place_simple_block(context, BLOCK_CLAY);
@@ -2008,20 +2069,28 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_horizontal_facing(context, BLOCK_JACK_O_LANTERN);
         break;
     case ITEM_OAK_TRAPDOOR:
+        place_trapdoor(context, BLOCK_OAK_TRAPDOOR);
         break;
     case ITEM_SPRUCE_TRAPDOOR:
+        place_trapdoor(context, BLOCK_SPRUCE_TRAPDOOR);
         break;
     case ITEM_BIRCH_TRAPDOOR:
+        place_trapdoor(context, BLOCK_BIRCH_TRAPDOOR);
         break;
     case ITEM_JUNGLE_TRAPDOOR:
+        place_trapdoor(context, BLOCK_JUNGLE_TRAPDOOR);
         break;
     case ITEM_ACACIA_TRAPDOOR:
+        place_trapdoor(context, BLOCK_ACACIA_TRAPDOOR);
         break;
     case ITEM_DARK_OAK_TRAPDOOR:
+        place_trapdoor(context, BLOCK_DARK_OAK_TRAPDOOR);
         break;
     case ITEM_CRIMSON_TRAPDOOR:
+        place_trapdoor(context, BLOCK_CRIMSON_TRAPDOOR);
         break;
     case ITEM_WARPED_TRAPDOOR:
+        place_trapdoor(context, BLOCK_WARPED_TRAPDOOR);
         break;
     case ITEM_INFESTED_STONE:
         place_simple_block(context, BLOCK_INFESTED_STONE);
@@ -2077,20 +2146,28 @@ process_use_item_on_packet(server * serv, entity_base * player,
     case ITEM_VINE:
         break;
     case ITEM_OAK_FENCE_GATE:
+        place_fence_gate(context, BLOCK_OAK_FENCE_GATE);
         break;
     case ITEM_SPRUCE_FENCE_GATE:
+        place_fence_gate(context, BLOCK_SPRUCE_FENCE_GATE);
         break;
     case ITEM_BIRCH_FENCE_GATE:
+        place_fence_gate(context, BLOCK_BIRCH_FENCE_GATE);
         break;
     case ITEM_JUNGLE_FENCE_GATE:
+        place_fence_gate(context, BLOCK_JUNGLE_FENCE_GATE);
         break;
     case ITEM_ACACIA_FENCE_GATE:
+        place_fence_gate(context, BLOCK_ACACIA_FENCE_GATE);
         break;
     case ITEM_DARK_OAK_FENCE_GATE:
+        place_fence_gate(context, BLOCK_DARK_OAK_FENCE_GATE);
         break;
     case ITEM_CRIMSON_FENCE_GATE:
+        place_fence_gate(context, BLOCK_CRIMSON_FENCE_GATE);
         break;
     case ITEM_WARPED_FENCE_GATE:
+        place_fence_gate(context, BLOCK_WARPED_FENCE_GATE);
         break;
     case ITEM_BRICK_STAIRS:
         place_stairs(context, BLOCK_BRICK_STAIRS);
@@ -2245,6 +2322,7 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_simple_block(context, BLOCK_REDSTONE_BLOCK);
         break;
     case ITEM_NETHER_QUARTZ_ORE:
+        place_simple_block(context, BLOCK_NETHER_QUARTZ_ORE);
         break;
     case ITEM_HOPPER:
         break;
@@ -2319,6 +2397,7 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_simple_block(context, BLOCK_BARRIER);
         break;
     case ITEM_IRON_TRAPDOOR:
+        place_trapdoor(context, BLOCK_IRON_TRAPDOOR);
         break;
     case ITEM_HAY_BLOCK:
         place_simple_pillar(context, BLOCK_HAY_BLOCK);
@@ -2552,6 +2631,7 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_simple_pillar(context, BLOCK_BONE_BLOCK);
         break;
     case ITEM_STRUCTURE_VOID:
+        place_simple_block(context, BLOCK_STRUCTURE_VOID);
         break;
     case ITEM_OBSERVER:
         break;

@@ -2975,3 +2975,18 @@ send_packets_to_player(entity_base * player, server * serv,
 bail:
     end_timed_block();
 }
+
+int
+get_player_facing(entity_base * player) {
+    float rot_y = player->rot_y;
+    int int_rot = (int) floor(rot_y / 90.0f + 0.5f) & 0x3;
+    switch (int_rot) {
+    case 0: return DIRECTION_POS_Z;
+    case 1: return DIRECTION_NEG_X;
+    case 2: return DIRECTION_NEG_Z;
+    case 3: return DIRECTION_POS_X;
+    default:
+        assert(0);
+        return -1;
+    }
+}

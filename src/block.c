@@ -651,6 +651,33 @@ is_wooden_fence(mc_int block_type) {
     }
 }
 
+// @TODO(traks) block tag?
+int
+is_wall(mc_int block_type) {
+    switch (block_type) {
+    case BLOCK_COBBLESTONE_WALL:
+    case BLOCK_MOSSY_COBBLESTONE_WALL:
+    case BLOCK_BRICK_WALL:
+    case BLOCK_PRISMARINE_WALL:
+    case BLOCK_RED_SANDSTONE_WALL:
+    case BLOCK_MOSSY_STONE_BRICK_WALL:
+    case BLOCK_GRANITE_WALL:
+    case BLOCK_STONE_BRICK_WALL:
+    case BLOCK_NETHER_BRICK_WALL:
+    case BLOCK_ANDESITE_WALL:
+    case BLOCK_RED_NETHER_BRICK_WALL:
+    case BLOCK_SANDSTONE_WALL:
+    case BLOCK_END_STONE_BRICK_WALL:
+    case BLOCK_DIORITE_WALL:
+    case BLOCK_BLACKSTONE_WALL:
+    case BLOCK_POLISHED_BLACKSTONE_BRICK_WALL:
+    case BLOCK_POLISHED_BLACKSTONE_WALL:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
 void
 update_fence_shape(server * serv, net_block_pos pos,
         block_state_info * cur_info, int from_direction) {
@@ -1268,7 +1295,48 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
     case BLOCK_VINE:
         break;
     case BLOCK_OAK_FENCE_GATE:
-        break;
+    case BLOCK_SPRUCE_FENCE_GATE:
+    case BLOCK_BIRCH_FENCE_GATE:
+    case BLOCK_JUNGLE_FENCE_GATE:
+    case BLOCK_ACACIA_FENCE_GATE:
+    case BLOCK_DARK_OAK_FENCE_GATE:
+    case BLOCK_CRIMSON_FENCE_GATE:
+    case BLOCK_WARPED_FENCE_GATE: {
+        int facing = cur_info.horizontal_facing;
+        int rotated = rotate_direction_clockwise(facing);
+        if (rotated != from_direction && rotated != get_opposite_direction(from_direction)) {
+            return 0;
+        }
+
+        cur_info.in_wall = 0;
+        if (facing == DIRECTION_POS_X || facing == DIRECTION_NEG_X) {
+            int neighbour_state_pos = try_get_block_state(serv,
+                    get_relative_block_pos(pos, DIRECTION_POS_Z));
+            int neighbour_state_neg = try_get_block_state(serv,
+                    get_relative_block_pos(pos, DIRECTION_NEG_Z));
+            if (is_wall(serv->block_type_by_state[neighbour_state_pos])
+                    || is_wall(serv->block_type_by_state[neighbour_state_neg])) {
+                cur_info.in_wall = 1;
+            }
+        } else {
+            // facing along z axis
+            int neighbour_state_pos = try_get_block_state(serv,
+                    get_relative_block_pos(pos, DIRECTION_POS_X));
+            int neighbour_state_neg = try_get_block_state(serv,
+                    get_relative_block_pos(pos, DIRECTION_NEG_X));
+            if (is_wall(serv->block_type_by_state[neighbour_state_pos])
+                    || is_wall(serv->block_type_by_state[neighbour_state_neg])) {
+                cur_info.in_wall = 1;
+            }
+        }
+
+        mc_ushort new_state = make_block_state(serv, &cur_info);
+        if (new_state != cur_state) {
+            try_set_block_state(serv, pos, new_state);
+            return 1;
+        }
+        return 0;
+    }
     case BLOCK_LILY_PAD:
         break;
     case BLOCK_NETHER_WART: {
@@ -1505,16 +1573,6 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
     case BLOCK_CUT_RED_SANDSTONE_SLAB:
         break;
     case BLOCK_PURPUR_SLAB:
-        break;
-    case BLOCK_SPRUCE_FENCE_GATE:
-        break;
-    case BLOCK_BIRCH_FENCE_GATE:
-        break;
-    case BLOCK_JUNGLE_FENCE_GATE:
-        break;
-    case BLOCK_ACACIA_FENCE_GATE:
-        break;
-    case BLOCK_DARK_OAK_FENCE_GATE:
         break;
     case BLOCK_CHORUS_PLANT:
         break;
@@ -1823,10 +1881,6 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
         break;
     case BLOCK_WARPED_TRAPDOOR:
         break;
-    case BLOCK_CRIMSON_FENCE_GATE:
-        break;
-    case BLOCK_WARPED_FENCE_GATE:
-        break;
     case BLOCK_CRIMSON_SIGN:
         break;
     case BLOCK_WARPED_SIGN:
@@ -2088,9 +2142,25 @@ use_block(server * serv, entity_base * player,
     case BLOCK_ACACIA_FENCE_GATE:
     case BLOCK_DARK_OAK_FENCE_GATE:
     case BLOCK_CRIMSON_FENCE_GATE:
-    case BLOCK_WARPED_FENCE_GATE:
-        // @TODO
-        return 0;
+    case BLOCK_WARPED_FENCE_GATE: {
+        if (cur_info.open) {
+            cur_info.open = 0;
+        } else {
+            int player_facing = get_player_facing(player);
+            if (cur_info.horizontal_facing == get_opposite_direction(player_facing)) {
+                cur_info.horizontal_facing = player_facing;
+            }
+
+            cur_info.open = 1;
+        }
+
+        mc_ushort new_state = make_block_state(serv, &cur_info);
+        try_set_block_state(serv, clicked_pos, new_state);
+        propagate_block_updates_after_change(clicked_pos, serv, scratch_arena);
+
+        // @TODO(traks) broadcast level event for opening/closing fence gate
+        return 1;
+    }
     case BLOCK_ENCHANTING_TABLE:
         // @TODO
         return 0;
