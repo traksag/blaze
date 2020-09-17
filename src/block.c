@@ -382,6 +382,28 @@ can_sea_pickle_survive_on(server * serv, mc_ushort state_below) {
     return 0;
 }
 
+int
+can_snow_survive_on(server * serv, mc_ushort state_below) {
+    mc_int type_below = serv->block_type_by_state[state_below];
+    switch (type_below) {
+    case BLOCK_ICE:
+    case BLOCK_PACKED_ICE:
+    case BLOCK_BARRIER:
+        return 0;
+    case BLOCK_HONEY_BLOCK:
+    case BLOCK_SOUL_SAND:
+        return 1;
+    default: {
+        // @TODO(traks) is this the correct model to use?
+        block_model * model = serv->block_models + serv->collision_model_by_state[state_below];
+        if (model->full_face_flags & (1 << DIRECTION_POS_Y)) {
+            return 1;
+        }
+        return 0;
+    }
+    }
+}
+
 // @TODO(traks) maybe store this kind of info in block properties and block
 // state info structs
 static int
@@ -882,7 +904,7 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
 
         // @TODO(traks) don't use collision models for this
         block_model * model = serv->block_models + serv->collision_model_by_state[from_state];
-        if (model->pole_face_flags & DIRECTION_POS_Y) {
+        if (model->pole_face_flags & (1 << DIRECTION_POS_Y)) {
             return 0;
         }
 
@@ -891,14 +913,15 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
         return 1;
     }
     case BLOCK_WALL_TORCH:
-    case BLOCK_SOUL_WALL_TORCH: {
+    case BLOCK_SOUL_WALL_TORCH:
+    case BLOCK_LADDER: {
         if (from_direction != get_opposite_direction(cur_info.horizontal_facing)) {
             return 0;
         }
 
         // @TODO(traks) don't use collision models for this
         block_model * model = serv->block_models + serv->collision_model_by_state[from_state];
-        if (model->full_face_flags & cur_info.horizontal_facing) {
+        if (model->full_face_flags & (1 << cur_info.horizontal_facing)) {
             return 0;
         }
 
@@ -1046,7 +1069,7 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
             } else {
                 // @TODO(traks) don't use collision models for this
                 block_model * model_below = serv->block_models + serv->collision_model_by_state[from_state];
-                if (model_below->full_face_flags & DIRECTION_POS_Y) {
+                if (model_below->full_face_flags & (1 << DIRECTION_POS_Y)) {
                     return 0;
                 }
 
@@ -1056,8 +1079,6 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
         }
         return 0;
     }
-    case BLOCK_LADDER:
-        break;
     case BLOCK_RAIL:
         break;
     case BLOCK_OAK_WALL_SIGN:
@@ -1071,8 +1092,6 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
     case BLOCK_JUNGLE_WALL_SIGN:
         break;
     case BLOCK_DARK_OAK_WALL_SIGN:
-        break;
-    case BLOCK_LEVER:
         break;
     case BLOCK_STONE_PRESSURE_PLATE:
         break;
@@ -1093,9 +1112,52 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
     case BLOCK_REDSTONE_WALL_TORCH:
         break;
     case BLOCK_STONE_BUTTON:
-        break;
-    case BLOCK_SNOW:
-        break;
+    case BLOCK_OAK_BUTTON:
+    case BLOCK_SPRUCE_BUTTON:
+    case BLOCK_BIRCH_BUTTON:
+    case BLOCK_JUNGLE_BUTTON:
+    case BLOCK_ACACIA_BUTTON:
+    case BLOCK_DARK_OAK_BUTTON:
+    case BLOCK_CRIMSON_BUTTON:
+    case BLOCK_WARPED_BUTTON:
+    case BLOCK_POLISHED_BLACKSTONE_BUTTON:
+    case BLOCK_LEVER: {
+        int wall_dir;
+        switch (cur_info.attach_face) {
+        case ATTACH_FACE_FLOOR:
+            wall_dir = DIRECTION_NEG_Y;
+            break;
+        case ATTACH_FACE_CEILING:
+            wall_dir = DIRECTION_POS_Y;
+            break;
+        default:
+            // attach face wall
+            wall_dir = get_opposite_direction(cur_info.horizontal_facing);
+        }
+        if (from_direction != wall_dir) {
+            return 0;
+        }
+
+        // @TODO(traks) don't use collision models for this
+        block_model * model = serv->block_models + serv->collision_model_by_state[from_state];
+        if (model->full_face_flags & (1 << from_direction)) {
+            return 0;
+        }
+
+        // invalid wall block
+        try_set_block_state(serv, pos, 0);
+        return 1;
+    }
+    case BLOCK_SNOW: {
+        if (from_direction != DIRECTION_NEG_Y) {
+            return 0;
+        }
+        if (can_snow_survive_on(serv, from_state)) {
+            return 0;
+        }
+        try_set_block_state(serv, pos, 0);
+        return 1;
+    }
     case BLOCK_CACTUS:
         break;
     case BLOCK_SUGAR_CANE:
@@ -1251,18 +1313,6 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
     case BLOCK_COBBLESTONE_WALL:
         break;
     case BLOCK_MOSSY_COBBLESTONE_WALL:
-        break;
-    case BLOCK_OAK_BUTTON:
-        break;
-    case BLOCK_SPRUCE_BUTTON:
-        break;
-    case BLOCK_BIRCH_BUTTON:
-        break;
-    case BLOCK_JUNGLE_BUTTON:
-        break;
-    case BLOCK_ACACIA_BUTTON:
-        break;
-    case BLOCK_DARK_OAK_BUTTON:
         break;
     case BLOCK_ANVIL:
         break;
@@ -1777,10 +1827,6 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
         break;
     case BLOCK_WARPED_FENCE_GATE:
         break;
-    case BLOCK_CRIMSON_BUTTON:
-        break;
-    case BLOCK_WARPED_BUTTON:
-        break;
     case BLOCK_CRIMSON_SIGN:
         break;
     case BLOCK_WARPED_SIGN:
@@ -1814,8 +1860,6 @@ update_block(net_block_pos pos, int from_direction, server * serv) {
     case BLOCK_POLISHED_BLACKSTONE_SLAB:
         break;
     case BLOCK_POLISHED_BLACKSTONE_PRESSURE_PLATE:
-        break;
-    case BLOCK_POLISHED_BLACKSTONE_BUTTON:
         break;
     case BLOCK_POLISHED_BLACKSTONE_WALL:
         break;

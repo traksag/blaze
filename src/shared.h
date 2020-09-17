@@ -995,10 +995,10 @@ enum axis {
     AXIS_Z,
 };
 
-enum attached_face {
-    ATTACHED_FACE_FLOOR,
-    ATTACHED_FACE_WALL,
-    ATTACHED_FACE_CEILING,
+enum attach_face {
+    ATTACH_FACE_FLOOR,
+    ATTACH_FACE_WALL,
+    ATTACH_FACE_CEILING,
 };
 
 enum bell_attachment {
@@ -1031,16 +1031,16 @@ enum block_half {
 };
 
 enum rail_shape {
-    RAIL_SHAPE_NORTH_SOUTH,
-    RAIL_SHAPE_EAST_WEST,
-    RAIL_SHAPE_ASCENDING_EAST,
-    RAIL_SHAPE_ASCENDING_WEST,
-    RAIL_SHAPE_ASCENDING_NORTH,
-    RAIL_SHAPE_ASCENDING_SOUTH,
-    RAIL_SHAPE_SOUTH_EAST,
-    RAIL_SHAPE_SOUTH_WEST,
-    RAIL_SHAPE_NORTH_WEST,
-    RAIL_SHAPE_NORTH_EAST,
+    RAIL_SHAPE_Z,
+    RAIL_SHAPE_X,
+    RAIL_SHAPE_ASCENDING_POS_X,
+    RAIL_SHAPE_ASCENDING_NEG_X,
+    RAIL_SHAPE_ASCENDING_NEG_Z,
+    RAIL_SHAPE_ASCENDING_POS_Z,
+    RAIL_SHAPE_POS_Z_POS_X,
+    RAIL_SHAPE_POS_Z_NEG_X,
+    RAIL_SHAPE_NEG_Z_NEG_X,
+    RAIL_SHAPE_NEG_Z_POS_X,
 };
 
 enum bed_part {
@@ -3259,6 +3259,9 @@ is_bamboo_plantable_on(mc_int type_below);
 
 int
 can_sea_pickle_survive_on(server * serv, mc_ushort state_below);
+
+int
+can_snow_survive_on(server * serv, mc_ushort state_below);
 
 int
 get_opposite_direction(int direction);

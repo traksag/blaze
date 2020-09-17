@@ -417,6 +417,54 @@ place_sea_pickle(place_context context, mc_int place_type) {
 }
 
 static void
+place_snow(place_context context, mc_int place_type) {
+    net_block_pos target_pos = context.clicked_pos;
+    mc_ushort cur_state = try_get_block_state(context.serv, target_pos);
+    block_state_info cur_info = describe_block_state(context.serv, cur_state);
+    mc_int cur_type = cur_info.block_type;
+
+    int replace_cur = 0;
+    if (cur_type == place_type) {
+        if (cur_info.layers < 8 && context.clicked_face == DIRECTION_POS_Y) {
+            replace_cur = 1;
+        }
+    } else {
+        replace_cur = can_replace(place_type, cur_type);
+    }
+
+    if (!replace_cur) {
+        target_pos = get_relative_block_pos(target_pos, context.clicked_face);
+        cur_state = try_get_block_state(context.serv, target_pos);
+        cur_info = describe_block_state(context.serv, cur_state);
+        cur_type = cur_info.block_type;
+
+        if (cur_type == place_type) {
+            if (cur_info.layers >= 8) {
+                return;
+            }
+        } else if (!can_replace(place_type, cur_type)) {
+            return;
+        }
+    }
+
+    mc_ushort state_below = try_get_block_state(context.serv,
+            get_relative_block_pos(target_pos, DIRECTION_NEG_Y));
+    mc_int type_below = context.serv->block_type_by_state[state_below];
+    if (!can_snow_survive_on(context.serv, state_below)) {
+        return;
+    }
+
+    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    if (place_type == cur_type) {
+        place_info.layers = cur_info.layers + 1;
+    }
+
+    mc_ushort place_state = make_block_state(context.serv, &place_info);
+    try_set_block_state(context.serv, target_pos, place_state);
+    propagate_block_updates_after_change(target_pos, context.serv, context.scratch_arena);
+}
+
+static void
 place_leaves(place_context context, mc_int place_type) {
     place_target target = determine_place_target(context.serv,
             context.clicked_pos, context.clicked_face, place_type);
@@ -932,6 +980,48 @@ place_torch(place_context context, mc_int base_place_type,
 }
 
 static void
+place_ladder(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
+    if (!(target.flags & PLACE_CAN_PLACE)) {
+        return;
+    }
+
+    direction_list list = get_attach_directions_by_preference(context, target);
+    int selected_dir = -1;
+
+    for (int i = 0; i < 6; i++) {
+        int dir = list.directions[i];
+        if (dir == DIRECTION_POS_Y || dir == DIRECTION_NEG_Y) {
+            continue;
+        }
+
+        net_block_pos attach_pos = get_relative_block_pos(target.pos, dir);
+        mc_ushort wall_state = try_get_block_state(context.serv, attach_pos);
+        // @TODO(traks) don't use collision model for this
+        block_model * wall_model = context.serv->block_models + context.serv->collision_model_by_state[wall_state];
+        int wall_face = get_opposite_direction(dir);
+
+        if (wall_model->full_face_flags & (1 << wall_face)) {
+            // wall face is sturdy
+            selected_dir = dir;
+            break;
+        }
+    }
+    if (selected_dir == -1) {
+        return;
+    }
+
+    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    place_info.horizontal_facing = get_opposite_direction(selected_dir);
+    place_info.waterlogged = is_water_source(context.serv, target.cur_state);
+
+    mc_ushort place_state = make_block_state(context.serv, &place_info);
+    try_set_block_state(context.serv, target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+}
+
+static void
 place_door(place_context context, mc_int place_type) {
     place_target target = determine_place_target(context.serv,
             context.clicked_pos, context.clicked_face, place_type);
@@ -1079,6 +1169,108 @@ place_pane(place_context context, mc_int place_type) {
     for (int i = 0; i < 4; i++) {
         int face = neighbour_directions[i];
         update_pane_shape(context.serv, target.pos, &place_info, face);
+    }
+
+    mc_ushort place_state = make_block_state(context.serv, &place_info);
+    try_set_block_state(context.serv, target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+}
+
+static void
+place_rail(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
+    if (!(target.flags & PLACE_CAN_PLACE)) {
+        return;
+    }
+
+    // @TODO(traks) check if rail can survive on block below and place rail in
+    // the correct state (ascending and turned).
+    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    int player_facing = get_player_facing(context.player);
+    place_info.rail_shape = player_facing == DIRECTION_NEG_X
+            || player_facing == DIRECTION_POS_X ? RAIL_SHAPE_X : RAIL_SHAPE_Z;
+
+    mc_ushort place_state = make_block_state(context.serv, &place_info);
+    try_set_block_state(context.serv, target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+}
+
+static void
+place_lever_or_button(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
+    if (!(target.flags & PLACE_CAN_PLACE)) {
+        return;
+    }
+
+    direction_list list = get_attach_directions_by_preference(context, target);
+    int selected_dir = -1;
+
+    for (int i = 0; i < 6; i++) {
+        int dir = list.directions[i];
+        net_block_pos attach_pos = get_relative_block_pos(target.pos, dir);
+        mc_ushort wall_state = try_get_block_state(context.serv, attach_pos);
+        // @TODO(traks) don't use collision model for this
+        block_model * wall_model = context.serv->block_models + context.serv->collision_model_by_state[wall_state];
+        int wall_face = get_opposite_direction(dir);
+
+        if (wall_model->full_face_flags & (1 << wall_face)) {
+            // wall face is sturdy
+            selected_dir = dir;
+            break;
+        }
+    }
+    if (selected_dir == -1) {
+        return;
+    }
+
+    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    switch (selected_dir) {
+    case DIRECTION_POS_Y:
+        place_info.attach_face = ATTACH_FACE_CEILING;
+        place_info.horizontal_facing = get_player_facing(context.player);
+        break;
+    case DIRECTION_NEG_Y:
+        place_info.attach_face = ATTACH_FACE_FLOOR;
+        place_info.horizontal_facing = get_player_facing(context.player);
+        break;
+    default:
+        // attach to horizontal wall
+        place_info.attach_face = ATTACH_FACE_WALL;
+        place_info.horizontal_facing = get_opposite_direction(selected_dir);
+    }
+
+    mc_ushort place_state = make_block_state(context.serv, &place_info);
+    try_set_block_state(context.serv, target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+}
+
+static void
+place_grindstone(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(context.serv,
+            context.clicked_pos, context.clicked_face, place_type);
+    if (!(target.flags & PLACE_CAN_PLACE)) {
+        return;
+    }
+
+    direction_list list = get_attach_directions_by_preference(context, target);
+    int selected_dir = list.directions[0];
+
+    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    switch (selected_dir) {
+    case DIRECTION_POS_Y:
+        place_info.attach_face = ATTACH_FACE_CEILING;
+        place_info.horizontal_facing = get_player_facing(context.player);
+        break;
+    case DIRECTION_NEG_Y:
+        place_info.attach_face = ATTACH_FACE_FLOOR;
+        place_info.horizontal_facing = get_player_facing(context.player);
+        break;
+    default:
+        // attach to horizontal wall
+        place_info.attach_face = ATTACH_FACE_WALL;
+        place_info.horizontal_facing = get_opposite_direction(selected_dir);
     }
 
     mc_ushort place_state = make_block_state(context.serv, &place_info);
@@ -1700,17 +1892,22 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_simple_block(context, BLOCK_CRAFTING_TABLE);
         break;
     case ITEM_FARMLAND:
+        // @TODO(traks) need to be able to determine if material of block above
+        // is solid or not, to implement farmland
         break;
     case ITEM_FURNACE:
         break;
     case ITEM_LADDER:
+        place_ladder(context, BLOCK_LADDER);
         break;
     case ITEM_RAIL:
+        place_rail(context, BLOCK_RAIL);
         break;
     case ITEM_COBBLESTONE_STAIRS:
         place_stairs(context, BLOCK_COBBLESTONE_STAIRS);
         break;
     case ITEM_LEVER:
+        place_lever_or_button(context, BLOCK_LEVER);
         break;
     case ITEM_STONE_PRESSURE_PLATE:
         break;
@@ -1739,6 +1936,7 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_torch(context, BLOCK_REDSTONE_TORCH, BLOCK_REDSTONE_WALL_TORCH);
         break;
     case ITEM_SNOW:
+        place_snow(context, BLOCK_SNOW);
         break;
     case ITEM_ICE:
         place_simple_block(context, BLOCK_ICE);
@@ -2000,24 +2198,34 @@ process_use_item_on_packet(server * serv, entity_base * player,
     case ITEM_POLISHED_BLACKSTONE_BRICK_WALL:
         break;
     case ITEM_STONE_BUTTON:
+        place_lever_or_button(context, BLOCK_STONE_BUTTON);
         break;
     case ITEM_OAK_BUTTON:
+        place_lever_or_button(context, BLOCK_OAK_BUTTON);
         break;
     case ITEM_SPRUCE_BUTTON:
+        place_lever_or_button(context, BLOCK_SPRUCE_BUTTON);
         break;
     case ITEM_BIRCH_BUTTON:
+        place_lever_or_button(context, BLOCK_BIRCH_BUTTON);
         break;
     case ITEM_JUNGLE_BUTTON:
+        place_lever_or_button(context, BLOCK_JUNGLE_BUTTON);
         break;
     case ITEM_ACACIA_BUTTON:
+        place_lever_or_button(context, BLOCK_ACACIA_BUTTON);
         break;
     case ITEM_DARK_OAK_BUTTON:
+        place_lever_or_button(context, BLOCK_DARK_OAK_BUTTON);
         break;
     case ITEM_CRIMSON_BUTTON:
+        place_lever_or_button(context, BLOCK_CRIMSON_BUTTON);
         break;
     case ITEM_WARPED_BUTTON:
+        place_lever_or_button(context, BLOCK_WARPED_BUTTON);
         break;
     case ITEM_POLISHED_BLACKSTONE_BUTTON:
+        place_lever_or_button(context, BLOCK_POLISHED_BLACKSTONE_BUTTON);
         break;
     case ITEM_ANVIL:
         break;
@@ -2108,6 +2316,7 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_simple_block(context, BLOCK_BLACK_TERRACOTTA);
         break;
     case ITEM_BARRIER:
+        place_simple_block(context, BLOCK_BARRIER);
         break;
     case ITEM_IRON_TRAPDOOR:
         break;
@@ -3091,6 +3300,7 @@ process_use_item_on_packet(server * serv, entity_base * player,
         place_simple_block(context, BLOCK_FLETCHING_TABLE);
         break;
     case ITEM_GRINDSTONE:
+        place_grindstone(context, BLOCK_GRINDSTONE);
         break;
     case ITEM_LECTERN:
         break;

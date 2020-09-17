@@ -864,6 +864,10 @@ server_tick(server * serv) {
                         }
 
                         entity_base * entity = resolve_entity(serv, *sampled);
+                        // @TODO(traks) this assert fired, not sure how that
+                        // happened. Can leave it for now, since these things
+                        // will may need to be rewritten anyway if we decide to
+                        // move all initial session stuff to a separate thread.
                         assert(entity->type == ENTITY_PLAYER);
                         // @TODO(traks) actual UUID
                         response_size += sprintf((char *) response + response_size,
@@ -1001,10 +1005,10 @@ server_tick(server * serv) {
                 // to some website, Fortnite sends about 1.5KB/tick. Although we
                 // sometimes have to send a bunch of chunk data, which can be
                 // tens of KB. Minecraft even allows up to 2MB of chunk data.
-                player->rec_buf_size = 65536;
+                player->rec_buf_size = 1 << 16;
                 player->rec_buf = malloc(player->rec_buf_size);
 
-                player->send_buf_size = 1048576;
+                player->send_buf_size = 1 << 20;
                 player->send_buf = malloc(player->send_buf_size);
 
                 if (player->rec_buf == NULL || player->send_buf == NULL) {
