@@ -3018,6 +3018,8 @@ typedef struct {
     mc_ushort block_type_by_state[18000];
 } server;
 
+extern server * serv;
+
 // in network order
 enum player_hand {
     PLAYER_MAIN_HAND,
@@ -3155,10 +3157,10 @@ chunk *
 get_chunk_if_available(chunk_pos pos);
 
 mc_ushort
-try_get_block_state(server * serv, net_block_pos pos);
+try_get_block_state(net_block_pos pos);
 
 void
-try_set_block_state(server * serv, net_block_pos pos, mc_ushort block_state);
+try_set_block_state(net_block_pos pos, mc_ushort block_state);
 
 void
 chunk_set_block_state(chunk * ch, int x, int y, int z, mc_ushort block_state);
@@ -3168,7 +3170,7 @@ chunk_get_block_state(chunk * ch, int x, int y, int z);
 
 void
 try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
-        memory_arena * scratch_arena, server * serv);
+        memory_arena * scratch_arena);
 
 chunk_section *
 alloc_chunk_section(void);
@@ -3180,13 +3182,13 @@ void
 clean_up_unused_chunks(void);
 
 entity_base *
-resolve_entity(server * serv, entity_id eid);
+resolve_entity(entity_id eid);
 
 entity_base *
-try_reserve_entity(server * serv, unsigned type);
+try_reserve_entity(unsigned type);
 
 void
-evict_entity(server * serv, entity_id eid);
+evict_entity(entity_id eid);
 
 void
 teleport_player(entity_base * entity,
@@ -3197,12 +3199,10 @@ void
 set_player_gamemode(entity_base * player, int new_gamemode);
 
 void
-tick_player(entity_base * entity, server * serv,
-        memory_arena * tick_arena);
+tick_player(entity_base * entity, memory_arena * tick_arena);
 
 void
-send_packets_to_player(entity_base * entity, server * serv,
-        memory_arena * tick_arena);
+send_packets_to_player(entity_base * entity, memory_arena * tick_arena);
 
 void
 register_resource_loc(net_string resource_loc, mc_short id,
@@ -3218,13 +3218,13 @@ int
 net_string_equal(net_string a, net_string b);
 
 void
-process_use_item_on_packet(server * serv, entity_base * player,
+process_use_item_on_packet(entity_base * player,
         mc_int hand, net_block_pos clicked_pos, mc_int clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
         mc_ubyte is_inside, memory_arena * scratch_arena);
 
 int
-use_block(server * serv, entity_base * player,
+use_block(entity_base * player,
         mc_int hand, net_block_pos clicked_pos, mc_int clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
         mc_ubyte is_inside, memory_arena * scratch_arena);
@@ -3234,7 +3234,7 @@ get_max_stack_size(mc_int item_type);
 
 void
 propagate_block_updates_after_change(net_block_pos change_pos,
-        server * serv, memory_arena * scratch_arena);
+        memory_arena * scratch_arena);
 
 net_block_pos
 get_relative_block_pos(net_block_pos pos, int face);
@@ -3258,10 +3258,10 @@ int
 is_bamboo_plantable_on(mc_int type_below);
 
 int
-can_sea_pickle_survive_on(server * serv, mc_ushort state_below);
+can_sea_pickle_survive_on(mc_ushort state_below);
 
 int
-can_snow_survive_on(server * serv, mc_ushort state_below);
+can_snow_survive_on(mc_ushort state_below);
 
 int
 get_opposite_direction(int direction);
@@ -3270,33 +3270,32 @@ int
 get_direction_axis(int direction);
 
 void
-init_block_data(server * serv);
+init_block_data(void);
 
 int
 has_block_state_property(block_state_info * info, int prop);
 
 block_state_info
-describe_block_state(server * serv, mc_ushort block_state);
+describe_block_state(mc_ushort block_state);
 
 mc_ushort
-get_default_block_state(server * serv, mc_int block_type);
+get_default_block_state(mc_int block_type);
 
 block_state_info
-describe_default_block_state(server * serv, mc_int block_type);
+describe_default_block_state(mc_int block_type);
 
 mc_ushort
-make_block_state(server * serv, block_state_info * info);
+make_block_state(block_state_info * info);
 
 void
-update_stairs_shape(server * serv, net_block_pos pos,
-        block_state_info * cur_info);
+update_stairs_shape(net_block_pos pos, block_state_info * cur_info);
 
 void
-update_pane_shape(server * serv, net_block_pos pos,
+update_pane_shape(net_block_pos pos,
         block_state_info * cur_info, int from_direction);
 
 void
-update_fence_shape(server * serv, net_block_pos pos,
+update_fence_shape(net_block_pos pos,
         block_state_info * cur_info, int from_direction);
 
 int

@@ -286,9 +286,8 @@ process_move_player_packet(entity_base * player,
 }
 
 static int
-drop_item(entity_base * player, item_stack * is,
-        unsigned char drop_size, server * serv) {
-    entity_base * item = try_reserve_entity(serv, ENTITY_ITEM);
+drop_item(entity_base * player, item_stack * is, unsigned char drop_size) {
+    entity_base * item = try_reserve_entity(ENTITY_ITEM);
     if (item->type == ENTITY_NULL) {
         return 0;
     }
@@ -321,7 +320,7 @@ drop_item(entity_base * player, item_stack * is,
 
 static void
 process_packet(entity_base * entity, buffer_cursor * rec_cursor,
-        server * serv, memory_arena * process_arena) {
+        memory_arena * process_arena) {
     // @NOTE(traks) we need to handle packets in the order in which they arive,
     // so e.g. the client can move the player to a position, perform some
     // action, and then move the player a bit further, all in the same tick.
@@ -711,7 +710,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
                 chunk_set_block_state(ch, block_pos.x & 0xf, block_pos.y,
                         block_pos.z & 0xf, new_state);
                 propagate_block_updates_after_change(block_pos,
-                        serv, process_arena);
+                        process_arena);
 
                 // @TODO(traks) rewrite so we don't need an assert
                 assert(player->block_break_ack_count
@@ -744,7 +743,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
             // itself, so no need to send updates for the slot if nothing
             // special happens
             if (is->size > 0) {
-                if (drop_item(entity, is, is->size, serv)) {
+                if (drop_item(entity, is, is->size)) {
                     is->size = 0;
                     is->type = ITEM_AIR;
                 } else {
@@ -761,7 +760,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
             // itself, so no need to send updates for the slot if nothing
             // special happens
             if (is->size > 0) {
-                if (drop_item(entity, is, 1, serv)) {
+                if (drop_item(entity, is, 1)) {
                     is->size -= 1;
                     if (is->size == 0) {
                         is->type = ITEM_AIR;
@@ -1038,7 +1037,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
         // target position as well, so no assertions fire when setting the block
         // in the chunk (e.g. because of negative y)
 
-        process_use_item_on_packet(serv, entity, hand, clicked_pos,
+        process_use_item_on_packet(entity, hand, clicked_pos,
                 clicked_face, click_offset_x, click_offset_y, click_offset_z,
                 is_inside, process_arena);
         break;
@@ -1286,7 +1285,7 @@ send_light_update(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch,
 }
 
 static void
-disconnect_player_now(entity_base * entity, server * serv) {
+disconnect_player_now(entity_base * entity) {
     entity_player * player = &entity->player;
     close(player->sock);
 
@@ -1307,7 +1306,7 @@ disconnect_player_now(entity_base * entity, server * serv) {
     free(player->rec_buf);
     free(player->send_buf);
 
-    evict_entity(serv, entity->eid);
+    evict_entity(entity->eid);
 }
 
 static float
@@ -1374,8 +1373,7 @@ add_stack_to_player_inventory(entity_base * player, item_stack * to_add) {
 }
 
 void
-tick_player(entity_base * player, server * serv,
-        memory_arena * tick_arena) {
+tick_player(entity_base * player, memory_arena * tick_arena) {
     begin_timed_block("tick player");
 
     assert(player->type == ENTITY_PLAYER);
@@ -1384,12 +1382,12 @@ tick_player(entity_base * player, server * serv,
             player->player.rec_buf_size - player->player.rec_cursor, 0);
 
     if (rec_size == 0) {
-        disconnect_player_now(player, serv);
+        disconnect_player_now(player);
     } else if (rec_size == -1) {
         // EAGAIN means no data received
         if (errno != EAGAIN) {
             logs_errno("Couldn't receive protocol data: %s");
-            disconnect_player_now(player, serv);
+            disconnect_player_now(player);
         }
     } else {
         player->player.rec_cursor += rec_size;
@@ -1410,7 +1408,7 @@ tick_player(entity_base * player, server * serv,
                 break;
             }
             if (packet_size > player->player.rec_buf_size - 5 || packet_size <= 0) {
-                disconnect_player_now(player, serv);
+                disconnect_player_now(player);
                 break;
             }
             if (packet_size > packet_cursor.limit - packet_cursor.index) {
@@ -1439,7 +1437,7 @@ tick_player(entity_base * player, server * serv,
 
                 if (inflateInit2(&zstream, 0) != Z_OK) {
                     logs("inflateInit failed");
-                    disconnect_player_now(player, serv);
+                    disconnect_player_now(player);
                     break;
                 }
 
@@ -1455,19 +1453,19 @@ tick_player(entity_base * player, server * serv,
 
                 if (inflate(&zstream, Z_FINISH) != Z_STREAM_END) {
                     logs("Failed to finish inflating packet: %s", zstream.msg);
-                    disconnect_player_now(player, serv);
+                    disconnect_player_now(player);
                     break;
                 }
 
                 if (inflateEnd(&zstream) != Z_OK) {
                     logs("inflateEnd failed");
-                    disconnect_player_now(player, serv);
+                    disconnect_player_now(player);
                     break;
                 }
 
                 if (zstream.avail_in != 0) {
                     logs("Didn't inflate entire packet");
-                    disconnect_player_now(player, serv);
+                    disconnect_player_now(player);
                     break;
                 }
 
@@ -1477,17 +1475,17 @@ tick_player(entity_base * player, server * serv,
                 };
             }
 
-            process_packet(player, &packet_cursor, serv, &process_arena);
+            process_packet(player, &packet_cursor, &process_arena);
 
             if (packet_cursor.error != 0) {
                 logs("Player protocol error occurred");
-                disconnect_player_now(player, serv);
+                disconnect_player_now(player);
                 break;
             }
 
             if (packet_cursor.index != packet_cursor.limit) {
                 logs("Player protocol packet not fully read");
-                disconnect_player_now(player, serv);
+                disconnect_player_now(player);
                 break;
             }
         }
@@ -1925,7 +1923,7 @@ send_take_item_entity_packet(entity_base * player, buffer_cursor * send_cursor,
 }
 
 static void
-try_update_tracked_entity(entity_base * player, server * serv,
+try_update_tracked_entity(entity_base * player,
         buffer_cursor * send_cursor, memory_arena * tick_arena,
         tracked_entity * tracked, entity_base * entity) {
     if (serv->current_tick - tracked->last_update_tick < tracked->update_interval
@@ -2059,7 +2057,7 @@ try_update_tracked_entity(entity_base * player, server * serv,
 }
 
 static void
-start_tracking_entity(entity_base * player, server * serv,
+start_tracking_entity(entity_base * player,
         buffer_cursor * send_cursor, memory_arena * tick_arena,
         tracked_entity * tracked, entity_base * entity) {
     *tracked = (tracked_entity) {0};
@@ -2182,8 +2180,7 @@ send_player_abilities(buffer_cursor * send_cursor, entity_base * player) {
 }
 
 void
-send_packets_to_player(entity_base * player, server * serv,
-        memory_arena * tick_arena) {
+send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
     begin_timed_block("send packets");
 
     size_t max_uncompressed_packet_size = 1 << 20;
@@ -2435,7 +2432,7 @@ send_packets_to_player(entity_base * player, server * serv,
     // send block changes for this player only
     for (int i = 0; i < player->player.changed_block_count; i++) {
         net_block_pos pos = player->player.changed_blocks[i];
-        mc_ushort block_state = try_get_block_state(serv, pos);
+        mc_ushort block_state = try_get_block_state(pos);
         if (block_state >= serv->vanilla_block_state_count) {
             // catches unknown blocks
             continue;
@@ -2680,7 +2677,7 @@ send_packets_to_player(entity_base * player, server * serv,
 
             for (int i = 0; i < serv->tab_list_size; i++) {
                 entity_id eid = serv->tab_list[i];
-                entity_base * player = resolve_entity(serv, eid);
+                entity_base * player = resolve_entity(eid);
                 assert(player->type == ENTITY_PLAYER);
                 // @TODO(traks) write UUID
                 net_write_ulong(send_cursor, 0);
@@ -2718,7 +2715,7 @@ send_packets_to_player(entity_base * player, server * serv,
 
             for (int i = 0; i < serv->tab_list_added_count; i++) {
                 entity_id eid = serv->tab_list_added[i];
-                entity_base * player = resolve_entity(serv, eid);
+                entity_base * player = resolve_entity(eid);
                 assert(player->type == ENTITY_PLAYER);
                 // @TODO(traks) write UUID
                 net_write_ulong(send_cursor, 0);
@@ -2779,7 +2776,7 @@ send_packets_to_player(entity_base * player, server * serv,
                 double dy = candidate->y - player->y;
                 double dz = candidate->z - player->z;
                 if (dx * dx + dy * dy + dz * dz < 45 * 45) {
-                    try_update_tracked_entity(player, serv,
+                    try_update_tracked_entity(player,
                             send_cursor, tick_arena, tracked, candidate);
                     continue;
                 }
@@ -2807,7 +2804,7 @@ send_packets_to_player(entity_base * player, server * serv,
                 continue;
             }
 
-            start_tracking_entity(player, serv,
+            start_tracking_entity(player,
                     send_cursor, tick_arena, tracked, candidate);
         }
     }
@@ -2868,7 +2865,7 @@ send_packets_to_player(entity_base * player, server * serv,
     if (send_cursor->error != 0) {
         // just disconnect the player
         logs("Failed to create packets");
-        disconnect_player_now(player, serv);
+        disconnect_player_now(player);
         goto bail;
     }
 
@@ -2951,7 +2948,7 @@ send_packets_to_player(entity_base * player, server * serv,
     if (final_cursor->error != 0) {
         // just disconnect the player
         logs("Failed to finalise packets");
-        disconnect_player_now(player, serv);
+        disconnect_player_now(player);
         goto bail;
     }
 
@@ -2964,7 +2961,7 @@ send_packets_to_player(entity_base * player, server * serv,
         // EAGAIN means no data sent
         if (errno != EAGAIN) {
             logs_errno("Couldn't send protocol data: %s");
-            disconnect_player_now(player, serv);
+            disconnect_player_now(player);
         }
     } else {
         memmove(final_cursor->buf, final_cursor->buf + send_size,

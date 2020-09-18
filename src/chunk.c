@@ -125,12 +125,12 @@ hash_chunk_pos(chunk_pos pos) {
 }
 
 mc_ushort
-try_get_block_state(server * serv, net_block_pos pos) {
+try_get_block_state(net_block_pos pos) {
     if (pos.y < 0) {
-        return get_default_block_state(serv, BLOCK_VOID_AIR);
+        return get_default_block_state(BLOCK_VOID_AIR);
     }
     if (pos.y > MAX_WORLD_Y) {
-        return get_default_block_state(serv, BLOCK_AIR);
+        return get_default_block_state(BLOCK_AIR);
     }
 
     chunk_pos ch_pos = {
@@ -140,14 +140,14 @@ try_get_block_state(server * serv, net_block_pos pos) {
 
     chunk * ch = get_chunk_if_loaded(ch_pos);
     if (ch == NULL) {
-        return get_default_block_state(serv, BLOCK_UNKNOWN);
+        return get_default_block_state(BLOCK_UNKNOWN);
     }
 
     return chunk_get_block_state(ch, pos.x & 0xf, pos.y, pos.z & 0xf);
 }
 
 void
-try_set_block_state(server * serv, net_block_pos pos, mc_ushort block_state) {
+try_set_block_state(net_block_pos pos, mc_ushort block_state) {
     if (pos.y < 0) {
         assert(0);
         return;
@@ -338,7 +338,7 @@ fill_buffer_from_file(int fd, buffer_cursor * cursor) {
 
 void
 try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
-        memory_arena * scratch_arena, server * serv) {
+        memory_arena * scratch_arena) {
     begin_timed_block("read chunk");
 
     // @TODO(traks) error handling and/or error messages for all failure cases

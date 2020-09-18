@@ -25,6 +25,8 @@
 static int server_sock;
 static volatile sig_atomic_t got_sigint;
 
+server * serv;
+
 #define INITIAL_CONNECTION_IN_USE ((unsigned) (1 << 0))
 
 enum initial_protocol_state {
@@ -363,7 +365,7 @@ find_property_value_index(block_property_spec * prop_spec, net_string val) {
 }
 
 entity_base *
-resolve_entity(server * serv, entity_id eid) {
+resolve_entity(entity_id eid) {
     mc_uint index = eid & ENTITY_INDEX_MASK;
     entity_base * entity = serv->entities + index;
     if (entity->eid != eid || !(entity->flags & ENTITY_IN_USE)) {
@@ -374,7 +376,7 @@ resolve_entity(server * serv, entity_id eid) {
 }
 
 entity_base *
-try_reserve_entity(server * serv, unsigned type) {
+try_reserve_entity(unsigned type) {
     for (uint32_t i = 0; i < MAX_ENTITIES; i++) {
         entity_base * entity = serv->entities + i;
         if (!(entity->flags & ENTITY_IN_USE)) {
@@ -403,8 +405,8 @@ try_reserve_entity(server * serv, unsigned type) {
 }
 
 void
-evict_entity(server * serv, entity_id eid) {
-    entity_base * entity = resolve_entity(serv, eid);
+evict_entity(entity_id eid) {
+    entity_base * entity = resolve_entity(eid);
     if (entity->type != ENTITY_NULL) {
         entity->flags &= ~ENTITY_IN_USE;
         serv->entity_count--;
@@ -412,7 +414,7 @@ evict_entity(server * serv, entity_id eid) {
 }
 
 static void
-move_entity(entity_base * entity, server * serv) {
+move_entity(entity_base * entity) {
     // @TODO(traks) Currently our collision system seems to be very different
     // from Minecraft's collision system, which causes client-server desyncs
     // when dropping item entities, etc. There are currently also uses with
@@ -482,7 +484,7 @@ move_entity(entity_base * entity, server * serv) {
             for (int block_y = iter_min_y; block_y <= iter_max_y; block_y++) {
                 for (int block_z = iter_min_z; block_z <= iter_max_z; block_z++) {
                     net_block_pos block_pos = {.x = block_x, .y = block_y, .z = block_z};
-                    mc_ushort cur_state = try_get_block_state(serv, block_pos);
+                    mc_ushort cur_state = try_get_block_state(block_pos);
 
                     if (cur_state == 0) {
                         continue;
@@ -629,18 +631,18 @@ move_entity(entity_base * entity, server * serv) {
 }
 
 static void
-tick_entity(entity_base * entity, server * serv, memory_arena * tick_arena) {
+tick_entity(entity_base * entity, memory_arena * tick_arena) {
     // @TODO(traks) currently it's possible that an entity is spawned and ticked
     // the same tick. Is that an issue or not? Maybe that causes undesirable
     // off-by-one tick behaviour.
 
     switch (entity->type) {
     case ENTITY_PLAYER:
-        tick_player(entity, serv, tick_arena);
+        tick_player(entity, tick_arena);
         break;
     case ENTITY_ITEM: {
         if (entity->item.contents.type == ITEM_AIR) {
-            evict_entity(serv, entity->eid);
+            evict_entity(entity->eid);
             return;
         }
 
@@ -652,7 +654,7 @@ tick_entity(entity_base * entity, server * serv, memory_arena * tick_arena) {
         // gravity acceleration
         entity->vy -= 0.04;
 
-        move_entity(entity, serv);
+        move_entity(entity);
 
         float drag = 0.98;
 
@@ -665,7 +667,7 @@ tick_entity(entity_base * entity, server * serv, memory_arena * tick_arena) {
                 .z = floor(entity->z),
             };
 
-            mc_ushort ground_state = try_get_block_state(serv, ground);
+            mc_ushort ground_state = try_get_block_state(ground);
             mc_int ground_type = serv->block_type_by_state[ground_state];
 
             // Minecraft block friction
@@ -695,7 +697,7 @@ tick_entity(entity_base * entity, server * serv, memory_arena * tick_arena) {
 }
 
 static void
-server_tick(server * serv) {
+server_tick(void) {
     begin_timed_block("server tick");
 
     // accept new connections
@@ -863,7 +865,7 @@ server_tick(server * serv) {
                             response_size += 1;
                         }
 
-                        entity_base * entity = resolve_entity(serv, *sampled);
+                        entity_base * entity = resolve_entity(*sampled);
                         // @TODO(traks) this assert fired, not sure how that
                         // happened. Can leave it for now, since these things
                         // will may need to be rewritten anyway if we decide to
@@ -990,7 +992,7 @@ server_tick(server * serv) {
                 init_con->flags = 0;
                 initial_connection_count--;
 
-                entity_base * entity = try_reserve_entity(serv, ENTITY_PLAYER);
+                entity_base * entity = try_reserve_entity(ENTITY_PLAYER);
 
                 if (entity->type == ENTITY_NULL) {
                     // @TODO(traks) send some message and disconnect
@@ -1015,7 +1017,7 @@ server_tick(server * serv) {
                     // @TODO(traks) send some message on disconnect
                     free(player->send_buf);
                     free(player->rec_buf);
-                    evict_entity(serv, entity->eid);
+                    evict_entity(entity->eid);
                     close(init_con->sock);
                     continue;
                 }
@@ -1066,7 +1068,7 @@ server_tick(server * serv) {
             .size = serv->short_lived_scratch_size
         };
 
-        tick_entity(entity, serv, &tick_arena);
+        tick_entity(entity, &tick_arena);
     }
 
     end_timed_block();
@@ -1076,7 +1078,7 @@ server_tick(server * serv) {
     // remove players from tab list if necessary
     for (int i = 0; i < serv->tab_list_size; i++) {
         entity_id eid = serv->tab_list[i];
-        entity_base * entity = resolve_entity(serv, eid);
+        entity_base * entity = resolve_entity(eid);
         if (entity->type == ENTITY_NULL) {
             // @TODO(traks) make sure this can never happen instead of hoping
             assert(serv->tab_list_removed_count < ARRAY_SIZE(serv->tab_list_removed));
@@ -1116,7 +1118,7 @@ server_tick(server * serv) {
             .ptr = serv->short_lived_scratch,
             .size = serv->short_lived_scratch_size
         };
-        send_packets_to_player(entity, serv, &tick_arena);
+        send_packets_to_player(entity, &tick_arena);
     }
 
     end_timed_block();
@@ -1163,7 +1165,7 @@ server_tick(server * serv) {
             .ptr = serv->short_lived_scratch,
             .size = serv->short_lived_scratch_size
         };
-        try_read_chunk_from_storage(pos, ch, &scratch_arena, serv);
+        try_read_chunk_from_storage(pos, ch, &scratch_arena);
 
         if (!(ch->flags & CHUNK_LOADED)) {
             // @TODO(traks) fall back to stone plateau at y = 0 for now
@@ -1287,7 +1289,7 @@ read_file(memory_arena * arena, char * file_name) {
 }
 
 static void
-load_item_types(server * serv) {
+load_item_types(void) {
     memory_arena arena = {
         .ptr = serv->short_lived_scratch,
         .size = serv->short_lived_scratch_size,
@@ -1314,7 +1316,7 @@ load_item_types(server * serv) {
 }
 
 static void
-load_entity_types(server * serv) {
+load_entity_types(void) {
     memory_arena arena = {
         .ptr = serv->short_lived_scratch,
         .size = serv->short_lived_scratch_size,
@@ -1342,7 +1344,7 @@ load_entity_types(server * serv) {
 }
 
 static void
-load_fluid_types(server * serv) {
+load_fluid_types(void) {
     memory_arena arena = {
         .ptr = serv->short_lived_scratch,
         .size = serv->short_lived_scratch_size,
@@ -1370,8 +1372,7 @@ load_fluid_types(server * serv) {
 }
 
 static void
-load_tags(char * file_name, tag_list * tags,
-        resource_loc_table * table, server * serv) {
+load_tags(char * file_name, tag_list * tags, resource_loc_table * table) {
     memory_arena arena = {
         .ptr = serv->short_lived_scratch,
         .size = serv->short_lived_scratch_size,
@@ -1423,7 +1424,7 @@ load_tags(char * file_name, tag_list * tags,
 }
 
 static void
-init_dimension_types(server * serv) {
+init_dimension_types(void) {
     dimension_type * overworld = serv->dimension_types + serv->dimension_type_count;
     serv->dimension_type_count++;
 
@@ -1453,7 +1454,7 @@ init_dimension_types(server * serv) {
 }
 
 static void
-init_biomes(server * serv) {
+init_biomes(void) {
     biome * ocean = serv->biomes + serv->biome_count;
     serv->biome_count++;
 
@@ -1576,7 +1577,7 @@ main(void) {
 
     logs("Bound to address");
 
-    server * serv = calloc(sizeof * serv, 1);
+    serv = calloc(sizeof * serv, 1);
     if (serv == NULL) {
         logs_errno("Failed to allocate server struct: %s");
         exit(1);
@@ -1600,24 +1601,24 @@ main(void) {
     alloc_resource_loc_table(&serv->entity_resource_table, 1 << 10, 1 << 12, ENTITY_TYPE_COUNT);
     alloc_resource_loc_table(&serv->fluid_resource_table, 1 << 10, 1 << 10, 5);
 
-    load_item_types(serv);
-    init_block_data(serv);
-    load_entity_types(serv);
-    load_fluid_types(serv);
-    load_tags("blocktags.txt", &serv->block_tags, &serv->block_resource_table, serv);
-    load_tags("itemtags.txt", &serv->item_tags, &serv->item_resource_table, serv);
-    load_tags("entitytags.txt", &serv->entity_tags, &serv->entity_resource_table, serv);
-    load_tags("fluidtags.txt", &serv->fluid_tags, &serv->fluid_resource_table, serv);
+    load_item_types();
+    init_block_data();
+    load_entity_types();
+    load_fluid_types();
+    load_tags("blocktags.txt", &serv->block_tags, &serv->block_resource_table);
+    load_tags("itemtags.txt", &serv->item_tags, &serv->item_resource_table);
+    load_tags("entitytags.txt", &serv->entity_tags, &serv->entity_resource_table);
+    load_tags("fluidtags.txt", &serv->fluid_tags, &serv->fluid_resource_table);
 
-    init_dimension_types(serv);
-    init_biomes(serv);
+    init_dimension_types();
+    init_biomes();
 
     int profiler_sock = -1;
 
     for (;;) {
         long long start_time = program_nano_time();
 
-        server_tick(serv);
+        server_tick();
 
         if (profiler_sock == -1) {
             profiler_sock = socket(AF_INET, SOCK_STREAM, 0);

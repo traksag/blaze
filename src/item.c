@@ -12,7 +12,6 @@ typedef struct {
 } place_target;
 
 typedef struct {
-    server * serv;
     entity_base * player;
     net_block_pos clicked_pos;
     mc_int clicked_face;
@@ -77,17 +76,17 @@ can_replace(mc_int place_type, mc_int cur_type) {
 }
 
 static place_target
-determine_place_target(server * serv, net_block_pos clicked_pos,
+determine_place_target(net_block_pos clicked_pos,
         mc_int clicked_face, mc_int place_type) {
     place_target res = {0};
     net_block_pos target_pos = clicked_pos;
-    mc_ushort cur_state = try_get_block_state(serv, target_pos);
+    mc_ushort cur_state = try_get_block_state(target_pos);
     mc_int cur_type = serv->block_type_by_state[cur_state];
     int replacing = PLACE_REPLACING;
 
     if (!can_replace(place_type, cur_type)) {
         target_pos = get_relative_block_pos(target_pos, clicked_face);
-        cur_state = try_get_block_state(serv, target_pos);
+        cur_state = try_get_block_state(target_pos);
         cur_type = serv->block_type_by_state[cur_state];
         replacing = 0;
 
@@ -107,29 +106,29 @@ determine_place_target(server * serv, net_block_pos clicked_pos,
 
 static void
 place_simple_block(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort place_state = get_default_block_state(context.serv, place_type);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = get_default_block_state(place_type);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
 place_snowy_grassy_block(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    block_state_info place_info = describe_default_block_state(context.serv, place_type);
-    mc_ushort state_above = try_get_block_state(context.serv,
+    block_state_info place_info = describe_default_block_state(place_type);
+    mc_ushort state_above = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_POS_Y));
-    mc_int type_above = context.serv->block_type_by_state[state_above];
+    mc_int type_above = serv->block_type_by_state[state_above];
 
     if (type_above == BLOCK_SNOW_BLOCK || type_above == BLOCK_SNOW) {
         place_info.snowy = 1;
@@ -137,93 +136,93 @@ place_snowy_grassy_block(place_context context, mc_int place_type) {
         place_info.snowy = 0;
     }
 
-    mc_ushort place_state = make_block_state(context.serv, &place_info);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
 place_plant(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort state_below = try_get_block_state(context.serv,
+    mc_ushort state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
-    mc_int type_below = context.serv->block_type_by_state[state_below];
+    mc_int type_below = serv->block_type_by_state[state_below];
 
     if (!can_plant_survive_on(type_below)) {
         return;
     }
 
-    mc_ushort place_state = get_default_block_state(context.serv, place_type);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = get_default_block_state(place_type);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
 place_dead_bush(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort state_below = try_get_block_state(context.serv,
+    mc_ushort state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
-    mc_int type_below = context.serv->block_type_by_state[state_below];
+    mc_int type_below = serv->block_type_by_state[state_below];
 
     if (!can_dead_bush_survive_on(type_below)) {
         return;
     }
 
-    mc_ushort place_state = get_default_block_state(context.serv, place_type);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = get_default_block_state(place_type);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
 place_wither_rose(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort state_below = try_get_block_state(context.serv,
+    mc_ushort state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
-    mc_int type_below = context.serv->block_type_by_state[state_below];
+    mc_int type_below = serv->block_type_by_state[state_below];
 
     if (!can_wither_rose_survive_on(type_below)) {
         return;
     }
 
-    mc_ushort place_state = get_default_block_state(context.serv, place_type);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = get_default_block_state(place_type);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
 place_nether_plant(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort state_below = try_get_block_state(context.serv,
+    mc_ushort state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
-    mc_int type_below = context.serv->block_type_by_state[state_below];
+    mc_int type_below = serv->block_type_by_state[state_below];
 
     if (!can_nether_plant_survive_on(type_below)) {
         return;
     }
 
-    mc_ushort place_state = get_default_block_state(context.serv, place_type);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = get_default_block_state(place_type);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
@@ -246,23 +245,23 @@ set_axis_by_clicked_face(block_state_info * place_info, int clicked_face) {
 
 static void
 place_simple_pillar(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    block_state_info place_info = describe_default_block_state(place_type);
     set_axis_by_clicked_face(&place_info, context.clicked_face);
 
-    mc_ushort place_state = make_block_state(context.serv, &place_info);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static int
-get_water_level(server * serv, mc_ushort state) {
-    block_state_info info = describe_block_state(serv, state);
+get_water_level(mc_ushort state) {
+    block_state_info info = describe_block_state(state);
 
     switch (info.block_type) {
     case BLOCK_WATER:
@@ -282,13 +281,13 @@ get_water_level(server * serv, mc_ushort state) {
 }
 
 static int
-is_water_source(server * serv, mc_ushort state) {
-    return get_water_level(serv, state) == FLUID_LEVEL_SOURCE;
+is_water_source(mc_ushort state) {
+    return get_water_level(state) == FLUID_LEVEL_SOURCE;
 }
 
 static int
-is_full_water(server * serv, mc_ushort state) {
-    int level = get_water_level(serv, state);
+is_full_water(mc_ushort state) {
+    int level = get_water_level(state);
     // @TODO(traks) maybe ensure falling level is 8, although Minecraft doesn't
     // differentiate between falling water levels
     return level == FLUID_LEVEL_SOURCE || level == FLUID_LEVEL_FALLING;
@@ -296,26 +295,26 @@ is_full_water(server * serv, mc_ushort state) {
 
 static void
 place_chain(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    block_state_info place_info = describe_default_block_state(place_type);
     set_axis_by_clicked_face(&place_info, context.clicked_face);
-    place_info.waterlogged = is_water_source(context.serv, target.cur_state);
+    place_info.waterlogged = is_water_source(target.cur_state);
 
-    mc_ushort place_state = make_block_state(context.serv, &place_info);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
 place_slab(place_context context, mc_int place_type) {
     net_block_pos target_pos = context.clicked_pos;
-    mc_ushort cur_state = try_get_block_state(context.serv, target_pos);
-    block_state_info cur_info = describe_block_state(context.serv, cur_state);
+    mc_ushort cur_state = try_get_block_state(target_pos);
+    block_state_info cur_info = describe_block_state(cur_state);
     mc_int cur_type = cur_info.block_type;
 
     int replace_cur = 0;
@@ -333,8 +332,8 @@ place_slab(place_context context, mc_int place_type) {
 
     if (!replace_cur) {
         target_pos = get_relative_block_pos(target_pos, context.clicked_face);
-        cur_state = try_get_block_state(context.serv, target_pos);
-        cur_info = describe_block_state(context.serv, cur_state);
+        cur_state = try_get_block_state(target_pos);
+        cur_info = describe_block_state(cur_state);
         cur_type = cur_info.block_type;
 
         if (cur_type != place_type && !can_replace(place_type, cur_type)) {
@@ -342,7 +341,7 @@ place_slab(place_context context, mc_int place_type) {
         }
     }
 
-    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    block_state_info place_info = describe_default_block_state(place_type);
 
     if (place_type == cur_type) {
         place_info.slab_type = SLAB_DOUBLE;
@@ -358,19 +357,19 @@ place_slab(place_context context, mc_int place_type) {
             place_info.slab_type = SLAB_TOP;
         }
 
-        place_info.waterlogged = is_water_source(context.serv, cur_state);
+        place_info.waterlogged = is_water_source(cur_state);
     }
 
-    mc_ushort place_state = make_block_state(context.serv, &place_info);
-    try_set_block_state(context.serv, target_pos, place_state);
-    propagate_block_updates_after_change(target_pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target_pos, place_state);
+    propagate_block_updates_after_change(target_pos, context.scratch_arena);
 }
 
 static void
 place_sea_pickle(place_context context, mc_int place_type) {
     net_block_pos target_pos = context.clicked_pos;
-    mc_ushort cur_state = try_get_block_state(context.serv, target_pos);
-    block_state_info cur_info = describe_block_state(context.serv, cur_state);
+    mc_ushort cur_state = try_get_block_state(target_pos);
+    block_state_info cur_info = describe_block_state(cur_state);
     mc_int cur_type = cur_info.block_type;
 
     int replace_cur = 0;
@@ -384,8 +383,8 @@ place_sea_pickle(place_context context, mc_int place_type) {
 
     if (!replace_cur) {
         target_pos = get_relative_block_pos(target_pos, context.clicked_face);
-        cur_state = try_get_block_state(context.serv, target_pos);
-        cur_info = describe_block_state(context.serv, cur_state);
+        cur_state = try_get_block_state(target_pos);
+        cur_info = describe_block_state(cur_state);
         cur_type = cur_info.block_type;
 
         if (cur_type == place_type) {
@@ -397,30 +396,30 @@ place_sea_pickle(place_context context, mc_int place_type) {
         }
     }
 
-    mc_ushort state_below = try_get_block_state(context.serv,
+    mc_ushort state_below = try_get_block_state(
             get_relative_block_pos(target_pos, DIRECTION_NEG_Y));
-    mc_int type_below = context.serv->block_type_by_state[state_below];
-    if (!can_sea_pickle_survive_on(context.serv, state_below)) {
+    mc_int type_below = serv->block_type_by_state[state_below];
+    if (!can_sea_pickle_survive_on(state_below)) {
         return;
     }
 
-    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    block_state_info place_info = describe_default_block_state(place_type);
 
     if (place_type == cur_type) {
         place_info.pickles = cur_info.pickles + 1;
     }
-    place_info.waterlogged = is_water_source(context.serv, cur_state);
+    place_info.waterlogged = is_water_source(cur_state);
 
-    mc_ushort place_state = make_block_state(context.serv, &place_info);
-    try_set_block_state(context.serv, target_pos, place_state);
-    propagate_block_updates_after_change(target_pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target_pos, place_state);
+    propagate_block_updates_after_change(target_pos, context.scratch_arena);
 }
 
 static void
 place_snow(place_context context, mc_int place_type) {
     net_block_pos target_pos = context.clicked_pos;
-    mc_ushort cur_state = try_get_block_state(context.serv, target_pos);
-    block_state_info cur_info = describe_block_state(context.serv, cur_state);
+    mc_ushort cur_state = try_get_block_state(target_pos);
+    block_state_info cur_info = describe_block_state(cur_state);
     mc_int cur_type = cur_info.block_type;
 
     int replace_cur = 0;
@@ -434,8 +433,8 @@ place_snow(place_context context, mc_int place_type) {
 
     if (!replace_cur) {
         target_pos = get_relative_block_pos(target_pos, context.clicked_face);
-        cur_state = try_get_block_state(context.serv, target_pos);
-        cur_info = describe_block_state(context.serv, cur_state);
+        cur_state = try_get_block_state(target_pos);
+        cur_info = describe_block_state(cur_state);
         cur_type = cur_info.block_type;
 
         if (cur_type == place_type) {
@@ -447,26 +446,26 @@ place_snow(place_context context, mc_int place_type) {
         }
     }
 
-    mc_ushort state_below = try_get_block_state(context.serv,
+    mc_ushort state_below = try_get_block_state(
             get_relative_block_pos(target_pos, DIRECTION_NEG_Y));
-    mc_int type_below = context.serv->block_type_by_state[state_below];
-    if (!can_snow_survive_on(context.serv, state_below)) {
+    mc_int type_below = serv->block_type_by_state[state_below];
+    if (!can_snow_survive_on(state_below)) {
         return;
     }
 
-    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    block_state_info place_info = describe_default_block_state(place_type);
     if (place_type == cur_type) {
         place_info.layers = cur_info.layers + 1;
     }
 
-    mc_ushort place_state = make_block_state(context.serv, &place_info);
-    try_set_block_state(context.serv, target_pos, place_state);
-    propagate_block_updates_after_change(target_pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target_pos, place_state);
+    propagate_block_updates_after_change(target_pos, context.scratch_arena);
 }
 
 static void
 place_leaves(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
@@ -474,55 +473,55 @@ place_leaves(place_context context, mc_int place_type) {
 
     // @TODO(traks) calculate distance to nearest log block and modify block
     // state with that information
-    mc_ushort place_state = context.serv->block_properties_table[place_type].base_state;
+    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
     place_state += 0; // persistent = true
 
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
 place_horizontal_facing(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    block_state_info place_info = describe_default_block_state(place_type);
     place_info.horizontal_facing = get_opposite_direction(get_player_facing(context.player));
 
-    mc_ushort place_state = make_block_state(context.serv, &place_info);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
 place_end_portal_frame(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    block_state_info place_info = describe_default_block_state(place_type);
     place_info.horizontal_facing = get_opposite_direction(get_player_facing(context.player));
     place_info.eye = 0;
 
-    mc_ushort place_state = make_block_state(context.serv, &place_info);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
 place_trapdoor(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    block_state_info place_info = describe_default_block_state(place_type);
     if (target.flags & PLACE_REPLACING) {
         place_info.half = context.clicked_face == DIRECTION_POS_Y ?
                 BLOCK_HALF_BOTTOM : BLOCK_HALF_TOP;
@@ -541,65 +540,65 @@ place_trapdoor(place_context context, mc_int place_type) {
                 BLOCK_HALF_TOP : BLOCK_HALF_BOTTOM;
         place_info.horizontal_facing = context.clicked_face;
     }
-    place_info.waterlogged = is_water_source(context.serv, target.cur_state);
+    place_info.waterlogged = is_water_source(target.cur_state);
 
     // @TODO(traks) open trapdoor and set powered if necessary
 
-    mc_ushort place_state = make_block_state(context.serv, &place_info);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
 place_fence_gate(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    block_state_info place_info = describe_default_block_state(place_type);
     int player_facing = get_player_facing(context.player);
     place_info.horizontal_facing = player_facing;
     if (player_facing == DIRECTION_POS_X || player_facing == DIRECTION_NEG_X) {
-        int neighbour_state_pos = try_get_block_state(context.serv,
+        int neighbour_state_pos = try_get_block_state(
                 get_relative_block_pos(target.pos, DIRECTION_POS_Z));
-        int neighbour_state_neg = try_get_block_state(context.serv,
+        int neighbour_state_neg = try_get_block_state(
                 get_relative_block_pos(target.pos, DIRECTION_NEG_Z));
-        if (is_wall(context.serv->block_type_by_state[neighbour_state_pos])
-                || is_wall(context.serv->block_type_by_state[neighbour_state_neg])) {
+        if (is_wall(serv->block_type_by_state[neighbour_state_pos])
+                || is_wall(serv->block_type_by_state[neighbour_state_neg])) {
             place_info.in_wall = 1;
         }
     } else {
         // facing along z axis
-        int neighbour_state_pos = try_get_block_state(context.serv,
+        int neighbour_state_pos = try_get_block_state(
                 get_relative_block_pos(target.pos, DIRECTION_POS_X));
-        int neighbour_state_neg = try_get_block_state(context.serv,
+        int neighbour_state_neg = try_get_block_state(
                 get_relative_block_pos(target.pos, DIRECTION_NEG_X));
-        if (is_wall(context.serv->block_type_by_state[neighbour_state_pos])
-                || is_wall(context.serv->block_type_by_state[neighbour_state_neg])) {
+        if (is_wall(serv->block_type_by_state[neighbour_state_pos])
+                || is_wall(serv->block_type_by_state[neighbour_state_neg])) {
             place_info.in_wall = 1;
         }
     }
 
     // @TODO(traks) open fence gate and set powered if necessary
 
-    mc_ushort place_state = make_block_state(context.serv, &place_info);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
 place_crop(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort state_below = try_get_block_state(context.serv,
+    mc_ushort state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
-    mc_int type_below = context.serv->block_type_by_state[state_below];
+    mc_int type_below = serv->block_type_by_state[state_below];
 
     // @TODO(traks) light level also needs to be sufficient
     switch (type_below) {
@@ -609,22 +608,22 @@ place_crop(place_context context, mc_int place_type) {
         return;
     }
 
-    mc_ushort place_state = get_default_block_state(context.serv, place_type);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = get_default_block_state(place_type);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
 place_nether_wart(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort state_below = try_get_block_state(context.serv,
+    mc_ushort state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
-    mc_int type_below = context.serv->block_type_by_state[state_below];
+    mc_int type_below = serv->block_type_by_state[state_below];
 
     switch (type_below) {
     case BLOCK_SOUL_SAND:
@@ -633,48 +632,48 @@ place_nether_wart(place_context context, mc_int place_type) {
         return;
     }
 
-    mc_ushort place_state = get_default_block_state(context.serv, place_type);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = get_default_block_state(place_type);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
 place_carpet(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort place_state = get_default_block_state(context.serv, place_type);
-    mc_ushort state_below = try_get_block_state(context.serv,
+    mc_ushort place_state = get_default_block_state(place_type);
+    mc_ushort state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
-    mc_int type_below = context.serv->block_type_by_state[state_below];
+    mc_int type_below = serv->block_type_by_state[state_below];
 
     if (!can_carpet_survive_on(type_below)) {
         return;
     }
 
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
 place_mushroom_block(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    block_state_info place_info = describe_default_block_state(place_type);
 
     int directions[] = {0, 1, 2, 3, 4, 5};
 
     for (int i = 0; i < 6; i++) {
         net_block_pos pos = get_relative_block_pos(target.pos, directions[i]);
-        mc_ushort state = try_get_block_state(context.serv, pos);
-        mc_int type = context.serv->block_type_by_state[state];
+        mc_ushort state = try_get_block_state(pos);
+        mc_int type = serv->block_type_by_state[state];
 
         // connect to neighbouring mushroom blocks of the same type by setting
         // the six facing properties to true if connected
@@ -685,26 +684,26 @@ place_mushroom_block(place_context context, mc_int place_type) {
         }
     }
 
-    mc_ushort place_state = make_block_state(context.serv, &place_info);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
 place_end_rod(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    block_state_info place_info = describe_default_block_state(place_type);
 
     int opposite_face = get_opposite_direction(context.clicked_face);
 
     net_block_pos opposite_pos = get_relative_block_pos(target.pos, opposite_face);
-    mc_ushort opposite_state = try_get_block_state(context.serv, opposite_pos);
-    block_state_info opposite_info = describe_block_state(context.serv, opposite_state);
+    mc_ushort opposite_state = try_get_block_state(opposite_pos);
+    block_state_info opposite_info = describe_block_state(opposite_state);
 
     if (opposite_info.block_type == place_type) {
         if (opposite_info.facing == context.clicked_face) {
@@ -716,22 +715,22 @@ place_end_rod(place_context context, mc_int place_type) {
         place_info.facing = context.clicked_face;
     }
 
-    mc_ushort place_state = make_block_state(context.serv, &place_info);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
 place_sugar_cane(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort state_below = try_get_block_state(context.serv,
+    mc_ushort state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
-    mc_int type_below = context.serv->block_type_by_state[state_below];
+    mc_int type_below = serv->block_type_by_state[state_below];
 
     switch (type_below) {
     case BLOCK_SUGAR_CANE:
@@ -755,14 +754,14 @@ place_sugar_cane(place_context context, mc_int place_type) {
 
         for (int i = 0; i < 6; i++) {
             net_block_pos pos = neighbour_pos[i];
-            mc_ushort neighbour_state = try_get_block_state(context.serv, pos);
-            mc_int neighbour_type = context.serv->block_type_by_state[neighbour_state];
+            mc_ushort neighbour_state = try_get_block_state(pos);
+            mc_int neighbour_type = serv->block_type_by_state[neighbour_state];
             switch (neighbour_type) {
             case BLOCK_WATER:
             case BLOCK_FROSTED_ICE:
                 goto set_block;
             default: {
-                block_state_info neighbour_info = describe_block_state(context.serv, neighbour_state);
+                block_state_info neighbour_info = describe_block_state(neighbour_state);
                 if (neighbour_info.waterlogged) {
                     goto set_block;
                 }
@@ -778,34 +777,34 @@ place_sugar_cane(place_context context, mc_int place_type) {
     }
 
 set_block:;
-    mc_ushort place_state = get_default_block_state(context.serv, place_type);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = get_default_block_state(place_type);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
 place_dead_coral(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort state_below = try_get_block_state(context.serv,
+    mc_ushort state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
     // @TODO(traks) don't use collision model for this
-    block_model * model_below = context.serv->block_models + context.serv->collision_model_by_state[state_below];
+    block_model * model_below = serv->block_models + serv->collision_model_by_state[state_below];
     if (!(model_below->full_face_flags & (1 << DIRECTION_POS_Y))) {
         // face below is not sturdy
         return;
     }
 
-    block_state_info place_info = describe_default_block_state(context.serv, place_type);
-    place_info.waterlogged = is_full_water(context.serv, target.cur_state);
+    block_state_info place_info = describe_default_block_state(place_type);
+    place_info.waterlogged = is_full_water(target.cur_state);
 
-    mc_ushort place_state = make_block_state(context.serv, &place_info);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 typedef struct {
@@ -917,7 +916,7 @@ get_attach_directions_by_preference(place_context context, place_target target) 
 static void
 place_dead_coral_fan(place_context context, mc_int base_place_type,
         mc_int wall_place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, base_place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
@@ -937,9 +936,9 @@ place_dead_coral_fan(place_context context, mc_int base_place_type,
         }
 
         net_block_pos attach_pos = get_relative_block_pos(target.pos, dir);
-        mc_ushort wall_state = try_get_block_state(context.serv, attach_pos);
+        mc_ushort wall_state = try_get_block_state(attach_pos);
         // @TODO(traks) don't use collision model for this
-        block_model * wall_model = context.serv->block_models + context.serv->collision_model_by_state[wall_state];
+        block_model * wall_model = serv->block_models + serv->collision_model_by_state[wall_state];
         int wall_face = get_opposite_direction(dir);
 
         if (dir == DIRECTION_NEG_Y) {
@@ -968,19 +967,19 @@ place_dead_coral_fan(place_context context, mc_int base_place_type,
 
     mc_int place_type = selected_dir == DIRECTION_NEG_Y ?
             base_place_type : wall_place_type;
-    block_state_info place_info = describe_default_block_state(context.serv, place_type);
-    place_info.waterlogged = is_full_water(context.serv, target.cur_state);
+    block_state_info place_info = describe_default_block_state(place_type);
+    place_info.waterlogged = is_full_water(target.cur_state);
     place_info.horizontal_facing = get_opposite_direction(selected_dir);
 
-    mc_ushort place_state = make_block_state(context.serv, &place_info);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
 place_torch(place_context context, mc_int base_place_type,
         mc_int wall_place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, base_place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
@@ -1000,9 +999,9 @@ place_torch(place_context context, mc_int base_place_type,
         }
 
         net_block_pos attach_pos = get_relative_block_pos(target.pos, dir);
-        mc_ushort wall_state = try_get_block_state(context.serv, attach_pos);
+        mc_ushort wall_state = try_get_block_state(attach_pos);
         // @TODO(traks) don't use collision model for this
-        block_model * wall_model = context.serv->block_models + context.serv->collision_model_by_state[wall_state];
+        block_model * wall_model = serv->block_models + serv->collision_model_by_state[wall_state];
         int wall_face = get_opposite_direction(dir);
 
         if (dir == DIRECTION_NEG_Y) {
@@ -1031,17 +1030,17 @@ place_torch(place_context context, mc_int base_place_type,
 
     mc_int place_type = selected_dir == DIRECTION_NEG_Y ?
             base_place_type : wall_place_type;
-    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    block_state_info place_info = describe_default_block_state(place_type);
     place_info.horizontal_facing = get_opposite_direction(selected_dir);
 
-    mc_ushort place_state = make_block_state(context.serv, &place_info);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
 place_ladder(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
@@ -1057,9 +1056,9 @@ place_ladder(place_context context, mc_int place_type) {
         }
 
         net_block_pos attach_pos = get_relative_block_pos(target.pos, dir);
-        mc_ushort wall_state = try_get_block_state(context.serv, attach_pos);
+        mc_ushort wall_state = try_get_block_state(attach_pos);
         // @TODO(traks) don't use collision model for this
-        block_model * wall_model = context.serv->block_models + context.serv->collision_model_by_state[wall_state];
+        block_model * wall_model = serv->block_models + serv->collision_model_by_state[wall_state];
         int wall_face = get_opposite_direction(dir);
 
         if (wall_model->full_face_flags & (1 << wall_face)) {
@@ -1072,18 +1071,18 @@ place_ladder(place_context context, mc_int place_type) {
         return;
     }
 
-    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    block_state_info place_info = describe_default_block_state(place_type);
     place_info.horizontal_facing = get_opposite_direction(selected_dir);
-    place_info.waterlogged = is_water_source(context.serv, target.cur_state);
+    place_info.waterlogged = is_water_source(target.cur_state);
 
-    mc_ushort place_state = make_block_state(context.serv, &place_info);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
 place_door(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
@@ -1092,24 +1091,24 @@ place_door(place_context context, mc_int place_type) {
         return;
     }
 
-    mc_ushort state_below = try_get_block_state(context.serv,
+    mc_ushort state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
     // @TODO(traks) don't use collision model for this
-    block_model * model_below = context.serv->block_models + context.serv->collision_model_by_state[state_below];
+    block_model * model_below = serv->block_models + serv->collision_model_by_state[state_below];
     if (!(model_below->full_face_flags & (1 << DIRECTION_POS_Y))) {
         // face below is not sturdy
         return;
     }
 
-    mc_ushort state_above = try_get_block_state(context.serv,
+    mc_ushort state_above = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_POS_Y));
-    mc_int type_above = context.serv->block_type_by_state[state_above];
+    mc_int type_above = serv->block_type_by_state[state_above];
 
     if (!can_replace(place_type, type_above)) {
         return;
     }
 
-    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    block_state_info place_info = describe_default_block_state(place_type);
     place_info.horizontal_facing = get_player_facing(context.player);
     place_info.double_block_half = DOUBLE_BLOCK_HALF_LOWER;
     // @TODO(traks) determine side of the hinge
@@ -1119,36 +1118,36 @@ place_door(place_context context, mc_int place_type) {
     place_info.powered = 0;
 
     // place lower half
-    mc_ushort place_state = make_block_state(context.serv, &place_info);
-    try_set_block_state(context.serv, target.pos, place_state);
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target.pos, place_state);
 
     // place upper half
     place_info.double_block_half = DOUBLE_BLOCK_HALF_UPPER;
-    place_state = make_block_state(context.serv, &place_info);
-    try_set_block_state(context.serv, get_relative_block_pos(target.pos, DIRECTION_POS_Y), place_state);
+    place_state = make_block_state(&place_info);
+    try_set_block_state(get_relative_block_pos(target.pos, DIRECTION_POS_Y), place_state);
 
     // @TODO(traks) process updates for both halves in one loop
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
     propagate_block_updates_after_change(get_relative_block_pos(target.pos, DIRECTION_POS_Y),
-            context.serv, context.scratch_arena);
+            context.scratch_arena);
 }
 
 static void
 place_bamboo(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    if (get_water_level(context.serv, target.cur_state) != FLUID_LEVEL_NONE
+    if (get_water_level(target.cur_state) != FLUID_LEVEL_NONE
             || target.cur_type == BLOCK_LAVA) {
         return;
     }
 
-    mc_ushort state_below = try_get_block_state(context.serv,
+    mc_ushort state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
-    mc_int type_below = context.serv->block_type_by_state[state_below];
+    mc_int type_below = serv->block_type_by_state[state_below];
 
     if (!is_bamboo_plantable_on(type_below)) {
         return;
@@ -1158,87 +1157,87 @@ place_bamboo(place_context context, mc_int place_type) {
 
     switch (type_below) {
     case BLOCK_BAMBOO_SAPLING:
-        place_state = get_default_block_state(context.serv, place_type);
+        place_state = get_default_block_state(place_type);
         break;
     case BLOCK_BAMBOO:
         place_state = state_below;
         break;
     default:
-        place_state = get_default_block_state(context.serv, BLOCK_BAMBOO_SAPLING);
+        place_state = get_default_block_state(BLOCK_BAMBOO_SAPLING);
     }
 
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
 place_stairs(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    block_state_info place_info = describe_default_block_state(place_type);
     place_info.horizontal_facing = get_player_facing(context.player);
     if (context.clicked_face == DIRECTION_POS_Y || context.click_offset_y <= 0.5f) {
         place_info.half = BLOCK_HALF_BOTTOM;
     } else {
         place_info.half = BLOCK_HALF_TOP;
     }
-    place_info.waterlogged = is_water_source(context.serv, target.cur_state);
-    update_stairs_shape(context.serv, target.pos, &place_info);
+    place_info.waterlogged = is_water_source(target.cur_state);
+    update_stairs_shape(target.pos, &place_info);
 
-    mc_ushort place_state = make_block_state(context.serv, &place_info);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
 place_fence(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    block_state_info place_info = describe_default_block_state(context.serv, place_type);
-    place_info.waterlogged = is_water_source(context.serv, target.cur_state);
+    block_state_info place_info = describe_default_block_state(place_type);
+    place_info.waterlogged = is_water_source(target.cur_state);
     int neighbour_directions[] = {DIRECTION_NEG_Z, DIRECTION_POS_Z, DIRECTION_NEG_X, DIRECTION_POS_X};
     for (int i = 0; i < 4; i++) {
         int face = neighbour_directions[i];
-        update_fence_shape(context.serv, target.pos, &place_info, face);
+        update_fence_shape(target.pos, &place_info, face);
     }
 
-    mc_ushort place_state = make_block_state(context.serv, &place_info);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
 place_pane(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    block_state_info place_info = describe_default_block_state(context.serv, place_type);
-    place_info.waterlogged = is_water_source(context.serv, target.cur_state);
+    block_state_info place_info = describe_default_block_state(place_type);
+    place_info.waterlogged = is_water_source(target.cur_state);
     int neighbour_directions[] = {DIRECTION_NEG_Z, DIRECTION_POS_Z, DIRECTION_NEG_X, DIRECTION_POS_X};
     for (int i = 0; i < 4; i++) {
         int face = neighbour_directions[i];
-        update_pane_shape(context.serv, target.pos, &place_info, face);
+        update_pane_shape(target.pos, &place_info, face);
     }
 
-    mc_ushort place_state = make_block_state(context.serv, &place_info);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
 place_rail(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
@@ -1246,19 +1245,19 @@ place_rail(place_context context, mc_int place_type) {
 
     // @TODO(traks) check if rail can survive on block below and place rail in
     // the correct state (ascending and turned).
-    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    block_state_info place_info = describe_default_block_state(place_type);
     int player_facing = get_player_facing(context.player);
     place_info.rail_shape = player_facing == DIRECTION_NEG_X
             || player_facing == DIRECTION_POS_X ? RAIL_SHAPE_X : RAIL_SHAPE_Z;
 
-    mc_ushort place_state = make_block_state(context.serv, &place_info);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
 place_lever_or_button(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
@@ -1270,9 +1269,9 @@ place_lever_or_button(place_context context, mc_int place_type) {
     for (int i = 0; i < 6; i++) {
         int dir = list.directions[i];
         net_block_pos attach_pos = get_relative_block_pos(target.pos, dir);
-        mc_ushort wall_state = try_get_block_state(context.serv, attach_pos);
+        mc_ushort wall_state = try_get_block_state(attach_pos);
         // @TODO(traks) don't use collision model for this
-        block_model * wall_model = context.serv->block_models + context.serv->collision_model_by_state[wall_state];
+        block_model * wall_model = serv->block_models + serv->collision_model_by_state[wall_state];
         int wall_face = get_opposite_direction(dir);
 
         if (wall_model->full_face_flags & (1 << wall_face)) {
@@ -1285,7 +1284,7 @@ place_lever_or_button(place_context context, mc_int place_type) {
         return;
     }
 
-    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    block_state_info place_info = describe_default_block_state(place_type);
     switch (selected_dir) {
     case DIRECTION_POS_Y:
         place_info.attach_face = ATTACH_FACE_CEILING;
@@ -1301,14 +1300,14 @@ place_lever_or_button(place_context context, mc_int place_type) {
         place_info.horizontal_facing = get_opposite_direction(selected_dir);
     }
 
-    mc_ushort place_state = make_block_state(context.serv, &place_info);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 static void
 place_grindstone(place_context context, mc_int place_type) {
-    place_target target = determine_place_target(context.serv,
+    place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
@@ -1317,7 +1316,7 @@ place_grindstone(place_context context, mc_int place_type) {
     direction_list list = get_attach_directions_by_preference(context, target);
     int selected_dir = list.directions[0];
 
-    block_state_info place_info = describe_default_block_state(context.serv, place_type);
+    block_state_info place_info = describe_default_block_state(place_type);
     switch (selected_dir) {
     case DIRECTION_POS_Y:
         place_info.attach_face = ATTACH_FACE_CEILING;
@@ -1333,13 +1332,13 @@ place_grindstone(place_context context, mc_int place_type) {
         place_info.horizontal_facing = get_opposite_direction(selected_dir);
     }
 
-    mc_ushort place_state = make_block_state(context.serv, &place_info);
-    try_set_block_state(context.serv, target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.serv, context.scratch_arena);
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
 }
 
 void
-process_use_item_on_packet(server * serv, entity_base * player,
+process_use_item_on_packet(entity_base * player,
         mc_int hand, net_block_pos clicked_pos, mc_int clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
         mc_ubyte is_inside, memory_arena * scratch_arena) {
@@ -1366,7 +1365,7 @@ process_use_item_on_packet(server * serv, entity_base * player,
     // the clicked block
     if (!((player->flags & PLAYER_SHIFTING)
             && (main->type != ITEM_AIR || off->type != ITEM_AIR))) {
-        int used_block = use_block(serv, player,
+        int used_block = use_block(player,
                 hand, clicked_pos, clicked_face,
                 click_offset_x, click_offset_y, click_offset_z,
                 is_inside, scratch_arena);
@@ -1409,7 +1408,6 @@ process_use_item_on_packet(server * serv, entity_base * player,
     // custom item stack name, create bed head part, plant upper part, etc.
 
     place_context context = {
-        .serv = serv,
         .player = player,
         .clicked_pos = clicked_pos,
         .clicked_face = clicked_face,
