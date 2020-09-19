@@ -466,6 +466,16 @@ move_entity(entity_base * entity) {
         min_z -= width / 2;
         max_z += width / 2;
 
+        // extend collision testing by 1 block, because the collision boxes of
+        // some blocks extend past a 1x1x1 volume. Examples are: fences and
+        // shulker boxes.
+        min_x -= 1;
+        min_y -= 1;
+        min_z -= 1;
+        max_x += 1;
+        max_y += 1;
+        max_z += 1;
+
         mc_int iter_min_x = floor(min_x);
         mc_int iter_max_x = floor(max_x);
         mc_int iter_min_y = floor(min_y);
@@ -478,22 +488,15 @@ move_entity(entity_base * entity) {
 
         double dt = 1;
 
-        // @TODO(traks) some blocks may have a collision box that is larger than
-        // 1x1x1. Should account for those if they really exist.
         for (int block_x = iter_min_x; block_x <= iter_max_x; block_x++) {
             for (int block_y = iter_min_y; block_y <= iter_max_y; block_y++) {
                 for (int block_z = iter_min_z; block_z <= iter_max_z; block_z++) {
                     net_block_pos block_pos = {.x = block_x, .y = block_y, .z = block_z};
                     mc_ushort cur_state = try_get_block_state(block_pos);
+                    block_model model = get_collision_model(cur_state, block_pos);
 
-                    if (cur_state == 0) {
-                        continue;
-                    }
-
-                    block_model * model = serv->block_models + serv->collision_model_by_state[cur_state];
-
-                    for (int boxi = 0; boxi < model->box_count; boxi++) {
-                        block_box * box = model->boxes + boxi;
+                    for (int boxi = 0; boxi < model.box_count; boxi++) {
+                        block_box * box = model.boxes + boxi;
 
                         double test_min_x = block_x + box->min_x - width / 2;
                         double test_max_x = block_x + box->max_x + width / 2;

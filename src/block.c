@@ -273,6 +273,56 @@ make_block_state(block_state_info * info) {
     return res;
 }
 
+static void
+translate_model(block_model * model, float dx, float dy, float dz) {
+    for (int i = 0; i < model->box_count; i++) {
+        model->boxes[i].min_x += dx;
+        model->boxes[i].min_y += dy;
+        model->boxes[i].min_z += dz;
+        model->boxes[i].max_x += dx;
+        model->boxes[i].max_y += dy;
+        model->boxes[i].max_z += dz;
+    }
+}
+
+block_model
+get_collision_model(mc_ushort block_state, net_block_pos pos) {
+    mc_int block_type = serv->block_type_by_state[block_state];
+    block_model res;
+
+    switch (block_type) {
+    case BLOCK_BAMBOO: {
+        mc_ulong seed = ((mc_ulong) pos.x * 3129871) ^ ((mc_ulong) pos.z * 116129781);
+        seed = seed * seed * 42317861 + seed * 11;
+        seed >>= 16;
+        res = serv->block_models[serv->collision_model_by_state[block_state]];
+        translate_model(&res, ((seed & 0xf) / 15.0f - 0.5f) * 0.5f, 0,
+                (((seed >> 8) & 0xf) / 15.0f - 0.5f) * 0.5f);
+        break;
+    }
+    case BLOCK_WATER:
+    case BLOCK_LAVA: {
+        // @TODO(traks) let striders walk on water/lava source blocks
+        res = serv->block_models[serv->collision_model_by_state[block_state]];
+        break;
+    }
+    case BLOCK_MOVING_PISTON: {
+        // @TODO(traks) use block entity to determine collision model
+        res = serv->block_models[serv->collision_model_by_state[block_state]];
+        break;
+    }
+    case BLOCK_SCAFFOLDING: {
+        // @TODO(traks) collision model should depend on whether entity is
+        // shifting
+        res = serv->block_models[serv->collision_model_by_state[block_state]];
+        break;
+    }
+    default:
+        res = serv->block_models[serv->collision_model_by_state[block_state]];
+    }
+    return res;
+}
+
 int
 can_plant_survive_on(mc_int type_below) {
     switch (type_below) {
@@ -2566,22 +2616,50 @@ init_leaves(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_bed_props(mc_int block_type, char * resource_loc) {
+init_bed(mc_int block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_OCCUPIED, "false");
     add_block_property(props, BLOCK_PROPERTY_BED_PART, "foot");
     finalise_block_props(props);
+
+    for (int i = 0; i < count_block_states(props); i++) {
+        mc_ushort block_state = props->base_state + i;
+        block_state_info info = describe_block_state(block_state);
+        int facing = info.horizontal_facing;
+        if (info.bed_part == BED_PART_HEAD) {
+            facing = get_opposite_direction(facing);
+        }
+        int model_index;
+        switch (info.horizontal_facing) {
+        case DIRECTION_POS_X: model_index = BLOCK_MODEL_BED_FOOT_POS_X; break;
+        case DIRECTION_POS_Z: model_index = BLOCK_MODEL_BED_FOOT_POS_Z; break;
+        case DIRECTION_NEG_X: model_index = BLOCK_MODEL_BED_FOOT_NEG_X; break;
+        case DIRECTION_NEG_Z: model_index = BLOCK_MODEL_BED_FOOT_NEG_Z; break;
+        }
+        serv->collision_model_by_state[block_state] = model_index;
+    }
 }
 
 static void
-init_slab_props(mc_int block_type, char * resource_loc) {
+init_slab(mc_int block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_SLAB_TYPE, "bottom");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
     finalise_block_props(props);
+    for (int i = 0; i < count_block_states(props); i++) {
+        mc_ushort block_state = props->base_state + i;
+        block_state_info info = describe_block_state(block_state);
+        int model_index;
+        switch (info.slab_type) {
+        case SLAB_TOP: model_index = BLOCK_MODEL_TOP_SLAB; break;
+        case SLAB_BOTTOM: model_index = BLOCK_MODEL_Y_8; break;
+        case SLAB_DOUBLE: model_index = BLOCK_MODEL_FULL; break;
+        }
+        serv->collision_model_by_state[block_state] = model_index;
+    }
 }
 
 static void
@@ -2664,7 +2742,7 @@ init_pressure_plate(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_cross_props(mc_int block_type, char * resource_loc) {
+init_pane(mc_int block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_POS_X, "false");
@@ -2673,6 +2751,32 @@ init_cross_props(mc_int block_type, char * resource_loc) {
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
     add_block_property(props, BLOCK_PROPERTY_NEG_X, "false");
     finalise_block_props(props);
+    for (int i = 0; i < count_block_states(props); i++) {
+        mc_ushort block_state = props->base_state + i;
+        block_state_info info = describe_block_state(block_state);
+        int flags = (info.pos_x << 3) | (info.neg_x << 2) | (info.pos_z << 1) | info.neg_z;
+        int model_index = BLOCK_MODEL_PANE_CENTRE + flags;
+        serv->collision_model_by_state[block_state] = model_index;
+    }
+}
+
+static void
+init_fence(mc_int block_type, char * resource_loc) {
+    register_block_type(block_type, resource_loc);
+    block_properties * props = serv->block_properties_table + block_type;
+    add_block_property(props, BLOCK_PROPERTY_POS_X, "false");
+    add_block_property(props, BLOCK_PROPERTY_NEG_Z, "false");
+    add_block_property(props, BLOCK_PROPERTY_POS_Z, "false");
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
+    add_block_property(props, BLOCK_PROPERTY_NEG_X, "false");
+    finalise_block_props(props);
+    for (int i = 0; i < count_block_states(props); i++) {
+        mc_ushort block_state = props->base_state + i;
+        block_state_info info = describe_block_state(block_state);
+        int flags = (info.pos_x << 3) | (info.neg_x << 2) | (info.pos_z << 1) | info.neg_z;
+        int model_index = BLOCK_MODEL_FENCE_CENTRE + flags;
+        serv->collision_model_by_state[block_state] = model_index;
+    }
 }
 
 static void
@@ -2711,7 +2815,7 @@ init_trapdoor_props(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_fence_gate_props(mc_int block_type, char * resource_loc) {
+init_fence_gate(mc_int block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
@@ -2719,6 +2823,19 @@ init_fence_gate_props(mc_int block_type, char * resource_loc) {
     add_block_property(props, BLOCK_PROPERTY_OPEN, "false");
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
     finalise_block_props(props);
+    for (int i = 0; i < count_block_states(props); i++) {
+        mc_ushort block_state = props->base_state + i;
+        block_state_info info = describe_block_state(block_state);
+        int model_index;
+        if (info.open) {
+            model_index = BLOCK_MODEL_EMPTY;
+        } else if (get_direction_axis(info.horizontal_facing) == AXIS_X) {
+            model_index = BLOCK_MODEL_FENCE_GATE_FACING_X;
+        } else {
+            model_index = BLOCK_MODEL_FENCE_GATE_FACING_Z;
+        }
+        serv->collision_model_by_state[block_state] = model_index;
+    }
 }
 
 static void
@@ -2948,10 +3065,21 @@ block_boxes_intersect_face(int box_count, block_box * boxes,
 }
 
 static void
-register_block_model(int index, int box_count, block_box * boxes) {
+register_block_model(int index, int box_count, block_box * pixel_boxes) {
+    block_box boxes[8];
+    assert(box_count < ARRAY_SIZE(boxes));
+    for (int i = 0; i < box_count; i++) {
+        boxes[i] = pixel_boxes[i];
+        boxes[i].min_x /= 16;
+        boxes[i].min_y /= 16;
+        boxes[i].min_z /= 16;
+        boxes[i].max_x /= 16;
+        boxes[i].max_y /= 16;
+        boxes[i].max_z /= 16;
+    }
+
     block_model * model = serv->block_models + index;
     model->box_count = box_count;
-    assert(index < ARRAY_SIZE(model->boxes));
     for (int i = 0; i < box_count; i++) {
         model->boxes[i] = boxes[i];
     }
@@ -2974,13 +3102,129 @@ register_block_model(int index, int box_count, block_box * boxes) {
     }
 }
 
+// @NOTE(traks) all thes rotation functions assume the coordinates of the box
+// are in pixel coordinates
+
+static block_box
+rotate_block_box_clockwise(block_box box) {
+    block_box res = {16 - box.max_z , box.min_y, box.min_x, 16 - box.min_z, box.max_y, box.max_x};
+    return res;
+}
+
+static block_box
+rotate_block_box_180(block_box box) {
+    return rotate_block_box_clockwise(rotate_block_box_clockwise(box));
+}
+
+static block_box
+rotate_block_box_counter_clockwise(block_box box) {
+    return rotate_block_box_180(rotate_block_box_clockwise(box));
+}
+
+static void
+register_cross_block_models(int start_index, block_box centre_box,
+        block_box neg_z_box, block_box z_box) {
+    for (int i = 0; i < 16; i++) {
+        int neg_z = (i & 0x1);
+        int pos_z = (i & 0x2);
+        int neg_x = (i & 0x4);
+        int pos_x = (i & 0x8);
+
+        int box_count = 0;
+        block_box boxes[2];
+
+        if (neg_z && pos_z) {
+            boxes[box_count] = z_box;
+            box_count++;
+        } else if (neg_z) {
+            boxes[box_count] = neg_z_box;
+            box_count++;
+        } else if (pos_z) {
+            boxes[box_count] = rotate_block_box_180(neg_z_box);
+            box_count++;
+        }
+
+        if (neg_x && pos_x) {
+            boxes[box_count] = rotate_block_box_clockwise(z_box);
+            box_count++;
+        } else if (neg_x) {
+            boxes[box_count] = rotate_block_box_counter_clockwise(neg_z_box);
+            box_count++;
+        } else if (pos_x) {
+            boxes[box_count] = rotate_block_box_clockwise(neg_z_box);
+            box_count++;
+        }
+
+        if (box_count == 0) {
+            // not connected to any edges
+            boxes[box_count] = centre_box;
+            box_count++;
+        }
+
+        register_block_model(start_index + i, box_count, boxes);
+    }
+}
+
 void
 init_block_data(void) {
-    block_box full_box = {0, 0, 0, 1, 1, 1};
-    register_block_model(BLOCK_MODEL_FULL, 1, &full_box);
     register_block_model(BLOCK_MODEL_EMPTY, 0, NULL);
-    block_box flower_pot_box = {5.0f / 16, 0, 5.0f / 16, 11.0f / 16, 6.0f / 16, 11.0f / 16};
+    for (int y = 1; y <= 16; y++) {
+        block_box box = {0, 0, 0, 16, y, 16};
+        register_block_model(BLOCK_MODEL_EMPTY + y, 1, &box);
+    }
+    block_box flower_pot_box = {5, 0, 5, 11, 6, 11};
     register_block_model(BLOCK_MODEL_FLOWER_POT, 1, &flower_pot_box);
+    block_box cactus_box = {1, 0, 1, 15, 15, 15};
+    register_block_model(BLOCK_MODEL_CACTUS, 1, &cactus_box);
+    block_box composter_boxes[] = {
+        {0, 0, 0, 16, 2, 16}, // bottom
+        {0, 0, 0, 2, 16, 16}, // wall neg x
+        {0, 0, 0, 16, 16, 2}, // wall neg z
+        {14, 0, 0, 16, 16, 16}, // wall pos x
+        {0, 0, 14, 16, 16, 16}, // wall pos z
+    };
+    register_block_model(BLOCK_MODEL_COMPOSTER, ARRAY_SIZE(composter_boxes), composter_boxes);
+    block_box honey_box = {1, 0, 1, 15, 15, 15};
+    register_block_model(BLOCK_MODEL_HONEY_BLOCK, 1, &honey_box);
+    block_box fence_gate_facing_x_box = {6, 0, 0, 10, 24, 16};
+    block_box fence_gate_facing_z_box = {0, 0, 6, 16, 24, 10};
+    register_block_model(BLOCK_MODEL_FENCE_GATE_FACING_X, 1, &fence_gate_facing_x_box);
+    register_block_model(BLOCK_MODEL_FENCE_GATE_FACING_Z, 1, &fence_gate_facing_z_box);
+    block_box centred_bamboo_box = {6.5f, 0, 6.5f, 9.5f, 16, 9.5f};
+    register_block_model(BLOCK_MODEL_CENTRED_BAMBOO, 1, &centred_bamboo_box);
+
+    block_box pane_centre_box = {7, 0, 7, 9, 16, 9};
+    block_box pane_neg_z_box = {7, 0, 0, 9, 16, 9};
+    block_box pane_z_box = {7, 0, 0, 9, 16, 16};
+    register_cross_block_models(BLOCK_MODEL_PANE_CENTRE, pane_centre_box,
+            pane_neg_z_box, pane_z_box);
+
+    block_box fence_centre_box = {6, 0, 6, 10, 24, 10};
+    block_box fence_neg_z_box = {6, 0, 0, 10, 24, 10};
+    block_box fence_z_box = {6, 0, 0, 10, 24, 16};
+    register_cross_block_models(BLOCK_MODEL_FENCE_CENTRE, fence_centre_box,
+            fence_neg_z_box, fence_z_box);
+
+    block_box boxes_foot_pos_x[] = {
+        {0, 3, 0, 16, 9, 16}, // horizontal part
+        {0, 0, 0, 3, 3, 3}, // leg 1
+        {0, 0, 13, 3, 3, 16}, // leg 2
+    };
+    for (int i = 0; i < 4; i++) {
+        int model_index = BLOCK_MODEL_BED_FOOT_POS_X + i;
+        register_block_model(model_index, ARRAY_SIZE(boxes_foot_pos_x), boxes_foot_pos_x);
+        for (int j = 0; j < ARRAY_SIZE(boxes_foot_pos_x); j++) {
+            boxes_foot_pos_x[i] = rotate_block_box_clockwise(boxes_foot_pos_x[i]);
+        }
+    }
+
+    block_box lectern_boxes[] = {
+        {0, 0, 0, 16, 2, 16}, // base
+        {4, 2, 4, 12, 14, 12}, // post
+    };
+    register_block_model(BLOCK_MODEL_LECTERN, ARRAY_SIZE(lectern_boxes), lectern_boxes);
+    block_box slab_top_box = {0, 8, 0, 16, 16, 16};
+    register_block_model(BLOCK_MODEL_TOP_SLAB, 1, &slab_top_box);
 
     register_bool_property(BLOCK_PROPERTY_ATTACHED, "attached");
     register_bool_property(BLOCK_PROPERTY_BOTTOM, "bottom");
@@ -3184,23 +3428,22 @@ init_block_data(void) {
     finalise_block_props(props);
     set_collision_model_for_all_states(props, BLOCK_MODEL_FULL);
 
-    // @TODO(traks) collision models
-    init_bed_props(BLOCK_WHITE_BED, "minecraft:white_bed");
-    init_bed_props(BLOCK_ORANGE_BED, "minecraft:orange_bed");
-    init_bed_props(BLOCK_MAGENTA_BED, "minecraft:magenta_bed");
-    init_bed_props(BLOCK_LIGHT_BLUE_BED, "minecraft:light_blue_bed");
-    init_bed_props(BLOCK_YELLOW_BED, "minecraft:yellow_bed");
-    init_bed_props(BLOCK_LIME_BED, "minecraft:lime_bed");
-    init_bed_props(BLOCK_PINK_BED, "minecraft:pink_bed");
-    init_bed_props(BLOCK_GRAY_BED, "minecraft:gray_bed");
-    init_bed_props(BLOCK_LIGHT_GRAY_BED, "minecraft:light_gray_bed");
-    init_bed_props(BLOCK_CYAN_BED, "minecraft:cyan_bed");
-    init_bed_props(BLOCK_PURPLE_BED, "minecraft:purple_bed");
-    init_bed_props(BLOCK_BLUE_BED, "minecraft:blue_bed");
-    init_bed_props(BLOCK_BROWN_BED, "minecraft:brown_bed");
-    init_bed_props(BLOCK_GREEN_BED, "minecraft:green_bed");
-    init_bed_props(BLOCK_RED_BED, "minecraft:red_bed");
-    init_bed_props(BLOCK_BLACK_BED, "minecraft:black_bed");
+    init_bed(BLOCK_WHITE_BED, "minecraft:white_bed");
+    init_bed(BLOCK_ORANGE_BED, "minecraft:orange_bed");
+    init_bed(BLOCK_MAGENTA_BED, "minecraft:magenta_bed");
+    init_bed(BLOCK_LIGHT_BLUE_BED, "minecraft:light_blue_bed");
+    init_bed(BLOCK_YELLOW_BED, "minecraft:yellow_bed");
+    init_bed(BLOCK_LIME_BED, "minecraft:lime_bed");
+    init_bed(BLOCK_PINK_BED, "minecraft:pink_bed");
+    init_bed(BLOCK_GRAY_BED, "minecraft:gray_bed");
+    init_bed(BLOCK_LIGHT_GRAY_BED, "minecraft:light_gray_bed");
+    init_bed(BLOCK_CYAN_BED, "minecraft:cyan_bed");
+    init_bed(BLOCK_PURPLE_BED, "minecraft:purple_bed");
+    init_bed(BLOCK_BLUE_BED, "minecraft:blue_bed");
+    init_bed(BLOCK_BROWN_BED, "minecraft:brown_bed");
+    init_bed(BLOCK_GREEN_BED, "minecraft:green_bed");
+    init_bed(BLOCK_RED_BED, "minecraft:red_bed");
+    init_bed(BLOCK_BLACK_BED, "minecraft:black_bed");
 
     register_block_type(BLOCK_POWERED_RAIL, "minecraft:powered_rail");
     props = serv->block_properties_table + BLOCK_POWERED_RAIL;
@@ -3353,11 +3596,11 @@ init_block_data(void) {
     finalise_block_props(props);
     set_collision_model_for_all_states(props, BLOCK_MODEL_EMPTY);
 
-    // @TODO(traks) collision model
     register_block_type(BLOCK_FARMLAND, "minecraft:farmland");
     props = serv->block_properties_table + BLOCK_FARMLAND;
     add_block_property(props, BLOCK_PROPERTY_MOISTURE, "0");
     finalise_block_props(props);
+    set_collision_model_for_all_states(props, BLOCK_MODEL_Y_15);
 
     register_block_type(BLOCK_FURNACE, "minecraft:furnace");
     props = serv->block_properties_table + BLOCK_FURNACE;
@@ -3438,20 +3681,25 @@ init_block_data(void) {
 
     init_button(BLOCK_STONE_BUTTON, "minecraft:stone_button");
 
-    // @TODO(traks) collision models
     register_block_type(BLOCK_SNOW, "minecraft:snow");
     props = serv->block_properties_table + BLOCK_SNOW;
     add_block_property(props, BLOCK_PROPERTY_LAYERS, "1");
     finalise_block_props(props);
+    for (int i = 0; i < count_block_states(props); i++) {
+        mc_ushort block_state = props->base_state + i;
+        block_state_info info = describe_block_state(block_state);
+        int model_index = BLOCK_MODEL_EMPTY + (info.layers - 1) * 2;
+        serv->collision_model_by_state[block_state] = model_index;
+    }
 
     init_simple_block(BLOCK_ICE, "minecraft:ice", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_SNOW_BLOCK, "minecraft:snow_block", BLOCK_MODEL_FULL);
 
-    // @TODO(traks) collision models
     register_block_type(BLOCK_CACTUS, "minecraft:cactus");
     props = serv->block_properties_table + BLOCK_CACTUS;
     add_block_property(props, BLOCK_PROPERTY_AGE_15, "0");
     finalise_block_props(props);
+    set_collision_model_for_all_states(props, BLOCK_MODEL_CACTUS);
 
     init_simple_block(BLOCK_CLAY, "minecraft:clay", BLOCK_MODEL_FULL);
 
@@ -3467,13 +3715,11 @@ init_block_data(void) {
     finalise_block_props(props);
     set_collision_model_for_all_states(props, BLOCK_MODEL_FULL);
 
-    // @TODO(traks) collision models
-    init_cross_props(BLOCK_OAK_FENCE, "minecraft:oak_fence");
+    init_fence(BLOCK_OAK_FENCE, "minecraft:oak_fence");
 
     init_simple_block(BLOCK_PUMPKIN, "minecraft:pumpkin", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_NETHERRACK, "minecraft:netherrack", BLOCK_MODEL_FULL);
-    // @TODO(traks) not really a full block
-    init_simple_block(BLOCK_SOUL_SAND, "minecraft:soul_sand", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_SOUL_SAND, "minecraft:soul_sand", BLOCK_MODEL_Y_14);
     init_simple_block(BLOCK_SOUL_SOIL, "minecraft:soul_soil", BLOCK_MODEL_FULL);
     init_pillar(BLOCK_BASALT, "minecraft:basalt");
     init_pillar(BLOCK_POLISHED_BASALT, "minecraft:polished_basalt");
@@ -3511,7 +3757,6 @@ init_block_data(void) {
     add_block_property(props, BLOCK_PROPERTY_BITES, "0");
     finalise_block_props(props);
 
-    // @TODO(traks) collision models
     register_block_type(BLOCK_REPEATER, "minecraft:repeater");
     props = serv->block_properties_table + BLOCK_REPEATER;
     add_block_property(props, BLOCK_PROPERTY_DELAY, "1");
@@ -3519,6 +3764,7 @@ init_block_data(void) {
     add_block_property(props, BLOCK_PROPERTY_LOCKED, "false");
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
     finalise_block_props(props);
+    set_collision_model_for_all_states(props, BLOCK_MODEL_Y_2);
 
     init_simple_block(BLOCK_WHITE_STAINED_GLASS, "minecraft:white_stained_glass", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_ORANGE_STAINED_GLASS, "minecraft:orange_stained_glass", BLOCK_MODEL_FULL);
@@ -3559,8 +3805,7 @@ init_block_data(void) {
     init_mushroom_block(BLOCK_RED_MUSHROOM_BLOCK, "minecraft:red_mushroom_block");
     init_mushroom_block(BLOCK_MUSHROOM_STEM, "minecraft:mushroom_stem");
 
-    // @TODO(traks) collision models
-    init_cross_props(BLOCK_IRON_BARS, "minecraft:iron_bars");
+    init_pane(BLOCK_IRON_BARS, "minecraft:iron_bars");
 
     // @TODO(traks) collision models
     register_block_type(BLOCK_CHAIN, "minecraft:chain");
@@ -3569,8 +3814,7 @@ init_block_data(void) {
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
     finalise_block_props(props);
 
-    // @TODO(traks) collision models
-    init_cross_props(BLOCK_GLASS_PANE, "minecraft:glass_pane");
+    init_pane(BLOCK_GLASS_PANE, "minecraft:glass_pane");
 
     init_simple_block(BLOCK_MELON, "minecraft:melon", BLOCK_MODEL_FULL);
 
@@ -3608,8 +3852,7 @@ init_block_data(void) {
     finalise_block_props(props);
     set_collision_model_for_all_states(props, BLOCK_MODEL_EMPTY);
 
-    // @TODO(traks) collision models
-    init_fence_gate_props(BLOCK_OAK_FENCE_GATE, "minecraft:oak_fence_gate");
+    init_fence_gate(BLOCK_OAK_FENCE_GATE, "minecraft:oak_fence_gate");
 
     init_stair_props(BLOCK_BRICK_STAIRS, "minecraft:brick_stairs");
     init_stair_props(BLOCK_STONE_BRICK_STAIRS, "minecraft:stone_brick_stairs");
@@ -3620,7 +3863,7 @@ init_block_data(void) {
     init_simple_block(BLOCK_LILY_PAD, "minecraft:lily_pad", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_NETHER_BRICKS, "minecraft:nether_bricks", BLOCK_MODEL_FULL);
 
-    init_cross_props(BLOCK_NETHER_BRICK_FENCE, "minecraft:nether_brick_fence");
+    init_fence(BLOCK_NETHER_BRICK_FENCE, "minecraft:nether_brick_fence");
 
     init_stair_props(BLOCK_NETHER_BRICK_STAIRS, "minecraft:nether_brick_stairs");
 
@@ -3630,8 +3873,7 @@ init_block_data(void) {
     finalise_block_props(props);
     set_collision_model_for_all_states(props, BLOCK_MODEL_EMPTY);
 
-    // @TODO(traks) collision box
-    init_simple_block(BLOCK_ENCHANTING_TABLE, "minecraft:enchanting_table", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_ENCHANTING_TABLE, "minecraft:enchanting_table", BLOCK_MODEL_Y_12);
 
     // @TODO(traks) collision models
     register_block_type(BLOCK_BREWING_STAND, "minecraft:brewing_stand");
@@ -3723,7 +3965,6 @@ init_block_data(void) {
     init_wall_props(BLOCK_COBBLESTONE_WALL, "minecraft:cobblestone_wall");
     init_wall_props(BLOCK_MOSSY_COBBLESTONE_WALL, "minecraft:mossy_cobblestone_wall");
 
-    // @TODO(traks) correct pot models
     init_simple_block(BLOCK_FLOWER_POT, "minecraft:flower_pot", BLOCK_MODEL_FLOWER_POT);
     init_simple_block(BLOCK_POTTED_OAK_SAPLING, "minecraft:potted_oak_sapling", BLOCK_MODEL_FLOWER_POT);
     init_simple_block(BLOCK_POTTED_SPRUCE_SAPLING, "minecraft:potted_spruce_sapling", BLOCK_MODEL_FLOWER_POT);
@@ -3808,20 +4049,20 @@ init_block_data(void) {
     finalise_block_props(props);
     set_collision_model_for_all_states(props, BLOCK_MODEL_EMPTY);
 
-    // @TODO(traks) collision models
     register_block_type(BLOCK_COMPARATOR, "minecraft:comparator");
     props = serv->block_properties_table + BLOCK_COMPARATOR;
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_MODE_COMPARATOR, "compare");
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
     finalise_block_props(props);
+    set_collision_model_for_all_states(props, BLOCK_MODEL_Y_2);
 
-    // @TODO(traks) collision models
     register_block_type(BLOCK_DAYLIGHT_DETECTOR, "minecraft:daylight_detector");
     props = serv->block_properties_table + BLOCK_DAYLIGHT_DETECTOR;
     add_block_property(props, BLOCK_PROPERTY_INVERTED, "false");
     add_block_property(props, BLOCK_PROPERTY_POWER, "0");
     finalise_block_props(props);
+    set_collision_model_for_all_states(props, BLOCK_MODEL_Y_6);
 
     init_simple_block(BLOCK_REDSTONE_BLOCK, "minecraft:redstone_block", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_NETHER_QUARTZ_ORE, "minecraft:nether_quartz_ore", BLOCK_MODEL_FULL);
@@ -3871,22 +4112,22 @@ init_block_data(void) {
     init_simple_block(BLOCK_RED_TERRACOTTA, "minecraft:red_terracotta", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_BLACK_TERRACOTTA, "minecraft:black_terracotta", BLOCK_MODEL_FULL);
 
-    init_cross_props(BLOCK_WHITE_STAINED_GLASS_PANE, "minecraft:white_stained_glass_pane");
-    init_cross_props(BLOCK_ORANGE_STAINED_GLASS_PANE, "minecraft:orange_stained_glass_pane");
-    init_cross_props(BLOCK_MAGENTA_STAINED_GLASS_PANE, "minecraft:magenta_stained_glass_pane");
-    init_cross_props(BLOCK_LIGHT_BLUE_STAINED_GLASS_PANE, "minecraft:light_blue_stained_glass_pane");
-    init_cross_props(BLOCK_YELLOW_STAINED_GLASS_PANE, "minecraft:yellow_stained_glass_pane");
-    init_cross_props(BLOCK_LIME_STAINED_GLASS_PANE, "minecraft:lime_stained_glass_pane");
-    init_cross_props(BLOCK_PINK_STAINED_GLASS_PANE, "minecraft:pink_stained_glass_pane");
-    init_cross_props(BLOCK_GRAY_STAINED_GLASS_PANE, "minecraft:gray_stained_glass_pane");
-    init_cross_props(BLOCK_LIGHT_GRAY_STAINED_GLASS_PANE, "minecraft:light_gray_stained_glass_pane");
-    init_cross_props(BLOCK_CYAN_STAINED_GLASS_PANE, "minecraft:cyan_stained_glass_pane");
-    init_cross_props(BLOCK_PURPLE_STAINED_GLASS_PANE, "minecraft:purple_stained_glass_pane");
-    init_cross_props(BLOCK_BLUE_STAINED_GLASS_PANE, "minecraft:blue_stained_glass_pane");
-    init_cross_props(BLOCK_BROWN_STAINED_GLASS_PANE, "minecraft:brown_stained_glass_pane");
-    init_cross_props(BLOCK_GREEN_STAINED_GLASS_PANE, "minecraft:green_stained_glass_pane");
-    init_cross_props(BLOCK_RED_STAINED_GLASS_PANE, "minecraft:red_stained_glass_pane");
-    init_cross_props(BLOCK_BLACK_STAINED_GLASS_PANE, "minecraft:black_stained_glass_pane");
+    init_pane(BLOCK_WHITE_STAINED_GLASS_PANE, "minecraft:white_stained_glass_pane");
+    init_pane(BLOCK_ORANGE_STAINED_GLASS_PANE, "minecraft:orange_stained_glass_pane");
+    init_pane(BLOCK_MAGENTA_STAINED_GLASS_PANE, "minecraft:magenta_stained_glass_pane");
+    init_pane(BLOCK_LIGHT_BLUE_STAINED_GLASS_PANE, "minecraft:light_blue_stained_glass_pane");
+    init_pane(BLOCK_YELLOW_STAINED_GLASS_PANE, "minecraft:yellow_stained_glass_pane");
+    init_pane(BLOCK_LIME_STAINED_GLASS_PANE, "minecraft:lime_stained_glass_pane");
+    init_pane(BLOCK_PINK_STAINED_GLASS_PANE, "minecraft:pink_stained_glass_pane");
+    init_pane(BLOCK_GRAY_STAINED_GLASS_PANE, "minecraft:gray_stained_glass_pane");
+    init_pane(BLOCK_LIGHT_GRAY_STAINED_GLASS_PANE, "minecraft:light_gray_stained_glass_pane");
+    init_pane(BLOCK_CYAN_STAINED_GLASS_PANE, "minecraft:cyan_stained_glass_pane");
+    init_pane(BLOCK_PURPLE_STAINED_GLASS_PANE, "minecraft:purple_stained_glass_pane");
+    init_pane(BLOCK_BLUE_STAINED_GLASS_PANE, "minecraft:blue_stained_glass_pane");
+    init_pane(BLOCK_BROWN_STAINED_GLASS_PANE, "minecraft:brown_stained_glass_pane");
+    init_pane(BLOCK_GREEN_STAINED_GLASS_PANE, "minecraft:green_stained_glass_pane");
+    init_pane(BLOCK_RED_STAINED_GLASS_PANE, "minecraft:red_stained_glass_pane");
+    init_pane(BLOCK_BLACK_STAINED_GLASS_PANE, "minecraft:black_stained_glass_pane");
 
     init_stair_props(BLOCK_ACACIA_STAIRS, "minecraft:acacia_stairs");
     init_stair_props(BLOCK_DARK_OAK_STAIRS, "minecraft:dark_oak_stairs");
@@ -3904,34 +4145,33 @@ init_block_data(void) {
     init_stair_props(BLOCK_PRISMARINE_BRICK_STAIRS, "minecraft:prismarine_brick_stairs");
     init_stair_props(BLOCK_DARK_PRISMARINE_STAIRS, "minecraft:dark_prismarine_stairs");
 
-    init_slab_props(BLOCK_PRISMARINE_SLAB, "minecraft:prismarine_slab");
-    init_slab_props(BLOCK_PRISMARINE_BRICK_SLAB, "minecraft:prismarine_brick_slab");
-    init_slab_props(BLOCK_DARK_PRISMARINE_SLAB, "minecraft:dark_prismarine_slab");
+    init_slab(BLOCK_PRISMARINE_SLAB, "minecraft:prismarine_slab");
+    init_slab(BLOCK_PRISMARINE_BRICK_SLAB, "minecraft:prismarine_brick_slab");
+    init_slab(BLOCK_DARK_PRISMARINE_SLAB, "minecraft:dark_prismarine_slab");
 
     init_simple_block(BLOCK_SEA_LANTERN, "minecraft:sea_lantern", BLOCK_MODEL_FULL);
 
     init_pillar(BLOCK_HAY_BLOCK, "minecraft:hay_block");
 
-    // @TODO(traks) better model
-    init_simple_block(BLOCK_WHITE_CARPET, "minecraft:white_carpet", BLOCK_MODEL_EMPTY);
-    init_simple_block(BLOCK_ORANGE_CARPET, "minecraft:orange_carpet", BLOCK_MODEL_EMPTY);
-    init_simple_block(BLOCK_MAGENTA_CARPET, "minecraft:magenta_carpet", BLOCK_MODEL_EMPTY);
-    init_simple_block(BLOCK_LIGHT_BLUE_CARPET, "minecraft:light_blue_carpet", BLOCK_MODEL_EMPTY);
-    init_simple_block(BLOCK_YELLOW_CARPET, "minecraft:yellow_carpet", BLOCK_MODEL_EMPTY);
-    init_simple_block(BLOCK_LIME_CARPET, "minecraft:lime_carpet", BLOCK_MODEL_EMPTY);
-    init_simple_block(BLOCK_PINK_CARPET, "minecraft:pink_carpet", BLOCK_MODEL_EMPTY);
-    init_simple_block(BLOCK_GRAY_CARPET, "minecraft:gray_carpet", BLOCK_MODEL_EMPTY);
-    init_simple_block(BLOCK_LIGHT_GRAY_CARPET, "minecraft:light_gray_carpet", BLOCK_MODEL_EMPTY);
-    init_simple_block(BLOCK_CYAN_CARPET, "minecraft:cyan_carpet", BLOCK_MODEL_EMPTY);
-    init_simple_block(BLOCK_PURPLE_CARPET, "minecraft:purple_carpet", BLOCK_MODEL_EMPTY);
-    init_simple_block(BLOCK_BLUE_CARPET, "minecraft:blue_carpet", BLOCK_MODEL_EMPTY);
-    init_simple_block(BLOCK_BROWN_CARPET, "minecraft:brown_carpet", BLOCK_MODEL_EMPTY);
-    init_simple_block(BLOCK_GREEN_CARPET, "minecraft:green_carpet", BLOCK_MODEL_EMPTY);
-    init_simple_block(BLOCK_RED_CARPET, "minecraft:red_carpet", BLOCK_MODEL_EMPTY);
-    init_simple_block(BLOCK_BLACK_CARPET, "minecraft:black_carpet", BLOCK_MODEL_EMPTY);
-    init_simple_block(BLOCK_TERRACOTTA, "minecraft:terracotta", BLOCK_MODEL_EMPTY);
-    init_simple_block(BLOCK_COAL_BLOCK, "minecraft:coal_block", BLOCK_MODEL_EMPTY);
-    init_simple_block(BLOCK_PACKED_ICE, "minecraft:packed_ice", BLOCK_MODEL_EMPTY);
+    init_simple_block(BLOCK_WHITE_CARPET, "minecraft:white_carpet", BLOCK_MODEL_Y_1);
+    init_simple_block(BLOCK_ORANGE_CARPET, "minecraft:orange_carpet", BLOCK_MODEL_Y_1);
+    init_simple_block(BLOCK_MAGENTA_CARPET, "minecraft:magenta_carpet", BLOCK_MODEL_Y_1);
+    init_simple_block(BLOCK_LIGHT_BLUE_CARPET, "minecraft:light_blue_carpet", BLOCK_MODEL_Y_1);
+    init_simple_block(BLOCK_YELLOW_CARPET, "minecraft:yellow_carpet", BLOCK_MODEL_Y_1);
+    init_simple_block(BLOCK_LIME_CARPET, "minecraft:lime_carpet", BLOCK_MODEL_Y_1);
+    init_simple_block(BLOCK_PINK_CARPET, "minecraft:pink_carpet", BLOCK_MODEL_Y_1);
+    init_simple_block(BLOCK_GRAY_CARPET, "minecraft:gray_carpet", BLOCK_MODEL_Y_1);
+    init_simple_block(BLOCK_LIGHT_GRAY_CARPET, "minecraft:light_gray_carpet", BLOCK_MODEL_Y_1);
+    init_simple_block(BLOCK_CYAN_CARPET, "minecraft:cyan_carpet", BLOCK_MODEL_Y_1);
+    init_simple_block(BLOCK_PURPLE_CARPET, "minecraft:purple_carpet", BLOCK_MODEL_Y_1);
+    init_simple_block(BLOCK_BLUE_CARPET, "minecraft:blue_carpet", BLOCK_MODEL_Y_1);
+    init_simple_block(BLOCK_BROWN_CARPET, "minecraft:brown_carpet", BLOCK_MODEL_Y_1);
+    init_simple_block(BLOCK_GREEN_CARPET, "minecraft:green_carpet", BLOCK_MODEL_Y_1);
+    init_simple_block(BLOCK_RED_CARPET, "minecraft:red_carpet", BLOCK_MODEL_Y_1);
+    init_simple_block(BLOCK_BLACK_CARPET, "minecraft:black_carpet", BLOCK_MODEL_Y_1);
+    init_simple_block(BLOCK_TERRACOTTA, "minecraft:terracotta", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_COAL_BLOCK, "minecraft:coal_block", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_PACKED_ICE, "minecraft:packed_ice", BLOCK_MODEL_FULL);
 
     init_tall_plant(BLOCK_SUNFLOWER, "minecraft:sunflower");
     init_tall_plant(BLOCK_LILAC, "minecraft:lilac");
@@ -3980,43 +4220,42 @@ init_block_data(void) {
 
     init_stair_props(BLOCK_RED_SANDSTONE_STAIRS, "minecraft:red_sandstone_stairs");
 
-    // @TODO(traks) collision models
-    init_slab_props(BLOCK_OAK_SLAB, "minecraft:oak_slab");
-    init_slab_props(BLOCK_SPRUCE_SLAB, "minecraft:spruce_slab");
-    init_slab_props(BLOCK_BIRCH_SLAB, "minecraft:birch_slab");
-    init_slab_props(BLOCK_JUNGLE_SLAB, "minecraft:jungle_slab");
-    init_slab_props(BLOCK_ACACIA_SLAB, "minecraft:acacia_slab");
-    init_slab_props(BLOCK_DARK_OAK_SLAB, "minecraft:dark_oak_slab");
-    init_slab_props(BLOCK_STONE_SLAB, "minecraft:stone_slab");
-    init_slab_props(BLOCK_SMOOTH_STONE_SLAB, "minecraft:smooth_stone_slab");
-    init_slab_props(BLOCK_SANDSTONE_SLAB, "minecraft:sandstone_slab");
-    init_slab_props(BLOCK_CUT_SANDSTONE_SLAB, "minecraft:cut_sandstone_slab");
-    init_slab_props(BLOCK_PETRIFIED_OAK_SLAB, "minecraft:petrified_oak_slab");
-    init_slab_props(BLOCK_COBBLESTONE_SLAB, "minecraft:cobblestone_slab");
-    init_slab_props(BLOCK_BRICK_SLAB, "minecraft:brick_slab");
-    init_slab_props(BLOCK_STONE_BRICK_SLAB, "minecraft:stone_brick_slab");
-    init_slab_props(BLOCK_NETHER_BRICK_SLAB, "minecraft:nether_brick_slab");
-    init_slab_props(BLOCK_QUARTZ_SLAB, "minecraft:quartz_slab");
-    init_slab_props(BLOCK_RED_SANDSTONE_SLAB, "minecraft:red_sandstone_slab");
-    init_slab_props(BLOCK_CUT_RED_SANDSTONE_SLAB, "minecraft:cut_red_sandstone_slab");
-    init_slab_props(BLOCK_PURPUR_SLAB, "minecraft:purpur_slab");
+    init_slab(BLOCK_OAK_SLAB, "minecraft:oak_slab");
+    init_slab(BLOCK_SPRUCE_SLAB, "minecraft:spruce_slab");
+    init_slab(BLOCK_BIRCH_SLAB, "minecraft:birch_slab");
+    init_slab(BLOCK_JUNGLE_SLAB, "minecraft:jungle_slab");
+    init_slab(BLOCK_ACACIA_SLAB, "minecraft:acacia_slab");
+    init_slab(BLOCK_DARK_OAK_SLAB, "minecraft:dark_oak_slab");
+    init_slab(BLOCK_STONE_SLAB, "minecraft:stone_slab");
+    init_slab(BLOCK_SMOOTH_STONE_SLAB, "minecraft:smooth_stone_slab");
+    init_slab(BLOCK_SANDSTONE_SLAB, "minecraft:sandstone_slab");
+    init_slab(BLOCK_CUT_SANDSTONE_SLAB, "minecraft:cut_sandstone_slab");
+    init_slab(BLOCK_PETRIFIED_OAK_SLAB, "minecraft:petrified_oak_slab");
+    init_slab(BLOCK_COBBLESTONE_SLAB, "minecraft:cobblestone_slab");
+    init_slab(BLOCK_BRICK_SLAB, "minecraft:brick_slab");
+    init_slab(BLOCK_STONE_BRICK_SLAB, "minecraft:stone_brick_slab");
+    init_slab(BLOCK_NETHER_BRICK_SLAB, "minecraft:nether_brick_slab");
+    init_slab(BLOCK_QUARTZ_SLAB, "minecraft:quartz_slab");
+    init_slab(BLOCK_RED_SANDSTONE_SLAB, "minecraft:red_sandstone_slab");
+    init_slab(BLOCK_CUT_RED_SANDSTONE_SLAB, "minecraft:cut_red_sandstone_slab");
+    init_slab(BLOCK_PURPUR_SLAB, "minecraft:purpur_slab");
 
     init_simple_block(BLOCK_SMOOTH_STONE, "minecraft:smooth_stone", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_SMOOTH_SANDSTONE, "minecraft:smooth_sandstone", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_SMOOTH_QUARTZ, "minecraft:smooth_quartz", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_SMOOTH_RED_SANDSTONE, "minecraft:smooth_red_sandstone", BLOCK_MODEL_FULL);
 
-    init_fence_gate_props(BLOCK_SPRUCE_FENCE_GATE, "minecraft:spruce_fence_gate");
-    init_fence_gate_props(BLOCK_BIRCH_FENCE_GATE, "minecraft:birch_fence_gate");
-    init_fence_gate_props(BLOCK_JUNGLE_FENCE_GATE, "minecraft:jungle_fence_gate");
-    init_fence_gate_props(BLOCK_ACACIA_FENCE_GATE, "minecraft:acacia_fence_gate");
-    init_fence_gate_props(BLOCK_DARK_OAK_FENCE_GATE, "minecraft:dark_oak_fence_gate");
+    init_fence_gate(BLOCK_SPRUCE_FENCE_GATE, "minecraft:spruce_fence_gate");
+    init_fence_gate(BLOCK_BIRCH_FENCE_GATE, "minecraft:birch_fence_gate");
+    init_fence_gate(BLOCK_JUNGLE_FENCE_GATE, "minecraft:jungle_fence_gate");
+    init_fence_gate(BLOCK_ACACIA_FENCE_GATE, "minecraft:acacia_fence_gate");
+    init_fence_gate(BLOCK_DARK_OAK_FENCE_GATE, "minecraft:dark_oak_fence_gate");
 
-    init_cross_props(BLOCK_SPRUCE_FENCE, "minecraft:spruce_fence");
-    init_cross_props(BLOCK_BIRCH_FENCE, "minecraft:birch_fence");
-    init_cross_props(BLOCK_JUNGLE_FENCE, "minecraft:jungle_fence");
-    init_cross_props(BLOCK_ACACIA_FENCE, "minecraft:acacia_fence");
-    init_cross_props(BLOCK_DARK_OAK_FENCE, "minecraft:dark_oak_fence");
+    init_fence(BLOCK_SPRUCE_FENCE, "minecraft:spruce_fence");
+    init_fence(BLOCK_BIRCH_FENCE, "minecraft:birch_fence");
+    init_fence(BLOCK_JUNGLE_FENCE, "minecraft:jungle_fence");
+    init_fence(BLOCK_ACACIA_FENCE, "minecraft:acacia_fence");
+    init_fence(BLOCK_DARK_OAK_FENCE, "minecraft:dark_oak_fence");
 
     init_door_props(BLOCK_SPRUCE_DOOR, "minecraft:spruce_door");
     init_door_props(BLOCK_BIRCH_DOOR, "minecraft:birch_door");
@@ -4061,10 +4300,8 @@ init_block_data(void) {
     finalise_block_props(props);
     set_collision_model_for_all_states(props, BLOCK_MODEL_EMPTY);
 
-    // @TODO(traks) better collision box
-    init_simple_block(BLOCK_GRASS_PATH, "minecraft:grass_path", BLOCK_MODEL_FULL);
-    // @TODO(traks) better collision box
-    init_simple_block(BLOCK_END_GATEWAY, "minecraft:end_gateway", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_GRASS_PATH, "minecraft:grass_path", BLOCK_MODEL_Y_15);
+    init_simple_block(BLOCK_END_GATEWAY, "minecraft:end_gateway", BLOCK_MODEL_EMPTY);
 
     register_block_type(BLOCK_REPEATING_COMMAND_BLOCK, "minecraft:repeating_command_block");
     props = serv->block_properties_table + BLOCK_REPEATING_COMMAND_BLOCK;
@@ -4249,15 +4486,14 @@ init_block_data(void) {
 
     init_simple_block(BLOCK_BAMBOO_SAPLING, "minecraft:bamboo_sapling", BLOCK_MODEL_EMPTY);
 
-    // @TODO(traks) collision models
     register_block_type(BLOCK_BAMBOO, "minecraft:bamboo");
     props = serv->block_properties_table + BLOCK_BAMBOO;
     add_block_property(props, BLOCK_PROPERTY_AGE_1, "0");
     add_block_property(props, BLOCK_PROPERTY_BAMBOO_LEAVES, "none");
     add_block_property(props, BLOCK_PROPERTY_STAGE, "0");
     finalise_block_props(props);
+    set_collision_model_for_all_states(props, BLOCK_MODEL_CENTRED_BAMBOO);
 
-    // @TODO(traks) pot collision box
     init_simple_block(BLOCK_POTTED_BAMBOO, "minecraft:potted_bamboo", BLOCK_MODEL_FLOWER_POT);
     init_simple_block(BLOCK_VOID_AIR, "minecraft:void_air", BLOCK_MODEL_EMPTY);
     init_simple_block(BLOCK_CAVE_AIR, "minecraft:cave_air", BLOCK_MODEL_EMPTY);
@@ -4283,19 +4519,19 @@ init_block_data(void) {
     init_stair_props(BLOCK_POLISHED_ANDESITE_STAIRS, "minecraft:polished_andesite_stairs");
     init_stair_props(BLOCK_DIORITE_STAIRS, "minecraft:diorite_stairs");
 
-    init_slab_props(BLOCK_POLISHED_GRANITE_SLAB, "minecraft:polished_granite_slab");
-    init_slab_props(BLOCK_SMOOTH_RED_SANDSTONE_SLAB, "minecraft:smooth_red_sandstone_slab");
-    init_slab_props(BLOCK_MOSSY_STONE_BRICK_SLAB, "minecraft:mossy_stone_brick_slab");
-    init_slab_props(BLOCK_POLISHED_DIORITE_SLAB, "minecraft:polished_diorite_slab");
-    init_slab_props(BLOCK_MOSSY_COBBLESTONE_SLAB, "minecraft:mossy_cobblestone_slab");
-    init_slab_props(BLOCK_END_STONE_BRICK_SLAB, "minecraft:end_stone_brick_slab");
-    init_slab_props(BLOCK_SMOOTH_SANDSTONE_SLAB, "minecraft:smooth_sandstone_slab");
-    init_slab_props(BLOCK_SMOOTH_QUARTZ_SLAB, "minecraft:smooth_quartz_slab");
-    init_slab_props(BLOCK_GRANITE_SLAB, "minecraft:granite_slab");
-    init_slab_props(BLOCK_ANDESITE_SLAB, "minecraft:andesite_slab");
-    init_slab_props(BLOCK_RED_NETHER_BRICK_SLAB, "minecraft:red_nether_brick_slab");
-    init_slab_props(BLOCK_POLISHED_ANDESITE_SLAB, "minecraft:polished_andesite_slab");
-    init_slab_props(BLOCK_DIORITE_SLAB, "minecraft:diorite_slab");
+    init_slab(BLOCK_POLISHED_GRANITE_SLAB, "minecraft:polished_granite_slab");
+    init_slab(BLOCK_SMOOTH_RED_SANDSTONE_SLAB, "minecraft:smooth_red_sandstone_slab");
+    init_slab(BLOCK_MOSSY_STONE_BRICK_SLAB, "minecraft:mossy_stone_brick_slab");
+    init_slab(BLOCK_POLISHED_DIORITE_SLAB, "minecraft:polished_diorite_slab");
+    init_slab(BLOCK_MOSSY_COBBLESTONE_SLAB, "minecraft:mossy_cobblestone_slab");
+    init_slab(BLOCK_END_STONE_BRICK_SLAB, "minecraft:end_stone_brick_slab");
+    init_slab(BLOCK_SMOOTH_SANDSTONE_SLAB, "minecraft:smooth_sandstone_slab");
+    init_slab(BLOCK_SMOOTH_QUARTZ_SLAB, "minecraft:smooth_quartz_slab");
+    init_slab(BLOCK_GRANITE_SLAB, "minecraft:granite_slab");
+    init_slab(BLOCK_ANDESITE_SLAB, "minecraft:andesite_slab");
+    init_slab(BLOCK_RED_NETHER_BRICK_SLAB, "minecraft:red_nether_brick_slab");
+    init_slab(BLOCK_POLISHED_ANDESITE_SLAB, "minecraft:polished_andesite_slab");
+    init_slab(BLOCK_DIORITE_SLAB, "minecraft:diorite_slab");
 
     init_wall_props(BLOCK_BRICK_WALL, "minecraft:brick_wall");
     init_wall_props(BLOCK_PRISMARINE_WALL, "minecraft:prismarine_wall");
@@ -4355,21 +4591,21 @@ init_block_data(void) {
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     finalise_block_props(props);
 
-    // @TODO(traks) collisions models
     register_block_type(BLOCK_LECTERN, "minecraft:lectern");
     props = serv->block_properties_table + BLOCK_LECTERN;
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_HAS_BOOK, "false");
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
     finalise_block_props(props);
+    set_collision_model_for_all_states(props, BLOCK_MODEL_LECTERN);
 
     init_simple_block(BLOCK_SMITHING_TABLE, "minecraft:smithing_table", BLOCK_MODEL_FULL);
 
-    // @TODO(traks) collisions models
     register_block_type(BLOCK_STONECUTTER, "minecraft:stonecutter");
     props = serv->block_properties_table + BLOCK_STONECUTTER;
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     finalise_block_props(props);
+    set_collision_model_for_all_states(props, BLOCK_MODEL_Y_9);
 
     // @TODO(traks) collisions models
     register_block_type(BLOCK_BELL, "minecraft:bell");
@@ -4393,7 +4629,6 @@ init_block_data(void) {
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
     finalise_block_props(props);
 
-    // @TODO(traks) collisions models
     register_block_type(BLOCK_CAMPFIRE, "minecraft:campfire");
     props = serv->block_properties_table + BLOCK_CAMPFIRE;
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
@@ -4401,8 +4636,8 @@ init_block_data(void) {
     add_block_property(props, BLOCK_PROPERTY_SIGNAL_FIRE, "false");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
     finalise_block_props(props);
+    set_collision_model_for_all_states(props, BLOCK_MODEL_Y_7);
 
-    // @TODO(traks) collisions models
     register_block_type(BLOCK_SOUL_CAMPFIRE, "minecraft:soul_campfire");
     props = serv->block_properties_table + BLOCK_SOUL_CAMPFIRE;
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
@@ -4410,12 +4645,13 @@ init_block_data(void) {
     add_block_property(props, BLOCK_PROPERTY_SIGNAL_FIRE, "false");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
     finalise_block_props(props);
+    set_collision_model_for_all_states(props, BLOCK_MODEL_Y_7);
 
-    // @TODO(traks) collisions models
     register_block_type(BLOCK_SWEET_BERRY_BUSH, "minecraft:sweet_berry_bush");
     props = serv->block_properties_table + BLOCK_SWEET_BERRY_BUSH;
     add_block_property(props, BLOCK_PROPERTY_AGE_3, "0");
     finalise_block_props(props);
+    set_collision_model_for_all_states(props, BLOCK_MODEL_EMPTY);
 
     init_pillar(BLOCK_WARPED_STEM, "minecraft:warped_stem");
     init_pillar(BLOCK_STRIPPED_WARPED_STEM, "minecraft:stripped_warped_stem");
@@ -4437,19 +4673,19 @@ init_block_data(void) {
     init_simple_block(BLOCK_CRIMSON_FUNGUS, "minecraft:crimson_fungus", BLOCK_MODEL_EMPTY);
     init_simple_block(BLOCK_SHROOMLIGHT, "minecraft:shroomlight", BLOCK_MODEL_FULL);
 
-    // @TODO(traks) collisions models
     register_block_type(BLOCK_WEEPING_VINES, "minecraft:weeping_vines");
     props = serv->block_properties_table + BLOCK_WEEPING_VINES;
     add_block_property(props, BLOCK_PROPERTY_AGE_25, "0");
     finalise_block_props(props);
+    set_collision_model_for_all_states(props, BLOCK_MODEL_EMPTY);
 
     init_simple_block(BLOCK_WEEPING_VINES_PLANT, "minecraft:weeping_vines_plant", BLOCK_MODEL_EMPTY);
 
-    // @TODO(traks) collisions models
     register_block_type(BLOCK_TWISTING_VINES, "minecraft:twisting_vines");
     props = serv->block_properties_table + BLOCK_TWISTING_VINES;
     add_block_property(props, BLOCK_PROPERTY_AGE_25, "0");
     finalise_block_props(props);
+    set_collision_model_for_all_states(props, BLOCK_MODEL_EMPTY);
 
     init_simple_block(BLOCK_TWISTING_VINES_PLANT, "minecraft:twisting_vines_plant", BLOCK_MODEL_EMPTY);
 
@@ -4457,20 +4693,20 @@ init_block_data(void) {
     init_simple_block(BLOCK_CRIMSON_PLANKS, "minecraft:crimson_planks", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_WARPED_PLANKS, "minecraft:warped_planks", BLOCK_MODEL_FULL);
 
-    init_slab_props(BLOCK_CRIMSON_SLAB, "minecraft:crimson_slab");
-    init_slab_props(BLOCK_WARPED_SLAB, "minecraft:warped_slab");
+    init_slab(BLOCK_CRIMSON_SLAB, "minecraft:crimson_slab");
+    init_slab(BLOCK_WARPED_SLAB, "minecraft:warped_slab");
 
     init_pressure_plate(BLOCK_CRIMSON_PRESSURE_PLATE, "minecraft:crimson_pressure_plate");
     init_pressure_plate(BLOCK_WARPED_PRESSURE_PLATE, "minecraft:warped_pressure_plate");
 
-    init_cross_props(BLOCK_CRIMSON_FENCE, "minecraft:crimson_fence");
-    init_cross_props(BLOCK_WARPED_FENCE, "minecraft:warped_fence");
+    init_fence(BLOCK_CRIMSON_FENCE, "minecraft:crimson_fence");
+    init_fence(BLOCK_WARPED_FENCE, "minecraft:warped_fence");
 
     init_trapdoor_props(BLOCK_CRIMSON_TRAPDOOR, "minecraft:crimson_trapdoor");
     init_trapdoor_props(BLOCK_WARPED_TRAPDOOR, "minecraft:warped_trapdoor");
 
-    init_fence_gate_props(BLOCK_CRIMSON_FENCE_GATE, "minecraft:crimson_fence_gate");
-    init_fence_gate_props(BLOCK_WARPED_FENCE_GATE, "minecraft:warped_fence_gate");
+    init_fence_gate(BLOCK_CRIMSON_FENCE_GATE, "minecraft:crimson_fence_gate");
+    init_fence_gate(BLOCK_WARPED_FENCE_GATE, "minecraft:warped_fence_gate");
 
     init_stair_props(BLOCK_CRIMSON_STAIRS, "minecraft:crimson_stairs");
     init_stair_props(BLOCK_WARPED_STAIRS, "minecraft:warped_stairs");
@@ -4499,11 +4735,11 @@ init_block_data(void) {
     finalise_block_props(props);
     set_collision_model_for_all_states(props, BLOCK_MODEL_FULL);
 
-    // @TODO(traks) collisions models
     register_block_type(BLOCK_COMPOSTER, "minecraft:composter");
     props = serv->block_properties_table + BLOCK_COMPOSTER;
     add_block_property(props, BLOCK_PROPERTY_LEVEL_COMPOSTER, "0");
     finalise_block_props(props);
+    set_collision_model_for_all_states(props, BLOCK_MODEL_COMPOSTER);
 
     register_block_type(BLOCK_TARGET, "minecraft:target");
     props = serv->block_properties_table + BLOCK_TARGET;
@@ -4525,7 +4761,7 @@ init_block_data(void) {
     finalise_block_props(props);
     set_collision_model_for_all_states(props, BLOCK_MODEL_FULL);
 
-    init_simple_block(BLOCK_HONEY_BLOCK, "minecraft:honey_block", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_HONEY_BLOCK, "minecraft:honey_block", BLOCK_MODEL_HONEY_BLOCK);
     init_simple_block(BLOCK_HONEYCOMB_BLOCK, "minecraft:honeycomb_block", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_NETHERITE_BLOCK, "minecraft:netherite_block", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_ANCIENT_DEBRIS, "minecraft:ancient_debris", BLOCK_MODEL_FULL);
@@ -4548,14 +4784,14 @@ init_block_data(void) {
 
     init_wall_props(BLOCK_BLACKSTONE_WALL, "minecraft:blackstone_wall");
 
-    init_slab_props(BLOCK_BLACKSTONE_SLAB, "minecraft:blackstone_slab");
+    init_slab(BLOCK_BLACKSTONE_SLAB, "minecraft:blackstone_slab");
 
     init_simple_block(BLOCK_POLISHED_BLACKSTONE, "minecraft:polished_blackstone", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_POLISHED_BLACKSTONE_BRICKS, "minecraft:polished_blackstone_bricks", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_CRACKED_POLISHED_BLACKSTONE_BRICKS, "minecraft:cracked_polished_blackstone_bricks", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_CHISELED_POLISHED_BLACKSTONE, "minecraft:chiseled_polished_blackstone", BLOCK_MODEL_FULL);
 
-    init_slab_props(BLOCK_POLISHED_BLACKSTONE_BRICK_SLAB, "minecraft:polished_blackstone_brick_slab");
+    init_slab(BLOCK_POLISHED_BLACKSTONE_BRICK_SLAB, "minecraft:polished_blackstone_brick_slab");
 
     init_stair_props(BLOCK_POLISHED_BLACKSTONE_BRICK_STAIRS, "minecraft:polished_blackstone_brick_stairs");
 
@@ -4565,7 +4801,7 @@ init_block_data(void) {
 
     init_stair_props(BLOCK_POLISHED_BLACKSTONE_STAIRS, "minecraft:polished_blackstone_stairs");
 
-    init_slab_props(BLOCK_POLISHED_BLACKSTONE_SLAB, "minecraft:polished_blackstone_slab");
+    init_slab(BLOCK_POLISHED_BLACKSTONE_SLAB, "minecraft:polished_blackstone_slab");
 
     init_pressure_plate(BLOCK_POLISHED_BLACKSTONE_PRESSURE_PLATE, "minecraft:polished_blackstone_pressure_plate");
 
