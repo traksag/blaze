@@ -25,7 +25,7 @@ GCC satisfies these requirements as can be seen [here](https://gcc.gnu.org/onlin
 
 Build the server by running `./build.sh` if you're on Unix. On other systems, modify the single line inside 'build.sh' to suit your needs.
 
-To run the server, simply run `./blaze`. Currently the 'blaze' binary needs to be in the repository's root directory so it can read the data from the data files such as 'entitytypes.txt' and 'itemtags.txt'. The server listens on localhost port 25565. Alter this in the code if you want.
+To run the server, simply run `./blaze`. Currently the 'blaze' binary needs to be in the repository's root directory so it can read the data from the data files such as 'entitytags.txt' and 'itemtags.txt'. The server listens on localhost port 25565. Alter this in the code if you want.
 
 Blaze can load chunks from Anvil region files. Create a folder called 'world' in the repository root and copy paste the 'region' folder from some other place into it. Note that Blaze only loads chunks from the latest Minecraft version, hence you may need to optimise your world before copy pasting the 'region' folder.
 

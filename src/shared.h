@@ -3334,6 +3334,9 @@ get_direction_axis(int direction);
 void
 init_block_data(void);
 
+void
+init_item_data(void);
+
 int
 has_block_state_property(block_state_info * info, int prop);
 
