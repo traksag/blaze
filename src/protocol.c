@@ -199,7 +199,7 @@ net_read_long(buffer_cursor * cursor) {
     if (in <= 0x7fffffffffffffff) {
         return in;
     } else {
-        return (mc_int) (in - 0x8000000000000000) + (-0x7fffffffffffffff - 1);
+        return (mc_long) (in - 0x8000000000000000) + (-0x7fffffffffffffff - 1);
     }
 }
 
