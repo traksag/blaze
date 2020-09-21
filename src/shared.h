@@ -3130,6 +3130,12 @@ net_read_byte(buffer_cursor * cursor);
 void
 net_write_byte(buffer_cursor * cursor, mc_byte val);
 
+mc_long
+net_read_long(buffer_cursor * cursor);
+
+void
+net_write_long(buffer_cursor * cursor, mc_long val);
+
 mc_ushort
 net_read_ushort(buffer_cursor * cursor);
 

@@ -7,6 +7,10 @@
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
+// @TODO(traks) when reading signed ints (i.e. converting uint to int), we still
+// determine the two's complement value explicitly. Maybe there's a better way.
+// Is unsigned to signed casting well defined?
+
 mc_int
 net_read_varint(buffer_cursor * cursor) {
     mc_uint in = 0;
@@ -45,14 +49,7 @@ exit:
 
 void
 net_write_varint(buffer_cursor * cursor, mc_int val) {
-    mc_uint out;
-    // convert to two's complement representation
-    if (val >= 0) {
-        out = val;
-    } else {
-        out = (mc_uint) (val + 0x7fffffff + 1) + 0x80000000;
-    }
-
+    mc_uint out = val;
     int remaining = cursor->limit - cursor->index;
     unsigned char * data = cursor->buf + cursor->index;
 
@@ -81,14 +78,7 @@ net_varint_size(mc_int val) {
     // optimised quite a bit. Maybe use an instruction to get the highest set
     // bit, then divide by 7.
 
-    mc_uint x;
-    // convert to two's complement representation
-    if (val >= 0) {
-        x = val;
-    } else {
-        x = (mc_uint) (val + 0x7fffffff + 1) + 0x80000000;
-    }
-
+    mc_uint x = val;
     int res = 1;
     while (x > 0x7f) {
         x >>= 7;
@@ -135,14 +125,7 @@ exit:
 
 void
 net_write_varlong(buffer_cursor * cursor, mc_long val) {
-    mc_ulong out;
-    // convert to two's complement representation
-    if (val >= 0) {
-        out = val;
-    } else {
-        out = (mc_ulong) (val + 0x7fffffffffffffff + 1) + 0x8000000000000000;
-    }
-
+    mc_ulong out = val;
     int remaining = cursor->limit - cursor->index;
     unsigned char * data = cursor->buf + cursor->index;
 
@@ -177,14 +160,7 @@ net_read_int(buffer_cursor * cursor) {
 
 void
 net_write_int(buffer_cursor * cursor, mc_int val) {
-    mc_uint out;
-    // convert to two's complement representation
-    if (val >= 0) {
-        out = val;
-    } else {
-        out = (mc_uint) (val + 0x7fffffff + 1) + 0x80000000;
-    }
-    net_write_uint(cursor, out);
+    net_write_uint(cursor, val);
 }
 
 mc_short
@@ -199,14 +175,7 @@ net_read_short(buffer_cursor * cursor) {
 
 void
 net_write_short(buffer_cursor * cursor, mc_short val) {
-    mc_ushort out;
-    // convert to two's complement representation
-    if (val >= 0) {
-        out = val;
-    } else {
-        out = (mc_uint) (val + 0x7fff + 1) + 0x8000;
-    }
-    net_write_ushort(cursor, out);
+    net_write_ushort(cursor, val);
 }
 
 mc_byte
@@ -221,14 +190,22 @@ net_read_byte(buffer_cursor * cursor) {
 
 void
 net_write_byte(buffer_cursor * cursor, mc_byte val) {
-    mc_ubyte out;
-    // convert to two's complement representation
-    if (val >= 0) {
-        out = val;
+    net_write_ubyte(cursor, val);
+}
+
+mc_long
+net_read_long(buffer_cursor * cursor) {
+    mc_ulong in = net_read_ulong(cursor);
+    if (in <= 0x7fffffffffffffff) {
+        return in;
     } else {
-        out = (mc_ubyte) (val + 0x7f + 1) + 0x80;
+        return (mc_int) (in - 0x8000000000000000) + (-0x7fffffffffffffff - 1);
     }
-    net_write_ubyte(cursor, out);
+}
+
+void
+net_write_long(buffer_cursor * cursor, mc_long val) {
+    net_write_ulong(cursor, val);
 }
 
 mc_ushort
@@ -381,6 +358,13 @@ net_write_string(buffer_cursor * cursor, net_string val) {
     memcpy(cursor->buf + cursor->index, val.ptr, val.size);
     cursor->index += val.size;
 }
+
+// @TODO(traks) can we simplify these float and double codec functions? It is
+// not unreasonable to assume all our target platforms use IEEE floats and
+// doubles, so maybe we can just access the bytes a double/float directly? I'm
+// not sure if any of this is UB though... Should also make sure weird floating
+// point representations don't cause signals or whatever to be fired. Should
+// probably filter out all non-finite representations too.
 
 float
 net_read_float(buffer_cursor * cursor) {
@@ -588,36 +572,21 @@ net_write_double(buffer_cursor * cursor, double val) {
 
 net_block_pos
 net_read_block_pos(buffer_cursor * cursor) {
-    mc_ulong val = net_read_ulong(cursor);
-
-    // @TODO(traks) make this faster
+    mc_long val = net_read_long(cursor);
     mc_int x = val >> 38;
-    mc_int y = val & 0xfff;
-    mc_int z = (val >> 12) & 0x3ffffff;
-
-    if (x >= 0x2000000) {
-        x = x - 0x3ffffff - 1;
-    }
-    if (z >= 0x2000000) {
-        z = z - 0x3ffffff - 1;
-    }
-
-    net_block_pos res = {
-        .x = x,
-        .y = y,
-        .z = z
-    };
+    mc_int y = (val << 52) >> 52;
+    mc_int z = (val << 26) >> 38;
+    net_block_pos res = {.x = x, .y = y, .z = z};
     return res;
 }
 
 void
 net_write_block_pos(buffer_cursor * cursor, net_block_pos val) {
-    mc_ulong x = val.x < 0 ? val.x + 0x3ffffff + 1 : val.x;
-    mc_ulong y = val.y;
-    mc_ulong z = val.z < 0 ? val.z + 0x3ffffff + 1 : val.z;
-
-    mc_ulong out = (x << 38) | (z << 12) | y;
-    net_write_ulong(cursor, out);
+    mc_long x = (mc_long) val.x & 0x3ffffff;
+    mc_long y = (mc_long) val.y & 0xfff;
+    mc_long z = (mc_long) val.z & 0x3ffffff;
+    mc_long out = (x << 38) | (z << 12) | y;
+    net_write_long(cursor, out);
 }
 
 void
