@@ -324,6 +324,40 @@ get_collision_model(mc_ushort block_state, net_block_pos pos) {
 }
 
 int
+get_water_level(mc_ushort state) {
+    block_state_info info = describe_block_state(state);
+
+    switch (info.block_type) {
+    case BLOCK_WATER:
+        return info.level;
+    case BLOCK_BUBBLE_COLUMN:
+    case BLOCK_KELP:
+    case BLOCK_KELP_PLANT:
+    case BLOCK_SEAGRASS:
+    case BLOCK_TALL_SEAGRASS:
+        return FLUID_LEVEL_SOURCE;
+    default:
+        if (info.waterlogged) {
+            return FLUID_LEVEL_SOURCE;
+        }
+        return FLUID_LEVEL_NONE;
+    }
+}
+
+int
+is_water_source(mc_ushort state) {
+    return get_water_level(state) == FLUID_LEVEL_SOURCE;
+}
+
+int
+is_full_water(mc_ushort state) {
+    int level = get_water_level(state);
+    // @TODO(traks) maybe ensure falling level is 8, although Minecraft doesn't
+    // differentiate between falling water levels
+    return level == FLUID_LEVEL_SOURCE || level == FLUID_LEVEL_FALLING;
+}
+
+int
 can_plant_survive_on(mc_int type_below) {
     switch (type_below) {
     case BLOCK_GRASS_BLOCK:
@@ -331,6 +365,24 @@ can_plant_survive_on(mc_int type_below) {
     case BLOCK_COARSE_DIRT:
     case BLOCK_PODZOL:
     case BLOCK_FARMLAND:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+int
+can_lily_pad_survive_on(mc_ushort state_below) {
+    if (is_water_source(state_below)) {
+        return 1;
+    }
+
+    mc_int type_below = serv->block_type_by_state[state_below];
+    switch (type_below) {
+    case BLOCK_ICE:
+    case BLOCK_FROSTED_ICE:
+    case BLOCK_PACKED_ICE:
+    case BLOCK_BLUE_ICE:
         return 1;
     default:
         return 0;
@@ -451,6 +503,66 @@ can_snow_survive_on(mc_ushort state_below) {
         }
         return 0;
     }
+    }
+}
+
+int
+can_pressure_plate_survive_on(mc_ushort state_below) {
+    // @TODO(traks) can survive if top face is circle too
+    // @TODO(traks) don't use collision model for this
+    block_model * model = serv->block_models + serv->collision_model_by_state[state_below];
+    if (model->pole_face_flags & (1 << DIRECTION_POS_Y)) {
+        return 1;
+    }
+    return 0;
+}
+
+int
+can_sugar_cane_survive_at(net_block_pos cur_pos) {
+    mc_ushort state_below = try_get_block_state(
+            get_relative_block_pos(cur_pos, DIRECTION_NEG_Y));
+    mc_int type_below = serv->block_type_by_state[state_below];
+
+    switch (type_below) {
+    case BLOCK_SUGAR_CANE:
+        return 1;
+    case BLOCK_GRASS_BLOCK:
+    case BLOCK_DIRT:
+    case BLOCK_COARSE_DIRT:
+    case BLOCK_PODZOL:
+    case BLOCK_SAND:
+    case BLOCK_RED_SAND: {
+        net_block_pos neighbour_pos[4];
+        for (int i = 0; i < 4; i++) {
+            net_block_pos pos = cur_pos;
+            pos.y--;
+            neighbour_pos[i] = pos;
+        }
+        neighbour_pos[0].x--;
+        neighbour_pos[1].x++;
+        neighbour_pos[2].z--;
+        neighbour_pos[3].z++;
+
+        // check blocks next to ground block for water
+        for (int i = 0; i < 4; i++) {
+            net_block_pos pos = neighbour_pos[i];
+            mc_ushort neighbour_state = try_get_block_state(pos);
+            mc_int neighbour_type = serv->block_type_by_state[neighbour_state];
+            switch (neighbour_type) {
+            case BLOCK_FROSTED_ICE:
+                return 1;
+            default:
+                if (get_water_level(neighbour_state) != FLUID_LEVEL_NONE) {
+                    return 1;
+                }
+            }
+        }
+
+        // no water found
+        return 0;
+    }
+    default:
+        return 0;
     }
 }
 
@@ -1168,19 +1280,26 @@ update_block(net_block_pos pos, int from_direction) {
     case BLOCK_DARK_OAK_WALL_SIGN:
         break;
     case BLOCK_STONE_PRESSURE_PLATE:
-        break;
     case BLOCK_OAK_PRESSURE_PLATE:
-        break;
     case BLOCK_SPRUCE_PRESSURE_PLATE:
-        break;
     case BLOCK_BIRCH_PRESSURE_PLATE:
-        break;
     case BLOCK_JUNGLE_PRESSURE_PLATE:
-        break;
     case BLOCK_ACACIA_PRESSURE_PLATE:
-        break;
     case BLOCK_DARK_OAK_PRESSURE_PLATE:
-        break;
+    case BLOCK_LIGHT_WEIGHTED_PRESSURE_PLATE:
+    case BLOCK_HEAVY_WEIGHTED_PRESSURE_PLATE:
+    case BLOCK_CRIMSON_PRESSURE_PLATE:
+    case BLOCK_WARPED_PRESSURE_PLATE:
+    case BLOCK_POLISHED_BLACKSTONE_PRESSURE_PLATE: {
+        if (from_direction != DIRECTION_NEG_Y) {
+            return 0;
+        }
+        if (can_pressure_plate_survive_on(from_state)) {
+            return 0;
+        }
+        try_set_block_state(pos, 0);
+        return 1;
+    }
     case BLOCK_REDSTONE_TORCH:
         break;
     case BLOCK_REDSTONE_WALL_TORCH:
@@ -1234,8 +1353,14 @@ update_block(net_block_pos pos, int from_direction) {
     }
     case BLOCK_CACTUS:
         break;
-    case BLOCK_SUGAR_CANE:
-        break;
+    case BLOCK_SUGAR_CANE: {
+        if (can_sugar_cane_survive_at(pos)) {
+            return 0;
+        }
+        // @TODO(traks) break with 1 tick delay
+        try_set_block_state(pos, 0);
+        return 1;
+    }
     case BLOCK_JUKEBOX:
         break;
     case BLOCK_OAK_FENCE:
@@ -1260,8 +1385,6 @@ update_block(net_block_pos pos, int from_direction) {
         try_set_block_state(pos, new_state);
         return 1;
     }
-    case BLOCK_NETHERRACK:
-        break;
     case BLOCK_SOUL_SAND:
         break;
     case BLOCK_NETHER_PORTAL:
@@ -1283,11 +1406,21 @@ update_block(net_block_pos pos, int from_direction) {
     case BLOCK_DARK_OAK_TRAPDOOR:
         break;
     case BLOCK_BROWN_MUSHROOM_BLOCK:
-        break;
     case BLOCK_RED_MUSHROOM_BLOCK:
-        break;
-    case BLOCK_MUSHROOM_STEM:
-        break;
+    case BLOCK_MUSHROOM_STEM: {
+        if (from_type != cur_type) {
+            return 0;
+        }
+
+        // connect to neighbouring mushroom block of the same type
+        cur_info.values[BLOCK_PROPERTY_NEG_Y + from_direction] = 1;
+        mc_ushort new_state = make_block_state(&cur_info);
+        if (new_state == cur_state) {
+            return 0;
+        }
+        try_set_block_state(pos, new_state);
+        return 1;
+    }
     case BLOCK_IRON_BARS:
     case BLOCK_GLASS_PANE:
     case BLOCK_WHITE_STAINED_GLASS_PANE:
@@ -1384,8 +1517,16 @@ update_block(net_block_pos pos, int from_direction) {
         }
         return 0;
     }
-    case BLOCK_LILY_PAD:
-        break;
+    case BLOCK_LILY_PAD: {
+        if (from_direction != DIRECTION_NEG_Y) {
+            return 0;
+        }
+        if (can_lily_pad_survive_on(from_state)) {
+            return 0;
+        }
+        try_set_block_state(pos, 0);
+        return 1;
+    }
     case BLOCK_NETHER_WART: {
         if (from_direction != DIRECTION_NEG_Y) {
             return 0;
@@ -1400,14 +1541,6 @@ update_block(net_block_pos pos, int from_direction) {
         return 1;
     }
     case BLOCK_ENCHANTING_TABLE:
-        break;
-    case BLOCK_BREWING_STAND:
-        break;
-    case BLOCK_CAULDRON:
-        break;
-    case BLOCK_END_PORTAL:
-        break;
-    case BLOCK_END_PORTAL_FRAME:
         break;
     case BLOCK_DRAGON_EGG:
         break;
@@ -1437,23 +1570,13 @@ update_block(net_block_pos pos, int from_direction) {
         break;
     case BLOCK_TRAPPED_CHEST:
         break;
-    case BLOCK_LIGHT_WEIGHTED_PRESSURE_PLATE:
-        break;
-    case BLOCK_HEAVY_WEIGHTED_PRESSURE_PLATE:
-        break;
     case BLOCK_COMPARATOR:
-        break;
-    case BLOCK_DAYLIGHT_DETECTOR:
-        break;
-    case BLOCK_REDSTONE_BLOCK:
         break;
     case BLOCK_HOPPER:
         break;
     case BLOCK_ACTIVATOR_RAIL:
         break;
     case BLOCK_DROPPER:
-        break;
-    case BLOCK_SLIME_BLOCK:
         break;
     case BLOCK_IRON_TRAPDOOR:
         break;
@@ -1627,8 +1750,6 @@ update_block(net_block_pos pos, int from_direction) {
         break;
     case BLOCK_GRASS_PATH:
         break;
-    case BLOCK_END_GATEWAY:
-        break;
     case BLOCK_REPEATING_COMMAND_BLOCK:
         break;
     case BLOCK_CHAIN_COMMAND_BLOCK:
@@ -1708,8 +1829,6 @@ update_block(net_block_pos pos, int from_direction) {
     case BLOCK_KELP:
         break;
     case BLOCK_KELP_PLANT:
-        break;
-    case BLOCK_TURTLE_EGG:
         break;
     case BLOCK_TUBE_CORAL_BLOCK:
         break;
@@ -1880,8 +1999,6 @@ update_block(net_block_pos pos, int from_direction) {
         break;
     case BLOCK_SCAFFOLDING:
         break;
-    case BLOCK_GRINDSTONE:
-        break;
     case BLOCK_BELL:
         break;
     case BLOCK_LANTERN:
@@ -1920,10 +2037,6 @@ update_block(net_block_pos pos, int from_direction) {
         break;
     case BLOCK_WARPED_SLAB:
         break;
-    case BLOCK_CRIMSON_PRESSURE_PLATE:
-        break;
-    case BLOCK_WARPED_PRESSURE_PLATE:
-        break;
     case BLOCK_CRIMSON_TRAPDOOR:
         break;
     case BLOCK_WARPED_TRAPDOOR:
@@ -1938,17 +2051,9 @@ update_block(net_block_pos pos, int from_direction) {
         break;
     case BLOCK_STRUCTURE_BLOCK:
         break;
-    case BLOCK_JIGSAW:
-        break;
-    case BLOCK_COMPOSTER:
-        break;
-    case BLOCK_TARGET:
-        break;
     case BLOCK_BEE_NEST:
         break;
     case BLOCK_BEEHIVE:
-        break;
-    case BLOCK_RESPAWN_ANCHOR:
         break;
     case BLOCK_BLACKSTONE_WALL:
         break;
@@ -1959,8 +2064,6 @@ update_block(net_block_pos pos, int from_direction) {
     case BLOCK_POLISHED_BLACKSTONE_BRICK_WALL:
         break;
     case BLOCK_POLISHED_BLACKSTONE_SLAB:
-        break;
-    case BLOCK_POLISHED_BLACKSTONE_PRESSURE_PLATE:
         break;
     case BLOCK_POLISHED_BLACKSTONE_WALL:
         break;
@@ -3225,6 +3328,8 @@ init_block_data(void) {
     register_block_model(BLOCK_MODEL_LECTERN, ARRAY_SIZE(lectern_boxes), lectern_boxes);
     block_box slab_top_box = {0, 8, 0, 16, 16, 16};
     register_block_model(BLOCK_MODEL_TOP_SLAB, 1, &slab_top_box);
+    block_box lily_pad_box = {1, 0, 1, 15, 1.5f, 15};
+    register_block_model(BLOCK_MODEL_LILY_PAD, 1, &lily_pad_box);
 
     register_bool_property(BLOCK_PROPERTY_ATTACHED, "attached");
     register_bool_property(BLOCK_PROPERTY_BOTTOM, "bottom");
@@ -3859,8 +3964,7 @@ init_block_data(void) {
 
     init_snowy_grassy_block(BLOCK_MYCELIUM, "minecraft:mycelium");
 
-    // @TODO(traks) collision box
-    init_simple_block(BLOCK_LILY_PAD, "minecraft:lily_pad", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_LILY_PAD, "minecraft:lily_pad", BLOCK_MODEL_LILY_PAD);
     init_simple_block(BLOCK_NETHER_BRICKS, "minecraft:nether_bricks", BLOCK_MODEL_FULL);
 
     init_fence(BLOCK_NETHER_BRICK_FENCE, "minecraft:nether_brick_fence");

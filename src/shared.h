@@ -1242,6 +1242,7 @@ enum block_model {
     BLOCK_MODEL_BED_FOOT_NEG_Z,
     BLOCK_MODEL_LECTERN,
     BLOCK_MODEL_TOP_SLAB,
+    BLOCK_MODEL_LILY_PAD,
 };
 
 enum block_property {
@@ -3311,6 +3312,9 @@ int
 can_plant_survive_on(mc_int type_below);
 
 int
+can_lily_pad_survive_on(mc_ushort state_below);
+
+int
 can_carpet_survive_on(mc_int type_below);
 
 int
@@ -3330,6 +3334,12 @@ can_sea_pickle_survive_on(mc_ushort state_below);
 
 int
 can_snow_survive_on(mc_ushort state_below);
+
+int
+can_pressure_plate_survive_on(mc_ushort state_below);
+
+int
+can_sugar_cane_survive_at(net_block_pos cur_pos);
 
 int
 get_opposite_direction(int direction);
@@ -3377,5 +3387,14 @@ is_wall(mc_int block_type);
 
 block_model
 get_collision_model(mc_ushort block_state, net_block_pos pos);
+
+int
+get_water_level(mc_ushort state);
+
+int
+is_water_source(mc_ushort state);
+
+int
+is_full_water(mc_ushort state);
 
 #endif

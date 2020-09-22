@@ -164,6 +164,30 @@ place_plant(place_context context, mc_int place_type) {
 }
 
 static void
+place_lily_pad(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(
+            context.clicked_pos, context.clicked_face, place_type);
+    if (!(target.flags & PLACE_CAN_PLACE)) {
+        return;
+    }
+
+    if (target.cur_type == BLOCK_LAVA
+            || get_water_level(target.cur_state) != FLUID_LEVEL_NONE) {
+        return;
+    }
+
+    mc_ushort state_below = try_get_block_state(
+            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
+    if (!can_lily_pad_survive_on(state_below)) {
+        return;
+    }
+
+    mc_ushort place_state = get_default_block_state(place_type);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+}
+
+static void
 place_dead_bush(place_context context, mc_int place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
@@ -227,6 +251,25 @@ place_nether_plant(place_context context, mc_int place_type) {
 }
 
 static void
+place_pressure_plate(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(
+            context.clicked_pos, context.clicked_face, place_type);
+    if (!(target.flags & PLACE_CAN_PLACE)) {
+        return;
+    }
+
+    mc_ushort state_below = try_get_block_state(
+            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
+    if (!can_pressure_plate_survive_on(state_below)) {
+        return;
+    }
+
+    mc_ushort place_state = get_default_block_state(place_type);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+}
+
+static void
 set_axis_by_clicked_face(block_state_info * place_info, int clicked_face) {
     switch (clicked_face) {
     case DIRECTION_NEG_X:
@@ -258,40 +301,6 @@ place_simple_pillar(place_context context, mc_int place_type) {
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
     propagate_block_updates_after_change(target.pos, context.scratch_arena);
-}
-
-static int
-get_water_level(mc_ushort state) {
-    block_state_info info = describe_block_state(state);
-
-    switch (info.block_type) {
-    case BLOCK_WATER:
-        return info.level;
-    case BLOCK_BUBBLE_COLUMN:
-    case BLOCK_KELP:
-    case BLOCK_KELP_PLANT:
-    case BLOCK_SEAGRASS:
-    case BLOCK_TALL_SEAGRASS:
-        return FLUID_LEVEL_SOURCE;
-    default:
-        if (info.waterlogged) {
-            return FLUID_LEVEL_SOURCE;
-        }
-        return FLUID_LEVEL_NONE;
-    }
-}
-
-static int
-is_water_source(mc_ushort state) {
-    return get_water_level(state) == FLUID_LEVEL_SOURCE;
-}
-
-static int
-is_full_water(mc_ushort state) {
-    int level = get_water_level(state);
-    // @TODO(traks) maybe ensure falling level is 8, although Minecraft doesn't
-    // differentiate between falling water levels
-    return level == FLUID_LEVEL_SOURCE || level == FLUID_LEVEL_FALLING;
 }
 
 static void
@@ -728,56 +737,10 @@ place_sugar_cane(place_context context, mc_int place_type) {
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
-
-    mc_ushort state_below = try_get_block_state(
-            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
-    mc_int type_below = serv->block_type_by_state[state_below];
-
-    switch (type_below) {
-    case BLOCK_SUGAR_CANE:
-        break;
-    case BLOCK_GRASS_BLOCK:
-    case BLOCK_DIRT:
-    case BLOCK_COARSE_DIRT:
-    case BLOCK_PODZOL:
-    case BLOCK_SAND:
-    case BLOCK_RED_SAND: {
-        net_block_pos neighbour_pos[4];
-        for (int i = 0; i < 4; i++) {
-            net_block_pos pos = target.pos;
-            pos.y--;
-            neighbour_pos[i] = pos;
-        }
-        neighbour_pos[0].x--;
-        neighbour_pos[1].x++;
-        neighbour_pos[2].z--;
-        neighbour_pos[3].z++;
-
-        for (int i = 0; i < 6; i++) {
-            net_block_pos pos = neighbour_pos[i];
-            mc_ushort neighbour_state = try_get_block_state(pos);
-            mc_int neighbour_type = serv->block_type_by_state[neighbour_state];
-            switch (neighbour_type) {
-            case BLOCK_WATER:
-            case BLOCK_FROSTED_ICE:
-                goto set_block;
-            default: {
-                block_state_info neighbour_info = describe_block_state(neighbour_state);
-                if (neighbour_info.waterlogged) {
-                    goto set_block;
-                }
-            }
-            }
-        }
-
-        // no water next to ground block
-        return;
-    }
-    default:
+    if (!can_sugar_cane_survive_at(target.pos)) {
         return;
     }
 
-set_block:;
     mc_ushort place_state = get_default_block_state(place_type);
     try_set_block_state(target.pos, place_state);
     propagate_block_updates_after_change(target.pos, context.scratch_arena);
@@ -2176,6 +2139,9 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_MYCELIUM:
         place_snowy_grassy_block(context, BLOCK_MYCELIUM);
+        break;
+    case ITEM_LILY_PAD:
+        place_lily_pad(context, BLOCK_LILY_PAD);
         break;
     case ITEM_NETHER_BRICKS:
         place_simple_block(context, BLOCK_NETHER_BRICKS);
