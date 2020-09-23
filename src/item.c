@@ -1200,6 +1200,27 @@ place_pane(place_context context, mc_int place_type) {
 }
 
 static void
+place_wall(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(
+            context.clicked_pos, context.clicked_face, place_type);
+    if (!(target.flags & PLACE_CAN_PLACE)) {
+        return;
+    }
+
+    block_state_info place_info = describe_default_block_state(place_type);
+    place_info.waterlogged = is_water_source(target.cur_state);
+    int neighbour_directions[] = {DIRECTION_NEG_Z, DIRECTION_POS_Z, DIRECTION_NEG_X, DIRECTION_POS_X, DIRECTION_POS_Y};
+    for (int i = 0; i < 4; i++) {
+        int face = neighbour_directions[i];
+        update_wall_shape(target.pos, &place_info, face);
+    }
+
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+}
+
+static void
 place_rail(place_context context, mc_int place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
@@ -1932,24 +1953,34 @@ process_use_item_on_packet(entity_base * player,
         place_lever_or_button(context, BLOCK_LEVER);
         break;
     case ITEM_STONE_PRESSURE_PLATE:
+        place_pressure_plate(context, BLOCK_STONE_PRESSURE_PLATE);
         break;
     case ITEM_OAK_PRESSURE_PLATE:
+        place_pressure_plate(context, BLOCK_OAK_PRESSURE_PLATE);
         break;
     case ITEM_SPRUCE_PRESSURE_PLATE:
+        place_pressure_plate(context, BLOCK_SPRUCE_PRESSURE_PLATE);
         break;
     case ITEM_BIRCH_PRESSURE_PLATE:
+        place_pressure_plate(context, BLOCK_BIRCH_PRESSURE_PLATE);
         break;
     case ITEM_JUNGLE_PRESSURE_PLATE:
+        place_pressure_plate(context, BLOCK_JUNGLE_PRESSURE_PLATE);
         break;
     case ITEM_ACACIA_PRESSURE_PLATE:
+        place_pressure_plate(context, BLOCK_ACACIA_PRESSURE_PLATE);
         break;
     case ITEM_DARK_OAK_PRESSURE_PLATE:
+        place_pressure_plate(context, BLOCK_DARK_OAK_PRESSURE_PLATE);
         break;
     case ITEM_CRIMSON_PRESSURE_PLATE:
+        place_pressure_plate(context, BLOCK_CRIMSON_PRESSURE_PLATE);
         break;
     case ITEM_WARPED_PRESSURE_PLATE:
+        place_pressure_plate(context, BLOCK_WARPED_PRESSURE_PLATE);
         break;
     case ITEM_POLISHED_BLACKSTONE_PRESSURE_PLATE:
+        place_pressure_plate(context, BLOCK_POLISHED_BLACKSTONE_PRESSURE_PLATE);
         break;
     case ITEM_REDSTONE_ORE:
         place_simple_block(context, BLOCK_REDSTONE_ORE);
@@ -2206,38 +2237,55 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_BEACON:
         break;
     case ITEM_COBBLESTONE_WALL:
+        place_wall(context, BLOCK_COBBLESTONE_WALL);
         break;
     case ITEM_MOSSY_COBBLESTONE_WALL:
+        place_wall(context, BLOCK_MOSSY_COBBLESTONE_WALL);
         break;
     case ITEM_BRICK_WALL:
+        place_wall(context, BLOCK_BRICK_WALL);
         break;
     case ITEM_PRISMARINE_WALL:
+        place_wall(context, BLOCK_PRISMARINE_WALL);
         break;
     case ITEM_RED_SANDSTONE_WALL:
+        place_wall(context, BLOCK_RED_SANDSTONE_WALL);
         break;
     case ITEM_MOSSY_STONE_BRICK_WALL:
+        place_wall(context, BLOCK_MOSSY_STONE_BRICK_WALL);
         break;
     case ITEM_GRANITE_WALL:
+        place_wall(context, BLOCK_GRANITE_WALL);
         break;
     case ITEM_STONE_BRICK_WALL:
+        place_wall(context, BLOCK_STONE_BRICK_WALL);
         break;
     case ITEM_NETHER_BRICK_WALL:
+        place_wall(context, BLOCK_NETHER_BRICK_WALL);
         break;
     case ITEM_ANDESITE_WALL:
+        place_wall(context, BLOCK_ANDESITE_WALL);
         break;
     case ITEM_RED_NETHER_BRICK_WALL:
+        place_wall(context, BLOCK_RED_NETHER_BRICK_WALL);
         break;
     case ITEM_SANDSTONE_WALL:
+        place_wall(context, BLOCK_SANDSTONE_WALL);
         break;
     case ITEM_END_STONE_BRICK_WALL:
+        place_wall(context, BLOCK_END_STONE_BRICK_WALL);
         break;
     case ITEM_DIORITE_WALL:
+        place_wall(context, BLOCK_DIORITE_WALL);
         break;
     case ITEM_BLACKSTONE_WALL:
+        place_wall(context, BLOCK_BLACKSTONE_WALL);
         break;
     case ITEM_POLISHED_BLACKSTONE_WALL:
+        place_wall(context, BLOCK_POLISHED_BLACKSTONE_WALL);
         break;
     case ITEM_POLISHED_BLACKSTONE_BRICK_WALL:
+        place_wall(context, BLOCK_POLISHED_BLACKSTONE_BRICK_WALL);
         break;
     case ITEM_STONE_BUTTON:
         place_lever_or_button(context, BLOCK_STONE_BUTTON);
@@ -2278,8 +2326,10 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_TRAPPED_CHEST:
         break;
     case ITEM_LIGHT_WEIGHTED_PRESSURE_PLATE:
+        place_pressure_plate(context, BLOCK_LIGHT_WEIGHTED_PRESSURE_PLATE);
         break;
     case ITEM_HEAVY_WEIGHTED_PRESSURE_PLATE:
+        place_pressure_plate(context, BLOCK_HEAVY_WEIGHTED_PRESSURE_PLATE);
         break;
     case ITEM_DAYLIGHT_DETECTOR:
         break;

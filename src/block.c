@@ -900,6 +900,123 @@ update_fence_shape(net_block_pos pos,
     *(&cur_info->neg_y + from_direction) = 1;
 }
 
+void
+update_wall_shape(net_block_pos pos,
+        block_state_info * cur_info, int from_direction) {
+    net_block_pos neighbour_pos = get_relative_block_pos(pos, from_direction);
+    mc_ushort neighbour_state = try_get_block_state(neighbour_pos);
+    mc_int neighbour_type = serv->block_type_by_state[neighbour_state];
+    block_state_info neighbour_info = describe_block_state(neighbour_state);
+
+    if (from_direction == DIRECTION_POS_Y) {
+        // @TODO(traks) something special
+        return;
+    }
+
+    int connect = 0;
+
+    switch (neighbour_type) {
+    case BLOCK_JUNGLE_LEAVES:
+    case BLOCK_OAK_LEAVES:
+    case BLOCK_SPRUCE_LEAVES:
+    case BLOCK_DARK_OAK_LEAVES:
+    case BLOCK_ACACIA_LEAVES:
+    case BLOCK_BIRCH_LEAVES:
+    case BLOCK_BARRIER:
+    case BLOCK_PUMPKIN:
+    case BLOCK_CARVED_PUMPKIN:
+    case BLOCK_JACK_O_LANTERN:
+    case BLOCK_MELON:
+    case BLOCK_SHULKER_BOX:
+    case BLOCK_BLACK_SHULKER_BOX:
+    case BLOCK_BLUE_SHULKER_BOX:
+    case BLOCK_BROWN_SHULKER_BOX:
+    case BLOCK_CYAN_SHULKER_BOX:
+    case BLOCK_GRAY_SHULKER_BOX:
+    case BLOCK_GREEN_SHULKER_BOX:
+    case BLOCK_LIGHT_BLUE_SHULKER_BOX:
+    case BLOCK_LIGHT_GRAY_SHULKER_BOX:
+    case BLOCK_LIME_SHULKER_BOX:
+    case BLOCK_MAGENTA_SHULKER_BOX:
+    case BLOCK_ORANGE_SHULKER_BOX:
+    case BLOCK_PINK_SHULKER_BOX:
+    case BLOCK_PURPLE_SHULKER_BOX:
+    case BLOCK_RED_SHULKER_BOX:
+    case BLOCK_WHITE_SHULKER_BOX:
+    case BLOCK_YELLOW_SHULKER_BOX:
+        // can't attach to these blocks
+        break;
+    case BLOCK_IRON_BARS:
+    case BLOCK_GLASS_PANE:
+    case BLOCK_WHITE_STAINED_GLASS_PANE:
+    case BLOCK_ORANGE_STAINED_GLASS_PANE:
+    case BLOCK_MAGENTA_STAINED_GLASS_PANE:
+    case BLOCK_LIGHT_BLUE_STAINED_GLASS_PANE:
+    case BLOCK_YELLOW_STAINED_GLASS_PANE:
+    case BLOCK_LIME_STAINED_GLASS_PANE:
+    case BLOCK_PINK_STAINED_GLASS_PANE:
+    case BLOCK_GRAY_STAINED_GLASS_PANE:
+    case BLOCK_LIGHT_GRAY_STAINED_GLASS_PANE:
+    case BLOCK_CYAN_STAINED_GLASS_PANE:
+    case BLOCK_PURPLE_STAINED_GLASS_PANE:
+    case BLOCK_BLUE_STAINED_GLASS_PANE:
+    case BLOCK_BROWN_STAINED_GLASS_PANE:
+    case BLOCK_GREEN_STAINED_GLASS_PANE:
+    case BLOCK_RED_STAINED_GLASS_PANE:
+    case BLOCK_BLACK_STAINED_GLASS_PANE:
+        // can connect to these
+        connect = 1;
+        break;
+    case BLOCK_OAK_FENCE_GATE:
+    case BLOCK_SPRUCE_FENCE_GATE:
+    case BLOCK_BIRCH_FENCE_GATE:
+    case BLOCK_JUNGLE_FENCE_GATE:
+    case BLOCK_ACACIA_FENCE_GATE:
+    case BLOCK_DARK_OAK_FENCE_GATE:
+    case BLOCK_CRIMSON_FENCE_GATE:
+    case BLOCK_WARPED_FENCE_GATE: {
+        // try connect to fence gate in wall
+        int facing = neighbour_info.horizontal_facing;
+        int rotated = rotate_direction_clockwise(facing);
+        if (rotated == from_direction || rotated == get_opposite_direction(from_direction)) {
+            // fence gate pointing in good direction
+            connect = 1;
+        }
+        break;
+    }
+    default: {
+        if (is_wall(neighbour_type)) {
+            // connect to other walls
+            connect = 1;
+            break;
+        }
+
+        // @TODO(traks) don't use collision models for this
+        block_model * neighbour_model = serv->block_models
+                + serv->collision_model_by_state[neighbour_state];
+        if (neighbour_model->full_face_flags & (1 << get_opposite_direction(from_direction))) {
+            // can connect to sturdy faces of remaining blocks
+            connect = 1;
+            break;
+        }
+    }
+    }
+
+    int wall_side = WALL_SIDE_NONE;
+    if (connect) {
+        // @TODO(traks) make wall tall if necessary
+        wall_side = WALL_SIDE_LOW;
+    }
+    // @TODO(traks) raise post if necessary
+
+    switch (from_direction) {
+    case DIRECTION_POS_X: cur_info->wall_pos_x = wall_side; break;
+    case DIRECTION_NEG_X: cur_info->wall_neg_x = wall_side; break;
+    case DIRECTION_POS_Z: cur_info->wall_pos_z = wall_side; break;
+    case DIRECTION_NEG_Z: cur_info->wall_neg_z = wall_side; break;
+    }
+}
+
 static int
 update_block(net_block_pos pos, int from_direction) {
     // @TODO(traks) ideally all these chunk lookups and block lookups should be
@@ -1559,9 +1676,35 @@ update_block(net_block_pos pos, int from_direction) {
     case BLOCK_BEACON:
         break;
     case BLOCK_COBBLESTONE_WALL:
-        break;
     case BLOCK_MOSSY_COBBLESTONE_WALL:
-        break;
+    case BLOCK_BRICK_WALL:
+    case BLOCK_PRISMARINE_WALL:
+    case BLOCK_RED_SANDSTONE_WALL:
+    case BLOCK_MOSSY_STONE_BRICK_WALL:
+    case BLOCK_GRANITE_WALL:
+    case BLOCK_STONE_BRICK_WALL:
+    case BLOCK_NETHER_BRICK_WALL:
+    case BLOCK_ANDESITE_WALL:
+    case BLOCK_RED_NETHER_BRICK_WALL:
+    case BLOCK_SANDSTONE_WALL:
+    case BLOCK_END_STONE_BRICK_WALL:
+    case BLOCK_DIORITE_WALL:
+    case BLOCK_BLACKSTONE_WALL:
+    case BLOCK_POLISHED_BLACKSTONE_BRICK_WALL:
+    case BLOCK_POLISHED_BLACKSTONE_WALL: {
+        // @TODO(traks) update water
+
+        if (from_direction == DIRECTION_NEG_Y) {
+            return 0;
+        }
+        update_wall_shape(pos, &cur_info, from_direction);
+        mc_ushort new_state = make_block_state(&cur_info);
+        if (new_state == cur_state) {
+            return 0;
+        }
+        try_set_block_state(pos, new_state);
+        return 1;
+    }
     case BLOCK_ANVIL:
         break;
     case BLOCK_CHIPPED_ANVIL:
@@ -1973,30 +2116,6 @@ update_block(net_block_pos pos, int from_direction) {
         break;
     case BLOCK_DIORITE_SLAB:
         break;
-    case BLOCK_BRICK_WALL:
-        break;
-    case BLOCK_PRISMARINE_WALL:
-        break;
-    case BLOCK_RED_SANDSTONE_WALL:
-        break;
-    case BLOCK_MOSSY_STONE_BRICK_WALL:
-        break;
-    case BLOCK_GRANITE_WALL:
-        break;
-    case BLOCK_STONE_BRICK_WALL:
-        break;
-    case BLOCK_NETHER_BRICK_WALL:
-        break;
-    case BLOCK_ANDESITE_WALL:
-        break;
-    case BLOCK_RED_NETHER_BRICK_WALL:
-        break;
-    case BLOCK_SANDSTONE_WALL:
-        break;
-    case BLOCK_END_STONE_BRICK_WALL:
-        break;
-    case BLOCK_DIORITE_WALL:
-        break;
     case BLOCK_SCAFFOLDING:
         break;
     case BLOCK_BELL:
@@ -2055,17 +2174,11 @@ update_block(net_block_pos pos, int from_direction) {
         break;
     case BLOCK_BEEHIVE:
         break;
-    case BLOCK_BLACKSTONE_WALL:
-        break;
     case BLOCK_BLACKSTONE_SLAB:
         break;
     case BLOCK_POLISHED_BLACKSTONE_BRICK_SLAB:
         break;
-    case BLOCK_POLISHED_BLACKSTONE_BRICK_WALL:
-        break;
     case BLOCK_POLISHED_BLACKSTONE_SLAB:
-        break;
-    case BLOCK_POLISHED_BLACKSTONE_WALL:
         break;
     default:
          // nothing
@@ -2826,12 +2939,12 @@ static void
 init_wall_props(mc_int block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
-    add_block_property(props, BLOCK_PROPERTY_EAST_WALL, "none");
-    add_block_property(props, BLOCK_PROPERTY_NORTH_WALL, "none");
-    add_block_property(props, BLOCK_PROPERTY_SOUTH_WALL, "none");
+    add_block_property(props, BLOCK_PROPERTY_WALL_POS_X, "none");
+    add_block_property(props, BLOCK_PROPERTY_WALL_NEG_Z, "none");
+    add_block_property(props, BLOCK_PROPERTY_WALL_POS_Z, "none");
     add_block_property(props, BLOCK_PROPERTY_POS_Y, "true");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    add_block_property(props, BLOCK_PROPERTY_WEST_WALL, "none");
+    add_block_property(props, BLOCK_PROPERTY_WALL_NEG_X, "none");
     finalise_block_props(props);
 }
 
@@ -3375,10 +3488,10 @@ init_block_data(void) {
     register_property_v(BLOCK_PROPERTY_JIGSAW_ORIENTATION, "orientation", 12, "down_east", "down_north", "down_south", "down_west", "up_east", "up_north", "up_south", "up_west", "west_up", "east_up", "north_up", "south_up");
     register_property_v(BLOCK_PROPERTY_ATTACH_FACE, "face", 3, "floor", "wall", "ceiling");
     register_property_v(BLOCK_PROPERTY_BELL_ATTACHMENT, "attachment", 4, "floor", "ceiling", "single_wall", "double_wall");
-    register_property_v(BLOCK_PROPERTY_EAST_WALL, "east", 3, "none", "low", "tall");
-    register_property_v(BLOCK_PROPERTY_NORTH_WALL, "north", 3, "none", "low", "tall");
-    register_property_v(BLOCK_PROPERTY_SOUTH_WALL, "south", 3, "none", "low", "tall");
-    register_property_v(BLOCK_PROPERTY_WEST_WALL, "west", 3, "none", "low", "tall");
+    register_property_v(BLOCK_PROPERTY_WALL_POS_X, "east", 3, "none", "low", "tall");
+    register_property_v(BLOCK_PROPERTY_WALL_NEG_Z, "north", 3, "none", "low", "tall");
+    register_property_v(BLOCK_PROPERTY_WALL_POS_Z, "south", 3, "none", "low", "tall");
+    register_property_v(BLOCK_PROPERTY_WALL_NEG_X, "west", 3, "none", "low", "tall");
     register_property_v(BLOCK_PROPERTY_EAST_REDSTONE, "east", 3, "up", "side", "none");
     register_property_v(BLOCK_PROPERTY_NORTH_REDSTONE, "north", 3, "up", "side", "none");
     register_property_v(BLOCK_PROPERTY_SOUTH_REDSTONE, "south", 3, "up", "side", "none");

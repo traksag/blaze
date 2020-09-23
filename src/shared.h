@@ -1293,10 +1293,10 @@ enum block_property {
     BLOCK_PROPERTY_JIGSAW_ORIENTATION,
     BLOCK_PROPERTY_ATTACH_FACE,
     BLOCK_PROPERTY_BELL_ATTACHMENT,
-    BLOCK_PROPERTY_EAST_WALL,
-    BLOCK_PROPERTY_NORTH_WALL,
-    BLOCK_PROPERTY_SOUTH_WALL,
-    BLOCK_PROPERTY_WEST_WALL,
+    BLOCK_PROPERTY_WALL_POS_X,
+    BLOCK_PROPERTY_WALL_NEG_Z,
+    BLOCK_PROPERTY_WALL_POS_Z,
+    BLOCK_PROPERTY_WALL_NEG_X,
     BLOCK_PROPERTY_EAST_REDSTONE,
     BLOCK_PROPERTY_NORTH_REDSTONE,
     BLOCK_PROPERTY_SOUTH_REDSTONE,
@@ -1407,10 +1407,10 @@ typedef struct {
             mc_ubyte jigsaw_orientation;
             mc_ubyte attach_face;
             mc_ubyte bell_attachment;
-            mc_ubyte east_wall;
-            mc_ubyte north_wall;
-            mc_ubyte south_wall;
-            mc_ubyte west_wall;
+            mc_ubyte wall_pos_x;
+            mc_ubyte wall_neg_z;
+            mc_ubyte wall_pos_z;
+            mc_ubyte wall_neg_x;
             mc_ubyte east_redstone;
             mc_ubyte north_redstone;
             mc_ubyte south_redstone;
@@ -3377,6 +3377,10 @@ update_pane_shape(net_block_pos pos,
 
 void
 update_fence_shape(net_block_pos pos,
+        block_state_info * cur_info, int from_direction);
+
+void
+update_wall_shape(net_block_pos pos,
         block_state_info * cur_info, int from_direction);
 
 int
