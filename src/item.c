@@ -756,9 +756,8 @@ place_dead_coral(place_context context, mc_int place_type) {
 
     mc_ushort state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
-    // @TODO(traks) don't use collision model for this
-    block_model * model_below = serv->block_models + serv->collision_model_by_state[state_below];
-    if (!(model_below->full_face_flags & (1 << DIRECTION_POS_Y))) {
+    support_model support = get_support_model(state_below);
+    if (!(support.full_face_flags & (1 << DIRECTION_POS_Y))) {
         // face below is not sturdy
         return;
     }
@@ -901,13 +900,12 @@ place_dead_coral_fan(place_context context, mc_int base_place_type,
 
         net_block_pos attach_pos = get_relative_block_pos(target.pos, dir);
         mc_ushort wall_state = try_get_block_state(attach_pos);
-        // @TODO(traks) don't use collision model for this
-        block_model * wall_model = serv->block_models + serv->collision_model_by_state[wall_state];
         int wall_face = get_opposite_direction(dir);
+        support_model support = get_support_model(wall_state);
 
         if (dir == DIRECTION_NEG_Y) {
             seen_neg_y = 1;
-            if (wall_model->full_face_flags & (1 << wall_face)) {
+            if (support.full_face_flags & (1 << wall_face)) {
                 // wall face is sturdy
                 selected_dir = dir;
                 if (!try_horizontal_dirs) {
@@ -918,7 +916,7 @@ place_dead_coral_fan(place_context context, mc_int base_place_type,
             if (!seen_neg_y) {
                 try_horizontal_dirs = 1;
             }
-            if (wall_model->full_face_flags & (1 << wall_face)) {
+            if (support.full_face_flags & (1 << wall_face)) {
                 // wall face is sturdy
                 selected_dir = dir;
                 break;
@@ -964,13 +962,12 @@ place_torch(place_context context, mc_int base_place_type,
 
         net_block_pos attach_pos = get_relative_block_pos(target.pos, dir);
         mc_ushort wall_state = try_get_block_state(attach_pos);
-        // @TODO(traks) don't use collision model for this
-        block_model * wall_model = serv->block_models + serv->collision_model_by_state[wall_state];
         int wall_face = get_opposite_direction(dir);
+        support_model support = get_support_model(wall_state);
 
         if (dir == DIRECTION_NEG_Y) {
             seen_neg_y = 1;
-            if (wall_model->pole_face_flags & (1 << wall_face)) {
+            if (support.pole_face_flags & (1 << wall_face)) {
                 // block has full centre for supporting blocks
                 selected_dir = dir;
                 if (!try_horizontal_dirs) {
@@ -981,7 +978,7 @@ place_torch(place_context context, mc_int base_place_type,
             if (!seen_neg_y) {
                 try_horizontal_dirs = 1;
             }
-            if (wall_model->full_face_flags & (1 << wall_face)) {
+            if (support.full_face_flags & (1 << wall_face)) {
                 // wall face is sturdy
                 selected_dir = dir;
                 break;
@@ -1021,11 +1018,10 @@ place_ladder(place_context context, mc_int place_type) {
 
         net_block_pos attach_pos = get_relative_block_pos(target.pos, dir);
         mc_ushort wall_state = try_get_block_state(attach_pos);
-        // @TODO(traks) don't use collision model for this
-        block_model * wall_model = serv->block_models + serv->collision_model_by_state[wall_state];
+        support_model support = get_support_model(wall_state);
         int wall_face = get_opposite_direction(dir);
 
-        if (wall_model->full_face_flags & (1 << wall_face)) {
+        if (support.full_face_flags & (1 << wall_face)) {
             // wall face is sturdy
             selected_dir = dir;
             break;
@@ -1057,9 +1053,8 @@ place_door(place_context context, mc_int place_type) {
 
     mc_ushort state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
-    // @TODO(traks) don't use collision model for this
-    block_model * model_below = serv->block_models + serv->collision_model_by_state[state_below];
-    if (!(model_below->full_face_flags & (1 << DIRECTION_POS_Y))) {
+    support_model support = get_support_model(state_below);
+    if (!(support.full_face_flags & (1 << DIRECTION_POS_Y))) {
         // face below is not sturdy
         return;
     }
@@ -1255,11 +1250,10 @@ place_lever_or_button(place_context context, mc_int place_type) {
         int dir = list.directions[i];
         net_block_pos attach_pos = get_relative_block_pos(target.pos, dir);
         mc_ushort wall_state = try_get_block_state(attach_pos);
-        // @TODO(traks) don't use collision model for this
-        block_model * wall_model = serv->block_models + serv->collision_model_by_state[wall_state];
         int wall_face = get_opposite_direction(dir);
+        support_model support = get_support_model(wall_state);
 
-        if (wall_model->full_face_flags & (1 << wall_face)) {
+        if (support.full_face_flags & (1 << wall_face)) {
             // wall face is sturdy
             selected_dir = dir;
             break;

@@ -323,6 +323,51 @@ get_collision_model(mc_ushort block_state, net_block_pos pos) {
     return res;
 }
 
+support_model
+get_support_model(mc_ushort block_state) {
+    mc_int block_type = serv->block_type_by_state[block_state];
+    support_model res;
+
+    switch (block_type) {
+    // block types with special support models
+    case BLOCK_JUNGLE_LEAVES:
+    case BLOCK_OAK_LEAVES:
+    case BLOCK_SPRUCE_LEAVES:
+    case BLOCK_DARK_OAK_LEAVES:
+    case BLOCK_ACACIA_LEAVES:
+    case BLOCK_BIRCH_LEAVES:
+        res = serv->support_models[BLOCK_MODEL_EMPTY];
+        break;
+    case BLOCK_SNOW:
+        // @TODO(traks)
+        break;
+    case BLOCK_SOUL_SAND:
+        res = serv->support_models[BLOCK_MODEL_FULL];
+        break;
+    // some block types have special collision models and therefore also have
+    // special support models
+    case BLOCK_BAMBOO:
+        // @TODO(traks) I don't think bamboo can ever support a block, but
+        // should make sure this is the case
+        res = serv->support_models[BLOCK_MODEL_EMPTY];
+        break;
+    case BLOCK_MOVING_PISTON: {
+        // @TODO(traks) use block entity to determine support model
+        res = serv->support_models[serv->collision_model_by_state[block_state]];
+        break;
+    }
+    case BLOCK_SCAFFOLDING: {
+        // @TODO(traks) what should we return here?
+        res = serv->support_models[serv->collision_model_by_state[block_state]];
+        break;
+    }
+    default:
+        // default to using the collision model as support model
+        res = serv->support_models[serv->collision_model_by_state[block_state]];
+    }
+    return res;
+}
+
 int
 get_water_level(mc_ushort state) {
     block_state_info info = describe_block_state(state);
@@ -477,8 +522,8 @@ is_bamboo_plantable_on(mc_int type_below) {
 
 int
 can_sea_pickle_survive_on(mc_ushort state_below) {
-    block_model * model = serv->block_models + serv->collision_model_by_state[state_below];
-    if (model->non_empty_face_flags & (1 << DIRECTION_POS_Y)) {
+    support_model support = get_support_model(state_below);
+    if (support.non_empty_face_flags & (1 << DIRECTION_POS_Y)) {
         return 1;
     }
     return 0;
@@ -497,8 +542,8 @@ can_snow_survive_on(mc_ushort state_below) {
         return 1;
     default: {
         // @TODO(traks) is this the correct model to use?
-        block_model * model = serv->block_models + serv->collision_model_by_state[state_below];
-        if (model->full_face_flags & (1 << DIRECTION_POS_Y)) {
+        support_model support = get_support_model(state_below);
+        if (support.full_face_flags & (1 << DIRECTION_POS_Y)) {
             return 1;
         }
         return 0;
@@ -509,9 +554,8 @@ can_snow_survive_on(mc_ushort state_below) {
 int
 can_pressure_plate_survive_on(mc_ushort state_below) {
     // @TODO(traks) can survive if top face is circle too
-    // @TODO(traks) don't use collision model for this
-    block_model * model = serv->block_models + serv->collision_model_by_state[state_below];
-    if (model->pole_face_flags & (1 << DIRECTION_POS_Y)) {
+    support_model support = get_support_model(state_below);
+    if (support.pole_face_flags & (1 << DIRECTION_POS_Y)) {
         return 1;
     }
     return 0;
@@ -778,10 +822,8 @@ update_pane_shape(net_block_pos pos,
         // can't attach to these blocks
         return;
     default: {
-        // @TODO(traks) don't use collision models for this
-        block_model * neighbour_model = serv->block_models
-                + serv->collision_model_by_state[neighbour_state];
-        if (neighbour_model->full_face_flags & (1 << get_opposite_direction(from_direction))) {
+        support_model support = get_support_model(neighbour_state);
+        if (support.full_face_flags & (1 << get_opposite_direction(from_direction))) {
             // can connect to sturdy faces of remaining blocks
             break;
         }
@@ -886,10 +928,8 @@ update_fence_shape(net_block_pos pos,
             break;
         }
 
-        // @TODO(traks) don't use collision models for this
-        block_model * neighbour_model = serv->block_models
-                + serv->collision_model_by_state[neighbour_state];
-        if (neighbour_model->full_face_flags & (1 << get_opposite_direction(from_direction))) {
+        support_model support = get_support_model(neighbour_state);
+        if (support.full_face_flags & (1 << get_opposite_direction(from_direction))) {
             // can connect to sturdy faces of remaining blocks
             break;
         }
@@ -991,10 +1031,8 @@ update_wall_shape(net_block_pos pos,
             break;
         }
 
-        // @TODO(traks) don't use collision models for this
-        block_model * neighbour_model = serv->block_models
-                + serv->collision_model_by_state[neighbour_state];
-        if (neighbour_model->full_face_flags & (1 << get_opposite_direction(from_direction))) {
+        support_model support = get_support_model(neighbour_state);
+        if (support.full_face_flags & (1 << get_opposite_direction(from_direction))) {
             // can connect to sturdy faces of remaining blocks
             connect = 1;
             break;
@@ -1205,9 +1243,8 @@ update_block(net_block_pos pos, int from_direction) {
             return 0;
         }
 
-        // @TODO(traks) don't use collision models for this
-        block_model * model = serv->block_models + serv->collision_model_by_state[from_state];
-        if (model->pole_face_flags & (1 << DIRECTION_POS_Y)) {
+        support_model support = get_support_model(from_state);
+        if (support.pole_face_flags & (1 << DIRECTION_POS_Y)) {
             return 0;
         }
 
@@ -1222,9 +1259,8 @@ update_block(net_block_pos pos, int from_direction) {
             return 0;
         }
 
-        // @TODO(traks) don't use collision models for this
-        block_model * model = serv->block_models + serv->collision_model_by_state[from_state];
-        if (model->full_face_flags & (1 << cur_info.horizontal_facing)) {
+        support_model support = get_support_model(from_state);
+        if (support.full_face_flags & (1 << cur_info.horizontal_facing)) {
             return 0;
         }
 
@@ -1370,9 +1406,8 @@ update_block(net_block_pos pos, int from_direction) {
                 try_set_block_state(pos, new_state);
                 return 1;
             } else {
-                // @TODO(traks) don't use collision models for this
-                block_model * model_below = serv->block_models + serv->collision_model_by_state[from_state];
-                if (model_below->full_face_flags & (1 << DIRECTION_POS_Y)) {
+                support_model support = get_support_model(from_state);
+                if (support.full_face_flags & (1 << DIRECTION_POS_Y)) {
                     return 0;
                 }
 
@@ -1448,9 +1483,8 @@ update_block(net_block_pos pos, int from_direction) {
             return 0;
         }
 
-        // @TODO(traks) don't use collision models for this
-        block_model * model = serv->block_models + serv->collision_model_by_state[from_state];
-        if (model->full_face_flags & (1 << from_direction)) {
+        support_model support = get_support_model(from_state);
+        if (support.full_face_flags & (1 << from_direction)) {
             return 0;
         }
 
@@ -3300,20 +3334,21 @@ register_block_model(int index, int box_count, block_box * pixel_boxes) {
         model->boxes[i] = boxes[i];
     }
 
-    // compute full faces
+    // compute support model
+    support_model * support = serv->support_models + index;
     for (int dir = 0; dir < 6; dir++) {
         block_box full_box = {0, 0, 0, 1, 1, 1};
         if (block_boxes_contain_face(box_count, boxes, full_box, dir)) {
-            model->full_face_flags |= 1 << dir;
+            support->full_face_flags |= 1 << dir;
         }
 
         block_box pole = {7.0f / 16, 0, 7.0f / 16, 9.0f / 16, 1, 9.0f / 16};
         if (block_boxes_contain_face(box_count, boxes, pole, dir)) {
-            model->pole_face_flags |= 1 << dir;
+            support->pole_face_flags |= 1 << dir;
         }
 
         if (block_boxes_intersect_face(box_count, boxes, full_box, dir)) {
-            model->non_empty_face_flags |= 1 << dir;
+            support->non_empty_face_flags |= 1 << dir;
         }
     }
 }

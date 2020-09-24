@@ -1165,14 +1165,6 @@ typedef struct {
 
 typedef struct {
     unsigned char box_count;
-
-    // bit flags indexed by direction of full faces
-    unsigned char full_face_flags;
-    // bit flags for pole supporting faces
-    unsigned char pole_face_flags;
-    // bit flags for faces that are non-empty as 1x1x1 cube
-    unsigned char non_empty_face_flags;
-
     block_box boxes[8];
 } block_model;
 
@@ -1244,6 +1236,15 @@ enum block_model {
     BLOCK_MODEL_TOP_SLAB,
     BLOCK_MODEL_LILY_PAD,
 };
+
+typedef struct {
+    // bit flags indexed by direction of full faces
+    unsigned char full_face_flags;
+    // bit flags for pole supporting faces
+    unsigned char pole_face_flags;
+    // bit flags for faces that are non-empty as 1x1x1 cube
+    unsigned char non_empty_face_flags;
+} support_model;
 
 enum block_property {
     BLOCK_PROPERTY_ATTACHED,
@@ -3062,14 +3063,8 @@ typedef struct {
     int actual_block_state_count;
     block_property_spec block_property_specs[BLOCK_PROPERTY_COUNT];
     block_model block_models[128];
-    // @TODO(traks) a function should be used to access these. Some blocks
-    // require some computation to get their actual collision box depending on
-    // their coordinates in the world, such as bamboo. Another issue is that
-    // shulker box collision models depend on their tile entity state (opened or
-    // not) and not on their block state.
+    support_model support_models[128];
     mc_ubyte collision_model_by_state[18000];
-    // @TODO(traks) there should be a separate array for support models (some
-    // blocks use a different support model than collision model)
 
     dimension_type dimension_types[32];
     int dimension_type_count;
@@ -3391,6 +3386,9 @@ is_wall(mc_int block_type);
 
 block_model
 get_collision_model(mc_ushort block_state, net_block_pos pos);
+
+support_model
+get_support_model(mc_ushort block_state);
 
 int
 get_water_level(mc_ushort state);
