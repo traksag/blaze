@@ -3204,6 +3204,10 @@ block_boxes_contain_face(int box_count, block_box * boxes,
     // intersect boxes with 1x1x1 cube and get the faces
     int face_count = 0;
     block_box_face faces[box_count];
+    // @NOTE(traks) All block models are currently aligned to the pixel grid, so
+    // the epsilon can be fairly large. Bamboo is aligned to a quarter of a
+    // pixel grid, but we currently don't use this algorithm for bamboo.
+    float eps = 0.001;
 
     for (int i = 0; i < box_count; i++) {
         block_box box = boxes[i];
@@ -3218,13 +3222,21 @@ block_boxes_contain_face(int box_count, block_box * boxes,
         case DIRECTION_POS_X: test = (intersect_test) {box.min_y, box.min_z, box.max_y, box.max_z, box.min_x, box.max_x, slice.max_x}; break;
         }
 
-        if (test.axis_min <= test.axis_cut && test.axis_cut <= test.axis_max) {
+        if (test.axis_min <= test.axis_cut + eps && test.axis_cut <= test.axis_max + eps) {
             faces[face_count] = (block_box_face) {test.min_a, test.min_b, test.max_a, test.max_b};
             face_count++;
         }
     }
 
-    block_box_face test = {0, 0, 1, 1};
+    block_box_face test;
+    switch (direction) {
+    case DIRECTION_NEG_Y: test = (block_box_face) {slice.min_x, slice.min_z, slice.max_x, slice.max_z}; break;
+    case DIRECTION_POS_Y: test = (block_box_face) {slice.min_x, slice.min_z, slice.max_x, slice.max_z}; break;
+    case DIRECTION_NEG_Z: test = (block_box_face) {slice.min_x, slice.min_y, slice.max_x, slice.max_y}; break;
+    case DIRECTION_POS_Z: test = (block_box_face) {slice.min_x, slice.min_y, slice.max_x, slice.max_y}; break;
+    case DIRECTION_NEG_X: test = (block_box_face) {slice.min_y, slice.min_z, slice.max_y, slice.max_z}; break;
+    case DIRECTION_POS_X: test = (block_box_face) {slice.min_y, slice.min_z, slice.max_y, slice.max_z}; break;
+    }
 
     // start at minimum a and b. First we try to move our best_b to the
     // maximum b by checking whether faces contain the coordinate
@@ -3252,8 +3264,8 @@ block_boxes_contain_face(int box_count, block_box * boxes,
             for (int i = 0; i < face_count; i++) {
                 block_box_face * face = faces + i;
 
-                if (face->min_a <= best_a && best_a <= face->max_a
-                        && face->min_b <= best_b && best_b <= face->max_b) {
+                if (face->min_a <= best_a + eps && best_a <= face->max_a + eps
+                        && face->min_b <= best_b + eps && best_b <= face->max_b + eps) {
                     // face contains our coordinate, so move best_b forward
                     best_b = face->max_b;
                     min_found_a = MIN(face->max_a, min_found_a);
@@ -3266,7 +3278,7 @@ block_boxes_contain_face(int box_count, block_box * boxes,
                 return 0;
             }
 
-            if (best_b >= test.max_b) {
+            if (best_b + eps >= test.max_b) {
                 // reached maximum b, so move best_a forward and reset best_b
                 best_b = test.min_b;
                 best_a = min_found_a;
@@ -3274,7 +3286,7 @@ block_boxes_contain_face(int box_count, block_box * boxes,
             }
         }
 
-        if (best_a >= test.max_a) {
+        if (best_a + eps >= test.max_a) {
             // reached maximum a, so done!
             return 1;
         }
