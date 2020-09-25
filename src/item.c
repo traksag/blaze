@@ -1092,6 +1092,55 @@ place_door(place_context context, mc_int place_type) {
 }
 
 static void
+place_bed(place_context context, mc_int place_type, int dye_colour) {
+    place_target target = determine_place_target(
+            context.clicked_pos, context.clicked_face, place_type);
+    if (!(target.flags & PLACE_CAN_PLACE)) {
+        return;
+    }
+
+    int facing = get_player_facing(context.player);
+    net_block_pos head_pos = get_relative_block_pos(target.pos, facing);
+    mc_ushort neighbour_state = try_get_block_state(head_pos);
+    mc_int neighbour_type = serv->block_type_by_state[neighbour_state];
+
+    if (!can_replace(place_type, neighbour_type)) {
+        return;
+    }
+
+    block_state_info place_info = describe_default_block_state(place_type);
+    place_info.horizontal_facing = facing;
+
+    // place foot part
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target.pos, place_state);
+
+    // place head part
+    place_info.bed_part = BED_PART_HEAD;
+    place_state = make_block_state(&place_info);
+    try_set_block_state(head_pos, place_state);
+
+    // @TODO(traks) flesh out all this block entity business.
+    block_entity_base * block_entity = try_get_block_entity(target.pos);
+    if (block_entity != NULL) {
+        block_entity->flags = BLOCK_ENTITY_IN_USE;
+        block_entity->type = BLOCK_ENTITY_BED;
+        block_entity->bed.dye_colour = dye_colour;
+    }
+
+    block_entity = try_get_block_entity(head_pos);
+    if (block_entity != NULL) {
+        block_entity->flags = BLOCK_ENTITY_IN_USE;
+        block_entity->type = BLOCK_ENTITY_BED;
+        block_entity->bed.dye_colour = dye_colour;
+    }
+
+    // @TODO(traks) process updates for both parts in one loop
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    propagate_block_updates_after_change(head_pos, context.scratch_arena);
+}
+
+static void
 place_bamboo(place_context context, mc_int place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
@@ -3087,36 +3136,52 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_CAKE:
         break;
     case ITEM_WHITE_BED:
+        place_bed(context, BLOCK_WHITE_BED, DYE_COLOUR_WHITE);
         break;
     case ITEM_ORANGE_BED:
+        place_bed(context, BLOCK_ORANGE_BED, DYE_COLOUR_ORANGE);
         break;
     case ITEM_MAGENTA_BED:
+        place_bed(context, BLOCK_MAGENTA_BED, DYE_COLOUR_MAGENTA);
         break;
     case ITEM_LIGHT_BLUE_BED:
+        place_bed(context, BLOCK_LIGHT_BLUE_BED, DYE_COLOUR_LIGHT_BLUE);
         break;
     case ITEM_YELLOW_BED:
+        place_bed(context, BLOCK_YELLOW_BED, DYE_COLOUR_YELLOW);
         break;
     case ITEM_LIME_BED:
+        place_bed(context, BLOCK_LIME_BED, DYE_COLOUR_LIME);
         break;
     case ITEM_PINK_BED:
+        place_bed(context, BLOCK_PINK_BED, DYE_COLOUR_PINK);
         break;
     case ITEM_GRAY_BED:
+        place_bed(context, BLOCK_GRAY_BED, DYE_COLOUR_GRAY);
         break;
     case ITEM_LIGHT_GRAY_BED:
+        place_bed(context, BLOCK_LIGHT_GRAY_BED, DYE_COLOUR_LIGHT_GRAY);
         break;
     case ITEM_CYAN_BED:
+        place_bed(context, BLOCK_CYAN_BED, DYE_COLOUR_CYAN);
         break;
     case ITEM_PURPLE_BED:
+        place_bed(context, BLOCK_PURPLE_BED, DYE_COLOUR_PURPLE);
         break;
     case ITEM_BLUE_BED:
+        place_bed(context, BLOCK_BLUE_BED, DYE_COLOUR_BLUE);
         break;
     case ITEM_BROWN_BED:
+        place_bed(context, BLOCK_BROWN_BED, DYE_COLOUR_BROWN);
         break;
     case ITEM_GREEN_BED:
+        place_bed(context, BLOCK_GREEN_BED, DYE_COLOUR_GREEN);
         break;
     case ITEM_RED_BED:
+        place_bed(context, BLOCK_RED_BED, DYE_COLOUR_RED);
         break;
     case ITEM_BLACK_BED:
+        place_bed(context, BLOCK_BLACK_BED, DYE_COLOUR_BLACK);
         break;
     case ITEM_FILLED_MAP:
         break;

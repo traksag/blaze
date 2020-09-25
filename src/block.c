@@ -1158,37 +1158,59 @@ update_block(net_block_pos pos, int from_direction) {
     case BLOCK_NOTE_BLOCK:
         break;
     case BLOCK_WHITE_BED:
-        break;
     case BLOCK_ORANGE_BED:
-        break;
     case BLOCK_MAGENTA_BED:
-        break;
     case BLOCK_LIGHT_BLUE_BED:
-        break;
     case BLOCK_YELLOW_BED:
-        break;
     case BLOCK_LIME_BED:
-        break;
     case BLOCK_PINK_BED:
-        break;
     case BLOCK_GRAY_BED:
-        break;
     case BLOCK_LIGHT_GRAY_BED:
-        break;
     case BLOCK_CYAN_BED:
-        break;
     case BLOCK_PURPLE_BED:
-        break;
     case BLOCK_BLUE_BED:
-        break;
     case BLOCK_BROWN_BED:
-        break;
     case BLOCK_GREEN_BED:
-        break;
     case BLOCK_RED_BED:
-        break;
-    case BLOCK_BLACK_BED:
-        break;
+    case BLOCK_BLACK_BED: {
+        int facing = cur_info.horizontal_facing;
+        if (from_direction == facing) {
+            if (cur_info.bed_part == BED_PART_FOOT) {
+                mc_ushort new_state;
+                if (from_type == cur_type && from_info.bed_part == BED_PART_HEAD) {
+                    cur_info.occupied = from_info.occupied;
+                    new_state = make_block_state(&cur_info);
+
+                    if (new_state == cur_state) {
+                        return 0;
+                    }
+                } else {
+                    new_state = 0;
+                }
+
+                try_set_block_state(pos, new_state);
+                return 1;
+            }
+        } else if (from_direction == get_opposite_direction(facing)) {
+            if (cur_info.bed_part == BED_PART_HEAD) {
+                mc_ushort new_state;
+                if (from_type == cur_type && from_info.bed_part == BED_PART_FOOT) {
+                    cur_info.occupied = from_info.occupied;
+                    new_state = make_block_state(&cur_info);
+
+                    if (new_state == cur_state) {
+                        return 0;
+                    }
+                } else {
+                    new_state = 0;
+                }
+
+                try_set_block_state(pos, new_state);
+                return 1;
+            }
+        }
+        return 0;
+    }
     case BLOCK_POWERED_RAIL:
         break;
     case BLOCK_DETECTOR_RAIL:

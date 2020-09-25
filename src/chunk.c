@@ -6,6 +6,7 @@
 #include <zlib.h>
 #include <sys/stat.h>
 #include <stdio.h>
+#include <string.h>
 #include "shared.h"
 
 // @TODO(traks) don't use a hash map. Performance depends on the chunks loaded,
@@ -122,6 +123,46 @@ chunk_pos_equal(chunk_pos a, chunk_pos b) {
 static int
 hash_chunk_pos(chunk_pos pos) {
     return ((pos.x & 0x1f) << 5) | (pos.z & 0x1f);
+}
+
+block_entity_base *
+try_get_block_entity(net_block_pos pos) {
+    // @TODO(traks) return some special block entity instead of NULL?
+    if (pos.y < 0) {
+        return NULL;
+    }
+    if (pos.y > MAX_WORLD_Y) {
+        return NULL;
+    }
+
+    chunk_pos ch_pos = {
+        .x = pos.x >> 4,
+        .z = pos.z >> 4
+    };
+
+    chunk * ch = get_chunk_if_loaded(ch_pos);
+    if (ch == NULL) {
+        return NULL;
+    }
+
+    compact_chunk_block_pos chunk_block_pos = {
+        .x = pos.x & 0xf,
+        .y = pos.y,
+        .z = pos.z & 0xf,
+    };
+
+    for (int i = 0; i < ARRAY_SIZE(ch->block_entities); i++) {
+        block_entity_base * block_entity = ch->block_entities + i;
+        if (!(block_entity->flags & BLOCK_ENTITY_IN_USE)) {
+            block_entity->pos = chunk_block_pos;
+            block_entity->type = BLOCK_ENTITY_NULL;
+            return block_entity;
+        } else if (memcmp(&block_entity->pos, &chunk_block_pos,
+                sizeof chunk_block_pos) == 0) {
+            return block_entity;
+        }
+    }
+    return NULL;
 }
 
 mc_ushort

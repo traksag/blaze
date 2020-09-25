@@ -147,6 +147,25 @@ enum direction {
     DIRECTION_ZERO, // not used in network
 };
 
+enum dye_colour {
+    DYE_COLOUR_WHITE,
+    DYE_COLOUR_ORANGE,
+    DYE_COLOUR_MAGENTA,
+    DYE_COLOUR_LIGHT_BLUE,
+    DYE_COLOUR_YELLOW,
+    DYE_COLOUR_LIME,
+    DYE_COLOUR_PINK,
+    DYE_COLOUR_GRAY,
+    DYE_COLOUR_LIGHT_GRAY,
+    DYE_COLOUR_CYAN,
+    DYE_COLOUR_PURPLE,
+    DYE_COLOUR_BLUE,
+    DYE_COLOUR_BROWN,
+    DYE_COLOUR_GREEN,
+    DYE_COLOUR_RED,
+    DYE_COLOUR_BLACK,
+};
+
 typedef struct {
     mc_short x;
     mc_short z;
@@ -180,6 +199,59 @@ typedef struct {
     mc_ushort z:4;
 } compact_chunk_block_pos;
 
+enum block_entity_type {
+    BLOCK_ENTITY_NULL,
+    BLOCK_ENTITY_BANNER,
+    BLOCK_ENTITY_BARREL,
+    BLOCK_ENTITY_BEACON,
+    BLOCK_ENTITY_BED,
+    BLOCK_ENTITY_BEEHIVE,
+    BLOCK_ENTITY_BELL,
+    BLOCK_ENTITY_BLAST_FURNACE,
+    BLOCK_ENTITY_BREWING_STAND,
+    BLOCK_ENTITY_CAMPFIRE,
+    BLOCK_ENTITY_CHEST,
+    BLOCK_ENTITY_COMMAND_BLOCK,
+    BLOCK_ENTITY_COMPARATOR,
+    BLOCK_ENTITY_CONDUIT,
+    BLOCK_ENTITY_DAYLIGHT_DETECTOR,
+    BLOCK_ENTITY_DISPENSER,
+    BLOCK_ENTITY_DROPPER,
+    BLOCK_ENTITY_ENCHANTING_TABLE,
+    BLOCK_ENTITY_ENDER_CHEST,
+    BLOCK_ENTITY_FURNACE,
+    BLOCK_ENTITY_HOPPER,
+    BLOCK_ENTITY_JIGSAW,
+    BLOCK_ENTITY_JUKEBOX,
+    BLOCK_ENTITY_LECTERN,
+    BLOCK_ENTITY_MOVING_PISTON,
+    BLOCK_ENTITY_SHULKER_BOX,
+    BLOCK_ENTITY_SIGN,
+    BLOCK_ENTITY_SKULL,
+    BLOCK_ENTITY_SMOKER,
+    BLOCK_ENTITY_SPAWNER,
+    BLOCK_ENTITY_STRUCTURE_BLOCK,
+    BLOCK_ENTITY_END_GATEWAY,
+    BLOCK_ENTITY_END_PORTAL,
+    BLOCK_ENTITY_TRAPPED_CHEST,
+};
+
+typedef struct {
+    unsigned char dye_colour;
+} block_entity_bed;
+
+#define BLOCK_ENTITY_IN_USE ((unsigned char) (1 << 0))
+
+typedef struct {
+    unsigned char type;
+    unsigned char flags;
+    compact_chunk_block_pos pos;
+
+    union {
+        block_entity_bed bed;
+    };
+} block_entity_base;
+
 typedef struct {
     chunk_section * sections[16];
     mc_ushort non_air_count[16];
@@ -198,6 +270,19 @@ typedef struct {
     // very high.
     compact_chunk_block_pos changed_blocks[16];
     mc_ubyte changed_block_count;
+
+    // @TODO(traks) allow more block entities. Possibly use an internally
+    // chained hashmap for this. The question is, where do we allocate this
+    // hashmap in? We may need some more general-purpose allocator. Could
+    // restrict to allocation sizes of 2^13, 2^12, 2^11, etc. and have separate
+    // linked lists for each. Maybe pull blocks from 2^13 list to 2^12 list,
+    // from 2^12 list to 2^11, etc. when they need more memory.
+
+    // @TODO(traks) flesh out all this block entity business. What if getting
+    // block entity fails? Remove block entities if block gets removed. Load
+    // block entities from region files. Send block entities to players. Send
+    // block entity updates to players.
+    block_entity_base block_entities[10];
 } chunk;
 
 #define CHUNKS_PER_BUCKET (32)
@@ -3219,6 +3304,9 @@ get_chunk_if_loaded(chunk_pos pos);
 
 chunk *
 get_chunk_if_available(chunk_pos pos);
+
+block_entity_base *
+try_get_block_entity(net_block_pos pos);
 
 mc_ushort
 try_get_block_state(net_block_pos pos);
