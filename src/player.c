@@ -521,7 +521,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
         }
 
         mc_ubyte signing = net_read_ubyte(rec_cursor);
-        mc_int hand = net_read_varint(rec_cursor);
+        mc_int slot = net_read_varint(rec_cursor);
         // @TODO(traks) handle the event
         break;
     }

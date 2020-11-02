@@ -548,8 +548,9 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
 
     nbt_move_to_key(NET_STRING("DataVersion"), chunk_nbt, &cursor);
     mc_int data_version = net_read_int(&cursor);
-    if (data_version != 2580) {
-        logs("Unknown data version %jd", (intmax_t) data_version);
+    if (data_version != SERVER_WORLD_VERSION) {
+        logs("Data version %jd != %jd", (intmax_t) data_version,
+                (intmax_t) SERVER_WORLD_VERSION);
         goto bail;
     }
 

@@ -825,7 +825,14 @@ server_tick(void) {
                     if (next_state == 1) {
                         init_con->protocol_state = PROTOCOL_AWAIT_STATUS_REQUEST;
                     } else if (next_state == 2) {
-                        init_con->protocol_state = PROTOCOL_AWAIT_HELLO;
+                        if (protocol_version != SERVER_PROTOCOL_VERSION) {
+                            logs("Client protocol version %jd != %jd",
+                                    (intmax_t) protocol_version,
+                                    (intmax_t) SERVER_PROTOCOL_VERSION);
+                            rec_cursor.error = 1;
+                        } else {
+                            init_con->protocol_state = PROTOCOL_AWAIT_HELLO;
+                        }
                     } else {
                         rec_cursor.error = 1;
                     }
@@ -856,7 +863,7 @@ server_tick(void) {
                     response_size += sprintf((char *) response + response_size,
                             "{\"version\":{\"name\":\"%s\",\"protocol\":%d},"
                             "\"players\":{\"max\":%d,\"online\":%d,\"sample\":[",
-                            "1.16.3", 753,
+                            "1.16.4", SERVER_PROTOCOL_VERSION,
                             (int) MAX_PLAYERS, (int) list_size);
 
                     for (int i = 0; i < sample_size; i++) {

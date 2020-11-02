@@ -21,6 +21,10 @@
 
 #define RADIANS_PER_DEGREE ((2.0f * PI) / 360.0f)
 
+#define SERVER_PROTOCOL_VERSION (754)
+
+#define SERVER_WORLD_VERSION (2584)
+
 typedef int8_t mc_byte;
 typedef int16_t mc_short;
 typedef int32_t mc_int;
