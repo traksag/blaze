@@ -2764,43 +2764,52 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
     int removed_entity_count = 0;
 
     for (int j = 1; j < MAX_ENTITIES; j++) {
-        tracked_entity * tracked = player->player.tracked_entities + j;
         entity_base * candidate = serv->entities + j;
+        tracked_entity * tracked = player->player.tracked_entities + j;
+        int is_tracking_candidate = (tracked->eid == candidate->eid);
+
+        if ((candidate->flags & ENTITY_IN_USE)
+                && is_tracking_candidate) {
+            // Candidate is a valid entity and we're already tracking it
+            double dx = candidate->x - player->x;
+            double dy = candidate->y - player->y;
+            double dz = candidate->z - player->z;
+            if (dx * dx + dy * dy + dz * dz < 45 * 45) {
+                try_update_tracked_entity(player,
+                        send_cursor, tick_arena, tracked, candidate);
+                continue;
+            }
+        }
+
+        // several states are possible: the candidate isn't a valid entity, or
+        // we aren't tracking it yet, or the currently tracked entity was
+        // removed, or the tracked entity is out of range
 
         if (tracked->eid != 0) {
-            // entity is currently being tracked
-            if ((candidate->flags & ENTITY_IN_USE)
-                    && candidate->eid == tracked->eid) {
-                // entity is still there
-                double dx = candidate->x - player->x;
-                double dy = candidate->y - player->y;
-                double dz = candidate->z - player->z;
-                if (dx * dx + dy * dy + dz * dz < 45 * 45) {
-                    try_update_tracked_entity(player,
-                            send_cursor, tick_arena, tracked, candidate);
-                    continue;
-                }
-            }
-
-            // entity we tracked is gone or too far away
-
+            // remove tracked entity if we were tracking an entity
             if (removed_entity_count == ARRAY_SIZE(removed_entities)) {
                 // no more space to untrack, try again next tick
                 continue;
             }
 
             removed_entities[removed_entity_count] = tracked->eid;
-            player->player.tracked_entities[j].eid = 0;
+            tracked->eid = 0;
             removed_entity_count++;
         }
 
-        if ((candidate->flags & ENTITY_IN_USE) && candidate->eid != player->eid) {
-            // candidate is valid for being newly tracked
+        if ((candidate->flags & ENTITY_IN_USE) && candidate->eid != player->eid
+                && !is_tracking_candidate) {
+            // candidate is a valid entity and wasn't tracked already
             double dx = candidate->x - player->x;
             double dy = candidate->y - player->y;
             double dz = candidate->z - player->z;
 
-            if (dx * dx + dy * dy + dz * dz > 100 * 100) {
+            if (dx * dx + dy * dy + dz * dz > 40 * 40) {
+                // @NOTE(traks) Don't start tracking until close enough. This
+                // radius should be lower than the untrack radius: if the track
+                // radius is larger than the untrack radius, then there's a zone
+                // in which we continuously track and untrack every tick. This
+                // is a waste of bandwidth.
                 continue;
             }
 
