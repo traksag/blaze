@@ -9,6 +9,25 @@ typedef struct {
 } block_update;
 
 static void
+schedule_block_update(net_block_pos pos, int from_direction, int delay) {
+    assert(delay > 0);
+    int count = serv->scheduled_block_update_count;
+    if (count == ARRAY_SIZE(serv->scheduled_block_updates)) {
+        // @TODO(traks) do something better once we revamp the scheduled block
+        // update data structure
+        assert(0);
+    }
+
+    scheduled_block_update new = {
+        .pos = pos,
+        .from_direction = from_direction,
+        .for_tick = serv->current_tick + delay
+    };
+    serv->scheduled_block_updates[count] = new;
+    serv->scheduled_block_update_count++;
+}
+
+static void
 mark_block_state_property(block_state_info * info, int prop) {
     info->available_properties[prop >> 6] |= (mc_ulong) 1 << (prop & 0x3f);
 }
@@ -1056,7 +1075,7 @@ update_wall_shape(net_block_pos pos,
 }
 
 static int
-update_block(net_block_pos pos, int from_direction) {
+update_block(net_block_pos pos, int from_direction, int is_delayed) {
     // @TODO(traks) ideally all these chunk lookups and block lookups should be
     // cached to make a single block update as fast as possible. It is after all
     // incredibly easy to create tons of block updates in a single tick.
@@ -2129,10 +2148,12 @@ update_block(net_block_pos pos, int from_direction) {
     case BLOCK_BAMBOO: {
         if (from_direction == DIRECTION_NEG_Y) {
             if (!is_bamboo_plantable_on(from_type)) {
-                // @TODO(traks) schedule block tick instead of immediately
-                // setting to air
-                try_set_block_state(pos, 0);
-                return 1;
+                if (is_delayed) {
+                    try_set_block_state(pos, 0);
+                    return 1;
+                } else {
+                    schedule_block_update(pos, from_direction, 1);
+                }
             }
         } else if (from_direction == DIRECTION_POS_Y) {
             if (from_type == BLOCK_BAMBOO && from_info.age_1 > cur_info.age_1) {
@@ -2142,7 +2163,6 @@ update_block(net_block_pos pos, int from_direction) {
             }
         }
         return 0;
-        break;
     }
     case BLOCK_BUBBLE_COLUMN:
         break;
@@ -2244,6 +2264,88 @@ update_block(net_block_pos pos, int from_direction) {
 }
 
 void
+propagate_delayed_block_updates(memory_arena * scratch_arena) {
+    unsigned char update_order[] = {
+        DIRECTION_NEG_X, DIRECTION_POS_X,
+        DIRECTION_NEG_Z, DIRECTION_POS_Z,
+        DIRECTION_NEG_Y, DIRECTION_POS_Y,
+    };
+
+    memory_arena temp_arena = *scratch_arena;
+    int max_updates = 512;
+    block_update * blocks_to_update = alloc_in_arena(&temp_arena,
+            max_updates * sizeof (*blocks_to_update));
+    int update_count = 0;
+
+    int sbu_count = serv->scheduled_block_update_count;
+    for (int i = 0; i < sbu_count; i++) {
+        scheduled_block_update sbu = serv->scheduled_block_updates[i];
+        if (sbu.for_tick != serv->current_tick) {
+            continue;
+        }
+
+        // move last to current position
+        sbu_count--;
+        serv->scheduled_block_updates[i] = serv->scheduled_block_updates[sbu_count];
+        i--;
+
+        // @TODO(traks) also count these for number of updates
+        net_block_pos pos = sbu.pos;
+        if (!update_block(pos, sbu.from_direction, 1)) {
+            continue;
+        }
+
+        // updated the block, update neighbours as well
+        if (max_updates - update_count < 6) {
+            continue;
+        }
+
+        for (int j = 0; j < 6; j++) {
+            int to_direction = update_order[j];
+            net_block_pos neighbour = get_relative_block_pos(pos, to_direction);
+            if (neighbour.y > MAX_WORLD_Y || neighbour.y < 0) {
+                continue;
+            }
+
+            blocks_to_update[update_count] = (block_update) {
+                .pos = neighbour,
+                .from_direction = get_opposite_direction(to_direction),
+            };
+            update_count++;
+        }
+    }
+
+    serv->scheduled_block_update_count = sbu_count;
+
+    for (int i = 0; i < update_count; i++) {
+        net_block_pos pos = blocks_to_update[i].pos;
+        int from_direction = blocks_to_update[i].from_direction;
+
+        if (!update_block(pos, from_direction, 0)) {
+            continue;
+        }
+
+        if (max_updates - update_count < 6) {
+            continue;
+        }
+
+        for (int j = 0; j < 6; j++) {
+            int to_direction = update_order[j];
+            net_block_pos neighbour = get_relative_block_pos(pos, to_direction);
+            if (neighbour.y > MAX_WORLD_Y || neighbour.y < 0) {
+                continue;
+            }
+
+            blocks_to_update[update_count] = (block_update) {
+                .pos = neighbour,
+                .from_direction = get_opposite_direction(to_direction),
+            };
+            update_count++;
+        }
+    }
+}
+
+void
 propagate_block_updates_after_change(net_block_pos change_pos,
         memory_arena * scratch_arena) {
     unsigned char update_order[] = {
@@ -2272,13 +2374,13 @@ propagate_block_updates_after_change(net_block_pos change_pos,
         update_count++;
     }
 
-    update_block(change_pos, DIRECTION_ZERO);
+    update_block(change_pos, DIRECTION_ZERO, 0);
 
     for (int i = 0; i < update_count; i++) {
         net_block_pos pos = blocks_to_update[i].pos;
         int from_direction = blocks_to_update[i].from_direction;
 
-        if (!update_block(pos, from_direction)) {
+        if (!update_block(pos, from_direction, 0)) {
             continue;
         }
 

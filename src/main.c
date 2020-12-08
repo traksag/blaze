@@ -1064,6 +1064,17 @@ server_tick(void) {
 
     end_timed_block();
 
+    // run scheduled block updates
+    begin_timed_block("scheduled updates");
+
+    memory_arena scheduled_update_arena = {
+        .ptr = serv->short_lived_scratch,
+        .size = serv->short_lived_scratch_size
+    };
+    propagate_delayed_block_updates(&scheduled_update_arena);
+
+    end_timed_block();
+
     // update entities
     begin_timed_block("tick entities");
 

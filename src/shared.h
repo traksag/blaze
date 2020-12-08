@@ -3107,6 +3107,12 @@ typedef struct {
 } biome;
 
 typedef struct {
+    net_block_pos pos;
+    int from_direction;
+    mc_long for_tick;
+} scheduled_block_update;
+
+typedef struct {
     mc_long current_tick;
 
     entity_base entities[MAX_ENTITIES];
@@ -3163,6 +3169,16 @@ typedef struct {
 
     // block state -> block type
     mc_ushort block_type_by_state[18000];
+
+    // @TODO(traks) this is the simplest but dumbest thing. Should really store
+    // this per chunk, since we need to save it when chunk is unloaded. Limit
+    // should also be way higher.
+
+    // @TODO(traks) remove scheduled block updates when a block changes or the
+    // chunk gets unloaded? Not sure if it really matters if a block gets
+    // updated 'unexpectedly'. What is the worst thing that could happen?
+    scheduled_block_update scheduled_block_updates[100];
+    int scheduled_block_update_count;
 } server;
 
 extern server * serv;
@@ -3387,6 +3403,9 @@ use_block(entity_base * player,
 
 mc_ubyte
 get_max_stack_size(mc_int item_type);
+
+void
+propagate_delayed_block_updates(memory_arena * scratch_arena);
 
 void
 propagate_block_updates_after_change(net_block_pos change_pos,
