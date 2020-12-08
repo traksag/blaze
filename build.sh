@@ -1,1 +1,1 @@
-cc -o blaze -lz -lm src/*.c
+cc -o blaze src/*.c -lz -lm
