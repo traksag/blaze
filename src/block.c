@@ -1074,6 +1074,9 @@ update_wall_shape(net_block_pos pos,
     }
 }
 
+// from_direction = DIRECTION_ZERO is used when a block is placed or a block is
+// interacted with. We have to fire a block update in those situations for
+// things like water spreading and scheduling redstone updates.
 static int
 update_block(net_block_pos pos, int from_direction, int is_delayed) {
     // @TODO(traks) ideally all these chunk lookups and block lookups should be
@@ -1351,7 +1354,9 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
     case BLOCK_BLACKSTONE_STAIRS:
     case BLOCK_POLISHED_BLACKSTONE_BRICK_STAIRS:
     case BLOCK_POLISHED_BLACKSTONE_STAIRS: {
-        if (from_direction == DIRECTION_NEG_Y || from_direction == DIRECTION_POS_Y) {
+        if (from_direction == DIRECTION_NEG_Y
+                || from_direction == DIRECTION_POS_Y
+                || from_direction == DIRECTION_ZERO) {
             return 0;
         }
 
@@ -1566,7 +1571,9 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
     case BLOCK_WARPED_FENCE: {
         // @TODO(traks) update water
 
-        if (from_direction == DIRECTION_NEG_Y || from_direction == DIRECTION_POS_Y) {
+        if (from_direction == DIRECTION_NEG_Y
+                || from_direction == DIRECTION_POS_Y
+                || from_direction == DIRECTION_ZERO) {
             return 0;
         }
         update_fence_shape(pos, &cur_info, from_direction);
@@ -1600,7 +1607,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
     case BLOCK_BROWN_MUSHROOM_BLOCK:
     case BLOCK_RED_MUSHROOM_BLOCK:
     case BLOCK_MUSHROOM_STEM: {
-        if (from_type != cur_type) {
+        if (from_direction == DIRECTION_ZERO || from_type != cur_type) {
             return 0;
         }
 
@@ -1633,7 +1640,9 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
     case BLOCK_BLACK_STAINED_GLASS_PANE: {
         // @TODO(traks) update water
 
-        if (from_direction == DIRECTION_NEG_Y || from_direction == DIRECTION_POS_Y) {
+        if (from_direction == DIRECTION_NEG_Y
+                || from_direction == DIRECTION_POS_Y
+                || from_direction == DIRECTION_ZERO) {
             return 0;
         }
         update_pane_shape(pos, &cur_info, from_direction);
@@ -1769,7 +1778,8 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
     case BLOCK_POLISHED_BLACKSTONE_WALL: {
         // @TODO(traks) update water
 
-        if (from_direction == DIRECTION_NEG_Y) {
+        if (from_direction == DIRECTION_NEG_Y
+                || from_direction == DIRECTION_ZERO) {
             return 0;
         }
         update_wall_shape(pos, &cur_info, from_direction);
