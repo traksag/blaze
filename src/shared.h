@@ -1387,10 +1387,10 @@ enum block_property {
     BLOCK_PROPERTY_WALL_NEG_Z,
     BLOCK_PROPERTY_WALL_POS_Z,
     BLOCK_PROPERTY_WALL_NEG_X,
-    BLOCK_PROPERTY_EAST_REDSTONE,
-    BLOCK_PROPERTY_NORTH_REDSTONE,
-    BLOCK_PROPERTY_SOUTH_REDSTONE,
-    BLOCK_PROPERTY_WEST_REDSTONE,
+    BLOCK_PROPERTY_REDSTONE_POS_X,
+    BLOCK_PROPERTY_REDSTONE_NEG_Z,
+    BLOCK_PROPERTY_REDSTONE_POS_Z,
+    BLOCK_PROPERTY_REDSTONE_NEG_X,
     BLOCK_PROPERTY_DOUBLE_BLOCK_HALF,
     BLOCK_PROPERTY_HALF,
     BLOCK_PROPERTY_RAIL_SHAPE,
@@ -1501,10 +1501,10 @@ typedef struct {
             mc_ubyte wall_neg_z;
             mc_ubyte wall_pos_z;
             mc_ubyte wall_neg_x;
-            mc_ubyte east_redstone;
-            mc_ubyte north_redstone;
-            mc_ubyte south_redstone;
-            mc_ubyte west_redstone;
+            mc_ubyte redstone_pos_x;
+            mc_ubyte redstone_neg_z;
+            mc_ubyte redstone_pos_z;
+            mc_ubyte redstone_neg_x;
             mc_ubyte double_block_half;
             mc_ubyte half;
             mc_ubyte rail_shape;
@@ -3443,6 +3443,9 @@ can_snow_survive_on(mc_ushort state_below);
 
 int
 can_pressure_plate_survive_on(mc_ushort state_below);
+
+int
+can_redstone_wire_survive_on(mc_ushort state_below);
 
 int
 can_sugar_cane_survive_at(net_block_pos cur_pos);

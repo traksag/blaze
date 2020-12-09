@@ -688,9 +688,9 @@ place_mushroom_block(place_context context, mc_int place_type) {
         // connect to neighbouring mushroom blocks of the same type by setting
         // the six facing properties to true if connected
         if (type == place_type) {
-            place_info.values[BLOCK_PROPERTY_NEG_Y + directions[i]] = 1;
-        } else {
             place_info.values[BLOCK_PROPERTY_NEG_Y + directions[i]] = 0;
+        } else {
+            place_info.values[BLOCK_PROPERTY_NEG_Y + directions[i]] = 1;
         }
     }
 
@@ -1358,6 +1358,53 @@ place_grindstone(place_context context, mc_int place_type) {
         // attach to horizontal wall
         place_info.attach_face = ATTACH_FACE_WALL;
         place_info.horizontal_facing = get_opposite_direction(selected_dir);
+    }
+
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target.pos, place_state);
+    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+}
+
+static void
+place_redstone_wire(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(
+            context.clicked_pos, context.clicked_face, place_type);
+    if (!(target.flags & PLACE_CAN_PLACE)) {
+        return;
+    }
+
+    mc_ushort state_below = try_get_block_state(
+            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
+    mc_int type_below = serv->block_type_by_state[state_below];
+
+    if (!can_redstone_wire_survive_on(state_below)) {
+        return;
+    }
+
+    // @TODO(traks) finish this function
+
+    block_state_info place_info = describe_default_block_state(place_type);
+
+    int neighbour_directions[] = {DIRECTION_NEG_Z, DIRECTION_POS_Z, DIRECTION_NEG_X, DIRECTION_POS_X};
+    for (int i = 0; i < 4; i++) {
+        int face = neighbour_directions[i];
+        mc_ubyte * field;
+        switch (face) {
+        case DIRECTION_POS_X: field = &place_info.redstone_pos_x;
+        case DIRECTION_NEG_Z: field = &place_info.redstone_neg_z;
+        case DIRECTION_POS_Z: field = &place_info.redstone_pos_z;
+        case DIRECTION_NEG_X: field = &place_info.redstone_neg_x;
+        }
+
+        mc_ushort neighbour_state = try_get_block_state(
+                get_relative_block_pos(target.pos, face));
+        mc_int neighbour_type = serv->block_type_by_state[neighbour_state];
+
+        if (neighbour_type == BLOCK_REDSTONE_WIRE) {
+            *field = REDSTONE_SIDE_SIDE;
+        } else {
+            *field = REDSTONE_SIDE_NONE;
+        }
     }
 
     mc_ushort place_state = make_block_state(&place_info);
@@ -3119,6 +3166,7 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_MINECART:
         break;
     case ITEM_REDSTONE:
+        place_redstone_wire(context, BLOCK_REDSTONE_WIRE);
         break;
     case ITEM_DRIED_KELP_BLOCK:
         place_simple_block(context, BLOCK_DRIED_KELP_BLOCK);

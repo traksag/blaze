@@ -581,6 +581,18 @@ can_pressure_plate_survive_on(mc_ushort state_below) {
 }
 
 int
+can_redstone_wire_survive_on(mc_ushort state_below) {
+    support_model support = get_support_model(state_below);
+    mc_int type_below = serv->block_type_by_state[state_below];
+    if (support.full_face_flags & (1 << DIRECTION_POS_Y)) {
+        return 1;
+    } else if (type_below == BLOCK_HOPPER) {
+        return 1;
+    }
+    return 0;
+}
+
+int
 can_sugar_cane_survive_at(net_block_pos cur_pos) {
     mc_ushort state_below = try_get_block_state(
             get_relative_block_pos(cur_pos, DIRECTION_NEG_Y));
@@ -1074,6 +1086,41 @@ update_wall_shape(net_block_pos pos,
     }
 }
 
+static int
+is_redstone_wire_dot(block_state_info * info) {
+    return info->redstone_pos_x | info->redstone_neg_z
+            | info->redstone_pos_z | info->redstone_neg_x;
+}
+
+void
+update_redstone_wire_shape(net_block_pos pos,
+        block_state_info * cur_info, int from_direction) {
+    // @TODO(traks) finish this function
+    assert(from_direction != DIRECTION_NEG_Y
+            && from_direction != DIRECTION_ZERO);
+    if (from_direction == DIRECTION_POS_Y) {
+        mc_ushort state_above = try_get_block_state(
+                get_relative_block_pos(pos, from_direction));
+        mc_int type_above = serv->block_type_by_state[state_above];
+    } else {
+        mc_ushort neighbour_state = try_get_block_state(
+                get_relative_block_pos(pos, from_direction));
+        mc_int neighbour_type = serv->block_type_by_state[neighbour_state];
+        int new_side = REDSTONE_SIDE_NONE;
+
+        if (neighbour_type == BLOCK_REDSTONE_WIRE) {
+            new_side = REDSTONE_SIDE_SIDE;
+        }
+
+        switch (from_direction) {
+        case DIRECTION_POS_X: cur_info->redstone_pos_x = new_side;
+        case DIRECTION_NEG_Z: cur_info->redstone_neg_z = new_side;
+        case DIRECTION_POS_Z: cur_info->redstone_pos_z = new_side;
+        case DIRECTION_NEG_X: cur_info->redstone_neg_x = new_side;
+        }
+    }
+}
+
 // from_direction = DIRECTION_ZERO is used when a block is placed or a block is
 // interacted with. We have to fire a block update in those situations for
 // things like water spreading and scheduling redstone updates.
@@ -1370,8 +1417,26 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
     }
     case BLOCK_CHEST:
         break;
-    case BLOCK_REDSTONE_WIRE:
-        break;
+    case BLOCK_REDSTONE_WIRE: {
+        // @TODO(traks) is this complete?
+        if (from_direction == DIRECTION_ZERO) {
+            return 0;
+        }
+        if (from_direction == DIRECTION_NEG_Y) {
+            if (!can_redstone_wire_survive_on(from_state)) {
+                try_set_block_state(pos, 0);
+                return 1;
+            }
+            return 0;
+        }
+        update_redstone_wire_shape(pos, &cur_info, from_direction);
+        mc_ushort new_state = make_block_state(&cur_info);
+        if (new_state == cur_state) {
+            return 0;
+        }
+        try_set_block_state(pos, new_state);
+        return 1;
+    }
     case BLOCK_WHEAT:
     case BLOCK_BEETROOTS:
     case BLOCK_CARROTS:
@@ -1612,7 +1677,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
         }
 
         // connect to neighbouring mushroom block of the same type
-        cur_info.values[BLOCK_PROPERTY_NEG_Y + from_direction] = 1;
+        cur_info.values[BLOCK_PROPERTY_NEG_Y + from_direction] = 0;
         mc_ushort new_state = make_block_state(&cur_info);
         if (new_state == cur_state) {
             return 0;
@@ -3673,10 +3738,10 @@ init_block_data(void) {
     register_property_v(BLOCK_PROPERTY_WALL_NEG_Z, "north", 3, "none", "low", "tall");
     register_property_v(BLOCK_PROPERTY_WALL_POS_Z, "south", 3, "none", "low", "tall");
     register_property_v(BLOCK_PROPERTY_WALL_NEG_X, "west", 3, "none", "low", "tall");
-    register_property_v(BLOCK_PROPERTY_EAST_REDSTONE, "east", 3, "up", "side", "none");
-    register_property_v(BLOCK_PROPERTY_NORTH_REDSTONE, "north", 3, "up", "side", "none");
-    register_property_v(BLOCK_PROPERTY_SOUTH_REDSTONE, "south", 3, "up", "side", "none");
-    register_property_v(BLOCK_PROPERTY_WEST_REDSTONE, "west", 3, "up", "side", "none");
+    register_property_v(BLOCK_PROPERTY_REDSTONE_POS_X, "east", 3, "up", "side", "none");
+    register_property_v(BLOCK_PROPERTY_REDSTONE_NEG_Z, "north", 3, "up", "side", "none");
+    register_property_v(BLOCK_PROPERTY_REDSTONE_POS_Z, "south", 3, "up", "side", "none");
+    register_property_v(BLOCK_PROPERTY_REDSTONE_NEG_X, "west", 3, "up", "side", "none");
     register_property_v(BLOCK_PROPERTY_DOUBLE_BLOCK_HALF, "half", 2, "upper", "lower");
     register_property_v(BLOCK_PROPERTY_HALF, "half", 2, "top", "bottom");
     register_property_v(BLOCK_PROPERTY_RAIL_SHAPE, "shape", 10, "north_south", "east_west", "ascending_east", "ascending_west", "ascending_north", "ascending_south", "south_east", "south_west", "north_west", "north_east");
@@ -3977,11 +4042,11 @@ init_block_data(void) {
 
     register_block_type(BLOCK_REDSTONE_WIRE, "minecraft:redstone_wire");
     props = serv->block_properties_table + BLOCK_REDSTONE_WIRE;
-    add_block_property(props, BLOCK_PROPERTY_EAST_REDSTONE, "none");
-    add_block_property(props, BLOCK_PROPERTY_NORTH_REDSTONE, "none");
+    add_block_property(props, BLOCK_PROPERTY_REDSTONE_POS_X, "none");
+    add_block_property(props, BLOCK_PROPERTY_REDSTONE_NEG_Z, "none");
     add_block_property(props, BLOCK_PROPERTY_POWER, "0");
-    add_block_property(props, BLOCK_PROPERTY_SOUTH_REDSTONE, "none");
-    add_block_property(props, BLOCK_PROPERTY_WEST_REDSTONE, "none");
+    add_block_property(props, BLOCK_PROPERTY_REDSTONE_POS_Z, "none");
+    add_block_property(props, BLOCK_PROPERTY_REDSTONE_NEG_X, "none");
     finalise_block_props(props);
     set_collision_model_for_all_states(props, BLOCK_MODEL_EMPTY);
 
