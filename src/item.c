@@ -20,6 +20,7 @@ typedef struct {
     float click_offset_y;
     float click_offset_z;
     memory_arena * scratch_arena;
+    block_update_context * buc;
 } place_context;
 
 static int
@@ -115,7 +116,7 @@ place_simple_block(place_context context, mc_int place_type) {
 
     mc_ushort place_state = get_default_block_state(place_type);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -139,7 +140,7 @@ place_snowy_grassy_block(place_context context, mc_int place_type) {
 
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -160,7 +161,7 @@ place_plant(place_context context, mc_int place_type) {
 
     mc_ushort place_state = get_default_block_state(place_type);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -184,7 +185,7 @@ place_lily_pad(place_context context, mc_int place_type) {
 
     mc_ushort place_state = get_default_block_state(place_type);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -205,7 +206,7 @@ place_dead_bush(place_context context, mc_int place_type) {
 
     mc_ushort place_state = get_default_block_state(place_type);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -226,7 +227,7 @@ place_wither_rose(place_context context, mc_int place_type) {
 
     mc_ushort place_state = get_default_block_state(place_type);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -247,7 +248,7 @@ place_nether_plant(place_context context, mc_int place_type) {
 
     mc_ushort place_state = get_default_block_state(place_type);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -266,7 +267,7 @@ place_pressure_plate(place_context context, mc_int place_type) {
 
     mc_ushort place_state = get_default_block_state(place_type);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -300,7 +301,7 @@ place_simple_pillar(place_context context, mc_int place_type) {
 
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -317,7 +318,7 @@ place_chain(place_context context, mc_int place_type) {
 
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -372,7 +373,7 @@ place_slab(place_context context, mc_int place_type) {
 
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target_pos, place_state);
-    propagate_block_updates_after_change(target_pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target_pos, context.buc);
 }
 
 static void
@@ -422,7 +423,7 @@ place_sea_pickle(place_context context, mc_int place_type) {
 
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target_pos, place_state);
-    propagate_block_updates_after_change(target_pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target_pos, context.buc);
 }
 
 static void
@@ -470,7 +471,7 @@ place_snow(place_context context, mc_int place_type) {
 
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target_pos, place_state);
-    propagate_block_updates_after_change(target_pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target_pos, context.buc);
 }
 
 static void
@@ -487,7 +488,7 @@ place_leaves(place_context context, mc_int place_type) {
     place_state += 0; // persistent = true
 
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -503,7 +504,7 @@ place_horizontal_facing(place_context context, mc_int place_type) {
 
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -520,7 +521,7 @@ place_end_portal_frame(place_context context, mc_int place_type) {
 
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -556,7 +557,7 @@ place_trapdoor(place_context context, mc_int place_type) {
 
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -595,7 +596,7 @@ place_fence_gate(place_context context, mc_int place_type) {
 
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -620,7 +621,7 @@ place_crop(place_context context, mc_int place_type) {
 
     mc_ushort place_state = get_default_block_state(place_type);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -644,7 +645,7 @@ place_nether_wart(place_context context, mc_int place_type) {
 
     mc_ushort place_state = get_default_block_state(place_type);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -665,7 +666,7 @@ place_carpet(place_context context, mc_int place_type) {
     }
 
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -696,7 +697,7 @@ place_mushroom_block(place_context context, mc_int place_type) {
 
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -727,7 +728,7 @@ place_end_rod(place_context context, mc_int place_type) {
 
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -743,7 +744,7 @@ place_sugar_cane(place_context context, mc_int place_type) {
 
     mc_ushort place_state = get_default_block_state(place_type);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -767,7 +768,7 @@ place_dead_coral(place_context context, mc_int place_type) {
 
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 typedef struct {
@@ -935,7 +936,7 @@ place_dead_coral_fan(place_context context, mc_int base_place_type,
 
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -996,7 +997,7 @@ place_torch(place_context context, mc_int base_place_type,
 
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -1037,7 +1038,7 @@ place_ladder(place_context context, mc_int place_type) {
 
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -1085,10 +1086,11 @@ place_door(place_context context, mc_int place_type) {
     place_state = make_block_state(&place_info);
     try_set_block_state(get_relative_block_pos(target.pos, DIRECTION_POS_Y), place_state);
 
-    // @TODO(traks) process updates for both halves in one loop
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
-    propagate_block_updates_after_change(get_relative_block_pos(target.pos, DIRECTION_POS_Y),
-            context.scratch_arena);
+    // @TODO(traks) don't update door halves themselves, only blocks around them
+    push_direct_neighbour_block_updates(target.pos, context.buc);
+    push_direct_neighbour_block_updates(
+            get_relative_block_pos(target.pos, DIRECTION_POS_Y),
+            context.buc);
 }
 
 static void
@@ -1135,9 +1137,9 @@ place_bed(place_context context, mc_int place_type, int dye_colour) {
         block_entity->bed.dye_colour = dye_colour;
     }
 
-    // @TODO(traks) process updates for both parts in one loop
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
-    propagate_block_updates_after_change(head_pos, context.scratch_arena);
+    // @TODO(traks) don't update the parts, only the blocks around them
+    push_direct_neighbour_block_updates(target.pos, context.buc);
+    push_direct_neighbour_block_updates(head_pos, context.buc);
 }
 
 static void
@@ -1175,7 +1177,7 @@ place_bamboo(place_context context, mc_int place_type) {
     }
 
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -1198,7 +1200,7 @@ place_stairs(place_context context, mc_int place_type) {
 
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -1219,7 +1221,7 @@ place_fence(place_context context, mc_int place_type) {
 
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -1240,7 +1242,7 @@ place_pane(place_context context, mc_int place_type) {
 
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -1261,7 +1263,7 @@ place_wall(place_context context, mc_int place_type) {
 
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -1281,7 +1283,7 @@ place_rail(place_context context, mc_int place_type) {
 
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -1330,7 +1332,7 @@ place_lever_or_button(place_context context, mc_int place_type) {
 
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -1362,7 +1364,7 @@ place_grindstone(place_context context, mc_int place_type) {
 
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
@@ -1409,7 +1411,7 @@ place_redstone_wire(place_context context, mc_int place_type) {
 
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
-    propagate_block_updates_after_change(target.pos, context.scratch_arena);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 void
@@ -1427,6 +1429,14 @@ process_use_item_on_packet(entity_base * player,
     item_stack * off = player->player.slots + PLAYER_OFF_HAND_SLOT;
     item_stack * used = hand == PLAYER_MAIN_HAND ? main : off;
 
+    int max_updates = 512;
+    block_update_context buc = {
+        .blocks_to_update = alloc_in_arena(scratch_arena,
+                max_updates * sizeof (block_update)),
+        .update_count = 0,
+        .max_updates = max_updates
+    };
+
     // @TODO(traks) special handling depending on gamemode. Currently we assume
     // gamemode creative
 
@@ -1443,8 +1453,9 @@ process_use_item_on_packet(entity_base * player,
         int used_block = use_block(player,
                 hand, clicked_pos, clicked_face,
                 click_offset_x, click_offset_y, click_offset_z,
-                is_inside, scratch_arena);
+                is_inside, &buc);
         if (used_block) {
+            propagate_block_updates(&buc);
             return;
         }
     }
@@ -1490,6 +1501,7 @@ process_use_item_on_packet(entity_base * player,
         .click_offset_y = click_offset_y,
         .click_offset_z = click_offset_z,
         .scratch_arena = scratch_arena,
+        .buc = &buc
     };
 
     switch (used->type) {
@@ -3595,6 +3607,8 @@ process_use_item_on_packet(entity_base * player,
         // no use-on action for the remaining item types
         return;
     }
+
+    propagate_block_updates(&buc);
 
     // @TODO(traks) perhaps don't send these packets if we do everything as the
     // client expects. Although a nice benefit of these packets is that clients

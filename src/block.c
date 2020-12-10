@@ -3,10 +3,34 @@
 #include <stdio.h>
 #include "shared.h"
 
-typedef struct {
-    net_block_pos pos;
-    unsigned char from_direction;
-} block_update;
+static unsigned char update_order[] = {
+    DIRECTION_NEG_X, DIRECTION_POS_X,
+    DIRECTION_NEG_Z, DIRECTION_POS_Z,
+    DIRECTION_NEG_Y, DIRECTION_POS_Y,
+};
+
+void
+push_direct_neighbour_block_updates(net_block_pos pos,
+        block_update_context * buc) {
+    if (buc->max_updates - buc->update_count < 6) {
+        return;
+    }
+
+    for (int j = 0; j < 6; j++) {
+        int to_direction = update_order[j];
+        net_block_pos neighbour = get_relative_block_pos(pos, to_direction);
+        // @TODO(traks) do we really need this check?
+        if (neighbour.y > MAX_WORLD_Y || neighbour.y < 0) {
+            continue;
+        }
+
+        buc->blocks_to_update[buc->update_count] = (block_update) {
+            .pos = neighbour,
+            .from_direction = get_opposite_direction(to_direction),
+        };
+        buc->update_count++;
+    }
+}
 
 static void
 schedule_block_update(net_block_pos pos, int from_direction, int delay) {
@@ -1096,8 +1120,7 @@ void
 update_redstone_wire_shape(net_block_pos pos,
         block_state_info * cur_info, int from_direction) {
     // @TODO(traks) finish this function
-    assert(from_direction != DIRECTION_NEG_Y
-            && from_direction != DIRECTION_ZERO);
+    assert(from_direction != DIRECTION_NEG_Y);
     if (from_direction == DIRECTION_POS_Y) {
         mc_ushort state_above = try_get_block_state(
                 get_relative_block_pos(pos, from_direction));
@@ -1121,11 +1144,9 @@ update_redstone_wire_shape(net_block_pos pos,
     }
 }
 
-// from_direction = DIRECTION_ZERO is used when a block is placed or a block is
-// interacted with. We have to fire a block update in those situations for
-// things like water spreading and scheduling redstone updates.
 static int
-update_block(net_block_pos pos, int from_direction, int is_delayed) {
+update_block(net_block_pos pos, int from_direction, int is_delayed,
+        block_update_context * buc) {
     // @TODO(traks) ideally all these chunk lookups and block lookups should be
     // cached to make a single block update as fast as possible. It is after all
     // incredibly easy to create tons of block updates in a single tick.
@@ -1159,11 +1180,12 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
         }
 
         mc_ushort new_state = make_block_state(&cur_info);
-        if (new_state != cur_state) {
-            try_set_block_state(pos, new_state);
-            return 1;
+        if (new_state == cur_state) {
+            return 0;
         }
-        return 0;
+        try_set_block_state(pos, new_state);
+        push_direct_neighbour_block_updates(pos, buc);
+        return 1;
     }
     case BLOCK_OAK_SAPLING:
     case BLOCK_SPRUCE_SAPLING:
@@ -1194,8 +1216,8 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
         if (can_plant_survive_on(type_below)) {
             return 0;
         }
-
         try_set_block_state(pos, 0);
+        push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
     case BLOCK_WATER:
@@ -1258,6 +1280,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
                 }
 
                 try_set_block_state(pos, new_state);
+                push_direct_neighbour_block_updates(pos, buc);
                 return 1;
             }
         } else if (from_direction == get_opposite_direction(facing)) {
@@ -1275,6 +1298,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
                 }
 
                 try_set_block_state(pos, new_state);
+                push_direct_neighbour_block_updates(pos, buc);
                 return 1;
             }
         }
@@ -1295,8 +1319,8 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
         if (can_dead_bush_survive_on(type_below)) {
             return 0;
         }
-
         try_set_block_state(pos, 0);
+        push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
     case BLOCK_SEAGRASS:
@@ -1318,8 +1342,8 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
         if (can_wither_rose_survive_on(type_below)) {
             return 0;
         }
-
         try_set_block_state(pos, 0);
+        push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
     case BLOCK_BROWN_MUSHROOM:
@@ -1341,6 +1365,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
 
         // block below cannot support torch
         try_set_block_state(pos, 0);
+        push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
     case BLOCK_WALL_TORCH:
@@ -1357,6 +1382,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
 
         // wall block cannot support torch
         try_set_block_state(pos, 0);
+        push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
     case BLOCK_FIRE:
@@ -1402,8 +1428,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
     case BLOCK_POLISHED_BLACKSTONE_BRICK_STAIRS:
     case BLOCK_POLISHED_BLACKSTONE_STAIRS: {
         if (from_direction == DIRECTION_NEG_Y
-                || from_direction == DIRECTION_POS_Y
-                || from_direction == DIRECTION_ZERO) {
+                || from_direction == DIRECTION_POS_Y) {
             return 0;
         }
 
@@ -1413,18 +1438,17 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
             return 0;
         }
         try_set_block_state(pos, make_block_state(&cur_info));
+        push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
     case BLOCK_CHEST:
         break;
     case BLOCK_REDSTONE_WIRE: {
         // @TODO(traks) is this complete?
-        if (from_direction == DIRECTION_ZERO) {
-            return 0;
-        }
         if (from_direction == DIRECTION_NEG_Y) {
             if (!can_redstone_wire_survive_on(from_state)) {
                 try_set_block_state(pos, 0);
+                push_direct_neighbour_block_updates(pos, buc);
                 return 1;
             }
             return 0;
@@ -1435,6 +1459,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
             return 0;
         }
         try_set_block_state(pos, new_state);
+        push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
     case BLOCK_WHEAT:
@@ -1452,6 +1477,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
         }
 
         try_set_block_state(pos, 0);
+        push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
     case BLOCK_FARMLAND:
@@ -1496,6 +1522,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
                 }
 
                 try_set_block_state(pos, new_state);
+                push_direct_neighbour_block_updates(pos, buc);
                 return 1;
             }
         } else if (from_direction == DIRECTION_NEG_Y) {
@@ -1515,6 +1542,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
                 }
 
                 try_set_block_state(pos, new_state);
+                push_direct_neighbour_block_updates(pos, buc);
                 return 1;
             } else {
                 support_model support = get_support_model(from_state);
@@ -1523,6 +1551,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
                 }
 
                 try_set_block_state(pos, 0);
+                push_direct_neighbour_block_updates(pos, buc);
                 return 1;
             }
         }
@@ -1561,6 +1590,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
             return 0;
         }
         try_set_block_state(pos, 0);
+        push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
     case BLOCK_REDSTONE_TORCH:
@@ -1601,6 +1631,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
 
         // invalid wall block
         try_set_block_state(pos, 0);
+        push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
     case BLOCK_SNOW: {
@@ -1611,6 +1642,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
             return 0;
         }
         try_set_block_state(pos, 0);
+        push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
     case BLOCK_CACTUS:
@@ -1621,6 +1653,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
         }
         // @TODO(traks) break with 1 tick delay
         try_set_block_state(pos, 0);
+        push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
     case BLOCK_JUKEBOX:
@@ -1637,8 +1670,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
         // @TODO(traks) update water
 
         if (from_direction == DIRECTION_NEG_Y
-                || from_direction == DIRECTION_POS_Y
-                || from_direction == DIRECTION_ZERO) {
+                || from_direction == DIRECTION_POS_Y) {
             return 0;
         }
         update_fence_shape(pos, &cur_info, from_direction);
@@ -1647,6 +1679,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
             return 0;
         }
         try_set_block_state(pos, new_state);
+        push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
     case BLOCK_SOUL_SAND:
@@ -1672,7 +1705,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
     case BLOCK_BROWN_MUSHROOM_BLOCK:
     case BLOCK_RED_MUSHROOM_BLOCK:
     case BLOCK_MUSHROOM_STEM: {
-        if (from_direction == DIRECTION_ZERO || from_type != cur_type) {
+        if (from_type != cur_type) {
             return 0;
         }
 
@@ -1683,6 +1716,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
             return 0;
         }
         try_set_block_state(pos, new_state);
+        push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
     case BLOCK_IRON_BARS:
@@ -1706,8 +1740,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
         // @TODO(traks) update water
 
         if (from_direction == DIRECTION_NEG_Y
-                || from_direction == DIRECTION_POS_Y
-                || from_direction == DIRECTION_ZERO) {
+                || from_direction == DIRECTION_POS_Y) {
             return 0;
         }
         update_pane_shape(pos, &cur_info, from_direction);
@@ -1716,6 +1749,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
             return 0;
         }
         try_set_block_state(pos, new_state);
+        push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
     case BLOCK_CHAIN:
@@ -1736,6 +1770,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
         }
 
         try_set_block_state(pos, 0);
+        push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
     case BLOCK_VINE:
@@ -1777,11 +1812,12 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
         }
 
         mc_ushort new_state = make_block_state(&cur_info);
-        if (new_state != cur_state) {
-            try_set_block_state(pos, new_state);
-            return 1;
+        if (new_state == cur_state) {
+            return 0;
         }
-        return 0;
+        try_set_block_state(pos, new_state);
+        push_direct_neighbour_block_updates(pos, buc);
+        return 1;
     }
     case BLOCK_LILY_PAD: {
         if (from_direction != DIRECTION_NEG_Y) {
@@ -1791,6 +1827,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
             return 0;
         }
         try_set_block_state(pos, 0);
+        push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
     case BLOCK_NETHER_WART: {
@@ -1804,6 +1841,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
         }
 
         try_set_block_state(pos, 0);
+        push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
     case BLOCK_ENCHANTING_TABLE:
@@ -1843,8 +1881,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
     case BLOCK_POLISHED_BLACKSTONE_WALL: {
         // @TODO(traks) update water
 
-        if (from_direction == DIRECTION_NEG_Y
-                || from_direction == DIRECTION_ZERO) {
+        if (from_direction == DIRECTION_NEG_Y) {
             return 0;
         }
         update_wall_shape(pos, &cur_info, from_direction);
@@ -1853,6 +1890,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
             return 0;
         }
         try_set_block_state(pos, new_state);
+        push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
     case BLOCK_ANVIL:
@@ -1903,8 +1941,8 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
         if (can_carpet_survive_on(type_below)) {
             return 0;
         }
-
         try_set_block_state(pos, 0);
+        push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
     case BLOCK_SUNFLOWER:
@@ -1917,18 +1955,21 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
             if (from_direction == DIRECTION_NEG_Y && (from_type != cur_type
                     || from_info.double_block_half != DOUBLE_BLOCK_HALF_LOWER)) {
                 try_set_block_state(pos, 0);
+                push_direct_neighbour_block_updates(pos, buc);
                 return 1;
             }
         } else {
             if (from_direction == DIRECTION_NEG_Y) {
                 if (!can_plant_survive_on(from_type)) {
                     try_set_block_state(pos, 0);
+                    push_direct_neighbour_block_updates(pos, buc);
                     return 1;
                 }
             } else if (from_direction == DIRECTION_POS_Y) {
                 if (from_type != cur_type
                         || from_info.double_block_half != DOUBLE_BLOCK_HALF_UPPER) {
                     try_set_block_state(pos, 0);
+                    push_direct_neighbour_block_updates(pos, buc);
                     return 1;
                 }
             }
@@ -2198,6 +2239,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
         if (from_direction == DIRECTION_NEG_Y) {
             if (!can_sea_pickle_survive_on(from_state)) {
                 try_set_block_state(pos, 0);
+                push_direct_neighbour_block_updates(pos, buc);
                 return 1;
             }
         }
@@ -2209,12 +2251,14 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
         if (from_direction == DIRECTION_NEG_Y) {
             if (!is_bamboo_plantable_on(from_type)) {
                 try_set_block_state(pos, 0);
+                push_direct_neighbour_block_updates(pos, buc);
                 return 1;
             }
         } else if (from_direction == DIRECTION_POS_Y) {
             if (from_type == BLOCK_BAMBOO) {
                 mc_ushort new_state = from_state;
                 try_set_block_state(pos, new_state);
+                push_direct_neighbour_block_updates(pos, buc);
                 return 1;
             }
         }
@@ -2225,6 +2269,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
             if (!is_bamboo_plantable_on(from_type)) {
                 if (is_delayed) {
                     try_set_block_state(pos, 0);
+                    push_direct_neighbour_block_updates(pos, buc);
                     return 1;
                 } else {
                     schedule_block_update(pos, from_direction, 1);
@@ -2234,6 +2279,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
             if (from_type == BLOCK_BAMBOO && from_info.age_1 > cur_info.age_1) {
                 mc_ushort new_state = from_state;
                 try_set_block_state(pos, new_state);
+                push_direct_neighbour_block_updates(pos, buc);
                 return 1;
             }
         }
@@ -2292,8 +2338,8 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
         if (can_nether_plant_survive_on(type_below)) {
             return 0;
         }
-
         try_set_block_state(pos, 0);
+        push_direct_neighbour_block_updates(pos, buc);
         return 1;
     case BLOCK_WEEPING_VINES:
         break;
@@ -2340,17 +2386,14 @@ update_block(net_block_pos pos, int from_direction, int is_delayed) {
 
 void
 propagate_delayed_block_updates(memory_arena * scratch_arena) {
-    unsigned char update_order[] = {
-        DIRECTION_NEG_X, DIRECTION_POS_X,
-        DIRECTION_NEG_Z, DIRECTION_POS_Z,
-        DIRECTION_NEG_Y, DIRECTION_POS_Y,
-    };
-
     memory_arena temp_arena = *scratch_arena;
     int max_updates = 512;
-    block_update * blocks_to_update = alloc_in_arena(&temp_arena,
-            max_updates * sizeof (*blocks_to_update));
-    int update_count = 0;
+    block_update_context buc = {
+        .blocks_to_update = alloc_in_arena(&temp_arena,
+                max_updates * sizeof (block_update)),
+        .update_count = 0,
+        .max_updates = max_updates
+    };
 
     int sbu_count = serv->scheduled_block_update_count;
     for (int i = 0; i < sbu_count; i++) {
@@ -2366,116 +2409,24 @@ propagate_delayed_block_updates(memory_arena * scratch_arena) {
 
         // @TODO(traks) also count these for number of updates
         net_block_pos pos = sbu.pos;
-        if (!update_block(pos, sbu.from_direction, 1)) {
-            continue;
-        }
-
-        // updated the block, update neighbours as well
-        if (max_updates - update_count < 6) {
-            continue;
-        }
-
-        for (int j = 0; j < 6; j++) {
-            int to_direction = update_order[j];
-            net_block_pos neighbour = get_relative_block_pos(pos, to_direction);
-            if (neighbour.y > MAX_WORLD_Y || neighbour.y < 0) {
-                continue;
-            }
-
-            blocks_to_update[update_count] = (block_update) {
-                .pos = neighbour,
-                .from_direction = get_opposite_direction(to_direction),
-            };
-            update_count++;
-        }
+        update_block(pos, sbu.from_direction, 1, &buc);
     }
 
     serv->scheduled_block_update_count = sbu_count;
 
-    for (int i = 0; i < update_count; i++) {
-        net_block_pos pos = blocks_to_update[i].pos;
-        int from_direction = blocks_to_update[i].from_direction;
-
-        if (!update_block(pos, from_direction, 0)) {
-            continue;
-        }
-
-        if (max_updates - update_count < 6) {
-            continue;
-        }
-
-        for (int j = 0; j < 6; j++) {
-            int to_direction = update_order[j];
-            net_block_pos neighbour = get_relative_block_pos(pos, to_direction);
-            if (neighbour.y > MAX_WORLD_Y || neighbour.y < 0) {
-                continue;
-            }
-
-            blocks_to_update[update_count] = (block_update) {
-                .pos = neighbour,
-                .from_direction = get_opposite_direction(to_direction),
-            };
-            update_count++;
-        }
+    for (int i = 0; i < buc.update_count; i++) {
+        net_block_pos pos = buc.blocks_to_update[i].pos;
+        int from_direction = buc.blocks_to_update[i].from_direction;
+        update_block(pos, from_direction, 0, &buc);
     }
 }
 
 void
-propagate_block_updates_after_change(net_block_pos change_pos,
-        memory_arena * scratch_arena) {
-    unsigned char update_order[] = {
-        DIRECTION_NEG_X, DIRECTION_POS_X,
-        DIRECTION_NEG_Z, DIRECTION_POS_Z,
-        DIRECTION_NEG_Y, DIRECTION_POS_Y,
-    };
-
-    memory_arena temp_arena = *scratch_arena;
-    int max_updates = 512;
-    block_update * blocks_to_update = alloc_in_arena(&temp_arena,
-            max_updates * sizeof (*blocks_to_update));
-    int update_count = 0;
-
-    for (int j = 0; j < 6; j++) {
-        int to_direction = update_order[j];
-        net_block_pos neighbour = get_relative_block_pos(change_pos, to_direction);
-        if (neighbour.y > MAX_WORLD_Y || neighbour.y < 0) {
-            continue;
-        }
-
-        blocks_to_update[update_count] = (block_update) {
-            .pos = neighbour,
-            .from_direction = get_opposite_direction(to_direction),
-        };
-        update_count++;
-    }
-
-    update_block(change_pos, DIRECTION_ZERO, 0);
-
-    for (int i = 0; i < update_count; i++) {
-        net_block_pos pos = blocks_to_update[i].pos;
-        int from_direction = blocks_to_update[i].from_direction;
-
-        if (!update_block(pos, from_direction, 0)) {
-            continue;
-        }
-
-        if (max_updates - update_count < 6) {
-            continue;
-        }
-
-        for (int j = 0; j < 6; j++) {
-            int to_direction = update_order[j];
-            net_block_pos neighbour = get_relative_block_pos(pos, to_direction);
-            if (neighbour.y > MAX_WORLD_Y || neighbour.y < 0) {
-                continue;
-            }
-
-            blocks_to_update[update_count] = (block_update) {
-                .pos = neighbour,
-                .from_direction = get_opposite_direction(to_direction),
-            };
-            update_count++;
-        }
+propagate_block_updates(block_update_context * buc) {
+    for (int i = 0; i < buc->update_count; i++) {
+        net_block_pos pos = buc->blocks_to_update[i].pos;
+        int from_direction = buc->blocks_to_update[i].from_direction;
+        update_block(pos, from_direction, 0, buc);
     }
 }
 
@@ -2483,7 +2434,7 @@ int
 use_block(entity_base * player,
         mc_int hand, net_block_pos clicked_pos, mc_int clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
-        mc_ubyte is_inside, memory_arena * scratch_arena) {
+        mc_ubyte is_inside, block_update_context * buc) {
     mc_ushort cur_state = try_get_block_state(clicked_pos);
     block_state_info cur_info = describe_block_state(cur_state);
     mc_int cur_type = cur_info.block_type;
@@ -2553,7 +2504,7 @@ use_block(entity_base * player,
         cur_info.powered = !cur_info.powered;
         mc_ushort new_state = make_block_state(&cur_info);
         try_set_block_state(clicked_pos, new_state);
-        propagate_block_updates_after_change(clicked_pos, scratch_arena);
+        push_direct_neighbour_block_updates(clicked_pos, buc);
         return 1;
     }
     case BLOCK_OAK_DOOR:
@@ -2569,7 +2520,9 @@ use_block(entity_base * player,
         mc_ushort new_state = make_block_state(&cur_info);
         try_set_block_state(clicked_pos, new_state);
         // this will cause the other half of the door to switch states
-        propagate_block_updates_after_change(clicked_pos, scratch_arena);
+        // @TODO(traks) perhaps we should just update the other half of the door
+        // immediately and push block updates from there as well
+        push_direct_neighbour_block_updates(clicked_pos, buc);
         return 1;
     }
     case BLOCK_REDSTONE_ORE:
@@ -2613,7 +2566,7 @@ use_block(entity_base * player,
         cur_info.delay = (cur_info.delay & 0x3) + 1;
         mc_ushort new_state = make_block_state(&cur_info);
         try_set_block_state(clicked_pos, new_state);
-        propagate_block_updates_after_change(clicked_pos, scratch_arena);
+        push_direct_neighbour_block_updates(clicked_pos, buc);
         return 1;
     }
     case BLOCK_OAK_TRAPDOOR:
@@ -2628,7 +2581,7 @@ use_block(entity_base * player,
         cur_info.open = !cur_info.open;
         mc_ushort new_state = make_block_state(&cur_info);
         try_set_block_state(clicked_pos, new_state);
-        propagate_block_updates_after_change(clicked_pos, scratch_arena);
+        push_direct_neighbour_block_updates(clicked_pos, buc);
         return 1;
     }
     case BLOCK_OAK_FENCE_GATE:
@@ -2652,7 +2605,7 @@ use_block(entity_base * player,
 
         mc_ushort new_state = make_block_state(&cur_info);
         try_set_block_state(clicked_pos, new_state);
-        propagate_block_updates_after_change(clicked_pos, scratch_arena);
+        push_direct_neighbour_block_updates(clicked_pos, buc);
 
         // @TODO(traks) broadcast level event for opening/closing fence gate
         return 1;
@@ -2789,7 +2742,7 @@ use_block(entity_base * player,
         cur_info.mode_comparator = !cur_info.mode_comparator;
         mc_ushort new_state = make_block_state(&cur_info);
         try_set_block_state(clicked_pos, new_state);
-        propagate_block_updates_after_change(clicked_pos, scratch_arena);
+        push_direct_neighbour_block_updates(clicked_pos, buc);
         return 1;
     }
     case BLOCK_DAYLIGHT_DETECTOR: {
@@ -2797,7 +2750,7 @@ use_block(entity_base * player,
         cur_info.inverted = !cur_info.inverted;
         mc_ushort new_state = make_block_state(&cur_info);
         try_set_block_state(clicked_pos, new_state);
-        propagate_block_updates_after_change(clicked_pos, scratch_arena);
+        push_direct_neighbour_block_updates(clicked_pos, buc);
         return 1;
     }
     case BLOCK_HOPPER:

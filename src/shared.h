@@ -3113,6 +3113,17 @@ typedef struct {
 } scheduled_block_update;
 
 typedef struct {
+    net_block_pos pos;
+    unsigned char from_direction;
+} block_update;
+
+typedef struct {
+    block_update * blocks_to_update;
+    int update_count;
+    int max_updates;
+} block_update_context;
+
+typedef struct {
     mc_long current_tick;
 
     entity_base entities[MAX_ENTITIES];
@@ -3399,7 +3410,7 @@ int
 use_block(entity_base * player,
         mc_int hand, net_block_pos clicked_pos, mc_int clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
-        mc_ubyte is_inside, memory_arena * scratch_arena);
+        mc_ubyte is_inside, block_update_context * buc);
 
 mc_ubyte
 get_max_stack_size(mc_int item_type);
@@ -3408,8 +3419,7 @@ void
 propagate_delayed_block_updates(memory_arena * scratch_arena);
 
 void
-propagate_block_updates_after_change(net_block_pos change_pos,
-        memory_arena * scratch_arena);
+propagate_block_updates(block_update_context * buc);
 
 net_block_pos
 get_relative_block_pos(net_block_pos pos, int face);
@@ -3512,5 +3522,9 @@ is_water_source(mc_ushort state);
 
 int
 is_full_water(mc_ushort state);
+
+void
+push_direct_neighbour_block_updates(net_block_pos pos,
+        block_update_context * buc);
 
 #endif

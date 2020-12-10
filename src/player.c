@@ -706,11 +706,22 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
 
                 // @TODO(traks) better block breaking logic. E.g. new state
                 // should be water source block if waterlogged block is broken.
+                // Should move this stuff to some generic block breaking
+                // function, so we can do proper block updating of redstone dust
+                // and stuff.
+                int max_updates = 512;
+                block_update_context buc = {
+                    .blocks_to_update = alloc_in_arena(process_arena,
+                            max_updates * sizeof (block_update)),
+                    .update_count = 0,
+                    .max_updates = max_updates
+                };
+
                 mc_ushort new_state = 0;
                 chunk_set_block_state(ch, block_pos.x & 0xf, block_pos.y,
                         block_pos.z & 0xf, new_state);
-                propagate_block_updates_after_change(block_pos,
-                        process_arena);
+                push_direct_neighbour_block_updates(block_pos, &buc);
+                propagate_block_updates(&buc);
 
                 // @TODO(traks) rewrite so we don't need an assert
                 assert(player->block_break_ack_count
