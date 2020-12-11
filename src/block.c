@@ -9,6 +9,19 @@ static unsigned char update_order[] = {
     DIRECTION_NEG_Y, DIRECTION_POS_Y,
 };
 
+static int
+get_horizontal_direction_index(int dir) {
+    switch (dir) {
+    case DIRECTION_POS_X: return 0;
+    case DIRECTION_NEG_Z: return 1;
+    case DIRECTION_POS_Z: return 2;
+    case DIRECTION_NEG_X: return 3;
+    default:
+        assert(0);
+        return 0;
+    }
+}
+
 void
 push_direct_neighbour_block_updates(net_block_pos pos,
         block_update_context * buc) {
@@ -19,11 +32,6 @@ push_direct_neighbour_block_updates(net_block_pos pos,
     for (int j = 0; j < 6; j++) {
         int to_direction = update_order[j];
         net_block_pos neighbour = get_relative_block_pos(pos, to_direction);
-        // @TODO(traks) do we really need this check?
-        if (neighbour.y > MAX_WORLD_Y || neighbour.y < 0) {
-            continue;
-        }
-
         buc->blocks_to_update[buc->update_count] = (block_update) {
             .pos = neighbour,
             .from_direction = get_opposite_direction(to_direction),
@@ -168,6 +176,17 @@ describe_block_state(mc_ushort block_state) {
             // minecraft doesn't distinguish falling levels [8, 15]
             default: value = FLUID_LEVEL_FALLING; break;
             }
+            break;
+        case BLOCK_PROPERTY_REDSTONE_POS_X:
+        case BLOCK_PROPERTY_REDSTONE_NEG_Z:
+        case BLOCK_PROPERTY_REDSTONE_POS_Z:
+        case BLOCK_PROPERTY_REDSTONE_NEG_X:
+            switch (value_index) {
+            case 0: value = REDSTONE_SIDE_UP; break;
+            case 1: value = REDSTONE_SIDE_SIDE; break;
+            case 2: value = REDSTONE_SIDE_NONE; break;
+            }
+            break;
         default:
             value = value_index;
         }
@@ -303,6 +322,17 @@ make_block_state(block_state_info * info) {
             case FLUID_LEVEL_FLOWING_1: value_index = 7; break;
             case FLUID_LEVEL_FALLING: value_index = 8; break;
             }
+            break;
+        case BLOCK_PROPERTY_REDSTONE_POS_X:
+        case BLOCK_PROPERTY_REDSTONE_NEG_Z:
+        case BLOCK_PROPERTY_REDSTONE_POS_Z:
+        case BLOCK_PROPERTY_REDSTONE_NEG_X:
+            switch (value) {
+            case REDSTONE_SIDE_UP: value_index = 0; break;
+            case REDSTONE_SIDE_SIDE: value_index = 1; break;
+            case REDSTONE_SIDE_NONE: value_index = 2; break;
+            }
+            break;
         default:
             value_index = value;
         }
@@ -314,6 +344,135 @@ make_block_state(block_state_info * info) {
 
     mc_ushort res = props->base_state + offset;
     return res;
+}
+
+// used to check whether redstone power travels through a block state. Also used
+// to check whether redstone wire connects diagonally through a block state;
+// this function returns false for those states.
+static int
+conducts_redstone(mc_ushort block_state, net_block_pos pos) {
+    mc_int block_type = serv->block_type_by_state[block_state];
+
+    switch (block_type) {
+    // Some materials are excluded in this list: air, carpets and most
+    // decoration blocks have non-full collision box. Some plants also don't
+    // have full collision boxes, so we excluded those aswell.
+    // portals
+    case BLOCK_NETHER_PORTAL:
+    case BLOCK_END_PORTAL:
+    case BLOCK_END_GATEWAY:
+    // plants
+    case BLOCK_OAK_SAPLING:
+    case BLOCK_SPRUCE_SAPLING:
+    case BLOCK_BIRCH_SAPLING:
+    case BLOCK_JUNGLE_SAPLING:
+    case BLOCK_ACACIA_SAPLING:
+    case BLOCK_DARK_OAK_SAPLING:
+    case BLOCK_WHEAT:
+    case BLOCK_SUGAR_CANE:
+    case BLOCK_ATTACHED_PUMPKIN_STEM:
+    case BLOCK_ATTACHED_MELON_STEM:
+    case BLOCK_PUMPKIN_STEM:
+    case BLOCK_MELON_STEM:
+    case BLOCK_LILY_PAD:
+    case BLOCK_NETHER_WART:
+    case BLOCK_COCOA:
+    case BLOCK_CARROTS:
+    case BLOCK_POTATOES:
+    case BLOCK_CHORUS_PLANT:
+    case BLOCK_CHORUS_FLOWER:
+    case BLOCK_BEETROOTS:
+    case BLOCK_SWEET_BERRY_BUSH:
+    case BLOCK_WARPED_FUNGUS:
+    case BLOCK_CRIMSON_FUNGUS:
+    case BLOCK_WEEPING_VINES:
+    case BLOCK_WEEPING_VINES_PLANT:
+    case BLOCK_TWISTING_VINES:
+    case BLOCK_TWISTING_VINES_PLANT:
+    // water plants
+    case BLOCK_KELP:
+    case BLOCK_KELP_PLANT:
+    case BLOCK_TUBE_CORAL:
+    case BLOCK_BRAIN_CORAL:
+    case BLOCK_BUBBLE_CORAL:
+    case BLOCK_FIRE_CORAL:
+    case BLOCK_HORN_CORAL:
+    // replaceable plants
+    case BLOCK_GRASS:
+    case BLOCK_FERN:
+    case BLOCK_DEAD_BUSH:
+    case BLOCK_VINE:
+    case BLOCK_SUNFLOWER:
+    case BLOCK_LILAC:
+    case BLOCK_ROSE_BUSH:
+    case BLOCK_PEONY:
+    case BLOCK_TALL_GRASS:
+    case BLOCK_LARGE_FERN:
+    case BLOCK_WARPED_ROOTS:
+    case BLOCK_NETHER_SPROUTS:
+    case BLOCK_CRIMSON_ROOTS:
+    case BLOCK_SEAGRASS:
+    case BLOCK_TALL_SEAGRASS:
+    // fluids
+    case BLOCK_WATER:
+    case BLOCK_LAVA:
+    case BLOCK_BUBBLE_COLUMN:
+    // leaves
+    case BLOCK_JUNGLE_LEAVES:
+    case BLOCK_OAK_LEAVES:
+    case BLOCK_SPRUCE_LEAVES:
+    case BLOCK_DARK_OAK_LEAVES:
+    case BLOCK_ACACIA_LEAVES:
+    case BLOCK_BIRCH_LEAVES:
+    // glass
+    case BLOCK_GLASS:
+    case BLOCK_GLOWSTONE:
+    case BLOCK_BEACON:
+    case BLOCK_SEA_LANTERN:
+    case BLOCK_CONDUIT:
+    case BLOCK_WHITE_STAINED_GLASS:
+    case BLOCK_ORANGE_STAINED_GLASS:
+    case BLOCK_MAGENTA_STAINED_GLASS:
+    case BLOCK_LIGHT_BLUE_STAINED_GLASS:
+    case BLOCK_YELLOW_STAINED_GLASS:
+    case BLOCK_LIME_STAINED_GLASS:
+    case BLOCK_PINK_STAINED_GLASS:
+    case BLOCK_GRAY_STAINED_GLASS:
+    case BLOCK_LIGHT_GRAY_STAINED_GLASS:
+    case BLOCK_CYAN_STAINED_GLASS:
+    case BLOCK_PURPLE_STAINED_GLASS:
+    case BLOCK_BLUE_STAINED_GLASS:
+    case BLOCK_BROWN_STAINED_GLASS:
+    case BLOCK_GREEN_STAINED_GLASS:
+    case BLOCK_RED_STAINED_GLASS:
+    case BLOCK_BLACK_STAINED_GLASS:
+    // misc
+    case BLOCK_STRUCTURE_VOID:
+    case BLOCK_SNOW:
+    case BLOCK_FIRE:
+    case BLOCK_SOUL_FIRE:
+    case BLOCK_SCAFFOLDING:
+    case BLOCK_COBWEB:
+    case BLOCK_TNT:
+    case BLOCK_ICE:
+    case BLOCK_FROSTED_ICE:
+    case BLOCK_CACTUS:
+    // extra (explicit blocking)
+    case BLOCK_SOUL_SAND:
+    case BLOCK_REDSTONE_BLOCK:
+    case BLOCK_OBSERVER:
+    case BLOCK_PISTON:
+    case BLOCK_STICKY_PISTON:
+    case BLOCK_MOVING_PISTON:
+        return 0;
+    default: {
+        block_model model = get_collision_model(block_state, pos);
+        if (model.flags & BLOCK_MODEL_IS_FULL) {
+            return 1;
+        }
+        return 0;
+    }
+    }
 }
 
 static void
@@ -1112,34 +1271,251 @@ update_wall_shape(net_block_pos pos,
 
 static int
 is_redstone_wire_dot(block_state_info * info) {
-    return info->redstone_pos_x | info->redstone_neg_z
-            | info->redstone_pos_z | info->redstone_neg_x;
+    // @TODO(traks) can make this faster probably
+    return !info->redstone_pos_x && !info->redstone_neg_z
+            && !info->redstone_pos_z && !info->redstone_neg_x;
+}
+
+static int
+can_redstone_wire_connect_horizontally(mc_ushort block_state, int to_dir) {
+    mc_int block_type = serv->block_type_by_state[block_state];
+    block_state_info state_info = describe_block_state(block_state);
+
+    switch (block_type) {
+    case BLOCK_REDSTONE_WIRE:
+        return 1;
+    case BLOCK_REPEATER: {
+        int facing = state_info.horizontal_facing;
+        if (facing == to_dir || facing == get_opposite_direction(to_dir)) {
+            return 1;
+        }
+        return 0;
+    }
+    case BLOCK_OBSERVER: {
+        int facing = state_info.facing;
+        return (facing == to_dir);
+    }
+    // redstone power sources
+    case BLOCK_STONE_PRESSURE_PLATE:
+    case BLOCK_OAK_PRESSURE_PLATE:
+    case BLOCK_SPRUCE_PRESSURE_PLATE:
+    case BLOCK_BIRCH_PRESSURE_PLATE:
+    case BLOCK_JUNGLE_PRESSURE_PLATE:
+    case BLOCK_ACACIA_PRESSURE_PLATE:
+    case BLOCK_DARK_OAK_PRESSURE_PLATE:
+    case BLOCK_LIGHT_WEIGHTED_PRESSURE_PLATE:
+    case BLOCK_HEAVY_WEIGHTED_PRESSURE_PLATE:
+    case BLOCK_CRIMSON_PRESSURE_PLATE:
+    case BLOCK_WARPED_PRESSURE_PLATE:
+    case BLOCK_POLISHED_BLACKSTONE_PRESSURE_PLATE:
+    case BLOCK_STONE_BUTTON:
+    case BLOCK_OAK_BUTTON:
+    case BLOCK_SPRUCE_BUTTON:
+    case BLOCK_BIRCH_BUTTON:
+    case BLOCK_JUNGLE_BUTTON:
+    case BLOCK_ACACIA_BUTTON:
+    case BLOCK_DARK_OAK_BUTTON:
+    case BLOCK_CRIMSON_BUTTON:
+    case BLOCK_WARPED_BUTTON:
+    case BLOCK_POLISHED_BLACKSTONE_BUTTON:
+    case BLOCK_DAYLIGHT_DETECTOR:
+    case BLOCK_DETECTOR_RAIL:
+    case BLOCK_COMPARATOR:
+    case BLOCK_LECTERN:
+    case BLOCK_LEVER:
+    case BLOCK_REDSTONE_BLOCK:
+    case BLOCK_REDSTONE_TORCH:
+    case BLOCK_TARGET:
+    case BLOCK_TRAPPED_CHEST:
+    case BLOCK_TRIPWIRE_HOOK:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static int
+is_redstone_wire_connected(net_block_pos pos, block_state_info * info) {
+    net_block_pos pos_above = get_relative_block_pos(pos, DIRECTION_POS_Y);
+    mc_ushort state_above = try_get_block_state(pos_above);
+    int conductor_above = conducts_redstone(state_above, pos_above);
+
+    // order of redstone side entries in block state info struct
+    int directions[] = {
+        DIRECTION_POS_X, DIRECTION_NEG_Z, DIRECTION_POS_Z, DIRECTION_NEG_X,
+    };
+
+    for (int i = 0; i < 4; i++) {
+        int dir = directions[i];
+        int opp_dir = get_opposite_direction(dir);
+        net_block_pos pos_side = get_relative_block_pos(pos, dir);
+        mc_ushort state_side = try_get_block_state(pos_side);
+
+        if (!conductor_above) {
+            // try to connect diagonally up
+            net_block_pos dest_pos = get_relative_block_pos(
+                    pos_side, DIRECTION_POS_Y);
+            mc_ushort dest_state = try_get_block_state(dest_pos);
+            mc_int dest_type = serv->block_type_by_state[dest_state];
+
+            // can only connect diagonally to redstone wire
+            if (dest_type == BLOCK_REDSTONE_WIRE) {
+                return 1;
+            }
+        }
+
+        if (can_redstone_wire_connect_horizontally(state_side, dir)) {
+            return 1;
+        }
+
+        if (!conducts_redstone(state_side, pos_side)) {
+            // try to connect diagonally down
+            net_block_pos dest_pos = get_relative_block_pos(
+                    pos_side, DIRECTION_NEG_Y);
+            mc_ushort dest_state = try_get_block_state(dest_pos);
+            mc_int dest_type = serv->block_type_by_state[dest_state];
+
+            // can only connect diagonally to redstone wire
+            if (dest_type == BLOCK_REDSTONE_WIRE) {
+                return 1;
+            }
+        }
+    }
+    return 0;
 }
 
 void
-update_redstone_wire_shape(net_block_pos pos,
-        block_state_info * cur_info, int from_direction) {
-    // @TODO(traks) finish this function
-    assert(from_direction != DIRECTION_NEG_Y);
-    if (from_direction == DIRECTION_POS_Y) {
-        mc_ushort state_above = try_get_block_state(
-                get_relative_block_pos(pos, from_direction));
-        mc_int type_above = serv->block_type_by_state[state_above];
-    } else {
-        mc_ushort neighbour_state = try_get_block_state(
-                get_relative_block_pos(pos, from_direction));
-        mc_int neighbour_type = serv->block_type_by_state[neighbour_state];
+reconnect_redstone_wire_with_updates(net_block_pos pos,
+        block_state_info * info, block_update_context * buc,
+        int force_cross_if_dot) {
+    net_block_pos pos_above = get_relative_block_pos(pos, DIRECTION_POS_Y);
+    mc_ushort state_above = try_get_block_state(pos_above);
+    int conductor_above = conducts_redstone(state_above, pos_above);
+    int was_dot = is_redstone_wire_dot(info);
+
+    // order of redstone side entries in block state info struct
+    int directions[] = {
+        DIRECTION_POS_X, DIRECTION_NEG_Z, DIRECTION_POS_Z, DIRECTION_NEG_X,
+    };
+    int new_sides[4];
+    int changed = 0;
+
+    for (int i = 0; i < 4; i++) {
+        int dir = directions[i];
+        int opp_dir = get_opposite_direction(dir);
+        net_block_pos pos_side = get_relative_block_pos(pos, dir);
+        mc_ushort state_side = try_get_block_state(pos_side);
+        int prev_side = info->values[BLOCK_PROPERTY_REDSTONE_POS_X + i];
         int new_side = REDSTONE_SIDE_NONE;
 
-        if (neighbour_type == BLOCK_REDSTONE_WIRE) {
-            new_side = REDSTONE_SIDE_SIDE;
+        // @NOTE(traks) we could try to limit updates to diagonal redstone
+        // wires, by checking if they're already pointing in our direction.
+        // However, then we need to distinguish between UP and SIDE connections,
+        // and figure out whether these are affected by the change of the
+        // current redstone dust... Seems like a lot of work for little gain?
+
+        if (!conductor_above) {
+            // try to connect diagonally up
+            net_block_pos dest_pos = get_relative_block_pos(
+                    pos_side, DIRECTION_POS_Y);
+            mc_ushort dest_state = try_get_block_state(dest_pos);
+            mc_int dest_type = serv->block_type_by_state[dest_state];
+
+            // can only connect diagonally to redstone wire
+            if (dest_type == BLOCK_REDSTONE_WIRE) {
+                support_model model = get_support_model(state_side);
+                if (model.full_face_flags & (1 << opp_dir)) {
+                    new_side = REDSTONE_SIDE_UP;
+                } else {
+                    new_side = REDSTONE_SIDE_SIDE;
+                }
+
+                // update the redstone dust we connect to
+                if (prev_side == REDSTONE_SIDE_NONE
+                        && buc->update_count < buc->max_updates) {
+                    buc->blocks_to_update[buc->update_count] = (block_update) {
+                        .pos = dest_pos,
+                        // @TODO(traks) better direction? Maybe offset?
+                        .from_direction = opp_dir,
+                    };
+                    buc->update_count++;
+                }
+            }
         }
 
-        switch (from_direction) {
-        case DIRECTION_POS_X: cur_info->redstone_pos_x = new_side;
-        case DIRECTION_NEG_Z: cur_info->redstone_neg_z = new_side;
-        case DIRECTION_POS_Z: cur_info->redstone_pos_z = new_side;
-        case DIRECTION_NEG_X: cur_info->redstone_neg_x = new_side;
+        if (new_side == REDSTONE_SIDE_NONE) {
+            if (can_redstone_wire_connect_horizontally(state_side, dir)) {
+                new_side = REDSTONE_SIDE_SIDE;
+            }
+        }
+
+        if (!conducts_redstone(state_side, pos_side)) {
+            // try to connect diagonally down
+            net_block_pos dest_pos = get_relative_block_pos(
+                    pos_side, DIRECTION_NEG_Y);
+            mc_ushort dest_state = try_get_block_state(dest_pos);
+            mc_int dest_type = serv->block_type_by_state[dest_state];
+
+            // can only connect diagonally to redstone wire
+            if (dest_type == BLOCK_REDSTONE_WIRE) {
+                if (new_side == REDSTONE_SIDE_NONE) {
+                    new_side = REDSTONE_SIDE_SIDE;
+                }
+
+                // update the redstone dust we connect to
+                if (prev_side == REDSTONE_SIDE_NONE
+                        && buc->update_count < buc->max_updates) {
+                    buc->blocks_to_update[buc->update_count] = (block_update) {
+                        .pos = dest_pos,
+                        // @TODO(traks) better direction? Maybe offset?
+                        .from_direction = opp_dir,
+                    };
+                    buc->update_count++;
+                }
+            }
+        }
+
+        new_sides[i] = new_side;
+
+        if (new_side != prev_side) {
+            changed = 1;
+        }
+    }
+
+    // we have determined the connections for the new sides. Now compute the
+    // final new side values.
+
+    if (was_dot && !changed && !force_cross_if_dot) {
+        // block state was a dot, so keep it a dot
+        return;
+    }
+
+    // Change the old block properties to the new ones and make the redstone
+    // wire look a bit prettier
+
+    for (int i = 0; i < 4; i++) {
+        info->values[BLOCK_PROPERTY_REDSTONE_POS_X + i] = new_sides[i];
+    }
+
+    int side_pos_x = new_sides[0];
+    int side_neg_z = new_sides[1];
+    int side_pos_z = new_sides[2];
+    int side_neg_x = new_sides[3];
+
+    if (!side_pos_x && !side_neg_x) {
+        if (!side_neg_z) {
+            info->redstone_neg_z = REDSTONE_SIDE_SIDE;
+        }
+        if (!side_pos_z) {
+            info->redstone_pos_z = REDSTONE_SIDE_SIDE;
+        }
+    }
+    if (!side_pos_z && !side_neg_z) {
+        if (!side_neg_x) {
+            info->redstone_neg_x = REDSTONE_SIDE_SIDE;
+        }
+        if (!side_pos_x) {
+            info->redstone_pos_x = REDSTONE_SIDE_SIDE;
         }
     }
 }
@@ -1444,23 +1820,25 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
     case BLOCK_CHEST:
         break;
     case BLOCK_REDSTONE_WIRE: {
-        // @TODO(traks) is this complete?
         if (from_direction == DIRECTION_NEG_Y) {
             if (!can_redstone_wire_survive_on(from_state)) {
                 try_set_block_state(pos, 0);
+                // @TODO(traks) also update diagonal redstone wires
                 push_direct_neighbour_block_updates(pos, buc);
                 return 1;
             }
             return 0;
+        } else {
+            // updates diagonal wires
+            reconnect_redstone_wire_with_updates(pos, &cur_info, buc, 0);
+            mc_ushort new_state = make_block_state(&cur_info);
+            if (new_state == cur_state) {
+                return 0;
+            }
+            try_set_block_state(pos, new_state);
+            push_direct_neighbour_block_updates(pos, buc);
+            return 1;
         }
-        update_redstone_wire_shape(pos, &cur_info, from_direction);
-        mc_ushort new_state = make_block_state(&cur_info);
-        if (new_state == cur_state) {
-            return 0;
-        }
-        try_set_block_state(pos, new_state);
-        push_direct_neighbour_block_updates(pos, buc);
-        return 1;
     }
     case BLOCK_WHEAT:
     case BLOCK_BEETROOTS:
@@ -2470,9 +2848,28 @@ use_block(entity_base * player,
     case BLOCK_CHEST:
         // @TODO
         return 0;
-    case BLOCK_REDSTONE_WIRE:
-        // @TODO
+    case BLOCK_REDSTONE_WIRE: {
+        if (is_redstone_wire_dot(&cur_info)) {
+            cur_info.redstone_pos_x = REDSTONE_SIDE_SIDE;
+            cur_info.redstone_pos_z = REDSTONE_SIDE_SIDE;
+            cur_info.redstone_neg_x = REDSTONE_SIDE_SIDE;
+            cur_info.redstone_neg_z = REDSTONE_SIDE_SIDE;
+            mc_ushort new_state = make_block_state(&cur_info);
+            try_set_block_state(clicked_pos, new_state);
+            push_direct_neighbour_block_updates(clicked_pos, buc);
+            return 1;
+        } else if (!is_redstone_wire_connected(clicked_pos, &cur_info)) {
+            cur_info.redstone_pos_x = REDSTONE_SIDE_NONE;
+            cur_info.redstone_pos_z = REDSTONE_SIDE_NONE;
+            cur_info.redstone_neg_x = REDSTONE_SIDE_NONE;
+            cur_info.redstone_neg_z = REDSTONE_SIDE_NONE;
+            mc_ushort new_state = make_block_state(&cur_info);
+            try_set_block_state(clicked_pos, new_state);
+            push_direct_neighbour_block_updates(clicked_pos, buc);
+            return 1;
+        }
         return 0;
+    }
     case BLOCK_CRAFTING_TABLE:
         // @TODO
         return 0;
@@ -3497,6 +3894,9 @@ register_block_model(int index, int box_count, block_box * pixel_boxes) {
     for (int i = 0; i < box_count; i++) {
         model->boxes[i] = boxes[i];
     }
+    if (index == BLOCK_MODEL_FULL) {
+        model->flags |= BLOCK_MODEL_IS_FULL;
+    }
 
     // compute support model
     support_model * support = serv->support_models + index;
@@ -3583,6 +3983,7 @@ register_cross_block_models(int start_index, block_box centre_box,
 void
 init_block_data(void) {
     register_block_model(BLOCK_MODEL_EMPTY, 0, NULL);
+    // @NOTE(traks) this initialises the full block model
     for (int y = 1; y <= 16; y++) {
         block_box box = {0, 0, 0, 16, y, 16};
         register_block_model(BLOCK_MODEL_EMPTY + y, 1, &box);

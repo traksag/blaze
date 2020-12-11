@@ -1383,32 +1383,12 @@ place_redstone_wire(place_context context, mc_int place_type) {
         return;
     }
 
-    // @TODO(traks) finish this function
-
     block_state_info place_info = describe_default_block_state(place_type);
-
-    int neighbour_directions[] = {DIRECTION_NEG_Z, DIRECTION_POS_Z, DIRECTION_NEG_X, DIRECTION_POS_X};
-    for (int i = 0; i < 4; i++) {
-        int face = neighbour_directions[i];
-        mc_ubyte * field;
-        switch (face) {
-        case DIRECTION_POS_X: field = &place_info.redstone_pos_x;
-        case DIRECTION_NEG_Z: field = &place_info.redstone_neg_z;
-        case DIRECTION_POS_Z: field = &place_info.redstone_pos_z;
-        case DIRECTION_NEG_X: field = &place_info.redstone_neg_x;
-        }
-
-        mc_ushort neighbour_state = try_get_block_state(
-                get_relative_block_pos(target.pos, face));
-        mc_int neighbour_type = serv->block_type_by_state[neighbour_state];
-
-        if (neighbour_type == BLOCK_REDSTONE_WIRE) {
-            *field = REDSTONE_SIDE_SIDE;
-        } else {
-            *field = REDSTONE_SIDE_NONE;
-        }
-    }
-
+    // updates diagonal wires and places cross if there are no other redstone
+    // wires to connect to. It's important that we start off with a dot for this
+    // function, because that forces updates to diagonal redstone wires it
+    // connects to.
+    reconnect_redstone_wire_with_updates(target.pos, &place_info, context.buc, 1);
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);

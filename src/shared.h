@@ -1104,9 +1104,9 @@ enum wall_side {
 };
 
 enum redstone_side {
-    REDSTONE_SIDE_UP,
-    REDSTONE_SIDE_SIDE,
     REDSTONE_SIDE_NONE,
+    REDSTONE_SIDE_SIDE,
+    REDSTONE_SIDE_UP,
 };
 
 enum double_block_half {
@@ -1254,8 +1254,14 @@ typedef struct {
 
 typedef struct {
     unsigned char box_count;
+    unsigned char flags;
     block_box boxes[8];
 } block_model;
+
+// @NOTE(traks) some functions don't return a block model index, but a block
+// model that isn't associated to an index. We need to test these against
+// full-ness.
+#define BLOCK_MODEL_IS_FULL ((unsigned char) (0x1 << 0))
 
 enum block_model {
     BLOCK_MODEL_EMPTY,
@@ -3456,6 +3462,11 @@ can_pressure_plate_survive_on(mc_ushort state_below);
 
 int
 can_redstone_wire_survive_on(mc_ushort state_below);
+
+void
+reconnect_redstone_wire_with_updates(net_block_pos pos,
+        block_state_info * info, block_update_context * buc,
+        int force_cross_if_dot);
 
 int
 can_sugar_cane_survive_at(net_block_pos cur_pos);
