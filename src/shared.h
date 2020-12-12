@@ -3464,9 +3464,9 @@ int
 can_redstone_wire_survive_on(mc_ushort state_below);
 
 void
-reconnect_redstone_wire_with_updates(net_block_pos pos,
-        block_state_info * info, block_update_context * buc,
-        int force_cross_if_dot);
+recalculate_redstone_wire_and_update_diagonals(
+        net_block_pos pos, block_state_info * info,
+        block_update_context * buc, int force_cross_if_dot);
 
 int
 can_sugar_cane_survive_at(net_block_pos cur_pos);

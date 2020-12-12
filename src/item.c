@@ -1388,7 +1388,8 @@ place_redstone_wire(place_context context, mc_int place_type) {
     // wires to connect to. It's important that we start off with a dot for this
     // function, because that forces updates to diagonal redstone wires it
     // connects to.
-    reconnect_redstone_wire_with_updates(target.pos, &place_info, context.buc, 1);
+    recalculate_redstone_wire_and_update_diagonals(
+            target.pos, &place_info, context.buc, 1);
     mc_ushort place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
