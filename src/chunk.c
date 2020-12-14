@@ -261,11 +261,25 @@ chunk_set_block_state(chunk * ch, int x, int y, int z, mc_ushort block_state) {
     // @TODO(traks) somehow ensure this never fails even with tons of players,
     // or make sure we appropriate handle cases in which too many changes occur
     // to a chunk per tick.
-    assert(ch->changed_block_count < ARRAY_SIZE(ch->changed_blocks));
 
-    compact_chunk_block_pos pos = {.x = x, .y = y, .z = z};
-    ch->changed_blocks[ch->changed_block_count] = pos;
-    ch->changed_block_count++;
+    // @TODO(traks) This is currently O(N^2) where N is the number of different
+    // blocks we changed in the chunk in a single tick. Should be faster.
+    int match = 0;
+    for (int i = 0; i < ch->changed_block_count; i++) {
+        compact_chunk_block_pos entry = ch->changed_blocks[i];
+        if (entry.x == x && entry.y == y && entry.z == z) {
+            match = 1;
+            break;
+        }
+    }
+
+    if (!match) {
+        assert(ch->changed_block_count < ARRAY_SIZE(ch->changed_blocks));
+
+        compact_chunk_block_pos pos = {.x = x, .y = y, .z = z};
+        ch->changed_blocks[ch->changed_block_count] = pos;
+        ch->changed_block_count++;
+    }
 
     int section_y = y >> 4;
     chunk_section * section = ch->sections[section_y];

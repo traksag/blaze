@@ -268,11 +268,12 @@ typedef struct {
     mc_uint available_interest;
     unsigned flags;
 
-    // @TODO(traks) more changed blocks, better compression. Figure out when
-    // this limit can be exceeded. I highly doubt more than 16 blocks will be
-    // changed per chunk per tick due to players except if player density is
-    // very high.
-    compact_chunk_block_pos changed_blocks[16];
+    // @TODO(traks) more changed blocks, better compression. Can become very
+    // large due to redstone updates, carpet towers breaking, etc. This should
+    // probably grow dynamically. An alternative would be to store a bit array
+    // with a 1 if a block changed and a 0 otherwise. However, that has massive
+    // memory overhead.
+    compact_chunk_block_pos changed_blocks[200];
     mc_ubyte changed_block_count;
 
     // @TODO(traks) allow more block entities. Possibly use an internally
@@ -3463,10 +3464,9 @@ can_pressure_plate_survive_on(mc_ushort state_below);
 int
 can_redstone_wire_survive_on(mc_ushort state_below);
 
-void
-recalculate_redstone_wire_and_update_diagonals(
-        net_block_pos pos, block_state_info * info,
-        block_update_context * buc, int force_cross_if_dot);
+int
+update_redstone_wire(net_block_pos pos, mc_ushort in_world_state,
+        block_state_info * base_info, block_update_context * buc);
 
 int
 can_sugar_cane_survive_at(net_block_pos cur_pos);

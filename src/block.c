@@ -3,6 +3,11 @@
 #include <stdio.h>
 #include "shared.h"
 
+// @TODO(traks) An issue with having a fixed update order, is that redstone
+// contraptions can break if they're rotated. Perhaps making the update order
+// depend on the direction from which the update was triggered, will make it
+// rotation independent? Reflectional symmetry seems to be an issue still
+// though.
 static unsigned char update_order[] = {
     DIRECTION_NEG_X, DIRECTION_POS_X,
     DIRECTION_NEG_Z, DIRECTION_POS_Z,
@@ -23,16 +28,23 @@ get_horizontal_direction_index(int dir) {
 }
 
 static void
-push_neighbour_block_update(net_block_pos pos, int dir,
+push_block_update(net_block_pos pos, int from_dir,
         block_update_context * buc) {
     if (buc->update_count >= buc->max_updates) {
         return;
     }
     buc->blocks_to_update[buc->update_count] = (block_update) {
-        .pos = get_relative_block_pos(pos, dir),
-        .from_direction = get_opposite_direction(dir),
+        .pos = pos,
+        .from_direction = from_dir,
     };
     buc->update_count++;
+}
+
+static void
+push_neighbour_block_update(net_block_pos pos, int dir,
+        block_update_context * buc) {
+    push_block_update(get_relative_block_pos(pos, dir),
+            get_opposite_direction(dir), buc);
 }
 
 void
@@ -1350,7 +1362,7 @@ can_redstone_wire_connect_horizontally(mc_ushort block_state, int to_dir) {
 
 static int
 get_emitted_redstone_power(mc_ushort block_state, int dir,
-        int to_redstone_wire) {
+        int to_wire, int ignore_wires) {
     mc_int block_type = serv->block_type_by_state[block_state];
     block_state_info info = describe_block_state(block_state);
 
@@ -1415,10 +1427,13 @@ get_emitted_redstone_power(mc_ushort block_state, int dir,
         return 15;
     }
     case BLOCK_REDSTONE_WIRE: {
+        if (ignore_wires) {
+            return 0;
+        }
         if (dir == DIRECTION_POS_Y) {
             return 0;
         } else if (dir == DIRECTION_NEG_Y) {
-            if (to_redstone_wire) {
+            if (to_wire) {
                 return 0;
             }
             return info.power;
@@ -1428,7 +1443,7 @@ get_emitted_redstone_power(mc_ushort block_state, int dir,
             // return power if the wire is connected on the direction's side. If
             // we're emitting to another redstone wire, decrease power by 1.
             if (info.values[prop]) {
-                return to_redstone_wire ? MAX(info.power, 1) - 1 : info.power;
+                return to_wire ? MAX(info.power, 1) - 1 : info.power;
             }
             return 0;
         }
@@ -1451,7 +1466,7 @@ get_emitted_redstone_power(mc_ushort block_state, int dir,
 
 static int
 get_conducted_redstone_power(mc_ushort block_state, int dir,
-        int to_redstone_wire) {
+        int to_wire, int ignore_wires) {
     mc_int block_type = serv->block_type_by_state[block_state];
     block_state_info info = describe_block_state(block_state);
 
@@ -1533,7 +1548,7 @@ get_conducted_redstone_power(mc_ushort block_state, int dir,
         return 0;
     }
     case BLOCK_REDSTONE_WIRE: {
-        if (to_redstone_wire) {
+        if (to_wire || ignore_wires) {
             // redstone wire doesn't conduct power through blocks to other
             // redstone wires
             return 0;
@@ -1564,17 +1579,18 @@ get_conducted_redstone_power(mc_ushort block_state, int dir,
 }
 
 static int
-get_redstone_power_side_input(net_block_pos pos, int dir,
-        int to_redstone_wire) {
+get_redstone_side_power(net_block_pos pos, int dir, int to_wire,
+        int ignore_wires) {
     net_block_pos side_pos = get_relative_block_pos(pos, dir);
     int opp_dir = get_opposite_direction(dir);
     mc_ushort side_state = try_get_block_state(side_pos);
-    int res = get_emitted_redstone_power(side_state, opp_dir, to_redstone_wire);
+    int res = get_emitted_redstone_power(side_state, opp_dir,
+            to_wire, ignore_wires);
 
     if (conducts_redstone(side_state, side_pos)) {
         for (int dir_on_side = 0; dir_on_side < 6; dir_on_side++) {
             if (dir_on_side == opp_dir) {
-                // don't include the power of this redstone dust in the
+                // don't include the power of the original block in the
                 // calculation
                 continue;
             }
@@ -1586,7 +1602,7 @@ get_redstone_power_side_input(net_block_pos pos, int dir,
                     get_relative_block_pos(side_pos, dir_on_side));
             int power = get_conducted_redstone_power(
                     state, get_opposite_direction(dir_on_side),
-                    to_redstone_wire);
+                    to_wire, ignore_wires);
             res = MAX(res, power);
         }
     }
@@ -1645,20 +1661,24 @@ is_redstone_wire_connected(net_block_pos pos, block_state_info * info) {
 
 typedef struct {
     // first index is horizontal direction, second index is top, middle, bottom
-    // of possible connection
+    // of possible connection.
+    // @NOTE(traks) It is important to note that connected does not imply
+    // redstone power can travel from one dust to the other; think of redstone
+    // slab towers.
     unsigned char connected[4][3];
-    unsigned char power[4][3];
     unsigned char sides[4];
+    unsigned char power;
+    unsigned char wire_out[4][3];
+    unsigned char wire_in[4][3];
 } redstone_wire_env;
 
-void
-recalculate_redstone_wire_and_update_diagonals(net_block_pos pos,
-        block_state_info * info, block_update_context * buc,
-        int force_cross_if_dot) {
+int
+update_redstone_wire(net_block_pos pos, mc_ushort in_world_state,
+        block_state_info * base_info, block_update_context * buc) {
     net_block_pos pos_above = get_relative_block_pos(pos, DIRECTION_POS_Y);
     mc_ushort state_above = try_get_block_state(pos_above);
     int conductor_above = conducts_redstone(state_above, pos_above);
-    int was_dot = is_redstone_wire_dot(info);
+    int was_dot = is_redstone_wire_dot(base_info);
 
     // order of redstone side entries in block state info struct
     int directions[] = {
@@ -1678,9 +1698,6 @@ recalculate_redstone_wire_and_update_diagonals(net_block_pos pos,
         block_state_info side_info = describe_block_state(state_side);
         int new_side = REDSTONE_SIDE_NONE;
 
-        // first determine what this redstone wire should connect to, and what
-        // the power is of diagonal redstone wires
-
         if (!conductor_above) {
             // try to connect diagonally up
             net_block_pos dest_pos = get_relative_block_pos(
@@ -1690,8 +1707,6 @@ recalculate_redstone_wire_and_update_diagonals(net_block_pos pos,
 
             // can only connect diagonally to redstone wire
             if (dest_type == BLOCK_REDSTONE_WIRE) {
-                block_state_info dest_info = describe_block_state(dest_state);
-                env.power[i][0] = MAX(dest_info.power, 1) - 1;
                 env.connected[i][0] = 1;
                 support_model model = get_support_model(state_side);
                 if (model.full_face_flags & (1 << opp_dir)) {
@@ -1720,8 +1735,6 @@ recalculate_redstone_wire_and_update_diagonals(net_block_pos pos,
 
             // can only connect diagonally to redstone wire
             if (dest_type == BLOCK_REDSTONE_WIRE) {
-                block_state_info dest_info = describe_block_state(dest_state);
-                env.power[i][2] = MAX(dest_info.power, 1) - 1;
                 env.connected[i][2] = 1;
                 if (new_side == REDSTONE_SIDE_NONE) {
                     new_side = REDSTONE_SIDE_SIDE;
@@ -1730,106 +1743,407 @@ recalculate_redstone_wire_and_update_diagonals(net_block_pos pos,
         }
 
         env.sides[i] = new_side;
-
-        // secondly, determine the redstone power from the side block. The side
-        // block can produce power itself, or it can be powered by something
-        // else
-        env.power[i][1] = get_redstone_power_side_input(pos, directions[i], 1);
     }
 
     // Now actually do something with the collected data
 
-    if (was_dot && !force_cross_if_dot) {
-        // block state was a dot, so keep it a dot if there are no connections
-        int changed = env.sides[0] | env.sides[1] | env.sides[2] | env.sides[3];
-        if (!changed) {
-            return;
+    int is_dot = !(env.sides[0] | env.sides[1] | env.sides[2] | env.sides[3]);
+
+    if (was_dot && is_dot) {
+        // redstone wire remains a dot
+    } else {
+        // @TODO(traks) we should also make sure redstone torches on blocks,
+        // repeaters, etc. are updated when redstone dust is redirected. This is
+        // going to be a massive pain to implement for every redstone component
+        // with this sytem...
+
+        for (int i = 0; i < 4; i++) {
+            base_info->values[BLOCK_PROPERTY_REDSTONE_POS_X + i] = env.sides[i];
+        }
+
+        int side_pos_x = env.sides[0];
+        int side_neg_z = env.sides[1];
+        int side_pos_z = env.sides[2];
+        int side_neg_x = env.sides[3];
+
+        if (!side_pos_x && !side_neg_x) {
+            if (!side_neg_z) {
+                base_info->redstone_neg_z = REDSTONE_SIDE_SIDE;
+            }
+            if (!side_pos_z) {
+                base_info->redstone_pos_z = REDSTONE_SIDE_SIDE;
+            }
+        }
+        if (!side_pos_z && !side_neg_z) {
+            if (!side_neg_x) {
+                base_info->redstone_neg_x = REDSTONE_SIDE_SIDE;
+            }
+            if (!side_pos_x) {
+                base_info->redstone_pos_x = REDSTONE_SIDE_SIDE;
+            }
         }
     }
 
-    // @TODO(traks) get power above and below centre
+    mc_ushort new_state = make_block_state(base_info);
+    if (new_state == in_world_state) {
+        return 0;
+    }
+
+    try_set_block_state(pos, new_state);
+
+    // @TODO(traks) update direct neighbours and diagonal neighbours in the
+    // global update order
+    for (int i = 0; i < 4; i++) {
+        int dir = directions[i];
+        int opp_dir = get_opposite_direction(dir);
+        net_block_pos side_pos = get_relative_block_pos(pos, dir);
+        net_block_pos above_pos = get_relative_block_pos(side_pos, DIRECTION_POS_Y);
+        if (env.connected[i][0]) {
+            push_block_update(above_pos, opp_dir, buc);
+        }
+        net_block_pos below_pos = get_relative_block_pos(side_pos, DIRECTION_NEG_Y);
+        if (env.connected[i][2]) {
+            push_block_update(below_pos, opp_dir, buc);
+        }
+    }
+
+    push_direct_neighbour_block_updates(pos, buc);
+    return 1;
+}
+
+redstone_wire_env
+calculate_redstone_wire_env(net_block_pos pos, mc_ushort block_state,
+        block_state_info * info, int ignore_same_line_power) {
+    net_block_pos pos_above = get_relative_block_pos(pos, DIRECTION_POS_Y);
+    mc_ushort state_above = try_get_block_state(pos_above);
+    int conductor_above = conducts_redstone(state_above, pos_above);
+    net_block_pos pos_below = get_relative_block_pos(pos, DIRECTION_NEG_Y);
+    mc_ushort state_below = try_get_block_state(pos_below);
+    int conductor_below = conducts_redstone(state_below, pos_below);
+
+    // order of redstone side entries in block state info struct
+    int directions[] = {
+        DIRECTION_POS_X, DIRECTION_NEG_Z, DIRECTION_POS_Z, DIRECTION_NEG_X,
+    };
+
+    // first gather data from the blocks around the redstone wire, so we can do
+    // calculations with it afterwards
+
+    redstone_wire_env env = {0};
+    int powers[4][3] = {0};
+
+    for (int i = 0; i < 4; i++) {
+        int dir = directions[i];
+        int opp_dir = get_opposite_direction(dir);
+        net_block_pos pos_side = get_relative_block_pos(pos, dir);
+        mc_ushort state_side = try_get_block_state(pos_side);
+        mc_int type_side = serv->block_type_by_state[state_side];
+        block_state_info side_info = describe_block_state(state_side);
+        int conductor_side = conducts_redstone(state_side, pos_side);
+        int new_side = REDSTONE_SIDE_NONE;
+
+        // first determine what this redstone wire should connect to, and what
+        // the power is of diagonal redstone wires
+
+        if (!conductor_above) {
+            // try to connect diagonally up
+            net_block_pos dest_pos = get_relative_block_pos(
+                    pos_side, DIRECTION_POS_Y);
+            mc_ushort dest_state = try_get_block_state(dest_pos);
+            mc_int dest_type = serv->block_type_by_state[dest_state];
+
+            // can only connect diagonally to redstone wire
+            if (dest_type == BLOCK_REDSTONE_WIRE) {
+                block_state_info dest_info = describe_block_state(dest_state);
+                env.connected[i][0] = 1;
+                support_model model = get_support_model(state_side);
+                if (model.full_face_flags & (1 << opp_dir)) {
+                    new_side = REDSTONE_SIDE_UP;
+                } else {
+                    new_side = REDSTONE_SIDE_SIDE;
+                }
+
+                if (conductor_side) {
+                    powers[i][0] = MAX(dest_info.power, 1) - 1;
+                    env.wire_in[i][0] = 1;
+                }
+
+                env.wire_out[i][0] = 1;
+            }
+        }
+
+        if (can_redstone_wire_connect_horizontally(state_side, dir)) {
+            env.connected[i][1] = 1;
+            if (new_side == REDSTONE_SIDE_NONE) {
+                new_side = REDSTONE_SIDE_SIDE;
+            }
+        }
+        if (type_side == BLOCK_REDSTONE_WIRE) {
+            env.wire_in[i][1] = 1;
+            env.wire_out[i][1] = 1;
+        }
+
+        powers[i][1] = get_redstone_side_power(pos, dir, 1, ignore_same_line_power);
+
+        if (!conductor_side) {
+            // try to connect diagonally down
+            net_block_pos dest_pos = get_relative_block_pos(
+                    pos_side, DIRECTION_NEG_Y);
+            mc_ushort dest_state = try_get_block_state(dest_pos);
+            mc_int dest_type = serv->block_type_by_state[dest_state];
+
+            // can only connect diagonally to redstone wire
+            if (dest_type == BLOCK_REDSTONE_WIRE) {
+                block_state_info dest_info = describe_block_state(dest_state);
+                env.connected[i][2] = 1;
+                if (new_side == REDSTONE_SIDE_NONE) {
+                    new_side = REDSTONE_SIDE_SIDE;
+                }
+
+                env.wire_in[i][2] = 1;
+                if (conductor_below) {
+                    env.wire_out[i][2] = 1;
+                }
+
+                if (!ignore_same_line_power || !conductor_below) {
+                    powers[i][2] = MAX(dest_info.power, 1) - 1;
+                }
+            }
+        }
+
+        env.sides[i] = new_side;
+    }
+
+    // Now actually do something with the collected data
+
+    int was_dot = is_redstone_wire_dot(info);
+    int is_dot = !(env.sides[0] | env.sides[1] | env.sides[2] | env.sides[3]);
+
+    if (was_dot && is_dot) {
+        // keep the redstone wire as a dot
+    } else {
+        // Update connection visuals to make the wire look a bit nicer. The
+        // visuals sadly don't give an accurate representation of the actual
+        // connections of this wire.
+        int side_pos_x = env.sides[0];
+        int side_neg_z = env.sides[1];
+        int side_pos_z = env.sides[2];
+        int side_neg_x = env.sides[3];
+
+        if (!side_pos_x && !side_neg_x) {
+            if (!side_neg_z) {
+                env.sides[1] = REDSTONE_SIDE_SIDE;
+            }
+            if (!side_pos_z) {
+                env.sides[2] = REDSTONE_SIDE_SIDE;
+            }
+        }
+        if (!side_pos_z && !side_neg_z) {
+            if (!side_neg_x) {
+                env.sides[3] = REDSTONE_SIDE_SIDE;
+            }
+            if (!side_pos_x) {
+                env.sides[0] = REDSTONE_SIDE_SIDE;
+            }
+        }
+    }
+
+    // Finally, calculate the power level of the redstone wire as determined by
+    // the surrounding blocks
 
     int new_power = 0;
     for (int i = 0; i < 4; i++) {
         for (int j = 0; j < 3; j++) {
-            new_power = MAX(new_power, env.power[i][j]);
+            new_power = MAX(new_power, powers[i][j]);
         }
     }
+
+    new_power = MAX(new_power, get_redstone_side_power(pos, DIRECTION_NEG_Y, 1,
+            ignore_same_line_power));
+    new_power = MAX(new_power, get_redstone_side_power(pos, DIRECTION_POS_Y, 1,
+            ignore_same_line_power));
+    env.power = new_power;
+    return env;
+}
+
+typedef struct {
+    net_block_pos pos;
+    unsigned char distance;
+} redstone_wire_pos;
+
+static void
+update_redstone_line(net_block_pos start_pos) {
+    mc_ushort start_state = try_get_block_state(start_pos);
+    block_state_info start_info = describe_block_state(start_state);
+    redstone_wire_env start_env = calculate_redstone_wire_env(
+            start_pos, start_state, &start_info, 0);
 
     // @TODO(traks) we should also make sure redstone torches on blocks,
     // repeaters, etc. are updated when power level changes or redstone dust is
     // redirected. This is going to be a massive pain to implement for every
     // redstone component with this sytem.
 
-    // @TODO(traks) need to avoid redstone update spam by e.g. removing a power
-    // source. In such cases the redstone wire next to the power source drops one
-    // level, then the redstone wire next to it drops a power level, then the
-    // original again, etc.
+    if (start_env.power == start_info.power) {
+        return;
+    }
 
-    if (new_power != info->power) {
-        // power changed, update all connected diagonal wires
+    // order of redstone side entries in block state info struct
+    int directions[] = {
+        DIRECTION_POS_X, DIRECTION_NEG_Z, DIRECTION_POS_Z, DIRECTION_NEG_X,
+    };
 
-        // @TODO(traks) update above and below centre
+    if (start_env.power > start_info.power) {
+        // power went up, spread it around!
 
-        for (int i = 0; i < 4; i++) {
-            net_block_pos top_pos = get_relative_block_pos(pos, DIRECTION_POS_Y);
-            net_block_pos bottom_pos = get_relative_block_pos(pos, DIRECTION_NEG_Y);
-            // @TODO(traks) better direction? Maybe 3-coordinate offset?
-            if (env.connected[i][0]) {
-                push_neighbour_block_update(top_pos, directions[i], buc);
-            }
-            if (env.connected[i][2]) {
-                push_neighbour_block_update(bottom_pos, directions[i], buc);
+        net_block_pos wires[500];
+        int wire_count = 0;
+        wires[0] = start_pos;
+        wire_count++;
+
+        start_info.power = start_env.power;
+        mc_ushort new_start_state = make_block_state(&start_info);
+        try_set_block_state(start_pos, new_start_state);
+
+        for (int i = 0; i < wire_count; i++) {
+            net_block_pos wire_pos = wires[i];
+            mc_ushort state = try_get_block_state(wire_pos);
+            block_state_info info = describe_block_state(state);
+            redstone_wire_env env = calculate_redstone_wire_env(
+                    wire_pos, state, &info, 0);
+
+            for (int i = 0; i < 4; i++) {
+                net_block_pos rel = get_relative_block_pos(
+                        wire_pos, directions[i]);
+                rel = get_relative_block_pos(rel, DIRECTION_POS_Y);
+
+                for (int j = 0; j < 3; j++) {
+                    if (env.wire_out[i][j]) {
+                        mc_ushort out_state = try_get_block_state(rel);
+                        block_state_info out_info = describe_block_state(out_state);
+                        redstone_wire_env out_env = calculate_redstone_wire_env(
+                                rel, out_state, &out_info, 0);
+                        if (out_env.power > out_info.power) {
+                            out_info.power = out_env.power;
+                            try_set_block_state(rel, make_block_state(&out_info));
+                            wires[wire_count] = rel;
+                            wire_count++;
+                        }
+                    }
+                    rel = get_relative_block_pos(rel, DIRECTION_NEG_Y);
+                }
             }
         }
     } else {
-        // otherwise, just update all diagonal wires we weren't connected with
-        // before, but are connected with now
-        for (int i = 0; i < 4; i++) {
-            net_block_pos top_pos = get_relative_block_pos(pos, DIRECTION_POS_Y);
-            net_block_pos bottom_pos = get_relative_block_pos(pos, DIRECTION_NEG_Y);
-            int prev_side = info->values[BLOCK_PROPERTY_REDSTONE_POS_X + i];
-            // @TODO(traks) better direction? Maybe 3-coordinate offset?
-            // @TODO(traks) should be really only be updating if previous side
-            // was none? The problem is that we don't know if we were connected
-            // to diagonally below, even if prev side is SIDE_SIDE.
-            if (env.connected[i][0] && prev_side == REDSTONE_SIDE_NONE) {
-                push_neighbour_block_update(top_pos, directions[i], buc);
+        // power went down
+
+        redstone_wire_pos wires[500];
+        int wire_count = 0;
+        wires[0] = (redstone_wire_pos) {.pos = start_pos, .distance = 0};
+        wire_count++;
+
+        net_block_pos sources[50];
+        int source_count = 0;
+
+        redstone_wire_env lineless_env = calculate_redstone_wire_env(
+                start_pos, start_state, &start_info, 1);
+        if (lineless_env.power > 0) {
+            sources[0] = start_pos;
+            source_count++;
+        }
+
+        for (int i = 0; i < wire_count; i++) {
+            net_block_pos wire_pos = wires[i].pos;
+            int distance = wires[i].distance;
+            mc_ushort state = try_get_block_state(wire_pos);
+            block_state_info info = describe_block_state(state);
+            redstone_wire_env env = calculate_redstone_wire_env(
+                    wire_pos, state, &info, 1);
+
+            for (int i = 0; i < 4; i++) {
+                net_block_pos rel = get_relative_block_pos(
+                        wire_pos, directions[i]);
+                rel = get_relative_block_pos(rel, DIRECTION_POS_Y);
+
+                for (int j = 0; j < 3; j++) {
+                    if (env.wire_out[i][j]) {
+                        block_state_info out_info = describe_block_state(
+                                try_get_block_state(rel));
+                        if (out_info.power == start_info.power - distance - 1
+                                && out_info.power > 0) {
+                            redstone_wire_env out_env = calculate_redstone_wire_env(
+                                    wire_pos, state, &info, 1);
+
+                            if (out_env.power > 0) {
+                                sources[source_count] = wire_pos;
+                                source_count++;
+                            }
+
+                            out_info.power = 0;
+                            try_set_block_state(rel, make_block_state(&out_info));
+
+                            // this neighbour is exactly
+                            wires[wire_count] = (redstone_wire_pos) {
+                                .pos = rel,
+                                .distance = distance + 1
+                            };
+                            wire_count++;
+                        }
+                    }
+                    rel = get_relative_block_pos(rel, DIRECTION_NEG_Y);
+                }
             }
-            if (env.connected[i][2] && prev_side == REDSTONE_SIDE_NONE) {
-                push_neighbour_block_update(bottom_pos, directions[i], buc);
+        }
+
+        for (int i = 0; i < wire_count; i++) {
+            net_block_pos wire_pos = wires[i].pos;
+            int distance = wires[i].distance;
+            mc_ushort state = try_get_block_state(wire_pos);
+            block_state_info info = describe_block_state(state);
+            int cur_power = info.power;
+            redstone_wire_env env = calculate_redstone_wire_env(
+                    wire_pos, state, &info, 1);
+
+            info.power = 0;
+            try_set_block_state(wire_pos, make_block_state(&info));
+
+            if (start_info.power - distance < cur_power) {
+                // the wire is powered by something other than the original wire
+                // of which the power decreased, so the power of the current
+                // wire won't change because of the decreased power
+                sources[source_count] = wire_pos;
+                source_count++;
+                continue;
+            }
+
+            if (env.power > 0) {
+                sources[source_count] = wire_pos;
+                source_count++;
+            }
+
+            for (int i = 0; i < 4; i++) {
+                net_block_pos rel = get_relative_block_pos(
+                        wire_pos, directions[i]);
+                rel = get_relative_block_pos(rel, DIRECTION_POS_Y);
+
+                for (int j = 0; j < 3; j++) {
+                    if (env.wire_out[i][j]) {
+                        block_state_info out_info = describe_block_state(
+                                try_get_block_state(rel));
+                        if (out_info.power > 0) {
+                            wires[wire_count] = (redstone_wire_pos) {
+                                .pos = rel,
+                                .distance = distance + 1
+                            };
+                            wire_count++;
+                        }
+                    }
+                    rel = get_relative_block_pos(rel, DIRECTION_NEG_Y);
+                }
             }
         }
-    }
 
-    // Change the old block properties to the new ones and make the redstone
-    // wire look a bit prettier
-
-    info->power = new_power;
-
-    for (int i = 0; i < 4; i++) {
-        info->values[BLOCK_PROPERTY_REDSTONE_POS_X + i] = env.sides[i];
-    }
-
-    int side_pos_x = env.sides[0];
-    int side_neg_z = env.sides[1];
-    int side_pos_z = env.sides[2];
-    int side_neg_x = env.sides[3];
-
-    if (!side_pos_x && !side_neg_x) {
-        if (!side_neg_z) {
-            info->redstone_neg_z = REDSTONE_SIDE_SIDE;
-        }
-        if (!side_pos_z) {
-            info->redstone_pos_z = REDSTONE_SIDE_SIDE;
-        }
-    }
-    if (!side_pos_z && !side_neg_z) {
-        if (!side_neg_x) {
-            info->redstone_neg_x = REDSTONE_SIDE_SIDE;
-        }
-        if (!side_pos_x) {
-            info->redstone_pos_x = REDSTONE_SIDE_SIDE;
+        for (int i = 0; i < source_count; i++) {
+            update_redstone_line(sources[i]);
         }
     }
 }
@@ -2143,16 +2457,10 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
             }
             return 0;
         } else {
-            // updates diagonal wires
-            recalculate_redstone_wire_and_update_diagonals(
-                    pos, &cur_info, buc, 0);
-            mc_ushort new_state = make_block_state(&cur_info);
-            if (new_state == cur_state) {
-                return 0;
-            }
-            try_set_block_state(pos, new_state);
-            push_direct_neighbour_block_updates(pos, buc);
-            return 1;
+            // @TODO(traks) completely working implementation
+            int res = update_redstone_wire(pos, cur_state, &cur_info, buc);
+            update_redstone_line(pos);
+            return res;
         }
     }
     case BLOCK_WHEAT:
