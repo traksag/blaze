@@ -2501,48 +2501,57 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
 
                 chunk * ch = get_chunk_if_loaded(pos);
                 assert(ch != NULL);
-                if (ch->changed_block_count == 0) {
-                    continue;
+
+                if (ch->changed_block_count != 0) {
+                    for (int section = 0; section < 16; section++) {
+                        int changed_blocks_size = ARRAY_SIZE(ch->changed_blocks);
+                        compact_chunk_block_pos sec_changed_blocks[changed_blocks_size];
+                        int sec_changed_block_count = 0;
+
+                        for (int i = 0; i < ch->changed_block_count; i++) {
+                            compact_chunk_block_pos pos = ch->changed_blocks[i];
+                            if ((pos.y >> 4) == section) {
+                                sec_changed_blocks[sec_changed_block_count] = pos;
+                                sec_changed_block_count++;
+                            }
+                        }
+
+                        if (sec_changed_block_count == 0) {
+                            continue;
+                        }
+
+                        begin_packet(send_cursor, CBP_SECTION_BLOCKS_UPDATE);
+                        mc_ulong section_pos =
+                                ((mc_ulong) (x & 0x3fffff) << 42)
+                                | ((mc_ulong) (z & 0x3fffff) << 20)
+                                | (mc_ulong) (section & 0xfffff);
+                        net_write_ulong(send_cursor, section_pos);
+                        // @TODO(traks) appropriate value for this
+                        net_write_ubyte(send_cursor, 1); // suppress light updates
+                        net_write_varint(send_cursor, sec_changed_block_count);
+
+                        for (int i = 0; i < sec_changed_block_count; i++) {
+                            compact_chunk_block_pos pos = sec_changed_blocks[i];
+                            mc_long block_state = chunk_get_block_state(ch,
+                                    pos.x, pos.y, pos.z);
+                            mc_long encoded = (block_state << 12)
+                                    | (pos.x << 8) | (pos.z << 4) | (pos.y & 0xf);
+                            net_write_varlong(send_cursor, encoded);
+                        }
+                        finish_packet(send_cursor, player);
+                    }
                 }
 
-                for (int section = 0; section < 16; section++) {
-                    int changed_blocks_size = ARRAY_SIZE(ch->changed_blocks);
-                    compact_chunk_block_pos sec_changed_blocks[changed_blocks_size];
-                    int sec_changed_block_count = 0;
+                for (int i = 0; i < ch->local_event_count; i++) {
+                    level_event * event = ch->local_events + i;
 
-                    for (int i = 0; i < ch->changed_block_count; i++) {
-                        compact_chunk_block_pos pos = ch->changed_blocks[i];
-                        if ((pos.y >> 4) == section) {
-                            sec_changed_blocks[sec_changed_block_count] = pos;
-                            sec_changed_block_count++;
-                        }
-                    }
-
-                    if (sec_changed_block_count == 0) {
-                        continue;
-                    }
-
-                    begin_packet(send_cursor, CBP_SECTION_BLOCKS_UPDATE);
-                    mc_ulong section_pos =
-                            ((mc_ulong) (x & 0x3fffff) << 42)
-                            | ((mc_ulong) (z & 0x3fffff) << 20)
-                            | (mc_ulong) (section & 0xfffff);
-                    net_write_ulong(send_cursor, section_pos);
-                    // @TODO(traks) appropriate value for this
-                    net_write_ubyte(send_cursor, 1); // suppress light updates
-                    net_write_varint(send_cursor, sec_changed_block_count);
-
-                    for (int i = 0; i < sec_changed_block_count; i++) {
-                        compact_chunk_block_pos pos = sec_changed_blocks[i];
-                        mc_long block_state = chunk_get_block_state(ch,
-                                pos.x, pos.y, pos.z);
-                        mc_long encoded = (block_state << 12)
-                                | (pos.x << 8) | (pos.z << 4) | (pos.y & 0xf);
-                        net_write_varlong(send_cursor, encoded);
-                    }
+                    begin_packet(send_cursor, CBP_LEVEL_EVENT);
+                    net_write_int(send_cursor, event->type);
+                    net_write_block_pos(send_cursor, event->pos);
+                    net_write_int(send_cursor, event->data);
+                    net_write_ubyte(send_cursor, 0); // is global event
                     finish_packet(send_cursor, player);
                 }
-
                 continue;
             }
 

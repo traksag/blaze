@@ -371,6 +371,30 @@ make_block_state(block_state_info * info) {
     return res;
 }
 
+static void
+break_block(net_block_pos pos) {
+    mc_ushort cur_state = try_get_block_state(pos);
+    mc_int cur_type = serv->block_type_by_state[cur_state];
+
+    chunk_pos ch_pos = {
+        .x = pos.x >> 4,
+        .z = pos.z >> 4
+    };
+    chunk * ch = get_chunk_if_loaded(ch_pos);
+    if (ch != NULL) {
+        if (ch->local_event_count < ARRAY_SIZE(ch->local_events)) {
+            ch->local_events[ch->local_event_count] = (level_event) {
+                .type = LEVEL_EVENT_BREAK_BLOCK_ANIMATION,
+                .pos = pos,
+                .data = cur_state,
+            };
+            ch->local_event_count++;
+        }
+    }
+
+    try_set_block_state(pos, get_default_block_state(BLOCK_AIR));
+}
+
 // used to check whether redstone power travels through a block state. Also used
 // to check whether redstone wire connects diagonally through a block state;
 // this function returns false for those states.
@@ -2220,7 +2244,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
         if (can_plant_survive_on(type_below)) {
             return 0;
         }
-        try_set_block_state(pos, 0);
+        break_block(pos);
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
@@ -2323,7 +2347,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
         if (can_dead_bush_survive_on(type_below)) {
             return 0;
         }
-        try_set_block_state(pos, 0);
+        break_block(pos);
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
@@ -2346,7 +2370,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
         if (can_wither_rose_survive_on(type_below)) {
             return 0;
         }
-        try_set_block_state(pos, 0);
+        break_block(pos);
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
@@ -2367,8 +2391,8 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
             return 0;
         }
 
-        // block below cannot support torch
-        try_set_block_state(pos, 0);
+        // block below cannot support us
+        break_block(pos);
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
@@ -2384,8 +2408,8 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
             return 0;
         }
 
-        // wall block cannot support torch
-        try_set_block_state(pos, 0);
+        // wall block cannot support us
+        break_block(pos);
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
@@ -2477,7 +2501,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
             return 0;
         }
 
-        try_set_block_state(pos, 0);
+        break_block(pos);
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
@@ -2590,7 +2614,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
         if (can_pressure_plate_survive_on(from_state)) {
             return 0;
         }
-        try_set_block_state(pos, 0);
+        break_block(pos);
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
@@ -2631,7 +2655,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
         }
 
         // invalid wall block
-        try_set_block_state(pos, 0);
+        break_block(pos);
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
@@ -2642,7 +2666,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
         if (can_snow_survive_on(from_state)) {
             return 0;
         }
-        try_set_block_state(pos, 0);
+        break_block(pos);
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
@@ -2652,10 +2676,14 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
         if (can_sugar_cane_survive_at(pos)) {
             return 0;
         }
-        // @TODO(traks) break with 1 tick delay
-        try_set_block_state(pos, 0);
-        push_direct_neighbour_block_updates(pos, buc);
-        return 1;
+        if (is_delayed) {
+            break_block(pos);
+            push_direct_neighbour_block_updates(pos, buc);
+            return 1;
+        } else {
+            schedule_block_update(pos, from_direction, 1);
+            return 0;
+        }
     }
     case BLOCK_JUKEBOX:
         break;
@@ -2770,7 +2798,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
             return 0;
         }
 
-        try_set_block_state(pos, 0);
+        break_block(pos);
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
@@ -2827,7 +2855,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
         if (can_lily_pad_survive_on(from_state)) {
             return 0;
         }
-        try_set_block_state(pos, 0);
+        break_block(pos);
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
@@ -2841,7 +2869,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
             return 0;
         }
 
-        try_set_block_state(pos, 0);
+        break_block(pos);
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
@@ -2942,7 +2970,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
         if (can_carpet_survive_on(type_below)) {
             return 0;
         }
-        try_set_block_state(pos, 0);
+        break_block(pos);
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
@@ -3239,7 +3267,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
         // @TODO(traks) water scheduled tick
         if (from_direction == DIRECTION_NEG_Y) {
             if (!can_sea_pickle_survive_on(from_state)) {
-                try_set_block_state(pos, 0);
+                break_block(pos);
                 push_direct_neighbour_block_updates(pos, buc);
                 return 1;
             }
@@ -3251,7 +3279,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
     case BLOCK_BAMBOO_SAPLING: {
         if (from_direction == DIRECTION_NEG_Y) {
             if (!is_bamboo_plantable_on(from_type)) {
-                try_set_block_state(pos, 0);
+                break_block(pos);
                 push_direct_neighbour_block_updates(pos, buc);
                 return 1;
             }
@@ -3269,7 +3297,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
         if (from_direction == DIRECTION_NEG_Y) {
             if (!is_bamboo_plantable_on(from_type)) {
                 if (is_delayed) {
-                    try_set_block_state(pos, 0);
+                    break_block(pos);
                     push_direct_neighbour_block_updates(pos, buc);
                     return 1;
                 } else {
@@ -3339,7 +3367,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
         if (can_nether_plant_survive_on(type_below)) {
             return 0;
         }
-        try_set_block_state(pos, 0);
+        break_block(pos);
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     case BLOCK_WEEPING_VINES:

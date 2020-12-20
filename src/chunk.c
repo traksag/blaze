@@ -812,6 +812,7 @@ clean_up_unused_chunks(void) {
         for (int chunki = 0; chunki < bucket->size; chunki++) {
             chunk * ch = bucket->chunks + chunki;
             ch->changed_block_count = 0;
+            ch->local_event_count = 0;
 
             if (ch->available_interest == 0) {
                 for (int sectioni = 0; sectioni < 16; sectioni++) {
