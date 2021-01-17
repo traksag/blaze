@@ -23,7 +23,7 @@
 
 #define SERVER_PROTOCOL_VERSION (754)
 
-#define SERVER_WORLD_VERSION (2584)
+#define SERVER_WORLD_VERSION (2586)
 
 typedef int8_t mc_byte;
 typedef int16_t mc_short;

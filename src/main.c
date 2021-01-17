@@ -863,7 +863,7 @@ server_tick(void) {
                     response_size += sprintf((char *) response + response_size,
                             "{\"version\":{\"name\":\"%s\",\"protocol\":%d},"
                             "\"players\":{\"max\":%d,\"online\":%d,\"sample\":[",
-                            "1.16.4", SERVER_PROTOCOL_VERSION,
+                            "1.16.4, 1.16.5", SERVER_PROTOCOL_VERSION,
                             (int) MAX_PLAYERS, (int) list_size);
 
                     for (int i = 0; i < sample_size; i++) {
