@@ -1,2 +1,5 @@
 # build.sh
 /blaze
+/*.o
+/*.dSYM/
+/lib/

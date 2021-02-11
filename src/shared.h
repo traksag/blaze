@@ -5,11 +5,42 @@
 #include <stdint.h>
 #include <assert.h>
 
-#define ARRAY_SIZE(x) (sizeof (x) / sizeof *(x))
-
+// @NOTE(traks) apparently tracy includes headers that define MIN/MAX, so define
+// them here in advance to prevent warnings
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
+
+#ifdef PROFILE
+
+#include <tracy/TracyC.h>
+
+extern TracyCZoneCtx tracy_contexts[64];
+extern int tracy_context_count;
+
+#define begin_timed_block(name) \
+    do { \
+        int tracy_i = tracy_context_count; \
+        tracy_context_count++; \
+        TracyCZoneNS(ctx, name, 10, 1); \
+        tracy_contexts[tracy_i] = ctx; \
+    } while (0)
+
+#define end_timed_block() \
+    do { \
+        tracy_context_count--; \
+        TracyCZoneCtx ctx = tracy_contexts[tracy_context_count]; \
+        TracyCZoneEnd(ctx); \
+    } while (0)
+
+#else
+
+#define begin_timed_block(name)
+#define end_timed_block()
+
+#endif // PROFILE
+
+#define ARRAY_SIZE(x) (sizeof (x) / sizeof *(x))
 
 #define ABS(a) ((a) < 0 ? -(a) : (a))
 
@@ -3401,12 +3432,6 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_level);
 void
 print_nbt(nbt_tape_entry * tape, buffer_cursor * cursor,
         memory_arena * arena, int max_levels);
-
-void
-begin_timed_block(char * name);
-
-void
-end_timed_block();
 
 int
 find_property_value_index(block_property_spec * prop_spec, net_string val);

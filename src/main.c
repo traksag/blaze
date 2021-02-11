@@ -62,19 +62,15 @@ typedef struct {
     int username_size;
 } initial_connection;
 
-typedef struct {
-    long long start_time;
-    long long end_time;
-    char * name;
-} timed_block;
-
 static initial_connection initial_connections[32];
 static int initial_connection_count;
 
-static timed_block timed_blocks[1 << 16];
-static int timed_block_count;
-static int timed_block_depth_stack[64];
-static int cur_timed_block_depth;
+#ifdef PROFILE
+
+TracyCZoneCtx tracy_contexts[64];
+int tracy_context_count;
+
+#endif // PROFILE
 
 #if defined(__APPLE__) && defined(__MACH__)
 
@@ -112,23 +108,6 @@ program_nano_time() {
 }
 
 #endif
-
-void
-begin_timed_block(char * name) {
-    int i = timed_block_count;
-    timed_block_count++;
-    timed_block_depth_stack[cur_timed_block_depth] = i;
-    cur_timed_block_depth++;
-    timed_blocks[i].name = name;
-    timed_blocks[i].start_time = program_nano_time();
-}
-
-void
-end_timed_block() {
-    cur_timed_block_depth--;
-    timed_block * block = timed_blocks + timed_block_depth_stack[cur_timed_block_depth];
-    block->end_time = program_nano_time();
-}
 
 void
 logs(void * format, ...) {
@@ -1700,76 +1679,13 @@ main(void) {
     int profiler_sock = -1;
 
     for (;;) {
+#ifdef PROFILE
+        TracyCFrameMark
+#endif
+
         long long start_time = program_nano_time();
 
         server_tick();
-
-        if (profiler_sock == -1) {
-            profiler_sock = socket(AF_INET, SOCK_STREAM, 0);
-
-            struct sockaddr_in profiler_addr = {
-                .sin_family = AF_INET,
-                .sin_port = htons(16186), // prf
-                .sin_addr = {
-                    .s_addr = htonl(0x7f000001)
-                }
-            };
-
-            struct sockaddr * profiler_addr_ptr = (struct sockaddr *) &profiler_addr;
-            if (connect(profiler_sock, profiler_addr_ptr, sizeof profiler_addr)) {
-                close(profiler_sock);
-                profiler_sock = -1;
-            } else {
-                logs("Connected to profiler");
-            }
-        }
-        if (profiler_sock != -1) {
-            buffer_cursor cursor = {
-                .buf = serv->short_lived_scratch,
-                .limit = serv->short_lived_scratch_size
-            };
-
-            // fill in length after writing all the data
-            cursor.index += 4;
-
-            net_write_int(&cursor, timed_block_count);
-            for (int i = 0; i < timed_block_count; i++) {
-                timed_block * block = timed_blocks + i;
-                int name_size = strlen(block->name);
-                net_write_ubyte(&cursor, name_size);
-                net_write_data(&cursor, block->name, name_size);
-                net_write_ulong(&cursor, block->start_time);
-                net_write_uint(&cursor, block->end_time - block->start_time);
-                assert(block->start_time < block->end_time);
-            }
-
-            int end = cursor.index;
-            cursor.index = 0;
-            net_write_uint(&cursor, end - 4);
-            cursor.index = end;
-
-            int write_index = 0;
-            while (write_index != cursor.index) {
-                ssize_t send_size = send(profiler_sock,
-                        cursor.buf + write_index,
-                        cursor.index - write_index, 0);
-                if (send_size == -1) {
-                    logs_errno("Disconnected from profiler: %s");
-                    close(profiler_sock);
-                    profiler_sock = -1;
-                    break;
-                } else if (send_size == 0) {
-                    logs("Profiler closed connection");
-                    close(profiler_sock);
-                    profiler_sock = -1;
-                    break;
-                }
-                write_index += send_size;
-            }
-        }
-
-        timed_block_count = 0;
-        cur_timed_block_depth = 0;
 
         long long end_time = program_nano_time();
         long long elapsed_micros = (end_time - start_time) / 1000;
