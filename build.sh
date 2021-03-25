@@ -1,19 +1,21 @@
-# set to 1 for profiling
-debug=0
-# set to 1 for slower program, but faster compilation
+profile=0
 slow=0
-
-set -x
+assert=0
 
 CFLAGS=""
+LIBS="-lz -lm"
 
 if [ $slow == 0 ]; then
-    CFLAGS+="-flto -O3 -march=native"
+    CFLAGS+=" -flto -O3 -march=native"
 fi
 
-if [ $debug == 0 ]; then
-    cc $CFLAGS -o blaze src/*.c -lz -lm
-elif [ $debug == 1 ]; then
+if [ $assert == 0 ]; then
+    CFLAGS+=" -DNDEBUG"
+fi
+
+if [ $profile == 0 ]; then
+    cc $CFLAGS -o blaze src/*.c $LIBS
+elif [ $profile == 1 ]; then
     if [ ! -e "lib/tracy" ]; then
         # download Tracy if not present
         TRACY_VER="0.7.6"
@@ -25,7 +27,21 @@ elif [ $debug == 1 ]; then
         rm lib/tracy.zip
     fi
 
-    cc $CFLAGS -g -c src/*.c -I lib -DPROFILE -DTRACY_ENABLE
-    c++ $CFLAGS -g -std=c++11 -c lib/tracy/TracyClient.cpp -DTRACY_ENABLE
-    c++ $CFLAGS -g -o blaze *.o -lz -lm
+    LIBS+=" -lpthread -ldl"
+
+    if [[ "$OSTYPE" == darwin* ]]; then
+        # No lib atomic on macOS
+        LIBS+=""
+    else
+        LIBS+=" -latomic"
+    fi
+
+    # enable Tracy
+    CFLAGS+=" -DPROFILE -DTRACY_ENABLE"
+    # don't allow remote connections and only log data when profiler connected
+    CFLAGS+=" -DTRACY_ONLY_LOCALHOST -DTRACY_ON_DEMAND"
+
+    cc $CFLAGS -g -c src/*.c -I lib
+    c++ $CFLAGS -g -std=c++11 -c lib/tracy/TracyClient.cpp
+    c++ $CFLAGS -g -o blaze *.o $LIBS
 fi

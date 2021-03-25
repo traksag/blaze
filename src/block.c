@@ -929,6 +929,7 @@ rotate_direction_clockwise(int direction) {
     case DIRECTION_NEG_X: return DIRECTION_NEG_Z;
     default:
         assert(0);
+        return 0;
     }
 }
 
@@ -941,6 +942,7 @@ rotate_direction_counter_clockwise(int direction) {
     case DIRECTION_POS_X: return DIRECTION_NEG_Z;
     default:
         assert(0);
+        return 0;
     }
 }
 
@@ -4500,6 +4502,7 @@ block_boxes_contain_face(int box_count, block_box * boxes,
 
     // maximum number of loops reached, very bad!
     assert(0);
+    return 0;
 }
 
 static int

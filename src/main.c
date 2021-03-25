@@ -219,6 +219,7 @@ get_opposite_direction(int direction) {
     case DIRECTION_ZERO: return DIRECTION_ZERO;
     default:
         assert(0);
+        return 0;
     }
 }
 
@@ -233,6 +234,7 @@ get_direction_axis(int direction) {
     case DIRECTION_POS_X: return AXIS_X;
     default:
         assert(0);
+        return 0;
     }
 }
 
@@ -1651,7 +1653,7 @@ main(void) {
     serv->entities[0].type = ENTITY_NULL;
 
     // allocate memory for arenas
-    serv->short_lived_scratch_size = 4194304;
+    serv->short_lived_scratch_size = 4 * (1 << 20);
     serv->short_lived_scratch = calloc(serv->short_lived_scratch_size, 1);
     if (serv->short_lived_scratch == NULL) {
         logs_errno("Failed to allocate short lived scratch arena: %s");

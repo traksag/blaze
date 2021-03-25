@@ -513,12 +513,15 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
 
     if (inflateInit2(&zstream, windowBits) != Z_OK) {
         logs("inflateInit failed");
+        end_timed_block();
         goto bail;
     }
 
     zstream.next_in = cursor.buf + cursor.index;
     zstream.avail_in = cursor.limit - cursor.index;
 
+    // @TODO(traks) can be many many times larger in case of e.g. NBT data with
+    // tons and tons of empty lists.
     size_t max_uncompressed_size = 2 * (1 << 20);
     unsigned char * uncompressed = alloc_in_arena(scratch_arena,
             max_uncompressed_size);
@@ -526,18 +529,36 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     zstream.next_out = uncompressed;
     zstream.avail_out = max_uncompressed_size;
 
-    if (inflate(&zstream, Z_FINISH) != Z_STREAM_END) {
+    int inflate_status = inflate(&zstream, Z_FINISH);
+    switch (inflate_status) {
+    case Z_STREAM_END:
+        // all good
+        break;
+    case Z_NEED_DICT:
+    case Z_STREAM_ERROR:
+        logs("Chunk inflate stream error");
+        break;
+    case Z_DATA_ERROR:
         logs("Failed to finish inflating chunk: %s", zstream.msg);
-        goto bail;
+        break;
+    case Z_MEM_ERROR:
+        logs("Chunk inflate not enough memory");
+        break;
+    case Z_BUF_ERROR:
+    case Z_OK:
+        logs("Uncompressed chunk size too large");
+        break;
     }
 
     if (inflateEnd(&zstream) != Z_OK) {
         logs("inflateEnd failed");
+        end_timed_block();
         goto bail;
     }
 
+    // bail in case of any errors above
     if (zstream.avail_in != 0) {
-        logs("Didn't inflate entire chunk");
+        end_timed_block();
         goto bail;
     }
     end_timed_block();
@@ -555,6 +576,8 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
         logs("Failed to load NBT data");
         goto bail;
     }
+
+    // print_nbt(chunk_nbt, &cursor, scratch_arena, max_levels);
 
     for (int section_y = 0; section_y < 16; section_y++) {
         assert(ch->sections[section_y] == NULL);

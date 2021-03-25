@@ -104,7 +104,8 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_levels) {
     // when constructing the tape.
     begin_timed_block("load nbt");
 
-    int max_entries = 65536;
+    // @TODO(traks) more appropriate value
+    int max_entries = 1 << 16;
     nbt_tape_entry * tape = alloc_in_arena(arena, max_entries * sizeof *tape);
     memory_arena scratch_arena = {
         .ptr = arena->ptr,
@@ -183,6 +184,7 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_levels) {
                 error = 1;
                 goto bail;
             }
+
             cursor->index += key_size;
 
             level_info[cur_level].prev_compound_entry = cur_tape_index;
