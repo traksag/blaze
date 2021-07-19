@@ -553,7 +553,7 @@ move_entity(entity_base * entity) {
                 // @TODO(traks) all living entities have bounce factor -1
                 switch (entity->type) {
                 case ENTITY_PLAYER:
-                    if (entity->flags & PLAYER_SHIFTING) {
+                    if (entity->flags & ENTITY_SHIFTING) {
                         bounce_factor = 0;
                     } else {
                         bounce_factor = -1;
@@ -1307,6 +1307,7 @@ init_entity_data(void) {
     register_entity_type(ENTITY_AREA_EFFECT_CLOUD, "minecraft:area_effect_cloud");
     register_entity_type(ENTITY_ARMOR_STAND, "minecraft:armor_stand");
     register_entity_type(ENTITY_ARROW, "minecraft:arrow");
+    register_entity_type(ENTITY_AXOLOTL, "minecraft:axolotl");
     register_entity_type(ENTITY_BAT, "minecraft:bat");
     register_entity_type(ENTITY_BEE, "minecraft:bee");
     register_entity_type(ENTITY_BLAZE, "minecraft:blaze");
@@ -1335,6 +1336,9 @@ init_entity_data(void) {
     register_entity_type(ENTITY_FOX, "minecraft:fox");
     register_entity_type(ENTITY_GHAST, "minecraft:ghast");
     register_entity_type(ENTITY_GIANT, "minecraft:giant");
+    register_entity_type(ENTITY_GLOW_ITEM_FRAME, "minecraft:glow_item_frame");
+    register_entity_type(ENTITY_GLOW_SQUID, "minecraft:glow_squid");
+    register_entity_type(ENTITY_GOAT, "minecraft:goat");
     register_entity_type(ENTITY_GUARDIAN, "minecraft:guardian");
     register_entity_type(ENTITY_HOGLIN, "minecraft:hoglin");
     register_entity_type(ENTITY_HORSE, "minecraft:horse");
@@ -1349,6 +1353,7 @@ init_entity_data(void) {
     register_entity_type(ENTITY_LLAMA, "minecraft:llama");
     register_entity_type(ENTITY_LLAMA_SPIT, "minecraft:llama_spit");
     register_entity_type(ENTITY_MAGMA_CUBE, "minecraft:magma_cube");
+    register_entity_type(ENTITY_MARKER, "minecraft:marker");
     register_entity_type(ENTITY_MINECART, "minecraft:minecart");
     register_entity_type(ENTITY_CHEST_MINECART, "minecraft:chest_minecart");
     register_entity_type(ENTITY_COMMAND_BLOCK_MINECART, "minecraft:command_block_minecart");
@@ -1412,7 +1417,6 @@ init_entity_data(void) {
     register_entity_type(ENTITY_ZOMBIFIED_PIGLIN, "minecraft:zombified_piglin");
     register_entity_type(ENTITY_PLAYER, "minecraft:player");
     register_entity_type(ENTITY_FISHING_BOBBER, "minecraft:fishing_bobber");
-    register_entity_type(ENTITY_NULL, "blaze:null");
 }
 
 static void
@@ -1437,12 +1441,76 @@ init_fluid_data(void) {
 }
 
 static void
-load_tags(char * file_name, tag_list * tags, resource_loc_table * table) {
+register_game_event_type(mc_int game_event_type, char * resource_loc) {
+    net_string key = {
+        .size = strlen(resource_loc),
+        .ptr = resource_loc
+    };
+    resource_loc_table * table = &serv->game_event_resource_table;
+    register_resource_loc(key, game_event_type, table);
+    assert(net_string_equal(key, get_resource_loc(game_event_type, table)));
+    assert(game_event_type == resolve_resource_loc_id(key, table));
+}
+
+static void
+init_game_event_data(void) {
+    register_game_event_type(GAME_EVENT_BLOCK_ATTACH, "minecraft:block_attach");
+    register_game_event_type(GAME_EVENT_BLOCK_CHANGE, "minecraft:block_change");
+    register_game_event_type(GAME_EVENT_BLOCK_CLOSE, "minecraft:block_close");
+    register_game_event_type(GAME_EVENT_BLOCK_DESTROY, "minecraft:block_destroy");
+    register_game_event_type(GAME_EVENT_BLOCK_DETACH, "minecraft:block_detach");
+    register_game_event_type(GAME_EVENT_BLOCK_OPEN, "minecraft:block_open");
+    register_game_event_type(GAME_EVENT_BLOCK_PLACE, "minecraft:block_place");
+    register_game_event_type(GAME_EVENT_BLOCK_PRESS, "minecraft:block_press");
+    register_game_event_type(GAME_EVENT_BLOCK_SWITCH, "minecraft:block_switch");
+    register_game_event_type(GAME_EVENT_BLOCK_UNPRESS, "minecraft:block_unpress");
+    register_game_event_type(GAME_EVENT_BLOCK_UNSWITCH, "minecraft:block_unswitch");
+    register_game_event_type(GAME_EVENT_CONTAINER_CLOSE, "minecraft:container_close");
+    register_game_event_type(GAME_EVENT_CONTAINER_OPEN, "minecraft:container_open");
+    register_game_event_type(GAME_EVENT_DISPENSE_FAIL, "minecraft:dispense_fail");
+    register_game_event_type(GAME_EVENT_DRINKING_FINISH, "minecraft:drinking_finish");
+    register_game_event_type(GAME_EVENT_EAT, "minecraft:eat");
+    register_game_event_type(GAME_EVENT_ELYTRA_FREE_FALL, "minecraft:elytra_free_fall");
+    register_game_event_type(GAME_EVENT_ENTITY_DAMAGED, "minecraft:entity_damaged");
+    register_game_event_type(GAME_EVENT_ENTITY_KILLED, "minecraft:entity_killed");
+    register_game_event_type(GAME_EVENT_ENTITY_PLACE, "minecraft:entity_place");
+    register_game_event_type(GAME_EVENT_EQUIP, "minecraft:equip");
+    register_game_event_type(GAME_EVENT_EXPLODE, "minecraft:explode");
+    register_game_event_type(GAME_EVENT_FISHING_ROD_CAST, "minecraft:fishing_rod_cast");
+    register_game_event_type(GAME_EVENT_FISHING_ROD_REEL_IN, "minecraft:fishing_rod_reel_in");
+    register_game_event_type(GAME_EVENT_FLAP, "minecraft:flap");
+    register_game_event_type(GAME_EVENT_FLUID_PICKUP, "minecraft:fluid_pickup");
+    register_game_event_type(GAME_EVENT_FLUID_PLACE, "minecraft:fluid_place");
+    register_game_event_type(GAME_EVENT_HIT_GROUND, "minecraft:hit_ground");
+    register_game_event_type(GAME_EVENT_MOB_INTERACT, "minecraft:mob_interact");
+    register_game_event_type(GAME_EVENT_LIGHTNING_STRIKE, "minecraft:lightning_strike");
+    register_game_event_type(GAME_EVENT_MINECART_MOVING, "minecraft:minecart_moving");
+    register_game_event_type(GAME_EVENT_PISTON_CONTRACT, "minecraft:piston_contract");
+    register_game_event_type(GAME_EVENT_PISTON_EXTEND, "minecraft:piston_extend");
+    register_game_event_type(GAME_EVENT_PRIME_FUSE, "minecraft:prime_fuse");
+    register_game_event_type(GAME_EVENT_PROJECTILE_LAND, "minecraft:projectile_land");
+    register_game_event_type(GAME_EVENT_PROJECTILE_SHOOT, "minecraft:projectile_shoot");
+    register_game_event_type(GAME_EVENT_RAVAGER_ROAR, "minecraft:ravager_roar");
+    register_game_event_type(GAME_EVENT_RING_BELL, "minecraft:ring_bell");
+    register_game_event_type(GAME_EVENT_SHEAR, "minecraft:shear");
+    register_game_event_type(GAME_EVENT_SHULKER_CLOSE, "minecraft:shulker_close");
+    register_game_event_type(GAME_EVENT_SHULKER_OPEN, "minecraft:shulker_open");
+    register_game_event_type(GAME_EVENT_SPLASH, "minecraft:splash");
+    register_game_event_type(GAME_EVENT_STEP, "minecraft:step");
+    register_game_event_type(GAME_EVENT_SWIM, "minecraft:swim");
+    register_game_event_type(GAME_EVENT_WOLF_SHAKING, "minecraft:wolf_shaking");
+}
+
+static void
+load_tags(char * file_name, char * list_name, tag_list * tags, resource_loc_table * table) {
     memory_arena arena = {
         .ptr = serv->short_lived_scratch,
         .size = serv->short_lived_scratch_size,
     };
     buffer_cursor cursor = read_file(&arena, file_name);
+
+    tags->name_size = strlen(list_name);
+    memcpy(tags->name, list_name, strlen(list_name));
 
     net_string args[16];
     tag_spec * tag;
@@ -1496,6 +1564,8 @@ init_dimension_types(void) {
     *overworld = (dimension_type) {
         .fixed_time = -1,
         .coordinate_scale = 1,
+        .min_y = 0,
+        .height = 256,
         .logical_height = 256,
         .ambient_light = 0
     };
@@ -1661,19 +1731,22 @@ main(void) {
     }
 
     // @TODO(traks) better sizes
-    alloc_resource_loc_table(&serv->block_resource_table, 1 << 10, 1 << 16, ACTUAL_BLOCK_TYPE_COUNT);
-    alloc_resource_loc_table(&serv->item_resource_table, 1 << 10, 1 << 16, ITEM_TYPE_COUNT);
+    alloc_resource_loc_table(&serv->block_resource_table, 1 << 11, 1 << 16, ACTUAL_BLOCK_TYPE_COUNT);
+    alloc_resource_loc_table(&serv->item_resource_table, 1 << 11, 1 << 16, ITEM_TYPE_COUNT);
     alloc_resource_loc_table(&serv->entity_resource_table, 1 << 10, 1 << 12, ENTITY_TYPE_COUNT);
     alloc_resource_loc_table(&serv->fluid_resource_table, 1 << 10, 1 << 10, 5);
+    alloc_resource_loc_table(&serv->game_event_resource_table, 1 << 10, 1 << 12, GAME_EVENT_TYPE_COUNT);
 
     init_item_data();
     init_block_data();
     init_entity_data();
     init_fluid_data();
-    load_tags("blocktags.txt", &serv->block_tags, &serv->block_resource_table);
-    load_tags("itemtags.txt", &serv->item_tags, &serv->item_resource_table);
-    load_tags("entitytags.txt", &serv->entity_tags, &serv->entity_resource_table);
-    load_tags("fluidtags.txt", &serv->fluid_tags, &serv->fluid_resource_table);
+    init_game_event_data();
+    load_tags("blocktags.txt", "minecraft:block", &serv->block_tags, &serv->block_resource_table);
+    load_tags("itemtags.txt", "minecraft:item", &serv->item_tags, &serv->item_resource_table);
+    load_tags("entitytags.txt", "minecraft:entity_type", &serv->entity_tags, &serv->entity_resource_table);
+    load_tags("fluidtags.txt", "minecraft:fluid", &serv->fluid_tags, &serv->fluid_resource_table);
+    load_tags("gameeventtags.txt", "minecraft:game_event", &serv->game_event_tags, &serv->game_event_resource_table);
 
     init_dimension_types();
     init_biomes();

@@ -1,6 +1,6 @@
 profile=0
-slow=0
-assert=0
+slow=1
+assert=1
 
 CFLAGS=""
 LIBS="-lz -lm"

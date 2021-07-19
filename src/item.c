@@ -41,6 +41,7 @@ can_replace(mc_int place_type, mc_int cur_type) {
     case BLOCK_AIR:
     case BLOCK_VOID_AIR:
     case BLOCK_CAVE_AIR:
+    case BLOCK_LIGHT:
         // @TODO(traks) this allows players to place blocks in mid-air. This is
         // needed for placing water lilies on top of water. Perhaps we should
         // disallow it for other blocks depending on whether this is the clicked
@@ -50,6 +51,7 @@ can_replace(mc_int place_type, mc_int cur_type) {
     case BLOCK_FERN:
     case BLOCK_DEAD_BUSH:
     case BLOCK_VINE:
+    case BLOCK_GLOW_LICHEN:
     case BLOCK_SUNFLOWER:
     case BLOCK_LILAC:
     case BLOCK_ROSE_BUSH:
@@ -61,6 +63,7 @@ can_replace(mc_int place_type, mc_int cur_type) {
     case BLOCK_CRIMSON_ROOTS:
     case BLOCK_SEAGRASS:
     case BLOCK_TALL_SEAGRASS:
+    case BLOCK_HANGING_ROOTS:
     // fluids
     case BLOCK_WATER:
     case BLOCK_BUBBLE_COLUMN:
@@ -156,6 +159,27 @@ place_plant(place_context context, mc_int place_type) {
     mc_int type_below = serv->block_type_by_state[state_below];
 
     if (!can_plant_survive_on(type_below)) {
+        return;
+    }
+
+    mc_ushort place_state = get_default_block_state(place_type);
+    try_set_block_state(target.pos, place_state);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
+}
+
+static void
+place_azalea(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(
+            context.clicked_pos, context.clicked_face, place_type);
+    if (!(target.flags & PLACE_CAN_PLACE)) {
+        return;
+    }
+
+    mc_ushort state_below = try_get_block_state(
+            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
+    mc_int type_below = serv->block_type_by_state[state_below];
+
+    if (!can_azalea_survive_on(type_below)) {
         return;
     }
 
@@ -1392,6 +1416,32 @@ place_redstone_wire(place_context context, mc_int place_type) {
     update_redstone_wire(target.pos, target.cur_state, &place_info, context.buc);
 }
 
+static void
+place_amethyst_cluster(place_context context, mc_int place_type) {
+    place_target target = determine_place_target(
+            context.clicked_pos, context.clicked_face, place_type);
+    if (!(target.flags & PLACE_CAN_PLACE)) {
+        return;
+    }
+
+    int opposite_face = get_opposite_direction(context.clicked_face);
+    net_block_pos opposite_pos = get_relative_block_pos(target.pos, opposite_face);
+    mc_ushort opposite_state = try_get_block_state(opposite_pos);
+
+    support_model support = get_support_model(opposite_state);
+    if (!(support.full_face_flags & (1 << context.clicked_face))) {
+        return;
+    }
+
+    block_state_info place_info = describe_default_block_state(place_type);
+    place_info.facing = context.clicked_face;
+    place_info.waterlogged = is_water_source(target.cur_state);
+
+    mc_ushort place_state = make_block_state(&place_info);
+    try_set_block_state(target.pos, place_state);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
+}
+
 void
 process_use_item_on_packet(entity_base * player,
         mc_int hand, net_block_pos clicked_pos, mc_int clicked_face,
@@ -1426,8 +1476,8 @@ process_use_item_on_packet(entity_base * player,
 
     // if the player is not crouching with an item in their hands, try to use
     // the clicked block
-    if (!((player->flags & PLAYER_SHIFTING)
-            && (main->type != ITEM_AIR || off->type != ITEM_AIR))) {
+    if (!(player->flags & ENTITY_SHIFTING)
+            || (main->type == ITEM_AIR && off->type == ITEM_AIR)) {
         int used_block = use_block(player,
                 hand, clicked_pos, clicked_face,
                 click_offset_x, click_offset_y, click_offset_z,
@@ -1465,6 +1515,8 @@ process_use_item_on_packet(entity_base * player,
     // and block entity have been placed
 
     // @TODO(traks) take instabuild player ability into account
+
+    // @TODO(traks) take player can_build ability into account
 
     // @TODO(traks) play block place sound
 
@@ -1507,6 +1559,24 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_POLISHED_ANDESITE:
         place_simple_block(context, BLOCK_POLISHED_ANDESITE);
         break;
+    case ITEM_DEEPSLATE:
+        place_simple_pillar(context, BLOCK_DEEPSLATE);
+        break;
+    case ITEM_COBBLED_DEEPSLATE:
+        place_simple_block(context, BLOCK_COBBLED_DEEPSLATE);
+        break;
+    case ITEM_POLISHED_DEEPSLATE:
+        place_simple_block(context, BLOCK_POLISHED_DEEPSLATE);
+        break;
+    case ITEM_CALCITE:
+        place_simple_block(context, BLOCK_CALCITE);
+        break;
+    case ITEM_TUFF:
+        place_simple_block(context, BLOCK_TUFF);
+        break;
+    case ITEM_DRIPSTONE_BLOCK:
+        place_simple_block(context, BLOCK_DRIPSTONE_BLOCK);
+        break;
     case ITEM_GRASS_BLOCK:
         place_snowy_grassy_block(context, BLOCK_GRASS_BLOCK);
         break;
@@ -1518,6 +1588,9 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_PODZOL:
         place_snowy_grassy_block(context, BLOCK_PODZOL);
+        break;
+    case ITEM_ROOTED_DIRT:
+        place_simple_block(context, BLOCK_ROOTED_DIRT);
         break;
     case ITEM_CRIMSON_NYLIUM:
         place_simple_block(context, BLOCK_CRIMSON_NYLIUM);
@@ -1579,17 +1652,188 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_GRAVEL:
         break;
-    case ITEM_GOLD_ORE:
-        place_simple_block(context, BLOCK_GOLD_ORE);
+    case ITEM_COAL_ORE:
+        place_simple_block(context, BLOCK_COAL_ORE);
+        break;
+    case ITEM_DEEPSLATE_COAL_ORE:
+        place_simple_block(context, BLOCK_DEEPSLATE_COAL_ORE);
         break;
     case ITEM_IRON_ORE:
         place_simple_block(context, BLOCK_IRON_ORE);
         break;
-    case ITEM_COAL_ORE:
-        place_simple_block(context, BLOCK_COAL_ORE);
+    case ITEM_DEEPSLATE_IRON_ORE:
+        place_simple_block(context, BLOCK_DEEPSLATE_IRON_ORE);
+        break;
+    case ITEM_COPPER_ORE:
+        place_simple_block(context, BLOCK_COPPER_ORE);
+        break;
+    case ITEM_DEEPSLATE_COPPER_ORE:
+        place_simple_block(context, BLOCK_DEEPSLATE_COPPER_ORE);
+        break;
+    case ITEM_GOLD_ORE:
+        place_simple_block(context, BLOCK_GOLD_ORE);
+        break;
+    case ITEM_DEEPSLATE_GOLD_ORE:
+        place_simple_block(context, BLOCK_DEEPSLATE_GOLD_ORE);
+        break;
+    case ITEM_REDSTONE_ORE:
+        place_simple_block(context, BLOCK_REDSTONE_ORE);
+        break;
+    case ITEM_DEEPSLATE_REDSTONE_ORE:
+        place_simple_block(context, BLOCK_DEEPSLATE_REDSTONE_ORE);
+        break;
+    case ITEM_EMERALD_ORE:
+        place_simple_block(context, BLOCK_EMERALD_ORE);
+        break;
+    case ITEM_DEEPSLATE_EMERALD_ORE:
+        place_simple_block(context, BLOCK_DEEPSLATE_EMERALD_ORE);
+        break;
+    case ITEM_LAPIS_ORE:
+        place_simple_block(context, BLOCK_LAPIS_ORE);
+        break;
+    case ITEM_DEEPSLATE_LAPIS_ORE:
+        place_simple_block(context, BLOCK_DEEPSLATE_LAPIS_ORE);
+        break;
+    case ITEM_DIAMOND_ORE:
+        place_simple_block(context, BLOCK_DIAMOND_ORE);
+        break;
+    case ITEM_DEEPSLATE_DIAMOND_ORE:
+        place_simple_block(context, BLOCK_DEEPSLATE_DIAMOND_ORE);
         break;
     case ITEM_NETHER_GOLD_ORE:
         place_simple_block(context, BLOCK_NETHER_GOLD_ORE);
+        break;
+    case ITEM_NETHER_QUARTZ_ORE:
+        place_simple_block(context, BLOCK_NETHER_QUARTZ_ORE);
+        break;
+    case ITEM_ANCIENT_DEBRIS:
+        place_simple_block(context, BLOCK_ANCIENT_DEBRIS);
+        break;
+    case ITEM_COAL_BLOCK:
+        place_simple_block(context, BLOCK_COAL_BLOCK);
+        break;
+    case ITEM_RAW_IRON_BLOCK:
+        place_simple_block(context, BLOCK_RAW_IRON_BLOCK);
+        break;
+    case ITEM_RAW_COPPER_BLOCK:
+        place_simple_block(context, BLOCK_RAW_COPPER_BLOCK);
+        break;
+    case ITEM_RAW_GOLD_BLOCK:
+        place_simple_block(context, BLOCK_RAW_GOLD_BLOCK);
+        break;
+    case ITEM_AMETHYST_BLOCK:
+        place_simple_block(context, BLOCK_AMETHYST_BLOCK);
+        break;
+    case ITEM_BUDDING_AMETHYST:
+        place_simple_block(context, BLOCK_BUDDING_AMETHYST);
+        break;
+    case ITEM_IRON_BLOCK:
+        place_simple_block(context, BLOCK_IRON_BLOCK);
+        break;
+    case ITEM_COPPER_BLOCK:
+        place_simple_block(context, BLOCK_COPPER_BLOCK);
+        break;
+    case ITEM_GOLD_BLOCK:
+        place_simple_block(context, BLOCK_GOLD_BLOCK);
+        break;
+    case ITEM_DIAMOND_BLOCK:
+        place_simple_block(context, BLOCK_DIAMOND_BLOCK);
+        break;
+    case ITEM_NETHERITE_BLOCK:
+        place_simple_block(context, BLOCK_NETHERITE_BLOCK);
+        break;
+    case ITEM_EXPOSED_COPPER:
+        place_simple_block(context, BLOCK_EXPOSED_COPPER);
+        break;
+    case ITEM_WEATHERED_COPPER:
+        place_simple_block(context, BLOCK_WEATHERED_COPPER);
+        break;
+    case ITEM_OXIDIZED_COPPER:
+        place_simple_block(context, BLOCK_OXIDIZED_COPPER);
+        break;
+    case ITEM_CUT_COPPER:
+        place_simple_block(context, BLOCK_CUT_COPPER);
+        break;
+    case ITEM_EXPOSED_CUT_COPPER:
+        place_simple_block(context, BLOCK_EXPOSED_CUT_COPPER);
+        break;
+    case ITEM_WEATHERED_CUT_COPPER:
+        place_simple_block(context, BLOCK_WEATHERED_CUT_COPPER);
+        break;
+    case ITEM_OXIDIZED_CUT_COPPER:
+        place_simple_block(context, BLOCK_OXIDIZED_CUT_COPPER);
+        break;
+    case ITEM_CUT_COPPER_STAIRS:
+        place_simple_block(context, BLOCK_CUT_COPPER_STAIRS);
+        break;
+    case ITEM_EXPOSED_CUT_COPPER_STAIRS:
+        place_stairs(context, BLOCK_EXPOSED_CUT_COPPER_STAIRS);
+        break;
+    case ITEM_WEATHERED_CUT_COPPER_STAIRS:
+        place_stairs(context, BLOCK_WEATHERED_CUT_COPPER_STAIRS);
+        break;
+    case ITEM_OXIDIZED_CUT_COPPER_STAIRS:
+        place_stairs(context, BLOCK_OXIDIZED_CUT_COPPER_STAIRS);
+        break;
+    case ITEM_CUT_COPPER_SLAB:
+        place_slab(context, BLOCK_CUT_COPPER_SLAB);
+        break;
+    case ITEM_EXPOSED_CUT_COPPER_SLAB:
+        place_slab(context, BLOCK_EXPOSED_CUT_COPPER_SLAB);
+        break;
+    case ITEM_WEATHERED_CUT_COPPER_SLAB:
+        place_slab(context, BLOCK_WEATHERED_CUT_COPPER_SLAB);
+        break;
+    case ITEM_OXIDIZED_CUT_COPPER_SLAB:
+        place_slab(context, BLOCK_OXIDIZED_CUT_COPPER_SLAB);
+        break;
+    case ITEM_WAXED_COPPER_BLOCK:
+        place_simple_block(context, BLOCK_WAXED_COPPER_BLOCK);
+        break;
+    case ITEM_WAXED_EXPOSED_COPPER:
+        place_simple_block(context, BLOCK_WAXED_EXPOSED_COPPER);
+        break;
+    case ITEM_WAXED_WEATHERED_COPPER:
+        place_simple_block(context, BLOCK_WAXED_WEATHERED_COPPER);
+        break;
+    case ITEM_WAXED_OXIDIZED_COPPER:
+        place_simple_block(context, BLOCK_WAXED_OXIDIZED_COPPER);
+        break;
+    case ITEM_WAXED_CUT_COPPER:
+        place_simple_block(context, BLOCK_WAXED_CUT_COPPER);
+        break;
+    case ITEM_WAXED_EXPOSED_CUT_COPPER:
+        place_simple_block(context, BLOCK_WAXED_EXPOSED_CUT_COPPER);
+        break;
+    case ITEM_WAXED_WEATHERED_CUT_COPPER:
+        place_simple_block(context, BLOCK_WAXED_WEATHERED_CUT_COPPER);
+        break;
+    case ITEM_WAXED_OXIDIZED_CUT_COPPER:
+        place_simple_block(context, BLOCK_WAXED_OXIDIZED_CUT_COPPER);
+        break;
+    case ITEM_WAXED_CUT_COPPER_STAIRS:
+        place_stairs(context, BLOCK_WAXED_CUT_COPPER_STAIRS);
+        break;
+    case ITEM_WAXED_EXPOSED_CUT_COPPER_STAIRS:
+        place_stairs(context, BLOCK_WAXED_EXPOSED_CUT_COPPER_STAIRS);
+        break;
+    case ITEM_WAXED_WEATHERED_CUT_COPPER_STAIRS:
+        place_stairs(context, BLOCK_WAXED_WEATHERED_CUT_COPPER_STAIRS);
+        break;
+    case ITEM_WAXED_OXIDIZED_CUT_COPPER_STAIRS:
+        place_stairs(context, BLOCK_WAXED_OXIDIZED_CUT_COPPER_STAIRS);
+        break;
+    case ITEM_WAXED_CUT_COPPER_SLAB:
+        place_slab(context, BLOCK_WAXED_CUT_COPPER_SLAB);
+        break;
+    case ITEM_WAXED_EXPOSED_CUT_COPPER_SLAB:
+        place_slab(context, BLOCK_WAXED_EXPOSED_CUT_COPPER_SLAB);
+        break;
+    case ITEM_WAXED_WEATHERED_CUT_COPPER_SLAB:
+        place_slab(context, BLOCK_WAXED_WEATHERED_CUT_COPPER_SLAB);
+        break;
+    case ITEM_WAXED_OXIDIZED_CUT_COPPER_SLAB:
+        place_slab(context, BLOCK_WAXED_OXIDIZED_CUT_COPPER_SLAB);
         break;
     case ITEM_OAK_LOG:
         place_simple_pillar(context, BLOCK_OAK_LOG);
@@ -1705,6 +1949,12 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_DARK_OAK_LEAVES:
         place_leaves(context, BLOCK_DARK_OAK_LEAVES);
         break;
+    case ITEM_AZALEA_LEAVES:
+        place_leaves(context, BLOCK_AZALEA_LEAVES);
+        break;
+    case ITEM_FLOWERING_AZALEA_LEAVES:
+        place_leaves(context, BLOCK_FLOWERING_AZALEA_LEAVES);
+        break;
     case ITEM_SPONGE:
         break;
     case ITEM_WET_SPONGE:
@@ -1712,13 +1962,11 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_GLASS:
         place_simple_block(context, BLOCK_GLASS);
         break;
-    case ITEM_LAPIS_ORE:
-        place_simple_block(context, BLOCK_LAPIS_ORE);
+    case ITEM_TINTED_GLASS:
+        place_simple_block(context, BLOCK_TINTED_GLASS);
         break;
     case ITEM_LAPIS_BLOCK:
         place_simple_block(context, BLOCK_LAPIS_BLOCK);
-        break;
-    case ITEM_DISPENSER:
         break;
     case ITEM_SANDSTONE:
         place_simple_block(context, BLOCK_SANDSTONE);
@@ -1729,14 +1977,6 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_CUT_SANDSTONE:
         place_simple_block(context, BLOCK_CUT_SANDSTONE);
         break;
-    case ITEM_NOTE_BLOCK:
-        break;
-    case ITEM_POWERED_RAIL:
-        break;
-    case ITEM_DETECTOR_RAIL:
-        break;
-    case ITEM_STICKY_PISTON:
-        break;
     case ITEM_COBWEB:
         place_simple_block(context, BLOCK_COBWEB);
         break;
@@ -1746,6 +1986,12 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_FERN:
         place_plant(context, BLOCK_FERN);
         break;
+    case ITEM_AZALEA:
+        place_azalea(context, BLOCK_AZALEA);
+        break;
+    case ITEM_FLOWERING_AZALEA:
+        place_azalea(context, BLOCK_FLOWERING_AZALEA);
+        break;
     case ITEM_DEAD_BUSH:
         place_dead_bush(context, BLOCK_DEAD_BUSH);
         break;
@@ -1753,8 +1999,6 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_SEA_PICKLE:
         place_sea_pickle(context, BLOCK_SEA_PICKLE);
-        break;
-    case ITEM_PISTON:
         break;
     case ITEM_WHITE_WOOL:
         place_simple_block(context, BLOCK_WHITE_WOOL);
@@ -1843,6 +2087,8 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_WITHER_ROSE:
         place_wither_rose(context, BLOCK_WITHER_ROSE);
         break;
+    case ITEM_SPORE_BLOSSOM:
+        break;
     case ITEM_BROWN_MUSHROOM:
         break;
     case ITEM_RED_MUSHROOM:
@@ -1871,14 +2117,20 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_KELP:
         break;
+    case ITEM_MOSS_CARPET:
+        place_carpet(context, BLOCK_MOSS_CARPET);
+        break;
+    case ITEM_MOSS_BLOCK:
+        place_simple_block(context, BLOCK_MOSS_BLOCK);
+        break;
+    case ITEM_HANGING_ROOTS:
+        break;
+    case ITEM_BIG_DRIPLEAF:
+        break;
+    case ITEM_SMALL_DRIPLEAF:
+        break;
     case ITEM_BAMBOO:
         place_bamboo(context, BLOCK_BAMBOO);
-        break;
-    case ITEM_GOLD_BLOCK:
-        place_simple_block(context, BLOCK_GOLD_BLOCK);
-        break;
-    case ITEM_IRON_BLOCK:
-        place_simple_block(context, BLOCK_IRON_BLOCK);
         break;
     case ITEM_OAK_SLAB:
         place_slab(context, BLOCK_OAK_SLAB);
@@ -1967,9 +2219,6 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_BRICKS:
         place_simple_block(context, BLOCK_BRICKS);
         break;
-    case ITEM_TNT:
-        place_simple_block(context, BLOCK_TNT);
-        break;
     case ITEM_BOOKSHELF:
         place_simple_block(context, BLOCK_BOOKSHELF);
         break;
@@ -2005,12 +2254,6 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_CHEST:
         break;
-    case ITEM_DIAMOND_ORE:
-        place_simple_block(context, BLOCK_DIAMOND_ORE);
-        break;
-    case ITEM_DIAMOND_BLOCK:
-        place_simple_block(context, BLOCK_DIAMOND_BLOCK);
-        break;
     case ITEM_CRAFTING_TABLE:
         place_simple_block(context, BLOCK_CRAFTING_TABLE);
         break;
@@ -2023,50 +2266,8 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_LADDER:
         place_ladder(context, BLOCK_LADDER);
         break;
-    case ITEM_RAIL:
-        place_rail(context, BLOCK_RAIL);
-        break;
     case ITEM_COBBLESTONE_STAIRS:
         place_stairs(context, BLOCK_COBBLESTONE_STAIRS);
-        break;
-    case ITEM_LEVER:
-        place_lever_or_button(context, BLOCK_LEVER);
-        break;
-    case ITEM_STONE_PRESSURE_PLATE:
-        place_pressure_plate(context, BLOCK_STONE_PRESSURE_PLATE);
-        break;
-    case ITEM_OAK_PRESSURE_PLATE:
-        place_pressure_plate(context, BLOCK_OAK_PRESSURE_PLATE);
-        break;
-    case ITEM_SPRUCE_PRESSURE_PLATE:
-        place_pressure_plate(context, BLOCK_SPRUCE_PRESSURE_PLATE);
-        break;
-    case ITEM_BIRCH_PRESSURE_PLATE:
-        place_pressure_plate(context, BLOCK_BIRCH_PRESSURE_PLATE);
-        break;
-    case ITEM_JUNGLE_PRESSURE_PLATE:
-        place_pressure_plate(context, BLOCK_JUNGLE_PRESSURE_PLATE);
-        break;
-    case ITEM_ACACIA_PRESSURE_PLATE:
-        place_pressure_plate(context, BLOCK_ACACIA_PRESSURE_PLATE);
-        break;
-    case ITEM_DARK_OAK_PRESSURE_PLATE:
-        place_pressure_plate(context, BLOCK_DARK_OAK_PRESSURE_PLATE);
-        break;
-    case ITEM_CRIMSON_PRESSURE_PLATE:
-        place_pressure_plate(context, BLOCK_CRIMSON_PRESSURE_PLATE);
-        break;
-    case ITEM_WARPED_PRESSURE_PLATE:
-        place_pressure_plate(context, BLOCK_WARPED_PRESSURE_PLATE);
-        break;
-    case ITEM_POLISHED_BLACKSTONE_PRESSURE_PLATE:
-        place_pressure_plate(context, BLOCK_POLISHED_BLACKSTONE_PRESSURE_PLATE);
-        break;
-    case ITEM_REDSTONE_ORE:
-        place_simple_block(context, BLOCK_REDSTONE_ORE);
-        break;
-    case ITEM_REDSTONE_TORCH:
-        place_torch(context, BLOCK_REDSTONE_TORCH, BLOCK_REDSTONE_WALL_TORCH);
         break;
     case ITEM_SNOW:
         place_snow(context, BLOCK_SNOW);
@@ -2116,6 +2317,10 @@ process_use_item_on_packet(entity_base * player,
         // @TODO(traks) spawn iron golem?
         place_horizontal_facing(context, BLOCK_CARVED_PUMPKIN);
         break;
+    case ITEM_JACK_O_LANTERN:
+        // @TODO(traks) spawn iron golem?
+        place_horizontal_facing(context, BLOCK_JACK_O_LANTERN);
+        break;
     case ITEM_NETHERRACK:
         place_simple_block(context, BLOCK_NETHERRACK);
         break;
@@ -2131,39 +2336,14 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_POLISHED_BASALT:
         place_simple_pillar(context, BLOCK_POLISHED_BASALT);
         break;
+    case ITEM_SMOOTH_BASALT:
+        place_simple_block(context, BLOCK_SMOOTH_BASALT);
+        break;
     case ITEM_SOUL_TORCH:
         place_torch(context, BLOCK_SOUL_TORCH, BLOCK_SOUL_WALL_TORCH);
         break;
     case ITEM_GLOWSTONE:
         place_simple_block(context, BLOCK_GLOWSTONE);
-        break;
-    case ITEM_JACK_O_LANTERN:
-        // @TODO(traks) spawn iron golem?
-        place_horizontal_facing(context, BLOCK_JACK_O_LANTERN);
-        break;
-    case ITEM_OAK_TRAPDOOR:
-        place_trapdoor(context, BLOCK_OAK_TRAPDOOR);
-        break;
-    case ITEM_SPRUCE_TRAPDOOR:
-        place_trapdoor(context, BLOCK_SPRUCE_TRAPDOOR);
-        break;
-    case ITEM_BIRCH_TRAPDOOR:
-        place_trapdoor(context, BLOCK_BIRCH_TRAPDOOR);
-        break;
-    case ITEM_JUNGLE_TRAPDOOR:
-        place_trapdoor(context, BLOCK_JUNGLE_TRAPDOOR);
-        break;
-    case ITEM_ACACIA_TRAPDOOR:
-        place_trapdoor(context, BLOCK_ACACIA_TRAPDOOR);
-        break;
-    case ITEM_DARK_OAK_TRAPDOOR:
-        place_trapdoor(context, BLOCK_DARK_OAK_TRAPDOOR);
-        break;
-    case ITEM_CRIMSON_TRAPDOOR:
-        place_trapdoor(context, BLOCK_CRIMSON_TRAPDOOR);
-        break;
-    case ITEM_WARPED_TRAPDOOR:
-        place_trapdoor(context, BLOCK_WARPED_TRAPDOOR);
         break;
     case ITEM_INFESTED_STONE:
         place_simple_block(context, BLOCK_INFESTED_STONE);
@@ -2183,6 +2363,9 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_INFESTED_CHISELED_STONE_BRICKS:
         place_simple_block(context, BLOCK_INFESTED_CHISELED_STONE_BRICKS);
         break;
+    case ITEM_INFESTED_DEEPSLATE:
+        place_simple_pillar(context, BLOCK_INFESTED_DEEPSLATE);
+        break;
     case ITEM_STONE_BRICKS:
         place_simple_block(context, BLOCK_STONE_BRICKS);
         break;
@@ -2194,6 +2377,21 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_CHISELED_STONE_BRICKS:
         place_simple_block(context, BLOCK_CHISELED_STONE_BRICKS);
+        break;
+    case ITEM_DEEPSLATE_BRICKS:
+        place_simple_block(context, BLOCK_DEEPSLATE_BRICKS);
+        break;
+    case ITEM_CRACKED_DEEPSLATE_BRICKS:
+        place_simple_block(context, BLOCK_CRACKED_DEEPSLATE_BRICKS);
+        break;
+    case ITEM_DEEPSLATE_TILES:
+        place_simple_block(context, BLOCK_DEEPSLATE_TILES);
+        break;
+    case ITEM_CRACKED_DEEPSLATE_TILES:
+        place_simple_block(context, BLOCK_CRACKED_DEEPSLATE_TILES);
+        break;
+    case ITEM_CHISELED_DEEPSLATE:
+        place_simple_block(context, BLOCK_CHISELED_DEEPSLATE);
         break;
     case ITEM_BROWN_MUSHROOM_BLOCK:
         place_mushroom_block(context, BLOCK_BROWN_MUSHROOM_BLOCK);
@@ -2218,29 +2416,7 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_VINE:
         break;
-    case ITEM_OAK_FENCE_GATE:
-        place_fence_gate(context, BLOCK_OAK_FENCE_GATE);
-        break;
-    case ITEM_SPRUCE_FENCE_GATE:
-        place_fence_gate(context, BLOCK_SPRUCE_FENCE_GATE);
-        break;
-    case ITEM_BIRCH_FENCE_GATE:
-        place_fence_gate(context, BLOCK_BIRCH_FENCE_GATE);
-        break;
-    case ITEM_JUNGLE_FENCE_GATE:
-        place_fence_gate(context, BLOCK_JUNGLE_FENCE_GATE);
-        break;
-    case ITEM_ACACIA_FENCE_GATE:
-        place_fence_gate(context, BLOCK_ACACIA_FENCE_GATE);
-        break;
-    case ITEM_DARK_OAK_FENCE_GATE:
-        place_fence_gate(context, BLOCK_DARK_OAK_FENCE_GATE);
-        break;
-    case ITEM_CRIMSON_FENCE_GATE:
-        place_fence_gate(context, BLOCK_CRIMSON_FENCE_GATE);
-        break;
-    case ITEM_WARPED_FENCE_GATE:
-        place_fence_gate(context, BLOCK_WARPED_FENCE_GATE);
+    case ITEM_GLOW_LICHEN:
         break;
     case ITEM_BRICK_STAIRS:
         place_stairs(context, BLOCK_BRICK_STAIRS);
@@ -2282,17 +2458,10 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_DRAGON_EGG:
         break;
-    case ITEM_REDSTONE_LAMP:
-        break;
     case ITEM_SANDSTONE_STAIRS:
         place_stairs(context, BLOCK_SANDSTONE_STAIRS);
         break;
-    case ITEM_EMERALD_ORE:
-        place_simple_block(context, BLOCK_EMERALD_ORE);
-        break;
     case ITEM_ENDER_CHEST:
-        break;
-    case ITEM_TRIPWIRE_HOOK:
         break;
     case ITEM_EMERALD_BLOCK:
         place_simple_block(context, BLOCK_EMERALD_BLOCK);
@@ -2367,59 +2536,23 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_POLISHED_BLACKSTONE_BRICK_WALL:
         place_wall(context, BLOCK_POLISHED_BLACKSTONE_BRICK_WALL);
         break;
-    case ITEM_STONE_BUTTON:
-        place_lever_or_button(context, BLOCK_STONE_BUTTON);
+    case ITEM_COBBLED_DEEPSLATE_WALL:
+        place_wall(context, BLOCK_COBBLED_DEEPSLATE_WALL);
         break;
-    case ITEM_OAK_BUTTON:
-        place_lever_or_button(context, BLOCK_OAK_BUTTON);
+    case ITEM_POLISHED_DEEPSLATE_WALL:
+        place_wall(context, BLOCK_POLISHED_DEEPSLATE_WALL);
         break;
-    case ITEM_SPRUCE_BUTTON:
-        place_lever_or_button(context, BLOCK_SPRUCE_BUTTON);
+    case ITEM_DEEPSLATE_BRICK_WALL:
+        place_wall(context, BLOCK_DEEPSLATE_BRICK_WALL);
         break;
-    case ITEM_BIRCH_BUTTON:
-        place_lever_or_button(context, BLOCK_BIRCH_BUTTON);
-        break;
-    case ITEM_JUNGLE_BUTTON:
-        place_lever_or_button(context, BLOCK_JUNGLE_BUTTON);
-        break;
-    case ITEM_ACACIA_BUTTON:
-        place_lever_or_button(context, BLOCK_ACACIA_BUTTON);
-        break;
-    case ITEM_DARK_OAK_BUTTON:
-        place_lever_or_button(context, BLOCK_DARK_OAK_BUTTON);
-        break;
-    case ITEM_CRIMSON_BUTTON:
-        place_lever_or_button(context, BLOCK_CRIMSON_BUTTON);
-        break;
-    case ITEM_WARPED_BUTTON:
-        place_lever_or_button(context, BLOCK_WARPED_BUTTON);
-        break;
-    case ITEM_POLISHED_BLACKSTONE_BUTTON:
-        place_lever_or_button(context, BLOCK_POLISHED_BLACKSTONE_BUTTON);
+    case ITEM_DEEPSLATE_TILE_WALL:
+        place_wall(context, BLOCK_DEEPSLATE_TILE_WALL);
         break;
     case ITEM_ANVIL:
         break;
     case ITEM_CHIPPED_ANVIL:
         break;
     case ITEM_DAMAGED_ANVIL:
-        break;
-    case ITEM_TRAPPED_CHEST:
-        break;
-    case ITEM_LIGHT_WEIGHTED_PRESSURE_PLATE:
-        place_pressure_plate(context, BLOCK_LIGHT_WEIGHTED_PRESSURE_PLATE);
-        break;
-    case ITEM_HEAVY_WEIGHTED_PRESSURE_PLATE:
-        place_pressure_plate(context, BLOCK_HEAVY_WEIGHTED_PRESSURE_PLATE);
-        break;
-    case ITEM_DAYLIGHT_DETECTOR:
-        break;
-    case ITEM_REDSTONE_BLOCK:
-        place_simple_block(context, BLOCK_REDSTONE_BLOCK);
-        break;
-    case ITEM_NETHER_QUARTZ_ORE:
-        place_simple_block(context, BLOCK_NETHER_QUARTZ_ORE);
-        break;
-    case ITEM_HOPPER:
         break;
     case ITEM_CHISELED_QUARTZ_BLOCK:
         place_simple_block(context, BLOCK_CHISELED_QUARTZ_BLOCK);
@@ -2435,10 +2568,6 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_QUARTZ_STAIRS:
         place_stairs(context, BLOCK_QUARTZ_STAIRS);
-        break;
-    case ITEM_ACTIVATOR_RAIL:
-        break;
-    case ITEM_DROPPER:
         break;
     case ITEM_WHITE_TERRACOTTA:
         place_simple_block(context, BLOCK_WHITE_TERRACOTTA);
@@ -2491,8 +2620,7 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_BARRIER:
         place_simple_block(context, BLOCK_BARRIER);
         break;
-    case ITEM_IRON_TRAPDOOR:
-        place_trapdoor(context, BLOCK_IRON_TRAPDOOR);
+    case ITEM_LIGHT:
         break;
     case ITEM_HAY_BLOCK:
         place_simple_pillar(context, BLOCK_HAY_BLOCK);
@@ -2548,9 +2676,6 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_TERRACOTTA:
         place_simple_block(context, BLOCK_TERRACOTTA);
         break;
-    case ITEM_COAL_BLOCK:
-        place_simple_block(context, BLOCK_COAL_BLOCK);
-        break;
     case ITEM_PACKED_ICE:
         place_simple_block(context, BLOCK_PACKED_ICE);
         break;
@@ -2560,10 +2685,7 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_DARK_OAK_STAIRS:
         place_stairs(context, BLOCK_DARK_OAK_STAIRS);
         break;
-    case ITEM_SLIME_BLOCK:
-        place_simple_block(context, BLOCK_SLIME_BLOCK);
-        break;
-    case ITEM_GRASS_PATH:
+    case ITEM_DIRT_PATH:
         break;
     case ITEM_SUNFLOWER:
         break;
@@ -2727,8 +2849,6 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_STRUCTURE_VOID:
         place_simple_block(context, BLOCK_STRUCTURE_VOID);
-        break;
-    case ITEM_OBSERVER:
         break;
     case ITEM_SHULKER_BOX:
         break;
@@ -3016,6 +3136,18 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_DIORITE_STAIRS:
         place_stairs(context, BLOCK_DIORITE_STAIRS);
         break;
+    case ITEM_COBBLED_DEEPSLATE_STAIRS:
+        place_stairs(context, BLOCK_COBBLED_DEEPSLATE_STAIRS);
+        break;
+    case ITEM_POLISHED_DEEPSLATE_STAIRS:
+        place_stairs(context, BLOCK_POLISHED_DEEPSLATE_STAIRS);
+        break;
+    case ITEM_DEEPSLATE_BRICK_STAIRS:
+        place_stairs(context, BLOCK_DEEPSLATE_BRICK_STAIRS);
+        break;
+    case ITEM_DEEPSLATE_TILE_STAIRS:
+        place_stairs(context, BLOCK_DEEPSLATE_TILE_STAIRS);
+        break;
     case ITEM_POLISHED_GRANITE_SLAB:
         place_slab(context, BLOCK_POLISHED_GRANITE_SLAB);
         break;
@@ -3055,7 +3187,145 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_DIORITE_SLAB:
         place_slab(context, BLOCK_DIORITE_SLAB);
         break;
+    case ITEM_COBBLED_DEEPSLATE_SLAB:
+        place_slab(context, BLOCK_COBBLED_DEEPSLATE_SLAB);
+        break;
+    case ITEM_POLISHED_DEEPSLATE_SLAB:
+        place_slab(context, BLOCK_POLISHED_DEEPSLATE_SLAB);
+        break;
+    case ITEM_DEEPSLATE_BRICK_SLAB:
+        place_slab(context, BLOCK_DEEPSLATE_BRICK_SLAB);
+        break;
+    case ITEM_DEEPSLATE_TILE_SLAB:
+        place_slab(context, BLOCK_DEEPSLATE_TILE_SLAB);
+        break;
     case ITEM_SCAFFOLDING:
+        break;
+
+
+
+
+    case ITEM_REDSTONE:
+        place_redstone_wire(context, BLOCK_REDSTONE_WIRE);
+        break;
+    case ITEM_REDSTONE_TORCH:
+        place_torch(context, BLOCK_REDSTONE_TORCH, BLOCK_REDSTONE_WALL_TORCH);
+        break;
+    case ITEM_REDSTONE_BLOCK:
+        place_simple_block(context, BLOCK_REDSTONE_BLOCK);
+        break;
+    case ITEM_REPEATER:
+        break;
+    case ITEM_COMPARATOR:
+        break;
+    case ITEM_PISTON:
+        break;
+    case ITEM_STICKY_PISTON:
+        break;
+    case ITEM_SLIME_BLOCK:
+        place_simple_block(context, BLOCK_SLIME_BLOCK);
+        break;
+    case ITEM_HONEY_BLOCK:
+        place_simple_block(context, BLOCK_HONEY_BLOCK);
+        break;
+    case ITEM_OBSERVER:
+        break;
+    case ITEM_HOPPER:
+        break;
+    case ITEM_DISPENSER:
+        break;
+    case ITEM_DROPPER:
+        break;
+    case ITEM_LECTERN:
+        break;
+    case ITEM_TARGET:
+        place_simple_block(context, BLOCK_TARGET);
+        break;
+    case ITEM_LEVER:
+        place_lever_or_button(context, BLOCK_LEVER);
+        break;
+    case ITEM_LIGHTNING_ROD:
+        break;
+    case ITEM_DAYLIGHT_DETECTOR:
+        break;
+    case ITEM_SCULK_SENSOR:
+        break;
+    case ITEM_TRIPWIRE_HOOK:
+        break;
+    case ITEM_TRAPPED_CHEST:
+        break;
+    case ITEM_TNT:
+        place_simple_block(context, BLOCK_TNT);
+        break;
+    case ITEM_REDSTONE_LAMP:
+        break;
+    case ITEM_NOTE_BLOCK:
+        break;
+    case ITEM_STONE_BUTTON:
+        place_lever_or_button(context, BLOCK_STONE_BUTTON);
+        break;
+    case ITEM_POLISHED_BLACKSTONE_BUTTON:
+        place_lever_or_button(context, BLOCK_POLISHED_BLACKSTONE_BUTTON);
+        break;
+    case ITEM_OAK_BUTTON:
+        place_lever_or_button(context, BLOCK_OAK_BUTTON);
+        break;
+    case ITEM_SPRUCE_BUTTON:
+        place_lever_or_button(context, BLOCK_SPRUCE_BUTTON);
+        break;
+    case ITEM_BIRCH_BUTTON:
+        place_lever_or_button(context, BLOCK_BIRCH_BUTTON);
+        break;
+    case ITEM_JUNGLE_BUTTON:
+        place_lever_or_button(context, BLOCK_JUNGLE_BUTTON);
+        break;
+    case ITEM_ACACIA_BUTTON:
+        place_lever_or_button(context, BLOCK_ACACIA_BUTTON);
+        break;
+    case ITEM_DARK_OAK_BUTTON:
+        place_lever_or_button(context, BLOCK_DARK_OAK_BUTTON);
+        break;
+    case ITEM_CRIMSON_BUTTON:
+        place_lever_or_button(context, BLOCK_CRIMSON_BUTTON);
+        break;
+    case ITEM_WARPED_BUTTON:
+        place_lever_or_button(context, BLOCK_WARPED_BUTTON);
+        break;
+    case ITEM_STONE_PRESSURE_PLATE:
+        place_pressure_plate(context, BLOCK_STONE_PRESSURE_PLATE);
+        break;
+    case ITEM_POLISHED_BLACKSTONE_PRESSURE_PLATE:
+        place_pressure_plate(context, BLOCK_POLISHED_BLACKSTONE_PRESSURE_PLATE);
+        break;
+    case ITEM_LIGHT_WEIGHTED_PRESSURE_PLATE:
+        place_pressure_plate(context, BLOCK_LIGHT_WEIGHTED_PRESSURE_PLATE);
+        break;
+    case ITEM_HEAVY_WEIGHTED_PRESSURE_PLATE:
+        place_pressure_plate(context, BLOCK_HEAVY_WEIGHTED_PRESSURE_PLATE);
+        break;
+    case ITEM_OAK_PRESSURE_PLATE:
+        place_pressure_plate(context, BLOCK_OAK_PRESSURE_PLATE);
+        break;
+    case ITEM_SPRUCE_PRESSURE_PLATE:
+        place_pressure_plate(context, BLOCK_SPRUCE_PRESSURE_PLATE);
+        break;
+    case ITEM_BIRCH_PRESSURE_PLATE:
+        place_pressure_plate(context, BLOCK_BIRCH_PRESSURE_PLATE);
+        break;
+    case ITEM_JUNGLE_PRESSURE_PLATE:
+        place_pressure_plate(context, BLOCK_JUNGLE_PRESSURE_PLATE);
+        break;
+    case ITEM_ACACIA_PRESSURE_PLATE:
+        place_pressure_plate(context, BLOCK_ACACIA_PRESSURE_PLATE);
+        break;
+    case ITEM_DARK_OAK_PRESSURE_PLATE:
+        place_pressure_plate(context, BLOCK_DARK_OAK_PRESSURE_PLATE);
+        break;
+    case ITEM_CRIMSON_PRESSURE_PLATE:
+        place_pressure_plate(context, BLOCK_CRIMSON_PRESSURE_PLATE);
+        break;
+    case ITEM_WARPED_PRESSURE_PLATE:
+        place_pressure_plate(context, BLOCK_WARPED_PRESSURE_PLATE);
         break;
     case ITEM_IRON_DOOR:
         place_door(context, BLOCK_IRON_DOOR);
@@ -3084,9 +3354,75 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_WARPED_DOOR:
         place_door(context, BLOCK_WARPED_DOOR);
         break;
-    case ITEM_REPEATER:
+    case ITEM_IRON_TRAPDOOR:
+        place_trapdoor(context, BLOCK_IRON_TRAPDOOR);
         break;
-    case ITEM_COMPARATOR:
+    case ITEM_OAK_TRAPDOOR:
+        place_trapdoor(context, BLOCK_OAK_TRAPDOOR);
+        break;
+    case ITEM_SPRUCE_TRAPDOOR:
+        place_trapdoor(context, BLOCK_SPRUCE_TRAPDOOR);
+        break;
+    case ITEM_BIRCH_TRAPDOOR:
+        place_trapdoor(context, BLOCK_BIRCH_TRAPDOOR);
+        break;
+    case ITEM_JUNGLE_TRAPDOOR:
+        place_trapdoor(context, BLOCK_JUNGLE_TRAPDOOR);
+        break;
+    case ITEM_ACACIA_TRAPDOOR:
+        place_trapdoor(context, BLOCK_ACACIA_TRAPDOOR);
+        break;
+    case ITEM_DARK_OAK_TRAPDOOR:
+        place_trapdoor(context, BLOCK_DARK_OAK_TRAPDOOR);
+        break;
+    case ITEM_CRIMSON_TRAPDOOR:
+        place_trapdoor(context, BLOCK_CRIMSON_TRAPDOOR);
+        break;
+    case ITEM_WARPED_TRAPDOOR:
+        place_trapdoor(context, BLOCK_WARPED_TRAPDOOR);
+        break;
+    case ITEM_OAK_FENCE_GATE:
+        place_fence_gate(context, BLOCK_OAK_FENCE_GATE);
+        break;
+    case ITEM_SPRUCE_FENCE_GATE:
+        place_fence_gate(context, BLOCK_SPRUCE_FENCE_GATE);
+        break;
+    case ITEM_BIRCH_FENCE_GATE:
+        place_fence_gate(context, BLOCK_BIRCH_FENCE_GATE);
+        break;
+    case ITEM_JUNGLE_FENCE_GATE:
+        place_fence_gate(context, BLOCK_JUNGLE_FENCE_GATE);
+        break;
+    case ITEM_ACACIA_FENCE_GATE:
+        place_fence_gate(context, BLOCK_ACACIA_FENCE_GATE);
+        break;
+    case ITEM_DARK_OAK_FENCE_GATE:
+        place_fence_gate(context, BLOCK_DARK_OAK_FENCE_GATE);
+        break;
+    case ITEM_CRIMSON_FENCE_GATE:
+        place_fence_gate(context, BLOCK_CRIMSON_FENCE_GATE);
+        break;
+    case ITEM_WARPED_FENCE_GATE:
+        place_fence_gate(context, BLOCK_WARPED_FENCE_GATE);
+        break;
+    case ITEM_POWERED_RAIL:
+        break;
+    case ITEM_DETECTOR_RAIL:
+        break;
+    case ITEM_RAIL:
+        place_rail(context, BLOCK_RAIL);
+        break;
+    case ITEM_ACTIVATOR_RAIL:
+        break;
+    case ITEM_MINECART:
+        break;
+    case ITEM_CHEST_MINECART:
+        break;
+    case ITEM_FURNACE_MINECART:
+        break;
+    case ITEM_TNT_MINECART:
+        break;
+    case ITEM_HOPPER_MINECART:
         break;
     case ITEM_STRUCTURE_BLOCK:
         break;
@@ -3153,17 +3489,10 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_WARPED_SIGN:
         break;
-    case ITEM_MINECART:
-        break;
-    case ITEM_REDSTONE:
-        place_redstone_wire(context, BLOCK_REDSTONE_WIRE);
+    case ITEM_POWDER_SNOW_BUCKET:
         break;
     case ITEM_DRIED_KELP_BLOCK:
         place_simple_block(context, BLOCK_DRIED_KELP_BLOCK);
-        break;
-    case ITEM_CHEST_MINECART:
-        break;
-    case ITEM_FURNACE_MINECART:
         break;
     case ITEM_COMPASS:
         break;
@@ -3239,6 +3568,8 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_ENDER_EYE:
         break;
+    case ITEM_AXOLOTL_SPAWN_EGG:
+        break;
     case ITEM_BAT_SPAWN_EGG:
         break;
     case ITEM_BEE_SPAWN_EGG:
@@ -3274,6 +3605,10 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_FOX_SPAWN_EGG:
         break;
     case ITEM_GHAST_SPAWN_EGG:
+        break;
+    case ITEM_GLOW_SQUID_SPAWN_EGG:
+        break;
+    case ITEM_GOAT_SPAWN_EGG:
         break;
     case ITEM_GUARDIAN_SPAWN_EGG:
         break;
@@ -3375,6 +3710,8 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_ITEM_FRAME:
         break;
+    case ITEM_GLOW_ITEM_FRAME:
+        break;
     case ITEM_FLOWER_POT:
         place_simple_block(context, BLOCK_FLOWER_POT);
         break;
@@ -3397,10 +3734,6 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_DRAGON_HEAD:
         break;
     case ITEM_FIREWORK_ROCKET:
-        break;
-    case ITEM_TNT_MINECART:
-        break;
-    case ITEM_HOPPER_MINECART:
         break;
     case ITEM_ARMOR_STAND:
         break;
@@ -3494,8 +3827,6 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_GRINDSTONE:
         place_grindstone(context, BLOCK_GRINDSTONE);
         break;
-    case ITEM_LECTERN:
-        break;
     case ITEM_SMITHING_TABLE:
         place_simple_block(context, BLOCK_SMITHING_TABLE);
         break;
@@ -3510,6 +3841,8 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_SWEET_BERRIES:
         place_plant(context, BLOCK_SWEET_BERRY_BUSH);
         break;
+    case ITEM_GLOW_BERRIES:
+        break;
     case ITEM_CAMPFIRE:
         break;
     case ITEM_SOUL_CAMPFIRE:
@@ -3521,23 +3854,11 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_BEEHIVE:
         break;
-    case ITEM_HONEY_BLOCK:
-        place_simple_block(context, BLOCK_HONEY_BLOCK);
-        break;
     case ITEM_HONEYCOMB_BLOCK:
         place_simple_block(context, BLOCK_HONEYCOMB_BLOCK);
         break;
     case ITEM_LODESTONE:
         place_simple_block(context, BLOCK_LODESTONE);
-        break;
-    case ITEM_NETHERITE_BLOCK:
-        place_simple_block(context, BLOCK_NETHERITE_BLOCK);
-        break;
-    case ITEM_ANCIENT_DEBRIS:
-        place_simple_block(context, BLOCK_ANCIENT_DEBRIS);
-        break;
-    case ITEM_TARGET:
-        place_simple_block(context, BLOCK_TARGET);
         break;
     case ITEM_CRYING_OBSIDIAN:
         place_simple_block(context, BLOCK_CRYING_OBSIDIAN);
@@ -3581,9 +3902,57 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_RESPAWN_ANCHOR:
         place_simple_block(context, BLOCK_RESPAWN_ANCHOR);
         break;
+    case ITEM_CANDLE:
+        break;
+    case ITEM_WHITE_CANDLE:
+        break;
+    case ITEM_ORANGE_CANDLE:
+        break;
+    case ITEM_MAGENTA_CANDLE:
+        break;
+    case ITEM_LIGHT_BLUE_CANDLE:
+        break;
+    case ITEM_YELLOW_CANDLE:
+        break;
+    case ITEM_LIME_CANDLE:
+        break;
+    case ITEM_PINK_CANDLE:
+        break;
+    case ITEM_GRAY_CANDLE:
+        break;
+    case ITEM_LIGHT_GRAY_CANDLE:
+        break;
+    case ITEM_CYAN_CANDLE:
+        break;
+    case ITEM_PURPLE_CANDLE:
+        break;
+    case ITEM_BLUE_CANDLE:
+        break;
+    case ITEM_BROWN_CANDLE:
+        break;
+    case ITEM_GREEN_CANDLE:
+        break;
+    case ITEM_RED_CANDLE:
+        break;
+    case ITEM_BLACK_CANDLE:
+        break;
+    case ITEM_SMALL_AMETHYST_BUD:
+        place_amethyst_cluster(context, BLOCK_SMALL_AMETHYST_BUD);
+        break;
+    case ITEM_MEDIUM_AMETHYST_BUD:
+        place_amethyst_cluster(context, BLOCK_MEDIUM_AMETHYST_BUD);
+        break;
+    case ITEM_LARGE_AMETHYST_BUD:
+        place_amethyst_cluster(context, BLOCK_LARGE_AMETHYST_BUD);
+        break;
+    case ITEM_AMETHYST_CLUSTER:
+        place_amethyst_cluster(context, BLOCK_AMETHYST_CLUSTER);
+        break;
+    case ITEM_POINTED_DRIPSTONE:
+        break;
     default:
         // no use-on action for the remaining item types
-        return;
+        break;
     }
 
     propagate_block_updates(&buc);
@@ -3673,11 +4042,13 @@ get_max_stack_size(mc_int item_type) {
     case ITEM_MINECART:
     case ITEM_SADDLE:
     case ITEM_OAK_BOAT:
+    case ITEM_POWDER_SNOW_BUCKET:
     case ITEM_MILK_BUCKET:
     case ITEM_PUFFERFISH_BUCKET:
     case ITEM_SALMON_BUCKET:
     case ITEM_COD_BUCKET:
     case ITEM_TROPICAL_FISH_BUCKET:
+    case ITEM_AXOLOTL_BUCKET:
     case ITEM_CHEST_MINECART:
     case ITEM_FURNACE_MINECART:
     case ITEM_FISHING_ROD:
@@ -3747,6 +4118,8 @@ get_max_stack_size(mc_int item_type) {
     case ITEM_MOJANG_BANNER_PATTERN:
     case ITEM_GLOBE_BANNER_PATTERN:
     case ITEM_PIGLIN_BANNER_PATTERN:
+    case ITEM_BUNDLE:
+    case ITEM_SPYGLASS:
         return 1;
 
     case ITEM_OAK_SIGN:
@@ -3808,10 +4181,17 @@ init_item_data(void) {
     register_item_type(ITEM_POLISHED_DIORITE, "minecraft:polished_diorite");
     register_item_type(ITEM_ANDESITE, "minecraft:andesite");
     register_item_type(ITEM_POLISHED_ANDESITE, "minecraft:polished_andesite");
+    register_item_type(ITEM_DEEPSLATE, "minecraft:deepslate");
+    register_item_type(ITEM_COBBLED_DEEPSLATE, "minecraft:cobbled_deepslate");
+    register_item_type(ITEM_POLISHED_DEEPSLATE, "minecraft:polished_deepslate");
+    register_item_type(ITEM_CALCITE, "minecraft:calcite");
+    register_item_type(ITEM_TUFF, "minecraft:tuff");
+    register_item_type(ITEM_DRIPSTONE_BLOCK, "minecraft:dripstone_block");
     register_item_type(ITEM_GRASS_BLOCK, "minecraft:grass_block");
     register_item_type(ITEM_DIRT, "minecraft:dirt");
     register_item_type(ITEM_COARSE_DIRT, "minecraft:coarse_dirt");
     register_item_type(ITEM_PODZOL, "minecraft:podzol");
+    register_item_type(ITEM_ROOTED_DIRT, "minecraft:rooted_dirt");
     register_item_type(ITEM_CRIMSON_NYLIUM, "minecraft:crimson_nylium");
     register_item_type(ITEM_WARPED_NYLIUM, "minecraft:warped_nylium");
     register_item_type(ITEM_COBBLESTONE, "minecraft:cobblestone");
@@ -3833,10 +4213,67 @@ init_item_data(void) {
     register_item_type(ITEM_SAND, "minecraft:sand");
     register_item_type(ITEM_RED_SAND, "minecraft:red_sand");
     register_item_type(ITEM_GRAVEL, "minecraft:gravel");
-    register_item_type(ITEM_GOLD_ORE, "minecraft:gold_ore");
-    register_item_type(ITEM_IRON_ORE, "minecraft:iron_ore");
     register_item_type(ITEM_COAL_ORE, "minecraft:coal_ore");
+    register_item_type(ITEM_DEEPSLATE_COAL_ORE, "minecraft:deepslate_coal_ore");
+    register_item_type(ITEM_IRON_ORE, "minecraft:iron_ore");
+    register_item_type(ITEM_DEEPSLATE_IRON_ORE, "minecraft:deepslate_iron_ore");
+    register_item_type(ITEM_COPPER_ORE, "minecraft:copper_ore");
+    register_item_type(ITEM_DEEPSLATE_COPPER_ORE, "minecraft:deepslate_copper_ore");
+    register_item_type(ITEM_GOLD_ORE, "minecraft:gold_ore");
+    register_item_type(ITEM_DEEPSLATE_GOLD_ORE, "minecraft:deepslate_gold_ore");
+    register_item_type(ITEM_REDSTONE_ORE, "minecraft:redstone_ore");
+    register_item_type(ITEM_DEEPSLATE_REDSTONE_ORE, "minecraft:deepslate_redstone_ore");
+    register_item_type(ITEM_EMERALD_ORE, "minecraft:emerald_ore");
+    register_item_type(ITEM_DEEPSLATE_EMERALD_ORE, "minecraft:deepslate_emerald_ore");
+    register_item_type(ITEM_LAPIS_ORE, "minecraft:lapis_ore");
+    register_item_type(ITEM_DEEPSLATE_LAPIS_ORE, "minecraft:deepslate_lapis_ore");
+    register_item_type(ITEM_DIAMOND_ORE, "minecraft:diamond_ore");
+    register_item_type(ITEM_DEEPSLATE_DIAMOND_ORE, "minecraft:deepslate_diamond_ore");
     register_item_type(ITEM_NETHER_GOLD_ORE, "minecraft:nether_gold_ore");
+    register_item_type(ITEM_NETHER_QUARTZ_ORE, "minecraft:nether_quartz_ore");
+    register_item_type(ITEM_ANCIENT_DEBRIS, "minecraft:ancient_debris");
+    register_item_type(ITEM_COAL_BLOCK, "minecraft:coal_block");
+    register_item_type(ITEM_RAW_IRON_BLOCK, "minecraft:raw_iron_block");
+    register_item_type(ITEM_RAW_COPPER_BLOCK, "minecraft:raw_copper_block");
+    register_item_type(ITEM_RAW_GOLD_BLOCK, "minecraft:raw_gold_block");
+    register_item_type(ITEM_AMETHYST_BLOCK, "minecraft:amethyst_block");
+    register_item_type(ITEM_BUDDING_AMETHYST, "minecraft:budding_amethyst");
+    register_item_type(ITEM_IRON_BLOCK, "minecraft:iron_block");
+    register_item_type(ITEM_COPPER_BLOCK, "minecraft:copper_block");
+    register_item_type(ITEM_GOLD_BLOCK, "minecraft:gold_block");
+    register_item_type(ITEM_DIAMOND_BLOCK, "minecraft:diamond_block");
+    register_item_type(ITEM_NETHERITE_BLOCK, "minecraft:netherite_block");
+    register_item_type(ITEM_EXPOSED_COPPER, "minecraft:exposed_copper");
+    register_item_type(ITEM_WEATHERED_COPPER, "minecraft:weathered_copper");
+    register_item_type(ITEM_OXIDIZED_COPPER, "minecraft:oxidized_copper");
+    register_item_type(ITEM_CUT_COPPER, "minecraft:cut_copper");
+    register_item_type(ITEM_EXPOSED_CUT_COPPER, "minecraft:exposed_cut_copper");
+    register_item_type(ITEM_WEATHERED_CUT_COPPER, "minecraft:weathered_cut_copper");
+    register_item_type(ITEM_OXIDIZED_CUT_COPPER, "minecraft:oxidized_cut_copper");
+    register_item_type(ITEM_CUT_COPPER_STAIRS, "minecraft:cut_copper_stairs");
+    register_item_type(ITEM_EXPOSED_CUT_COPPER_STAIRS, "minecraft:exposed_cut_copper_stairs");
+    register_item_type(ITEM_WEATHERED_CUT_COPPER_STAIRS, "minecraft:weathered_cut_copper_stairs");
+    register_item_type(ITEM_OXIDIZED_CUT_COPPER_STAIRS, "minecraft:oxidized_cut_copper_stairs");
+    register_item_type(ITEM_CUT_COPPER_SLAB, "minecraft:cut_copper_slab");
+    register_item_type(ITEM_EXPOSED_CUT_COPPER_SLAB, "minecraft:exposed_cut_copper_slab");
+    register_item_type(ITEM_WEATHERED_CUT_COPPER_SLAB, "minecraft:weathered_cut_copper_slab");
+    register_item_type(ITEM_OXIDIZED_CUT_COPPER_SLAB, "minecraft:oxidized_cut_copper_slab");
+    register_item_type(ITEM_WAXED_COPPER_BLOCK, "minecraft:waxed_copper_block");
+    register_item_type(ITEM_WAXED_EXPOSED_COPPER, "minecraft:waxed_exposed_copper");
+    register_item_type(ITEM_WAXED_WEATHERED_COPPER, "minecraft:waxed_weathered_copper");
+    register_item_type(ITEM_WAXED_OXIDIZED_COPPER, "minecraft:waxed_oxidized_copper");
+    register_item_type(ITEM_WAXED_CUT_COPPER, "minecraft:waxed_cut_copper");
+    register_item_type(ITEM_WAXED_EXPOSED_CUT_COPPER, "minecraft:waxed_exposed_cut_copper");
+    register_item_type(ITEM_WAXED_WEATHERED_CUT_COPPER, "minecraft:waxed_weathered_cut_copper");
+    register_item_type(ITEM_WAXED_OXIDIZED_CUT_COPPER, "minecraft:waxed_oxidized_cut_copper");
+    register_item_type(ITEM_WAXED_CUT_COPPER_STAIRS, "minecraft:waxed_cut_copper_stairs");
+    register_item_type(ITEM_WAXED_EXPOSED_CUT_COPPER_STAIRS, "minecraft:waxed_exposed_cut_copper_stairs");
+    register_item_type(ITEM_WAXED_WEATHERED_CUT_COPPER_STAIRS, "minecraft:waxed_weathered_cut_copper_stairs");
+    register_item_type(ITEM_WAXED_OXIDIZED_CUT_COPPER_STAIRS, "minecraft:waxed_oxidized_cut_copper_stairs");
+    register_item_type(ITEM_WAXED_CUT_COPPER_SLAB, "minecraft:waxed_cut_copper_slab");
+    register_item_type(ITEM_WAXED_EXPOSED_CUT_COPPER_SLAB, "minecraft:waxed_exposed_cut_copper_slab");
+    register_item_type(ITEM_WAXED_WEATHERED_CUT_COPPER_SLAB, "minecraft:waxed_weathered_cut_copper_slab");
+    register_item_type(ITEM_WAXED_OXIDIZED_CUT_COPPER_SLAB, "minecraft:waxed_oxidized_cut_copper_slab");
     register_item_type(ITEM_OAK_LOG, "minecraft:oak_log");
     register_item_type(ITEM_SPRUCE_LOG, "minecraft:spruce_log");
     register_item_type(ITEM_BIRCH_LOG, "minecraft:birch_log");
@@ -3875,26 +4312,24 @@ init_item_data(void) {
     register_item_type(ITEM_JUNGLE_LEAVES, "minecraft:jungle_leaves");
     register_item_type(ITEM_ACACIA_LEAVES, "minecraft:acacia_leaves");
     register_item_type(ITEM_DARK_OAK_LEAVES, "minecraft:dark_oak_leaves");
+    register_item_type(ITEM_AZALEA_LEAVES, "minecraft:azalea_leaves");
+    register_item_type(ITEM_FLOWERING_AZALEA_LEAVES, "minecraft:flowering_azalea_leaves");
     register_item_type(ITEM_SPONGE, "minecraft:sponge");
     register_item_type(ITEM_WET_SPONGE, "minecraft:wet_sponge");
     register_item_type(ITEM_GLASS, "minecraft:glass");
-    register_item_type(ITEM_LAPIS_ORE, "minecraft:lapis_ore");
+    register_item_type(ITEM_TINTED_GLASS, "minecraft:tinted_glass");
     register_item_type(ITEM_LAPIS_BLOCK, "minecraft:lapis_block");
-    register_item_type(ITEM_DISPENSER, "minecraft:dispenser");
     register_item_type(ITEM_SANDSTONE, "minecraft:sandstone");
     register_item_type(ITEM_CHISELED_SANDSTONE, "minecraft:chiseled_sandstone");
     register_item_type(ITEM_CUT_SANDSTONE, "minecraft:cut_sandstone");
-    register_item_type(ITEM_NOTE_BLOCK, "minecraft:note_block");
-    register_item_type(ITEM_POWERED_RAIL, "minecraft:powered_rail");
-    register_item_type(ITEM_DETECTOR_RAIL, "minecraft:detector_rail");
-    register_item_type(ITEM_STICKY_PISTON, "minecraft:sticky_piston");
     register_item_type(ITEM_COBWEB, "minecraft:cobweb");
     register_item_type(ITEM_GRASS, "minecraft:grass");
     register_item_type(ITEM_FERN, "minecraft:fern");
+    register_item_type(ITEM_AZALEA, "minecraft:azalea");
+    register_item_type(ITEM_FLOWERING_AZALEA, "minecraft:flowering_azalea");
     register_item_type(ITEM_DEAD_BUSH, "minecraft:dead_bush");
     register_item_type(ITEM_SEAGRASS, "minecraft:seagrass");
     register_item_type(ITEM_SEA_PICKLE, "minecraft:sea_pickle");
-    register_item_type(ITEM_PISTON, "minecraft:piston");
     register_item_type(ITEM_WHITE_WOOL, "minecraft:white_wool");
     register_item_type(ITEM_ORANGE_WOOL, "minecraft:orange_wool");
     register_item_type(ITEM_MAGENTA_WOOL, "minecraft:magenta_wool");
@@ -3924,6 +4359,7 @@ init_item_data(void) {
     register_item_type(ITEM_CORNFLOWER, "minecraft:cornflower");
     register_item_type(ITEM_LILY_OF_THE_VALLEY, "minecraft:lily_of_the_valley");
     register_item_type(ITEM_WITHER_ROSE, "minecraft:wither_rose");
+    register_item_type(ITEM_SPORE_BLOSSOM, "minecraft:spore_blossom");
     register_item_type(ITEM_BROWN_MUSHROOM, "minecraft:brown_mushroom");
     register_item_type(ITEM_RED_MUSHROOM, "minecraft:red_mushroom");
     register_item_type(ITEM_CRIMSON_FUNGUS, "minecraft:crimson_fungus");
@@ -3935,9 +4371,12 @@ init_item_data(void) {
     register_item_type(ITEM_TWISTING_VINES, "minecraft:twisting_vines");
     register_item_type(ITEM_SUGAR_CANE, "minecraft:sugar_cane");
     register_item_type(ITEM_KELP, "minecraft:kelp");
+    register_item_type(ITEM_MOSS_CARPET, "minecraft:moss_carpet");
+    register_item_type(ITEM_MOSS_BLOCK, "minecraft:moss_block");
+    register_item_type(ITEM_HANGING_ROOTS, "minecraft:hanging_roots");
+    register_item_type(ITEM_BIG_DRIPLEAF, "minecraft:big_dripleaf");
+    register_item_type(ITEM_SMALL_DRIPLEAF, "minecraft:small_dripleaf");
     register_item_type(ITEM_BAMBOO, "minecraft:bamboo");
-    register_item_type(ITEM_GOLD_BLOCK, "minecraft:gold_block");
-    register_item_type(ITEM_IRON_BLOCK, "minecraft:iron_block");
     register_item_type(ITEM_OAK_SLAB, "minecraft:oak_slab");
     register_item_type(ITEM_SPRUCE_SLAB, "minecraft:spruce_slab");
     register_item_type(ITEM_BIRCH_SLAB, "minecraft:birch_slab");
@@ -3967,7 +4406,6 @@ init_item_data(void) {
     register_item_type(ITEM_SMOOTH_SANDSTONE, "minecraft:smooth_sandstone");
     register_item_type(ITEM_SMOOTH_STONE, "minecraft:smooth_stone");
     register_item_type(ITEM_BRICKS, "minecraft:bricks");
-    register_item_type(ITEM_TNT, "minecraft:tnt");
     register_item_type(ITEM_BOOKSHELF, "minecraft:bookshelf");
     register_item_type(ITEM_MOSSY_COBBLESTONE, "minecraft:mossy_cobblestone");
     register_item_type(ITEM_OBSIDIAN, "minecraft:obsidian");
@@ -3981,27 +4419,11 @@ init_item_data(void) {
     register_item_type(ITEM_SPAWNER, "minecraft:spawner");
     register_item_type(ITEM_OAK_STAIRS, "minecraft:oak_stairs");
     register_item_type(ITEM_CHEST, "minecraft:chest");
-    register_item_type(ITEM_DIAMOND_ORE, "minecraft:diamond_ore");
-    register_item_type(ITEM_DIAMOND_BLOCK, "minecraft:diamond_block");
     register_item_type(ITEM_CRAFTING_TABLE, "minecraft:crafting_table");
     register_item_type(ITEM_FARMLAND, "minecraft:farmland");
     register_item_type(ITEM_FURNACE, "minecraft:furnace");
     register_item_type(ITEM_LADDER, "minecraft:ladder");
-    register_item_type(ITEM_RAIL, "minecraft:rail");
     register_item_type(ITEM_COBBLESTONE_STAIRS, "minecraft:cobblestone_stairs");
-    register_item_type(ITEM_LEVER, "minecraft:lever");
-    register_item_type(ITEM_STONE_PRESSURE_PLATE, "minecraft:stone_pressure_plate");
-    register_item_type(ITEM_OAK_PRESSURE_PLATE, "minecraft:oak_pressure_plate");
-    register_item_type(ITEM_SPRUCE_PRESSURE_PLATE, "minecraft:spruce_pressure_plate");
-    register_item_type(ITEM_BIRCH_PRESSURE_PLATE, "minecraft:birch_pressure_plate");
-    register_item_type(ITEM_JUNGLE_PRESSURE_PLATE, "minecraft:jungle_pressure_plate");
-    register_item_type(ITEM_ACACIA_PRESSURE_PLATE, "minecraft:acacia_pressure_plate");
-    register_item_type(ITEM_DARK_OAK_PRESSURE_PLATE, "minecraft:dark_oak_pressure_plate");
-    register_item_type(ITEM_CRIMSON_PRESSURE_PLATE, "minecraft:crimson_pressure_plate");
-    register_item_type(ITEM_WARPED_PRESSURE_PLATE, "minecraft:warped_pressure_plate");
-    register_item_type(ITEM_POLISHED_BLACKSTONE_PRESSURE_PLATE, "minecraft:polished_blackstone_pressure_plate");
-    register_item_type(ITEM_REDSTONE_ORE, "minecraft:redstone_ore");
-    register_item_type(ITEM_REDSTONE_TORCH, "minecraft:redstone_torch");
     register_item_type(ITEM_SNOW, "minecraft:snow");
     register_item_type(ITEM_ICE, "minecraft:ice");
     register_item_type(ITEM_SNOW_BLOCK, "minecraft:snow_block");
@@ -4018,32 +4440,31 @@ init_item_data(void) {
     register_item_type(ITEM_WARPED_FENCE, "minecraft:warped_fence");
     register_item_type(ITEM_PUMPKIN, "minecraft:pumpkin");
     register_item_type(ITEM_CARVED_PUMPKIN, "minecraft:carved_pumpkin");
+    register_item_type(ITEM_JACK_O_LANTERN, "minecraft:jack_o_lantern");
     register_item_type(ITEM_NETHERRACK, "minecraft:netherrack");
     register_item_type(ITEM_SOUL_SAND, "minecraft:soul_sand");
     register_item_type(ITEM_SOUL_SOIL, "minecraft:soul_soil");
     register_item_type(ITEM_BASALT, "minecraft:basalt");
     register_item_type(ITEM_POLISHED_BASALT, "minecraft:polished_basalt");
+    register_item_type(ITEM_SMOOTH_BASALT, "minecraft:smooth_basalt");
     register_item_type(ITEM_SOUL_TORCH, "minecraft:soul_torch");
     register_item_type(ITEM_GLOWSTONE, "minecraft:glowstone");
-    register_item_type(ITEM_JACK_O_LANTERN, "minecraft:jack_o_lantern");
-    register_item_type(ITEM_OAK_TRAPDOOR, "minecraft:oak_trapdoor");
-    register_item_type(ITEM_SPRUCE_TRAPDOOR, "minecraft:spruce_trapdoor");
-    register_item_type(ITEM_BIRCH_TRAPDOOR, "minecraft:birch_trapdoor");
-    register_item_type(ITEM_JUNGLE_TRAPDOOR, "minecraft:jungle_trapdoor");
-    register_item_type(ITEM_ACACIA_TRAPDOOR, "minecraft:acacia_trapdoor");
-    register_item_type(ITEM_DARK_OAK_TRAPDOOR, "minecraft:dark_oak_trapdoor");
-    register_item_type(ITEM_CRIMSON_TRAPDOOR, "minecraft:crimson_trapdoor");
-    register_item_type(ITEM_WARPED_TRAPDOOR, "minecraft:warped_trapdoor");
     register_item_type(ITEM_INFESTED_STONE, "minecraft:infested_stone");
     register_item_type(ITEM_INFESTED_COBBLESTONE, "minecraft:infested_cobblestone");
     register_item_type(ITEM_INFESTED_STONE_BRICKS, "minecraft:infested_stone_bricks");
     register_item_type(ITEM_INFESTED_MOSSY_STONE_BRICKS, "minecraft:infested_mossy_stone_bricks");
     register_item_type(ITEM_INFESTED_CRACKED_STONE_BRICKS, "minecraft:infested_cracked_stone_bricks");
     register_item_type(ITEM_INFESTED_CHISELED_STONE_BRICKS, "minecraft:infested_chiseled_stone_bricks");
+    register_item_type(ITEM_INFESTED_DEEPSLATE, "minecraft:infested_deepslate");
     register_item_type(ITEM_STONE_BRICKS, "minecraft:stone_bricks");
     register_item_type(ITEM_MOSSY_STONE_BRICKS, "minecraft:mossy_stone_bricks");
     register_item_type(ITEM_CRACKED_STONE_BRICKS, "minecraft:cracked_stone_bricks");
     register_item_type(ITEM_CHISELED_STONE_BRICKS, "minecraft:chiseled_stone_bricks");
+    register_item_type(ITEM_DEEPSLATE_BRICKS, "minecraft:deepslate_bricks");
+    register_item_type(ITEM_CRACKED_DEEPSLATE_BRICKS, "minecraft:cracked_deepslate_bricks");
+    register_item_type(ITEM_DEEPSLATE_TILES, "minecraft:deepslate_tiles");
+    register_item_type(ITEM_CRACKED_DEEPSLATE_TILES, "minecraft:cracked_deepslate_tiles");
+    register_item_type(ITEM_CHISELED_DEEPSLATE, "minecraft:chiseled_deepslate");
     register_item_type(ITEM_BROWN_MUSHROOM_BLOCK, "minecraft:brown_mushroom_block");
     register_item_type(ITEM_RED_MUSHROOM_BLOCK, "minecraft:red_mushroom_block");
     register_item_type(ITEM_MUSHROOM_STEM, "minecraft:mushroom_stem");
@@ -4052,14 +4473,7 @@ init_item_data(void) {
     register_item_type(ITEM_GLASS_PANE, "minecraft:glass_pane");
     register_item_type(ITEM_MELON, "minecraft:melon");
     register_item_type(ITEM_VINE, "minecraft:vine");
-    register_item_type(ITEM_OAK_FENCE_GATE, "minecraft:oak_fence_gate");
-    register_item_type(ITEM_SPRUCE_FENCE_GATE, "minecraft:spruce_fence_gate");
-    register_item_type(ITEM_BIRCH_FENCE_GATE, "minecraft:birch_fence_gate");
-    register_item_type(ITEM_JUNGLE_FENCE_GATE, "minecraft:jungle_fence_gate");
-    register_item_type(ITEM_ACACIA_FENCE_GATE, "minecraft:acacia_fence_gate");
-    register_item_type(ITEM_DARK_OAK_FENCE_GATE, "minecraft:dark_oak_fence_gate");
-    register_item_type(ITEM_CRIMSON_FENCE_GATE, "minecraft:crimson_fence_gate");
-    register_item_type(ITEM_WARPED_FENCE_GATE, "minecraft:warped_fence_gate");
+    register_item_type(ITEM_GLOW_LICHEN, "minecraft:glow_lichen");
     register_item_type(ITEM_BRICK_STAIRS, "minecraft:brick_stairs");
     register_item_type(ITEM_STONE_BRICK_STAIRS, "minecraft:stone_brick_stairs");
     register_item_type(ITEM_MYCELIUM, "minecraft:mycelium");
@@ -4074,11 +4488,8 @@ init_item_data(void) {
     register_item_type(ITEM_END_STONE, "minecraft:end_stone");
     register_item_type(ITEM_END_STONE_BRICKS, "minecraft:end_stone_bricks");
     register_item_type(ITEM_DRAGON_EGG, "minecraft:dragon_egg");
-    register_item_type(ITEM_REDSTONE_LAMP, "minecraft:redstone_lamp");
     register_item_type(ITEM_SANDSTONE_STAIRS, "minecraft:sandstone_stairs");
-    register_item_type(ITEM_EMERALD_ORE, "minecraft:emerald_ore");
     register_item_type(ITEM_ENDER_CHEST, "minecraft:ender_chest");
-    register_item_type(ITEM_TRIPWIRE_HOOK, "minecraft:tripwire_hook");
     register_item_type(ITEM_EMERALD_BLOCK, "minecraft:emerald_block");
     register_item_type(ITEM_SPRUCE_STAIRS, "minecraft:spruce_stairs");
     register_item_type(ITEM_BIRCH_STAIRS, "minecraft:birch_stairs");
@@ -4104,33 +4515,18 @@ init_item_data(void) {
     register_item_type(ITEM_BLACKSTONE_WALL, "minecraft:blackstone_wall");
     register_item_type(ITEM_POLISHED_BLACKSTONE_WALL, "minecraft:polished_blackstone_wall");
     register_item_type(ITEM_POLISHED_BLACKSTONE_BRICK_WALL, "minecraft:polished_blackstone_brick_wall");
-    register_item_type(ITEM_STONE_BUTTON, "minecraft:stone_button");
-    register_item_type(ITEM_OAK_BUTTON, "minecraft:oak_button");
-    register_item_type(ITEM_SPRUCE_BUTTON, "minecraft:spruce_button");
-    register_item_type(ITEM_BIRCH_BUTTON, "minecraft:birch_button");
-    register_item_type(ITEM_JUNGLE_BUTTON, "minecraft:jungle_button");
-    register_item_type(ITEM_ACACIA_BUTTON, "minecraft:acacia_button");
-    register_item_type(ITEM_DARK_OAK_BUTTON, "minecraft:dark_oak_button");
-    register_item_type(ITEM_CRIMSON_BUTTON, "minecraft:crimson_button");
-    register_item_type(ITEM_WARPED_BUTTON, "minecraft:warped_button");
-    register_item_type(ITEM_POLISHED_BLACKSTONE_BUTTON, "minecraft:polished_blackstone_button");
+    register_item_type(ITEM_COBBLED_DEEPSLATE_WALL, "minecraft:cobbled_deepslate_wall");
+    register_item_type(ITEM_POLISHED_DEEPSLATE_WALL, "minecraft:polished_deepslate_wall");
+    register_item_type(ITEM_DEEPSLATE_BRICK_WALL, "minecraft:deepslate_brick_wall");
+    register_item_type(ITEM_DEEPSLATE_TILE_WALL, "minecraft:deepslate_tile_wall");
     register_item_type(ITEM_ANVIL, "minecraft:anvil");
     register_item_type(ITEM_CHIPPED_ANVIL, "minecraft:chipped_anvil");
     register_item_type(ITEM_DAMAGED_ANVIL, "minecraft:damaged_anvil");
-    register_item_type(ITEM_TRAPPED_CHEST, "minecraft:trapped_chest");
-    register_item_type(ITEM_LIGHT_WEIGHTED_PRESSURE_PLATE, "minecraft:light_weighted_pressure_plate");
-    register_item_type(ITEM_HEAVY_WEIGHTED_PRESSURE_PLATE, "minecraft:heavy_weighted_pressure_plate");
-    register_item_type(ITEM_DAYLIGHT_DETECTOR, "minecraft:daylight_detector");
-    register_item_type(ITEM_REDSTONE_BLOCK, "minecraft:redstone_block");
-    register_item_type(ITEM_NETHER_QUARTZ_ORE, "minecraft:nether_quartz_ore");
-    register_item_type(ITEM_HOPPER, "minecraft:hopper");
     register_item_type(ITEM_CHISELED_QUARTZ_BLOCK, "minecraft:chiseled_quartz_block");
     register_item_type(ITEM_QUARTZ_BLOCK, "minecraft:quartz_block");
     register_item_type(ITEM_QUARTZ_BRICKS, "minecraft:quartz_bricks");
     register_item_type(ITEM_QUARTZ_PILLAR, "minecraft:quartz_pillar");
     register_item_type(ITEM_QUARTZ_STAIRS, "minecraft:quartz_stairs");
-    register_item_type(ITEM_ACTIVATOR_RAIL, "minecraft:activator_rail");
-    register_item_type(ITEM_DROPPER, "minecraft:dropper");
     register_item_type(ITEM_WHITE_TERRACOTTA, "minecraft:white_terracotta");
     register_item_type(ITEM_ORANGE_TERRACOTTA, "minecraft:orange_terracotta");
     register_item_type(ITEM_MAGENTA_TERRACOTTA, "minecraft:magenta_terracotta");
@@ -4148,7 +4544,7 @@ init_item_data(void) {
     register_item_type(ITEM_RED_TERRACOTTA, "minecraft:red_terracotta");
     register_item_type(ITEM_BLACK_TERRACOTTA, "minecraft:black_terracotta");
     register_item_type(ITEM_BARRIER, "minecraft:barrier");
-    register_item_type(ITEM_IRON_TRAPDOOR, "minecraft:iron_trapdoor");
+    register_item_type(ITEM_LIGHT, "minecraft:light");
     register_item_type(ITEM_HAY_BLOCK, "minecraft:hay_block");
     register_item_type(ITEM_WHITE_CARPET, "minecraft:white_carpet");
     register_item_type(ITEM_ORANGE_CARPET, "minecraft:orange_carpet");
@@ -4167,12 +4563,10 @@ init_item_data(void) {
     register_item_type(ITEM_RED_CARPET, "minecraft:red_carpet");
     register_item_type(ITEM_BLACK_CARPET, "minecraft:black_carpet");
     register_item_type(ITEM_TERRACOTTA, "minecraft:terracotta");
-    register_item_type(ITEM_COAL_BLOCK, "minecraft:coal_block");
     register_item_type(ITEM_PACKED_ICE, "minecraft:packed_ice");
     register_item_type(ITEM_ACACIA_STAIRS, "minecraft:acacia_stairs");
     register_item_type(ITEM_DARK_OAK_STAIRS, "minecraft:dark_oak_stairs");
-    register_item_type(ITEM_SLIME_BLOCK, "minecraft:slime_block");
-    register_item_type(ITEM_GRASS_PATH, "minecraft:grass_path");
+    register_item_type(ITEM_DIRT_PATH, "minecraft:dirt_path");
     register_item_type(ITEM_SUNFLOWER, "minecraft:sunflower");
     register_item_type(ITEM_LILAC, "minecraft:lilac");
     register_item_type(ITEM_ROSE_BUSH, "minecraft:rose_bush");
@@ -4230,7 +4624,6 @@ init_item_data(void) {
     register_item_type(ITEM_RED_NETHER_BRICKS, "minecraft:red_nether_bricks");
     register_item_type(ITEM_BONE_BLOCK, "minecraft:bone_block");
     register_item_type(ITEM_STRUCTURE_VOID, "minecraft:structure_void");
-    register_item_type(ITEM_OBSERVER, "minecraft:observer");
     register_item_type(ITEM_SHULKER_BOX, "minecraft:shulker_box");
     register_item_type(ITEM_WHITE_SHULKER_BOX, "minecraft:white_shulker_box");
     register_item_type(ITEM_ORANGE_SHULKER_BOX, "minecraft:orange_shulker_box");
@@ -4343,6 +4736,10 @@ init_item_data(void) {
     register_item_type(ITEM_RED_NETHER_BRICK_STAIRS, "minecraft:red_nether_brick_stairs");
     register_item_type(ITEM_POLISHED_ANDESITE_STAIRS, "minecraft:polished_andesite_stairs");
     register_item_type(ITEM_DIORITE_STAIRS, "minecraft:diorite_stairs");
+    register_item_type(ITEM_COBBLED_DEEPSLATE_STAIRS, "minecraft:cobbled_deepslate_stairs");
+    register_item_type(ITEM_POLISHED_DEEPSLATE_STAIRS, "minecraft:polished_deepslate_stairs");
+    register_item_type(ITEM_DEEPSLATE_BRICK_STAIRS, "minecraft:deepslate_brick_stairs");
+    register_item_type(ITEM_DEEPSLATE_TILE_STAIRS, "minecraft:deepslate_tile_stairs");
     register_item_type(ITEM_POLISHED_GRANITE_SLAB, "minecraft:polished_granite_slab");
     register_item_type(ITEM_SMOOTH_RED_SANDSTONE_SLAB, "minecraft:smooth_red_sandstone_slab");
     register_item_type(ITEM_MOSSY_STONE_BRICK_SLAB, "minecraft:mossy_stone_brick_slab");
@@ -4356,7 +4753,57 @@ init_item_data(void) {
     register_item_type(ITEM_RED_NETHER_BRICK_SLAB, "minecraft:red_nether_brick_slab");
     register_item_type(ITEM_POLISHED_ANDESITE_SLAB, "minecraft:polished_andesite_slab");
     register_item_type(ITEM_DIORITE_SLAB, "minecraft:diorite_slab");
+    register_item_type(ITEM_COBBLED_DEEPSLATE_SLAB, "minecraft:cobbled_deepslate_slab");
+    register_item_type(ITEM_POLISHED_DEEPSLATE_SLAB, "minecraft:polished_deepslate_slab");
+    register_item_type(ITEM_DEEPSLATE_BRICK_SLAB, "minecraft:deepslate_brick_slab");
+    register_item_type(ITEM_DEEPSLATE_TILE_SLAB, "minecraft:deepslate_tile_slab");
     register_item_type(ITEM_SCAFFOLDING, "minecraft:scaffolding");
+    register_item_type(ITEM_REDSTONE, "minecraft:redstone");
+    register_item_type(ITEM_REDSTONE_TORCH, "minecraft:redstone_torch");
+    register_item_type(ITEM_REDSTONE_BLOCK, "minecraft:redstone_block");
+    register_item_type(ITEM_REPEATER, "minecraft:repeater");
+    register_item_type(ITEM_COMPARATOR, "minecraft:comparator");
+    register_item_type(ITEM_PISTON, "minecraft:piston");
+    register_item_type(ITEM_STICKY_PISTON, "minecraft:sticky_piston");
+    register_item_type(ITEM_SLIME_BLOCK, "minecraft:slime_block");
+    register_item_type(ITEM_HONEY_BLOCK, "minecraft:honey_block");
+    register_item_type(ITEM_OBSERVER, "minecraft:observer");
+    register_item_type(ITEM_HOPPER, "minecraft:hopper");
+    register_item_type(ITEM_DISPENSER, "minecraft:dispenser");
+    register_item_type(ITEM_DROPPER, "minecraft:dropper");
+    register_item_type(ITEM_LECTERN, "minecraft:lectern");
+    register_item_type(ITEM_TARGET, "minecraft:target");
+    register_item_type(ITEM_LEVER, "minecraft:lever");
+    register_item_type(ITEM_LIGHTNING_ROD, "minecraft:lightning_rod");
+    register_item_type(ITEM_DAYLIGHT_DETECTOR, "minecraft:daylight_detector");
+    register_item_type(ITEM_SCULK_SENSOR, "minecraft:sculk_sensor");
+    register_item_type(ITEM_TRIPWIRE_HOOK, "minecraft:tripwire_hook");
+    register_item_type(ITEM_TRAPPED_CHEST, "minecraft:trapped_chest");
+    register_item_type(ITEM_TNT, "minecraft:tnt");
+    register_item_type(ITEM_REDSTONE_LAMP, "minecraft:redstone_lamp");
+    register_item_type(ITEM_NOTE_BLOCK, "minecraft:note_block");
+    register_item_type(ITEM_STONE_BUTTON, "minecraft:stone_button");
+    register_item_type(ITEM_POLISHED_BLACKSTONE_BUTTON, "minecraft:polished_blackstone_button");
+    register_item_type(ITEM_OAK_BUTTON, "minecraft:oak_button");
+    register_item_type(ITEM_SPRUCE_BUTTON, "minecraft:spruce_button");
+    register_item_type(ITEM_BIRCH_BUTTON, "minecraft:birch_button");
+    register_item_type(ITEM_JUNGLE_BUTTON, "minecraft:jungle_button");
+    register_item_type(ITEM_ACACIA_BUTTON, "minecraft:acacia_button");
+    register_item_type(ITEM_DARK_OAK_BUTTON, "minecraft:dark_oak_button");
+    register_item_type(ITEM_CRIMSON_BUTTON, "minecraft:crimson_button");
+    register_item_type(ITEM_WARPED_BUTTON, "minecraft:warped_button");
+    register_item_type(ITEM_STONE_PRESSURE_PLATE, "minecraft:stone_pressure_plate");
+    register_item_type(ITEM_POLISHED_BLACKSTONE_PRESSURE_PLATE, "minecraft:polished_blackstone_pressure_plate");
+    register_item_type(ITEM_LIGHT_WEIGHTED_PRESSURE_PLATE, "minecraft:light_weighted_pressure_plate");
+    register_item_type(ITEM_HEAVY_WEIGHTED_PRESSURE_PLATE, "minecraft:heavy_weighted_pressure_plate");
+    register_item_type(ITEM_OAK_PRESSURE_PLATE, "minecraft:oak_pressure_plate");
+    register_item_type(ITEM_SPRUCE_PRESSURE_PLATE, "minecraft:spruce_pressure_plate");
+    register_item_type(ITEM_BIRCH_PRESSURE_PLATE, "minecraft:birch_pressure_plate");
+    register_item_type(ITEM_JUNGLE_PRESSURE_PLATE, "minecraft:jungle_pressure_plate");
+    register_item_type(ITEM_ACACIA_PRESSURE_PLATE, "minecraft:acacia_pressure_plate");
+    register_item_type(ITEM_DARK_OAK_PRESSURE_PLATE, "minecraft:dark_oak_pressure_plate");
+    register_item_type(ITEM_CRIMSON_PRESSURE_PLATE, "minecraft:crimson_pressure_plate");
+    register_item_type(ITEM_WARPED_PRESSURE_PLATE, "minecraft:warped_pressure_plate");
     register_item_type(ITEM_IRON_DOOR, "minecraft:iron_door");
     register_item_type(ITEM_OAK_DOOR, "minecraft:oak_door");
     register_item_type(ITEM_SPRUCE_DOOR, "minecraft:spruce_door");
@@ -4366,8 +4813,42 @@ init_item_data(void) {
     register_item_type(ITEM_DARK_OAK_DOOR, "minecraft:dark_oak_door");
     register_item_type(ITEM_CRIMSON_DOOR, "minecraft:crimson_door");
     register_item_type(ITEM_WARPED_DOOR, "minecraft:warped_door");
-    register_item_type(ITEM_REPEATER, "minecraft:repeater");
-    register_item_type(ITEM_COMPARATOR, "minecraft:comparator");
+    register_item_type(ITEM_IRON_TRAPDOOR, "minecraft:iron_trapdoor");
+    register_item_type(ITEM_OAK_TRAPDOOR, "minecraft:oak_trapdoor");
+    register_item_type(ITEM_SPRUCE_TRAPDOOR, "minecraft:spruce_trapdoor");
+    register_item_type(ITEM_BIRCH_TRAPDOOR, "minecraft:birch_trapdoor");
+    register_item_type(ITEM_JUNGLE_TRAPDOOR, "minecraft:jungle_trapdoor");
+    register_item_type(ITEM_ACACIA_TRAPDOOR, "minecraft:acacia_trapdoor");
+    register_item_type(ITEM_DARK_OAK_TRAPDOOR, "minecraft:dark_oak_trapdoor");
+    register_item_type(ITEM_CRIMSON_TRAPDOOR, "minecraft:crimson_trapdoor");
+    register_item_type(ITEM_WARPED_TRAPDOOR, "minecraft:warped_trapdoor");
+    register_item_type(ITEM_OAK_FENCE_GATE, "minecraft:oak_fence_gate");
+    register_item_type(ITEM_SPRUCE_FENCE_GATE, "minecraft:spruce_fence_gate");
+    register_item_type(ITEM_BIRCH_FENCE_GATE, "minecraft:birch_fence_gate");
+    register_item_type(ITEM_JUNGLE_FENCE_GATE, "minecraft:jungle_fence_gate");
+    register_item_type(ITEM_ACACIA_FENCE_GATE, "minecraft:acacia_fence_gate");
+    register_item_type(ITEM_DARK_OAK_FENCE_GATE, "minecraft:dark_oak_fence_gate");
+    register_item_type(ITEM_CRIMSON_FENCE_GATE, "minecraft:crimson_fence_gate");
+    register_item_type(ITEM_WARPED_FENCE_GATE, "minecraft:warped_fence_gate");
+    register_item_type(ITEM_POWERED_RAIL, "minecraft:powered_rail");
+    register_item_type(ITEM_DETECTOR_RAIL, "minecraft:detector_rail");
+    register_item_type(ITEM_RAIL, "minecraft:rail");
+    register_item_type(ITEM_ACTIVATOR_RAIL, "minecraft:activator_rail");
+    register_item_type(ITEM_SADDLE, "minecraft:saddle");
+    register_item_type(ITEM_MINECART, "minecraft:minecart");
+    register_item_type(ITEM_CHEST_MINECART, "minecraft:chest_minecart");
+    register_item_type(ITEM_FURNACE_MINECART, "minecraft:furnace_minecart");
+    register_item_type(ITEM_TNT_MINECART, "minecraft:tnt_minecart");
+    register_item_type(ITEM_HOPPER_MINECART, "minecraft:hopper_minecart");
+    register_item_type(ITEM_CARROT_ON_A_STICK, "minecraft:carrot_on_a_stick");
+    register_item_type(ITEM_WARPED_FUNGUS_ON_A_STICK, "minecraft:warped_fungus_on_a_stick");
+    register_item_type(ITEM_ELYTRA, "minecraft:elytra");
+    register_item_type(ITEM_OAK_BOAT, "minecraft:oak_boat");
+    register_item_type(ITEM_SPRUCE_BOAT, "minecraft:spruce_boat");
+    register_item_type(ITEM_BIRCH_BOAT, "minecraft:birch_boat");
+    register_item_type(ITEM_JUNGLE_BOAT, "minecraft:jungle_boat");
+    register_item_type(ITEM_ACACIA_BOAT, "minecraft:acacia_boat");
+    register_item_type(ITEM_DARK_OAK_BOAT, "minecraft:dark_oak_boat");
     register_item_type(ITEM_STRUCTURE_BLOCK, "minecraft:structure_block");
     register_item_type(ITEM_JIGSAW, "minecraft:jigsaw");
     register_item_type(ITEM_TURTLE_HELMET, "minecraft:turtle_helmet");
@@ -4379,7 +4860,15 @@ init_item_data(void) {
     register_item_type(ITEM_COAL, "minecraft:coal");
     register_item_type(ITEM_CHARCOAL, "minecraft:charcoal");
     register_item_type(ITEM_DIAMOND, "minecraft:diamond");
+    register_item_type(ITEM_EMERALD, "minecraft:emerald");
+    register_item_type(ITEM_LAPIS_LAZULI, "minecraft:lapis_lazuli");
+    register_item_type(ITEM_QUARTZ, "minecraft:quartz");
+    register_item_type(ITEM_AMETHYST_SHARD, "minecraft:amethyst_shard");
+    register_item_type(ITEM_RAW_IRON, "minecraft:raw_iron");
     register_item_type(ITEM_IRON_INGOT, "minecraft:iron_ingot");
+    register_item_type(ITEM_RAW_COPPER, "minecraft:raw_copper");
+    register_item_type(ITEM_COPPER_INGOT, "minecraft:copper_ingot");
+    register_item_type(ITEM_RAW_GOLD, "minecraft:raw_gold");
     register_item_type(ITEM_GOLD_INGOT, "minecraft:gold_ingot");
     register_item_type(ITEM_NETHERITE_INGOT, "minecraft:netherite_ingot");
     register_item_type(ITEM_NETHERITE_SCRAP, "minecraft:netherite_scrap");
@@ -4463,29 +4952,27 @@ init_item_data(void) {
     register_item_type(ITEM_BUCKET, "minecraft:bucket");
     register_item_type(ITEM_WATER_BUCKET, "minecraft:water_bucket");
     register_item_type(ITEM_LAVA_BUCKET, "minecraft:lava_bucket");
-    register_item_type(ITEM_MINECART, "minecraft:minecart");
-    register_item_type(ITEM_SADDLE, "minecraft:saddle");
-    register_item_type(ITEM_REDSTONE, "minecraft:redstone");
+    register_item_type(ITEM_POWDER_SNOW_BUCKET, "minecraft:powder_snow_bucket");
     register_item_type(ITEM_SNOWBALL, "minecraft:snowball");
-    register_item_type(ITEM_OAK_BOAT, "minecraft:oak_boat");
     register_item_type(ITEM_LEATHER, "minecraft:leather");
     register_item_type(ITEM_MILK_BUCKET, "minecraft:milk_bucket");
     register_item_type(ITEM_PUFFERFISH_BUCKET, "minecraft:pufferfish_bucket");
     register_item_type(ITEM_SALMON_BUCKET, "minecraft:salmon_bucket");
     register_item_type(ITEM_COD_BUCKET, "minecraft:cod_bucket");
     register_item_type(ITEM_TROPICAL_FISH_BUCKET, "minecraft:tropical_fish_bucket");
+    register_item_type(ITEM_AXOLOTL_BUCKET, "minecraft:axolotl_bucket");
     register_item_type(ITEM_BRICK, "minecraft:brick");
     register_item_type(ITEM_CLAY_BALL, "minecraft:clay_ball");
     register_item_type(ITEM_DRIED_KELP_BLOCK, "minecraft:dried_kelp_block");
     register_item_type(ITEM_PAPER, "minecraft:paper");
     register_item_type(ITEM_BOOK, "minecraft:book");
     register_item_type(ITEM_SLIME_BALL, "minecraft:slime_ball");
-    register_item_type(ITEM_CHEST_MINECART, "minecraft:chest_minecart");
-    register_item_type(ITEM_FURNACE_MINECART, "minecraft:furnace_minecart");
     register_item_type(ITEM_EGG, "minecraft:egg");
     register_item_type(ITEM_COMPASS, "minecraft:compass");
+    register_item_type(ITEM_BUNDLE, "minecraft:bundle");
     register_item_type(ITEM_FISHING_ROD, "minecraft:fishing_rod");
     register_item_type(ITEM_CLOCK, "minecraft:clock");
+    register_item_type(ITEM_SPYGLASS, "minecraft:spyglass");
     register_item_type(ITEM_GLOWSTONE_DUST, "minecraft:glowstone_dust");
     register_item_type(ITEM_COD, "minecraft:cod");
     register_item_type(ITEM_SALMON, "minecraft:salmon");
@@ -4494,8 +4981,8 @@ init_item_data(void) {
     register_item_type(ITEM_COOKED_COD, "minecraft:cooked_cod");
     register_item_type(ITEM_COOKED_SALMON, "minecraft:cooked_salmon");
     register_item_type(ITEM_INK_SAC, "minecraft:ink_sac");
+    register_item_type(ITEM_GLOW_INK_SAC, "minecraft:glow_ink_sac");
     register_item_type(ITEM_COCOA_BEANS, "minecraft:cocoa_beans");
-    register_item_type(ITEM_LAPIS_LAZULI, "minecraft:lapis_lazuli");
     register_item_type(ITEM_WHITE_DYE, "minecraft:white_dye");
     register_item_type(ITEM_ORANGE_DYE, "minecraft:orange_dye");
     register_item_type(ITEM_MAGENTA_DYE, "minecraft:magenta_dye");
@@ -4559,6 +5046,7 @@ init_item_data(void) {
     register_item_type(ITEM_CAULDRON, "minecraft:cauldron");
     register_item_type(ITEM_ENDER_EYE, "minecraft:ender_eye");
     register_item_type(ITEM_GLISTERING_MELON_SLICE, "minecraft:glistering_melon_slice");
+    register_item_type(ITEM_AXOLOTL_SPAWN_EGG, "minecraft:axolotl_spawn_egg");
     register_item_type(ITEM_BAT_SPAWN_EGG, "minecraft:bat_spawn_egg");
     register_item_type(ITEM_BEE_SPAWN_EGG, "minecraft:bee_spawn_egg");
     register_item_type(ITEM_BLAZE_SPAWN_EGG, "minecraft:blaze_spawn_egg");
@@ -4577,6 +5065,8 @@ init_item_data(void) {
     register_item_type(ITEM_EVOKER_SPAWN_EGG, "minecraft:evoker_spawn_egg");
     register_item_type(ITEM_FOX_SPAWN_EGG, "minecraft:fox_spawn_egg");
     register_item_type(ITEM_GHAST_SPAWN_EGG, "minecraft:ghast_spawn_egg");
+    register_item_type(ITEM_GLOW_SQUID_SPAWN_EGG, "minecraft:glow_squid_spawn_egg");
+    register_item_type(ITEM_GOAT_SPAWN_EGG, "minecraft:goat_spawn_egg");
     register_item_type(ITEM_GUARDIAN_SPAWN_EGG, "minecraft:guardian_spawn_egg");
     register_item_type(ITEM_HOGLIN_SPAWN_EGG, "minecraft:hoglin_spawn_egg");
     register_item_type(ITEM_HORSE_SPAWN_EGG, "minecraft:horse_spawn_egg");
@@ -4627,8 +5117,8 @@ init_item_data(void) {
     register_item_type(ITEM_FIRE_CHARGE, "minecraft:fire_charge");
     register_item_type(ITEM_WRITABLE_BOOK, "minecraft:writable_book");
     register_item_type(ITEM_WRITTEN_BOOK, "minecraft:written_book");
-    register_item_type(ITEM_EMERALD, "minecraft:emerald");
     register_item_type(ITEM_ITEM_FRAME, "minecraft:item_frame");
+    register_item_type(ITEM_GLOW_ITEM_FRAME, "minecraft:glow_item_frame");
     register_item_type(ITEM_FLOWER_POT, "minecraft:flower_pot");
     register_item_type(ITEM_CARROT, "minecraft:carrot");
     register_item_type(ITEM_POTATO, "minecraft:potato");
@@ -4642,17 +5132,12 @@ init_item_data(void) {
     register_item_type(ITEM_ZOMBIE_HEAD, "minecraft:zombie_head");
     register_item_type(ITEM_CREEPER_HEAD, "minecraft:creeper_head");
     register_item_type(ITEM_DRAGON_HEAD, "minecraft:dragon_head");
-    register_item_type(ITEM_CARROT_ON_A_STICK, "minecraft:carrot_on_a_stick");
-    register_item_type(ITEM_WARPED_FUNGUS_ON_A_STICK, "minecraft:warped_fungus_on_a_stick");
     register_item_type(ITEM_NETHER_STAR, "minecraft:nether_star");
     register_item_type(ITEM_PUMPKIN_PIE, "minecraft:pumpkin_pie");
     register_item_type(ITEM_FIREWORK_ROCKET, "minecraft:firework_rocket");
     register_item_type(ITEM_FIREWORK_STAR, "minecraft:firework_star");
     register_item_type(ITEM_ENCHANTED_BOOK, "minecraft:enchanted_book");
     register_item_type(ITEM_NETHER_BRICK, "minecraft:nether_brick");
-    register_item_type(ITEM_QUARTZ, "minecraft:quartz");
-    register_item_type(ITEM_TNT_MINECART, "minecraft:tnt_minecart");
-    register_item_type(ITEM_HOPPER_MINECART, "minecraft:hopper_minecart");
     register_item_type(ITEM_PRISMARINE_SHARD, "minecraft:prismarine_shard");
     register_item_type(ITEM_PRISMARINE_CRYSTALS, "minecraft:prismarine_crystals");
     register_item_type(ITEM_RABBIT, "minecraft:rabbit");
@@ -4698,12 +5183,6 @@ init_item_data(void) {
     register_item_type(ITEM_TIPPED_ARROW, "minecraft:tipped_arrow");
     register_item_type(ITEM_LINGERING_POTION, "minecraft:lingering_potion");
     register_item_type(ITEM_SHIELD, "minecraft:shield");
-    register_item_type(ITEM_ELYTRA, "minecraft:elytra");
-    register_item_type(ITEM_SPRUCE_BOAT, "minecraft:spruce_boat");
-    register_item_type(ITEM_BIRCH_BOAT, "minecraft:birch_boat");
-    register_item_type(ITEM_JUNGLE_BOAT, "minecraft:jungle_boat");
-    register_item_type(ITEM_ACACIA_BOAT, "minecraft:acacia_boat");
-    register_item_type(ITEM_DARK_OAK_BOAT, "minecraft:dark_oak_boat");
     register_item_type(ITEM_TOTEM_OF_UNDYING, "minecraft:totem_of_undying");
     register_item_type(ITEM_SHULKER_SHELL, "minecraft:shulker_shell");
     register_item_type(ITEM_IRON_NUGGET, "minecraft:iron_nugget");
@@ -4742,13 +5221,13 @@ init_item_data(void) {
     register_item_type(ITEM_CARTOGRAPHY_TABLE, "minecraft:cartography_table");
     register_item_type(ITEM_FLETCHING_TABLE, "minecraft:fletching_table");
     register_item_type(ITEM_GRINDSTONE, "minecraft:grindstone");
-    register_item_type(ITEM_LECTERN, "minecraft:lectern");
     register_item_type(ITEM_SMITHING_TABLE, "minecraft:smithing_table");
     register_item_type(ITEM_STONECUTTER, "minecraft:stonecutter");
     register_item_type(ITEM_BELL, "minecraft:bell");
     register_item_type(ITEM_LANTERN, "minecraft:lantern");
     register_item_type(ITEM_SOUL_LANTERN, "minecraft:soul_lantern");
     register_item_type(ITEM_SWEET_BERRIES, "minecraft:sweet_berries");
+    register_item_type(ITEM_GLOW_BERRIES, "minecraft:glow_berries");
     register_item_type(ITEM_CAMPFIRE, "minecraft:campfire");
     register_item_type(ITEM_SOUL_CAMPFIRE, "minecraft:soul_campfire");
     register_item_type(ITEM_SHROOMLIGHT, "minecraft:shroomlight");
@@ -4756,12 +5235,8 @@ init_item_data(void) {
     register_item_type(ITEM_BEE_NEST, "minecraft:bee_nest");
     register_item_type(ITEM_BEEHIVE, "minecraft:beehive");
     register_item_type(ITEM_HONEY_BOTTLE, "minecraft:honey_bottle");
-    register_item_type(ITEM_HONEY_BLOCK, "minecraft:honey_block");
     register_item_type(ITEM_HONEYCOMB_BLOCK, "minecraft:honeycomb_block");
     register_item_type(ITEM_LODESTONE, "minecraft:lodestone");
-    register_item_type(ITEM_NETHERITE_BLOCK, "minecraft:netherite_block");
-    register_item_type(ITEM_ANCIENT_DEBRIS, "minecraft:ancient_debris");
-    register_item_type(ITEM_TARGET, "minecraft:target");
     register_item_type(ITEM_CRYING_OBSIDIAN, "minecraft:crying_obsidian");
     register_item_type(ITEM_BLACKSTONE, "minecraft:blackstone");
     register_item_type(ITEM_BLACKSTONE_SLAB, "minecraft:blackstone_slab");
@@ -4776,4 +5251,26 @@ init_item_data(void) {
     register_item_type(ITEM_POLISHED_BLACKSTONE_BRICK_STAIRS, "minecraft:polished_blackstone_brick_stairs");
     register_item_type(ITEM_CRACKED_POLISHED_BLACKSTONE_BRICKS, "minecraft:cracked_polished_blackstone_bricks");
     register_item_type(ITEM_RESPAWN_ANCHOR, "minecraft:respawn_anchor");
+    register_item_type(ITEM_CANDLE, "minecraft:candle");
+    register_item_type(ITEM_WHITE_CANDLE, "minecraft:white_candle");
+    register_item_type(ITEM_ORANGE_CANDLE, "minecraft:orange_candle");
+    register_item_type(ITEM_MAGENTA_CANDLE, "minecraft:magenta_candle");
+    register_item_type(ITEM_LIGHT_BLUE_CANDLE, "minecraft:light_blue_candle");
+    register_item_type(ITEM_YELLOW_CANDLE, "minecraft:yellow_candle");
+    register_item_type(ITEM_LIME_CANDLE, "minecraft:lime_candle");
+    register_item_type(ITEM_PINK_CANDLE, "minecraft:pink_candle");
+    register_item_type(ITEM_GRAY_CANDLE, "minecraft:gray_candle");
+    register_item_type(ITEM_LIGHT_GRAY_CANDLE, "minecraft:light_gray_candle");
+    register_item_type(ITEM_CYAN_CANDLE, "minecraft:cyan_candle");
+    register_item_type(ITEM_PURPLE_CANDLE, "minecraft:purple_candle");
+    register_item_type(ITEM_BLUE_CANDLE, "minecraft:blue_candle");
+    register_item_type(ITEM_BROWN_CANDLE, "minecraft:brown_candle");
+    register_item_type(ITEM_GREEN_CANDLE, "minecraft:green_candle");
+    register_item_type(ITEM_RED_CANDLE, "minecraft:red_candle");
+    register_item_type(ITEM_BLACK_CANDLE, "minecraft:black_candle");
+    register_item_type(ITEM_SMALL_AMETHYST_BUD, "minecraft:small_amethyst_bud");
+    register_item_type(ITEM_MEDIUM_AMETHYST_BUD, "minecraft:medium_amethyst_bud");
+    register_item_type(ITEM_LARGE_AMETHYST_BUD, "minecraft:large_amethyst_bud");
+    register_item_type(ITEM_AMETHYST_CLUSTER, "minecraft:amethyst_cluster");
+    register_item_type(ITEM_POINTED_DRIPSTONE, "minecraft:pointed_dripstone");
 }

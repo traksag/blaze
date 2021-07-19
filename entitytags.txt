@@ -6,10 +6,35 @@ value minecraft:vindicator
 value minecraft:illusioner
 value minecraft:witch
 
+key minecraft:freeze_hurts_extra_types
+value minecraft:strider
+value minecraft:blaze
+value minecraft:magma_cube
+
+key minecraft:freeze_immune_entity_types
+value minecraft:stray
+value minecraft:polar_bear
+value minecraft:snow_golem
+value minecraft:wither
+
+key minecraft:powder_snow_walkable_mobs
+value minecraft:rabbit
+value minecraft:endermite
+value minecraft:silverfish
+value minecraft:fox
+
 key minecraft:skeletons
 value minecraft:skeleton
 value minecraft:stray
 value minecraft:wither_skeleton
+
+key minecraft:axolotl_hunt_targets
+value minecraft:tropical_fish
+value minecraft:pufferfish
+value minecraft:salmon
+value minecraft:cod
+value minecraft:squid
+value minecraft:glow_squid
 
 key minecraft:impact_projectiles
 value minecraft:arrow
@@ -21,6 +46,11 @@ value minecraft:egg
 value minecraft:trident
 value minecraft:dragon_fireball
 value minecraft:wither_skull
+
+key minecraft:axolotl_always_hostiles
+value minecraft:drowned
+value minecraft:guardian
+value minecraft:elder_guardian
 
 key minecraft:beehive_inhabitors
 value minecraft:bee

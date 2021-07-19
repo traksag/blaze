@@ -10,13 +10,14 @@ import collections
 # path to the file 'reports/registries.json' to this program to generate a list
 # of in-code names of registry entries.
 
-if len(sys.argv) < 3:
-    print("Please specify registries.json and a registry")
+if len(sys.argv) < 4:
+    print("Please specify registries.json, a registry and a prefix")
     sys.exit(0)
 
 f = open(sys.argv[1])
 registries = json.load(f, object_pairs_hook=collections.OrderedDict)
 registry = registries["minecraft:" + sys.argv[2]]
+prefix = sys.argv[3]
 
 for key in registry["entries"].keys():
-    print(key[10:].upper() + ",")
+    print(prefix + key[10:].upper() + ",")

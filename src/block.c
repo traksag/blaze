@@ -142,6 +142,7 @@ describe_block_state(mc_ushort block_state) {
         case BLOCK_PROPERTY_UNSTABLE:
         case BLOCK_PROPERTY_WATERLOGGED:
         case BLOCK_PROPERTY_VINE_END:
+        case BLOCK_PROPERTY_BERRIES:
         case BLOCK_PROPERTY_NEG_Y:
         case BLOCK_PROPERTY_POS_Y:
         case BLOCK_PROPERTY_NEG_Z:
@@ -180,6 +181,7 @@ describe_block_state(mc_ushort block_state) {
             case 3: value = DIRECTION_POS_X; break;
             }
             break;
+        case BLOCK_PROPERTY_CANDLES:
         case BLOCK_PROPERTY_DELAY:
         case BLOCK_PROPERTY_DISTANCE:
         case BLOCK_PROPERTY_EGGS:
@@ -210,6 +212,12 @@ describe_block_state(mc_ushort block_state) {
             case 0: value = REDSTONE_SIDE_UP; break;
             case 1: value = REDSTONE_SIDE_SIDE; break;
             case 2: value = REDSTONE_SIDE_NONE; break;
+            }
+            break;
+        case BLOCK_PROPERTY_VERTICAL_DIRECTION:
+            switch (value_index) {
+            case 0: value = DIRECTION_POS_Y; break;
+            case 1: value = DIRECTION_NEG_Y; break;
             }
             break;
         default:
@@ -289,6 +297,7 @@ make_block_state(block_state_info * info) {
         case BLOCK_PROPERTY_UNSTABLE:
         case BLOCK_PROPERTY_WATERLOGGED:
         case BLOCK_PROPERTY_VINE_END:
+        case BLOCK_PROPERTY_BERRIES:
         case BLOCK_PROPERTY_NEG_Y:
         case BLOCK_PROPERTY_POS_Y:
         case BLOCK_PROPERTY_NEG_Z:
@@ -327,6 +336,7 @@ make_block_state(block_state_info * info) {
             case DIRECTION_POS_X: value_index = 3; break;
             }
             break;
+        case BLOCK_PROPERTY_CANDLES:
         case BLOCK_PROPERTY_DELAY:
         case BLOCK_PROPERTY_DISTANCE:
         case BLOCK_PROPERTY_EGGS:
@@ -358,6 +368,12 @@ make_block_state(block_state_info * info) {
             case REDSTONE_SIDE_NONE: value_index = 2; break;
             }
             break;
+        case BLOCK_PROPERTY_VERTICAL_DIRECTION:
+            switch (value_index) {
+            case DIRECTION_POS_Y: value_index = 0; break;
+            case DIRECTION_NEG_Y: value_index = 1; break;
+            }
+            break;
         default:
             value_index = value;
         }
@@ -376,19 +392,22 @@ break_block(net_block_pos pos) {
     mc_ushort cur_state = try_get_block_state(pos);
     mc_int cur_type = serv->block_type_by_state[cur_state];
 
-    chunk_pos ch_pos = {
-        .x = pos.x >> 4,
-        .z = pos.z >> 4
-    };
-    chunk * ch = get_chunk_if_loaded(ch_pos);
-    if (ch != NULL) {
-        if (ch->local_event_count < ARRAY_SIZE(ch->local_events)) {
-            ch->local_events[ch->local_event_count] = (level_event) {
-                .type = LEVEL_EVENT_BREAK_BLOCK_ANIMATION,
-                .pos = pos,
-                .data = cur_state,
-            };
-            ch->local_event_count++;
+    // @TODO(traks) block setting for this
+    if (cur_type != BLOCK_FIRE && cur_type != BLOCK_SOUL_FIRE) {
+        chunk_pos ch_pos = {
+            .x = pos.x >> 4,
+            .z = pos.z >> 4
+        };
+        chunk * ch = get_chunk_if_loaded(ch_pos);
+        if (ch != NULL) {
+            if (ch->local_event_count < ARRAY_SIZE(ch->local_events)) {
+                ch->local_events[ch->local_event_count] = (level_event) {
+                    .type = LEVEL_EVENT_PARTICLES_DESTROY_BLOCK,
+                    .pos = pos,
+                    .data = cur_state,
+                };
+                ch->local_event_count++;
+            }
         }
     }
 
@@ -403,69 +422,11 @@ conducts_redstone(mc_ushort block_state, net_block_pos pos) {
     mc_int block_type = serv->block_type_by_state[block_state];
 
     switch (block_type) {
-    // Some materials are excluded in this list: air, carpets and most
-    // decoration blocks have non-full collision box. Some plants also don't
-    // have full collision boxes, so we excluded those aswell.
-    // portals
-    case BLOCK_NETHER_PORTAL:
-    case BLOCK_END_PORTAL:
-    case BLOCK_END_GATEWAY:
+    // A bunch of materials are excluded in this list: air, carpets and a bunch
+    // of other blocks that have non-full collision box.
     // plants
-    case BLOCK_OAK_SAPLING:
-    case BLOCK_SPRUCE_SAPLING:
-    case BLOCK_BIRCH_SAPLING:
-    case BLOCK_JUNGLE_SAPLING:
-    case BLOCK_ACACIA_SAPLING:
-    case BLOCK_DARK_OAK_SAPLING:
-    case BLOCK_WHEAT:
-    case BLOCK_SUGAR_CANE:
-    case BLOCK_ATTACHED_PUMPKIN_STEM:
-    case BLOCK_ATTACHED_MELON_STEM:
-    case BLOCK_PUMPKIN_STEM:
-    case BLOCK_MELON_STEM:
-    case BLOCK_LILY_PAD:
-    case BLOCK_NETHER_WART:
-    case BLOCK_COCOA:
-    case BLOCK_CARROTS:
-    case BLOCK_POTATOES:
     case BLOCK_CHORUS_PLANT:
     case BLOCK_CHORUS_FLOWER:
-    case BLOCK_BEETROOTS:
-    case BLOCK_SWEET_BERRY_BUSH:
-    case BLOCK_WARPED_FUNGUS:
-    case BLOCK_CRIMSON_FUNGUS:
-    case BLOCK_WEEPING_VINES:
-    case BLOCK_WEEPING_VINES_PLANT:
-    case BLOCK_TWISTING_VINES:
-    case BLOCK_TWISTING_VINES_PLANT:
-    // water plants
-    case BLOCK_KELP:
-    case BLOCK_KELP_PLANT:
-    case BLOCK_TUBE_CORAL:
-    case BLOCK_BRAIN_CORAL:
-    case BLOCK_BUBBLE_CORAL:
-    case BLOCK_FIRE_CORAL:
-    case BLOCK_HORN_CORAL:
-    // replaceable plants
-    case BLOCK_GRASS:
-    case BLOCK_FERN:
-    case BLOCK_DEAD_BUSH:
-    case BLOCK_VINE:
-    case BLOCK_SUNFLOWER:
-    case BLOCK_LILAC:
-    case BLOCK_ROSE_BUSH:
-    case BLOCK_PEONY:
-    case BLOCK_TALL_GRASS:
-    case BLOCK_LARGE_FERN:
-    case BLOCK_WARPED_ROOTS:
-    case BLOCK_NETHER_SPROUTS:
-    case BLOCK_CRIMSON_ROOTS:
-    case BLOCK_SEAGRASS:
-    case BLOCK_TALL_SEAGRASS:
-    // fluids
-    case BLOCK_WATER:
-    case BLOCK_LAVA:
-    case BLOCK_BUBBLE_COLUMN:
     // leaves
     case BLOCK_JUNGLE_LEAVES:
     case BLOCK_OAK_LEAVES:
@@ -495,25 +456,22 @@ conducts_redstone(mc_ushort block_state, net_block_pos pos) {
     case BLOCK_GREEN_STAINED_GLASS:
     case BLOCK_RED_STAINED_GLASS:
     case BLOCK_BLACK_STAINED_GLASS:
+    case BLOCK_TINTED_GLASS:
     // misc
-    case BLOCK_STRUCTURE_VOID:
-    case BLOCK_SNOW:
-    case BLOCK_FIRE:
-    case BLOCK_SOUL_FIRE:
     case BLOCK_SCAFFOLDING:
-    case BLOCK_COBWEB:
     case BLOCK_TNT:
     case BLOCK_ICE:
     case BLOCK_FROSTED_ICE:
-    case BLOCK_CACTUS:
     // extra (explicit blocking)
-    case BLOCK_SOUL_SAND:
     case BLOCK_REDSTONE_BLOCK:
     case BLOCK_OBSERVER:
     case BLOCK_PISTON:
     case BLOCK_STICKY_PISTON:
     case BLOCK_MOVING_PISTON:
         return 0;
+    // explicitly allowed
+    case BLOCK_SOUL_SAND:
+        return 1;
     default: {
         block_model model = get_collision_model(block_state, pos);
         if (model.flags & BLOCK_MODEL_IS_FULL) {
@@ -568,6 +526,13 @@ get_collision_model(mc_ushort block_state, net_block_pos pos) {
         res = serv->block_models[serv->collision_model_by_state[block_state]];
         break;
     }
+    case BLOCK_POWDER_SNOW: {
+        // @TODO(traks) collision model depends on what the entity is wearing
+        // and some other stuff that depends on the entity and the surroundings
+        // in the world
+        res = serv->block_models[serv->collision_model_by_state[block_state]];
+        break;
+    }
     default:
         res = serv->block_models[serv->collision_model_by_state[block_state]];
     }
@@ -587,6 +552,8 @@ get_support_model(mc_ushort block_state) {
     case BLOCK_DARK_OAK_LEAVES:
     case BLOCK_ACACIA_LEAVES:
     case BLOCK_BIRCH_LEAVES:
+    case BLOCK_AZALEA_LEAVES:
+    case BLOCK_FLOWERING_AZALEA_LEAVES:
         res = serv->support_models[BLOCK_MODEL_EMPTY];
         break;
     case BLOCK_SNOW:
@@ -612,6 +579,10 @@ get_support_model(mc_ushort block_state) {
         res = serv->support_models[serv->collision_model_by_state[block_state]];
         break;
     }
+    case BLOCK_POWDER_SNOW: {
+        res = serv->support_models[BLOCK_MODEL_EMPTY];
+        break;
+    }
     default:
         // default to using the collision model as support model
         res = serv->support_models[serv->collision_model_by_state[block_state]];
@@ -624,6 +595,7 @@ get_water_level(mc_ushort state) {
     block_state_info info = describe_block_state(state);
 
     switch (info.block_type) {
+    // @TODO(traks) return this for lava as well?
     case BLOCK_WATER:
         return info.level;
     case BLOCK_BUBBLE_COLUMN:
@@ -655,11 +627,15 @@ is_full_water(mc_ushort state) {
 
 int
 can_plant_survive_on(mc_int type_below) {
+    // @TODO(traks) actually this is dirt block tag + farmland block
     switch (type_below) {
-    case BLOCK_GRASS_BLOCK:
     case BLOCK_DIRT:
-    case BLOCK_COARSE_DIRT:
+    case BLOCK_GRASS_BLOCK:
     case BLOCK_PODZOL:
+    case BLOCK_COARSE_DIRT:
+    case BLOCK_MYCELIUM:
+    case BLOCK_ROOTED_DIRT:
+    case BLOCK_MOSS_BLOCK:
     case BLOCK_FARMLAND:
         return 1;
     default:
@@ -669,6 +645,8 @@ can_plant_survive_on(mc_int type_below) {
 
 int
 can_lily_pad_survive_on(mc_ushort state_below) {
+    // @TODO(traks) state at lily pad location must not contain fluid if lily
+    // pad is being placed
     if (is_water_source(state_below)) {
         return 1;
     }
@@ -719,9 +697,14 @@ can_dead_bush_survive_on(mc_int type_below) {
     case BLOCK_GREEN_TERRACOTTA:
     case BLOCK_RED_TERRACOTTA:
     case BLOCK_BLACK_TERRACOTTA:
+    // block tag dirt
     case BLOCK_DIRT:
-    case BLOCK_COARSE_DIRT:
+    case BLOCK_GRASS_BLOCK:
     case BLOCK_PODZOL:
+    case BLOCK_COARSE_DIRT:
+    case BLOCK_MYCELIUM:
+    case BLOCK_ROOTED_DIRT:
+    case BLOCK_MOSS_BLOCK:
         return 1;
     default:
         return 0;
@@ -741,30 +724,93 @@ can_wither_rose_survive_on(mc_int type_below) {
 }
 
 int
-can_nether_plant_survive_on(mc_int type_below) {
-    // @TODO(traks) allow if type below has nylium block tag
+can_azalea_survive_on(mc_int type_below) {
     switch (type_below) {
-    case BLOCK_SOUL_SOIL:
+    case BLOCK_CLAY:
         return 1;
     default:
         return can_plant_survive_on(type_below);
     }
 }
 
-// @TODO(traks) generate block tag from this
+int
+can_big_dripleaf_survive_on(mc_ushort state_below) {
+    mc_int type_below = serv->block_type_by_state[state_below];
+    switch (type_below) {
+    case BLOCK_BIG_DRIPLEAF_STEM:
+    case BLOCK_BIG_DRIPLEAF:
+        return 1;
+    default: {
+        support_model support = get_support_model(state_below);
+        if (support.full_face_flags & (1 << DIRECTION_POS_Y)) {
+            return 1;
+        }
+        return 0;
+    }
+    }
+}
+
+int
+can_big_dripleaf_stem_survive_at(net_block_pos cur_pos) {
+    mc_ushort state_below = try_get_block_state(
+            get_relative_block_pos(cur_pos, DIRECTION_NEG_Y));
+    mc_int type_below = serv->block_type_by_state[state_below];
+    support_model support_below = get_support_model(state_below);
+    mc_ushort state_above = try_get_block_state(
+            get_relative_block_pos(cur_pos, DIRECTION_POS_Y));
+    mc_int type_above = serv->block_type_by_state[state_above];
+
+    if ((type_below == BLOCK_BIG_DRIPLEAF_STEM || support_below.full_face_flags & (1 << DIRECTION_POS_Y))
+            && (type_above == BLOCK_BIG_DRIPLEAF_STEM || type_above == BLOCK_BIG_DRIPLEAF)) {
+        return 1;
+    }
+    return 0;
+}
+
+int
+can_small_dripleaf_survive_at(mc_int type_below, mc_ushort cur_state) {
+    switch (type_below) {
+    // small dripleaf placeable block tag
+    case BLOCK_CLAY:
+    case BLOCK_MOSS_BLOCK:
+        return 1;
+    default:
+        if (is_water_source(cur_state) && can_plant_survive_on(type_below)) {
+            return 1;
+        }
+        return 0;
+    }
+}
+
+int
+can_nether_plant_survive_on(mc_int type_below) {
+    switch (type_below) {
+    case BLOCK_SOUL_SOIL:
+    // nylium block tag
+    case BLOCK_WARPED_NYLIUM:
+    case BLOCK_CRIMSON_NYLIUM:
+        return 1;
+    default:
+        return can_plant_survive_on(type_below);
+    }
+}
+
 int
 is_bamboo_plantable_on(mc_int type_below) {
     switch (type_below) {
+    // bamboo plantable on block tag
     case BLOCK_SAND:
     case BLOCK_RED_SAND:
-    case BLOCK_BAMBOO:
-    case BLOCK_BAMBOO_SAPLING:
-    case BLOCK_GRAVEL:
     case BLOCK_DIRT:
     case BLOCK_GRASS_BLOCK:
     case BLOCK_PODZOL:
     case BLOCK_COARSE_DIRT:
     case BLOCK_MYCELIUM:
+    case BLOCK_ROOTED_DIRT:
+    case BLOCK_MOSS_BLOCK:
+    case BLOCK_BAMBOO:
+    case BLOCK_BAMBOO_SAPLING:
+    case BLOCK_GRAVEL:
         return 1;
     default:
         return 0;
@@ -773,6 +819,7 @@ is_bamboo_plantable_on(mc_int type_below) {
 
 int
 can_sea_pickle_survive_on(mc_ushort state_below) {
+    // @TODO(traks) is this correct?
     support_model support = get_support_model(state_below);
     if (support.non_empty_face_flags & (1 << DIRECTION_POS_Y)) {
         return 1;
@@ -804,7 +851,7 @@ can_snow_survive_on(mc_ushort state_below) {
 
 int
 can_pressure_plate_survive_on(mc_ushort state_below) {
-    // @TODO(traks) can survive if top face is circle too
+    // @TODO(traks) can survive if top face is circle too (e.g. cauldron)
     support_model support = get_support_model(state_below);
     if (support.pole_face_flags & (1 << DIRECTION_POS_Y)) {
         return 1;
@@ -874,27 +921,29 @@ can_sugar_cane_survive_at(net_block_pos cur_pos) {
 }
 
 // @TODO(traks) maybe store this kind of info in block properties and block
-// state info structs
+// state info structs. Use stairs block tag?
 static int
 is_stairs(mc_int block_type) {
     switch (block_type) {
     case BLOCK_OAK_STAIRS:
-    case BLOCK_COBBLESTONE_STAIRS:
-    case BLOCK_BRICK_STAIRS:
-    case BLOCK_STONE_BRICK_STAIRS:
-    case BLOCK_NETHER_BRICK_STAIRS:
-    case BLOCK_SANDSTONE_STAIRS:
     case BLOCK_SPRUCE_STAIRS:
     case BLOCK_BIRCH_STAIRS:
     case BLOCK_JUNGLE_STAIRS:
-    case BLOCK_QUARTZ_STAIRS:
     case BLOCK_ACACIA_STAIRS:
     case BLOCK_DARK_OAK_STAIRS:
-    case BLOCK_PRISMARINE_STAIRS:
-    case BLOCK_PRISMARINE_BRICK_STAIRS:
-    case BLOCK_DARK_PRISMARINE_STAIRS:
-    case BLOCK_RED_SANDSTONE_STAIRS:
+    case BLOCK_CRIMSON_STAIRS:
+    case BLOCK_WARPED_STAIRS:
+    case BLOCK_COBBLESTONE_STAIRS:
+    case BLOCK_SANDSTONE_STAIRS:
+    case BLOCK_NETHER_BRICK_STAIRS:
+    case BLOCK_STONE_BRICK_STAIRS:
+    case BLOCK_BRICK_STAIRS:
     case BLOCK_PURPUR_STAIRS:
+    case BLOCK_QUARTZ_STAIRS:
+    case BLOCK_RED_SANDSTONE_STAIRS:
+    case BLOCK_PRISMARINE_BRICK_STAIRS:
+    case BLOCK_PRISMARINE_STAIRS:
+    case BLOCK_DARK_PRISMARINE_STAIRS:
     case BLOCK_POLISHED_GRANITE_STAIRS:
     case BLOCK_SMOOTH_RED_SANDSTONE_STAIRS:
     case BLOCK_MOSSY_STONE_BRICK_STAIRS:
@@ -909,11 +958,21 @@ is_stairs(mc_int block_type) {
     case BLOCK_RED_NETHER_BRICK_STAIRS:
     case BLOCK_POLISHED_ANDESITE_STAIRS:
     case BLOCK_DIORITE_STAIRS:
-    case BLOCK_CRIMSON_STAIRS:
-    case BLOCK_WARPED_STAIRS:
     case BLOCK_BLACKSTONE_STAIRS:
     case BLOCK_POLISHED_BLACKSTONE_BRICK_STAIRS:
     case BLOCK_POLISHED_BLACKSTONE_STAIRS:
+    case BLOCK_COBBLED_DEEPSLATE_STAIRS:
+    case BLOCK_POLISHED_DEEPSLATE_STAIRS:
+    case BLOCK_DEEPSLATE_TILE_STAIRS:
+    case BLOCK_DEEPSLATE_BRICK_STAIRS:
+    case BLOCK_OXIDIZED_CUT_COPPER_STAIRS:
+    case BLOCK_WEATHERED_CUT_COPPER_STAIRS:
+    case BLOCK_EXPOSED_CUT_COPPER_STAIRS:
+    case BLOCK_CUT_COPPER_STAIRS:
+    case BLOCK_WAXED_WEATHERED_CUT_COPPER_STAIRS:
+    case BLOCK_WAXED_EXPOSED_CUT_COPPER_STAIRS:
+    case BLOCK_WAXED_CUT_COPPER_STAIRS:
+    case BLOCK_WAXED_OXIDIZED_CUT_COPPER_STAIRS:
         return 1;
     default:
         return 0;
@@ -1019,6 +1078,7 @@ update_pane_shape(net_block_pos pos,
     *(&cur_info->neg_y + from_direction) = 0;
 
     switch (neighbour_type) {
+    // iron bars, panes
     case BLOCK_IRON_BARS:
     case BLOCK_GLASS_PANE:
     case BLOCK_WHITE_STAINED_GLASS_PANE:
@@ -1037,6 +1097,7 @@ update_pane_shape(net_block_pos pos,
     case BLOCK_GREEN_STAINED_GLASS_PANE:
     case BLOCK_RED_STAINED_GLASS_PANE:
     case BLOCK_BLACK_STAINED_GLASS_PANE:
+    // walls block tag
     case BLOCK_COBBLESTONE_WALL:
     case BLOCK_MOSSY_COBBLESTONE_WALL:
     case BLOCK_BRICK_WALL:
@@ -1054,19 +1115,28 @@ update_pane_shape(net_block_pos pos,
     case BLOCK_BLACKSTONE_WALL:
     case BLOCK_POLISHED_BLACKSTONE_BRICK_WALL:
     case BLOCK_POLISHED_BLACKSTONE_WALL:
+    case BLOCK_COBBLED_DEEPSLATE_WALL:
+    case BLOCK_POLISHED_DEEPSLATE_WALL:
+    case BLOCK_DEEPSLATE_TILE_WALL:
+    case BLOCK_DEEPSLATE_BRICK_WALL:
         // can attach to these blocks
         break;
+    // leaves
     case BLOCK_JUNGLE_LEAVES:
     case BLOCK_OAK_LEAVES:
     case BLOCK_SPRUCE_LEAVES:
     case BLOCK_DARK_OAK_LEAVES:
     case BLOCK_ACACIA_LEAVES:
     case BLOCK_BIRCH_LEAVES:
+    case BLOCK_AZALEA_LEAVES:
+    case BLOCK_FLOWERING_AZALEA_LEAVES:
+    // misc
     case BLOCK_BARRIER:
     case BLOCK_PUMPKIN:
     case BLOCK_CARVED_PUMPKIN:
     case BLOCK_JACK_O_LANTERN:
     case BLOCK_MELON:
+    // shulker boxes block tag
     case BLOCK_SHULKER_BOX:
     case BLOCK_BLACK_SHULKER_BOX:
     case BLOCK_BLUE_SHULKER_BOX:
@@ -1138,6 +1208,10 @@ is_wall(mc_int block_type) {
     case BLOCK_BLACKSTONE_WALL:
     case BLOCK_POLISHED_BLACKSTONE_BRICK_WALL:
     case BLOCK_POLISHED_BLACKSTONE_WALL:
+    case BLOCK_COBBLED_DEEPSLATE_WALL:
+    case BLOCK_POLISHED_DEEPSLATE_WALL:
+    case BLOCK_DEEPSLATE_TILE_WALL:
+    case BLOCK_DEEPSLATE_BRICK_WALL:
         return 1;
     default:
         return 0;
@@ -1154,17 +1228,22 @@ update_fence_shape(net_block_pos pos,
     *(&cur_info->neg_y + from_direction) = 0;
 
     switch (neighbour_type) {
+    // all leaves
     case BLOCK_JUNGLE_LEAVES:
     case BLOCK_OAK_LEAVES:
     case BLOCK_SPRUCE_LEAVES:
     case BLOCK_DARK_OAK_LEAVES:
     case BLOCK_ACACIA_LEAVES:
     case BLOCK_BIRCH_LEAVES:
+    case BLOCK_AZALEA_LEAVES:
+    case BLOCK_FLOWERING_AZALEA_LEAVES:
+    // misc
     case BLOCK_BARRIER:
     case BLOCK_PUMPKIN:
     case BLOCK_CARVED_PUMPKIN:
     case BLOCK_JACK_O_LANTERN:
     case BLOCK_MELON:
+    // shulker boxes block tag
     case BLOCK_SHULKER_BOX:
     case BLOCK_BLACK_SHULKER_BOX:
     case BLOCK_BLUE_SHULKER_BOX:
@@ -1221,17 +1300,22 @@ update_wall_shape(net_block_pos pos,
     int connect = 0;
 
     switch (neighbour_type) {
+    // leaves
     case BLOCK_JUNGLE_LEAVES:
     case BLOCK_OAK_LEAVES:
     case BLOCK_SPRUCE_LEAVES:
     case BLOCK_DARK_OAK_LEAVES:
     case BLOCK_ACACIA_LEAVES:
     case BLOCK_BIRCH_LEAVES:
+    case BLOCK_AZALEA_LEAVES:
+    case BLOCK_FLOWERING_AZALEA_LEAVES:
+    // misc
     case BLOCK_BARRIER:
     case BLOCK_PUMPKIN:
     case BLOCK_CARVED_PUMPKIN:
     case BLOCK_JACK_O_LANTERN:
     case BLOCK_MELON:
+    // shulker box block tag
     case BLOCK_SHULKER_BOX:
     case BLOCK_BLACK_SHULKER_BOX:
     case BLOCK_BLUE_SHULKER_BOX:
@@ -1251,6 +1335,7 @@ update_wall_shape(net_block_pos pos,
     case BLOCK_YELLOW_SHULKER_BOX:
         // can't attach to these blocks
         break;
+    // iron bars & panes
     case BLOCK_IRON_BARS:
     case BLOCK_GLASS_PANE:
     case BLOCK_WHITE_STAINED_GLASS_PANE:
@@ -1272,6 +1357,7 @@ update_wall_shape(net_block_pos pos,
         // can connect to these
         connect = 1;
         break;
+    // fence gates
     case BLOCK_OAK_FENCE_GATE:
     case BLOCK_SPRUCE_FENCE_GATE:
     case BLOCK_BIRCH_FENCE_GATE:
@@ -2174,6 +2260,7 @@ update_redstone_line(net_block_pos start_pos) {
     }
 }
 
+// @TODO(traks) can we perhaps get rid of the from_direction for simplicity?
 static int
 update_block(net_block_pos pos, int from_direction, int is_delayed,
         block_update_context * buc) {
@@ -2261,16 +2348,13 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
     case BLOCK_GRAVEL:
         break;
     case BLOCK_OAK_LEAVES:
-        break;
     case BLOCK_SPRUCE_LEAVES:
-        break;
     case BLOCK_BIRCH_LEAVES:
-        break;
     case BLOCK_JUNGLE_LEAVES:
-        break;
     case BLOCK_ACACIA_LEAVES:
-        break;
     case BLOCK_DARK_OAK_LEAVES:
+    case BLOCK_AZALEA_LEAVES:
+    case BLOCK_FLOWERING_AZALEA_LEAVES:
         break;
     case BLOCK_SPONGE:
         break;
@@ -2383,7 +2467,24 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
     case BLOCK_TNT:
         break;
     case BLOCK_TORCH:
-    case BLOCK_SOUL_TORCH: {
+    case BLOCK_SOUL_TORCH:
+    case BLOCK_CANDLE:
+    case BLOCK_WHITE_CANDLE:
+    case BLOCK_ORANGE_CANDLE:
+    case BLOCK_MAGENTA_CANDLE:
+    case BLOCK_LIGHT_BLUE_CANDLE:
+    case BLOCK_YELLOW_CANDLE:
+    case BLOCK_LIME_CANDLE:
+    case BLOCK_PINK_CANDLE:
+    case BLOCK_GRAY_CANDLE:
+    case BLOCK_LIGHT_GRAY_CANDLE:
+    case BLOCK_CYAN_CANDLE:
+    case BLOCK_PURPLE_CANDLE:
+    case BLOCK_BLUE_CANDLE:
+    case BLOCK_BROWN_CANDLE:
+    case BLOCK_GREEN_CANDLE:
+    case BLOCK_RED_CANDLE:
+    case BLOCK_BLACK_CANDLE: {
         if (from_direction != DIRECTION_NEG_Y) {
             return 0;
         }
@@ -2456,7 +2557,19 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
     case BLOCK_WARPED_STAIRS:
     case BLOCK_BLACKSTONE_STAIRS:
     case BLOCK_POLISHED_BLACKSTONE_BRICK_STAIRS:
-    case BLOCK_POLISHED_BLACKSTONE_STAIRS: {
+    case BLOCK_POLISHED_BLACKSTONE_STAIRS:
+    case BLOCK_OXIDIZED_CUT_COPPER_STAIRS:
+    case BLOCK_WEATHERED_CUT_COPPER_STAIRS:
+    case BLOCK_EXPOSED_CUT_COPPER_STAIRS:
+    case BLOCK_CUT_COPPER_STAIRS:
+    case BLOCK_WAXED_OXIDIZED_CUT_COPPER_STAIRS:
+    case BLOCK_WAXED_WEATHERED_CUT_COPPER_STAIRS:
+    case BLOCK_WAXED_EXPOSED_CUT_COPPER_STAIRS:
+    case BLOCK_WAXED_CUT_COPPER_STAIRS:
+    case BLOCK_COBBLED_DEEPSLATE_STAIRS:
+    case BLOCK_POLISHED_DEEPSLATE_STAIRS:
+    case BLOCK_DEEPSLATE_TILE_STAIRS:
+    case BLOCK_DEEPSLATE_BRICK_STAIRS: {
         if (from_direction == DIRECTION_NEG_Y
                 || from_direction == DIRECTION_POS_Y) {
             return 0;
@@ -2718,6 +2831,23 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
     case BLOCK_NETHER_PORTAL:
         break;
     case BLOCK_CAKE:
+    case BLOCK_CANDLE_CAKE:
+    case BLOCK_WHITE_CANDLE_CAKE:
+    case BLOCK_ORANGE_CANDLE_CAKE:
+    case BLOCK_MAGENTA_CANDLE_CAKE:
+    case BLOCK_LIGHT_BLUE_CANDLE_CAKE:
+    case BLOCK_YELLOW_CANDLE_CAKE:
+    case BLOCK_LIME_CANDLE_CAKE:
+    case BLOCK_PINK_CANDLE_CAKE:
+    case BLOCK_GRAY_CANDLE_CAKE:
+    case BLOCK_LIGHT_GRAY_CANDLE_CAKE:
+    case BLOCK_CYAN_CANDLE_CAKE:
+    case BLOCK_PURPLE_CANDLE_CAKE:
+    case BLOCK_BLUE_CANDLE_CAKE:
+    case BLOCK_BROWN_CANDLE_CAKE:
+    case BLOCK_GREEN_CANDLE_CAKE:
+    case BLOCK_RED_CANDLE_CAKE:
+    case BLOCK_BLACK_CANDLE_CAKE:
         break;
     case BLOCK_REPEATER:
         break;
@@ -2805,6 +2935,8 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
         return 1;
     }
     case BLOCK_VINE:
+        break;
+    case BLOCK_GLOW_LICHEN:
         break;
     case BLOCK_OAK_FENCE_GATE:
     case BLOCK_SPRUCE_FENCE_GATE:
@@ -2909,7 +3041,11 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
     case BLOCK_DIORITE_WALL:
     case BLOCK_BLACKSTONE_WALL:
     case BLOCK_POLISHED_BLACKSTONE_BRICK_WALL:
-    case BLOCK_POLISHED_BLACKSTONE_WALL: {
+    case BLOCK_POLISHED_BLACKSTONE_WALL:
+    case BLOCK_COBBLED_DEEPSLATE_WALL:
+    case BLOCK_POLISHED_DEEPSLATE_WALL:
+    case BLOCK_DEEPSLATE_TILE_WALL:
+    case BLOCK_DEEPSLATE_BRICK_WALL: {
         // @TODO(traks) update water
 
         if (from_direction == DIRECTION_NEG_Y) {
@@ -2943,10 +3079,58 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
     case BLOCK_IRON_TRAPDOOR:
         break;
     case BLOCK_PRISMARINE_SLAB:
-        break;
     case BLOCK_PRISMARINE_BRICK_SLAB:
-        break;
     case BLOCK_DARK_PRISMARINE_SLAB:
+    case BLOCK_OAK_SLAB:
+    case BLOCK_SPRUCE_SLAB:
+    case BLOCK_BIRCH_SLAB:
+    case BLOCK_JUNGLE_SLAB:
+    case BLOCK_ACACIA_SLAB:
+    case BLOCK_DARK_OAK_SLAB:
+    case BLOCK_STONE_SLAB:
+    case BLOCK_SMOOTH_STONE_SLAB:
+    case BLOCK_SANDSTONE_SLAB:
+    case BLOCK_CUT_SANDSTONE_SLAB:
+    case BLOCK_PETRIFIED_OAK_SLAB:
+    case BLOCK_COBBLESTONE_SLAB:
+    case BLOCK_BRICK_SLAB:
+    case BLOCK_STONE_BRICK_SLAB:
+    case BLOCK_NETHER_BRICK_SLAB:
+    case BLOCK_QUARTZ_SLAB:
+    case BLOCK_RED_SANDSTONE_SLAB:
+    case BLOCK_CUT_RED_SANDSTONE_SLAB:
+    case BLOCK_PURPUR_SLAB:
+    case BLOCK_POLISHED_GRANITE_SLAB:
+    case BLOCK_SMOOTH_RED_SANDSTONE_SLAB:
+    case BLOCK_MOSSY_STONE_BRICK_SLAB:
+    case BLOCK_POLISHED_DIORITE_SLAB:
+    case BLOCK_MOSSY_COBBLESTONE_SLAB:
+    case BLOCK_END_STONE_BRICK_SLAB:
+    case BLOCK_SMOOTH_SANDSTONE_SLAB:
+    case BLOCK_SMOOTH_QUARTZ_SLAB:
+    case BLOCK_GRANITE_SLAB:
+    case BLOCK_ANDESITE_SLAB:
+    case BLOCK_RED_NETHER_BRICK_SLAB:
+    case BLOCK_POLISHED_ANDESITE_SLAB:
+    case BLOCK_DIORITE_SLAB:
+    case BLOCK_CRIMSON_SLAB:
+    case BLOCK_WARPED_SLAB:
+    case BLOCK_BLACKSTONE_SLAB:
+    case BLOCK_POLISHED_BLACKSTONE_BRICK_SLAB:
+    case BLOCK_POLISHED_BLACKSTONE_SLAB:
+    case BLOCK_OXIDIZED_CUT_COPPER_SLAB:
+    case BLOCK_WEATHERED_CUT_COPPER_SLAB:
+    case BLOCK_EXPOSED_CUT_COPPER_SLAB:
+    case BLOCK_CUT_COPPER_SLAB:
+    case BLOCK_WAXED_OXIDIZED_CUT_COPPER_SLAB:
+    case BLOCK_WAXED_WEATHERED_CUT_COPPER_SLAB:
+    case BLOCK_WAXED_EXPOSED_CUT_COPPER_SLAB:
+    case BLOCK_WAXED_CUT_COPPER_SLAB:
+    case BLOCK_COBBLED_DEEPSLATE_SLAB:
+    case BLOCK_POLISHED_DEEPSLATE_SLAB:
+    case BLOCK_DEEPSLATE_TILE_SLAB:
+    case BLOCK_DEEPSLATE_BRICK_SLAB:
+        // @TODO(traks) fluid update
         break;
     case BLOCK_WHITE_CARPET:
     case BLOCK_ORANGE_CARPET:
@@ -2963,7 +3147,8 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
     case BLOCK_BROWN_CARPET:
     case BLOCK_GREEN_CARPET:
     case BLOCK_RED_CARPET:
-    case BLOCK_BLACK_CARPET: {
+    case BLOCK_BLACK_CARPET:
+    case BLOCK_MOSS_CARPET: {
         if (from_direction != DIRECTION_NEG_Y) {
             return 0;
         }
@@ -3071,49 +3256,11 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
         break;
     case BLOCK_BLACK_WALL_BANNER:
         break;
-    case BLOCK_OAK_SLAB:
-        break;
-    case BLOCK_SPRUCE_SLAB:
-        break;
-    case BLOCK_BIRCH_SLAB:
-        break;
-    case BLOCK_JUNGLE_SLAB:
-        break;
-    case BLOCK_ACACIA_SLAB:
-        break;
-    case BLOCK_DARK_OAK_SLAB:
-        break;
-    case BLOCK_STONE_SLAB:
-        break;
-    case BLOCK_SMOOTH_STONE_SLAB:
-        break;
-    case BLOCK_SANDSTONE_SLAB:
-        break;
-    case BLOCK_CUT_SANDSTONE_SLAB:
-        break;
-    case BLOCK_PETRIFIED_OAK_SLAB:
-        break;
-    case BLOCK_COBBLESTONE_SLAB:
-        break;
-    case BLOCK_BRICK_SLAB:
-        break;
-    case BLOCK_STONE_BRICK_SLAB:
-        break;
-    case BLOCK_NETHER_BRICK_SLAB:
-        break;
-    case BLOCK_QUARTZ_SLAB:
-        break;
-    case BLOCK_RED_SANDSTONE_SLAB:
-        break;
-    case BLOCK_CUT_RED_SANDSTONE_SLAB:
-        break;
-    case BLOCK_PURPUR_SLAB:
-        break;
     case BLOCK_CHORUS_PLANT:
         break;
     case BLOCK_CHORUS_FLOWER:
         break;
-    case BLOCK_GRASS_PATH:
+    case BLOCK_DIRT_PATH:
         break;
     case BLOCK_REPEATING_COMMAND_BLOCK:
         break;
@@ -3287,7 +3434,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
             }
         } else if (from_direction == DIRECTION_POS_Y) {
             if (from_type == BLOCK_BAMBOO) {
-                mc_ushort new_state = from_state;
+                mc_ushort new_state = get_default_block_state(BLOCK_BAMBOO);
                 try_set_block_state(pos, new_state);
                 push_direct_neighbour_block_updates(pos, buc);
                 return 1;
@@ -3308,7 +3455,8 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
             }
         } else if (from_direction == DIRECTION_POS_Y) {
             if (from_type == BLOCK_BAMBOO && from_info.age_1 > cur_info.age_1) {
-                mc_ushort new_state = from_state;
+                cur_info.age_1++;
+                mc_ushort new_state = make_block_state(&cur_info);
                 try_set_block_state(pos, new_state);
                 push_direct_neighbour_block_updates(pos, buc);
                 return 1;
@@ -3317,32 +3465,6 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
         return 0;
     }
     case BLOCK_BUBBLE_COLUMN:
-        break;
-    case BLOCK_POLISHED_GRANITE_SLAB:
-        break;
-    case BLOCK_SMOOTH_RED_SANDSTONE_SLAB:
-        break;
-    case BLOCK_MOSSY_STONE_BRICK_SLAB:
-        break;
-    case BLOCK_POLISHED_DIORITE_SLAB:
-        break;
-    case BLOCK_MOSSY_COBBLESTONE_SLAB:
-        break;
-    case BLOCK_END_STONE_BRICK_SLAB:
-        break;
-    case BLOCK_SMOOTH_SANDSTONE_SLAB:
-        break;
-    case BLOCK_SMOOTH_QUARTZ_SLAB:
-        break;
-    case BLOCK_GRANITE_SLAB:
-        break;
-    case BLOCK_ANDESITE_SLAB:
-        break;
-    case BLOCK_RED_NETHER_BRICK_SLAB:
-        break;
-    case BLOCK_POLISHED_ANDESITE_SLAB:
-        break;
-    case BLOCK_DIORITE_SLAB:
         break;
     case BLOCK_SCAFFOLDING:
         break;
@@ -3380,10 +3502,6 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
         break;
     case BLOCK_TWISTING_VINES_PLANT:
         break;
-    case BLOCK_CRIMSON_SLAB:
-        break;
-    case BLOCK_WARPED_SLAB:
-        break;
     case BLOCK_CRIMSON_TRAPDOOR:
         break;
     case BLOCK_WARPED_TRAPDOOR:
@@ -3402,12 +3520,128 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
         break;
     case BLOCK_BEEHIVE:
         break;
-    case BLOCK_BLACKSTONE_SLAB:
+    case BLOCK_AMETHYST_CLUSTER:
+    case BLOCK_LARGE_AMETHYST_BUD:
+    case BLOCK_MEDIUM_AMETHYST_BUD:
+    case BLOCK_SMALL_AMETHYST_BUD: {
+        if (from_direction != get_opposite_direction(cur_info.facing)) {
+            return 0;
+        }
+
+        support_model support = get_support_model(from_state);
+        if (support.full_face_flags & (1 << cur_info.facing)) {
+            return 0;
+        }
+
+        // wall block cannot support us
+        break_block(pos);
+        push_direct_neighbour_block_updates(pos, buc);
+        return 1;
+    }
+    case BLOCK_SCULK_SENSOR:
         break;
-    case BLOCK_POLISHED_BLACKSTONE_BRICK_SLAB:
+    case BLOCK_LIGHTNING_ROD:
+        // @TODO(traks) fluid update
         break;
-    case BLOCK_POLISHED_BLACKSTONE_SLAB:
+    case BLOCK_POINTED_DRIPSTONE:
         break;
+    case BLOCK_CAVE_VINES:
+        break;
+    case BLOCK_CAVE_VINES_PLANT:
+        break;
+    case BLOCK_SPORE_BLOSSOM: {
+        if (from_direction != DIRECTION_POS_Y) {
+            return 0;
+        }
+
+        support_model support = get_support_model(from_state);
+        if (support.pole_face_flags & (1 << DIRECTION_NEG_Y)) {
+            return 0;
+        }
+
+        // block above cannot support us
+        break_block(pos);
+        push_direct_neighbour_block_updates(pos, buc);
+        return 1;
+    }
+    case BLOCK_AZALEA:
+    case BLOCK_FLOWERING_AZALEA: {
+        if (from_direction != DIRECTION_NEG_Y) {
+            return 0;
+        }
+
+        mc_int type_below = from_type;
+        if (can_azalea_survive_on(type_below)) {
+            return 0;
+        }
+        break_block(pos);
+        push_direct_neighbour_block_updates(pos, buc);
+        return 1;
+    }
+    case BLOCK_BIG_DRIPLEAF: {
+        // @TODO(traks) fluid update
+        if (from_direction == DIRECTION_NEG_Y) {
+            if (!can_azalea_survive_on(from_state)) {
+                break_block(pos);
+                push_direct_neighbour_block_updates(pos, buc);
+                return 1;
+            }
+        } else if (from_direction == DIRECTION_POS_Y) {
+            if (from_type == cur_type) {
+                // transform into stem block with same properties
+                cur_info.block_type = BLOCK_BIG_DRIPLEAF_STEM;
+                mc_ushort new_state = make_block_state(&cur_info);
+                try_set_block_state(pos, new_state);
+                push_direct_neighbour_block_updates(pos, buc);
+                return 1;
+            }
+        }
+        return 0;
+    }
+    case BLOCK_BIG_DRIPLEAF_STEM: {
+        // @TODO(traks) fluid update
+        if (from_direction == DIRECTION_NEG_Y || from_direction == DIRECTION_POS_Y) {
+            if (!can_big_dripleaf_stem_survive_at(pos)) {
+                if (is_delayed) {
+                    break_block(pos);
+                    push_direct_neighbour_block_updates(pos, buc);
+                    return 1;
+                } else {
+                    schedule_block_update(pos, from_direction, 1);
+                    return 0;
+                }
+            }
+        }
+        return 0;
+    }
+    case BLOCK_SMALL_DRIPLEAF: {
+        // @TODO(traks) fluid update
+        if (cur_info.double_block_half == DOUBLE_BLOCK_HALF_UPPER) {
+            if (from_direction == DIRECTION_NEG_Y && (from_type != cur_type
+                    || from_info.double_block_half != DOUBLE_BLOCK_HALF_LOWER)) {
+                try_set_block_state(pos, 0);
+                push_direct_neighbour_block_updates(pos, buc);
+                return 1;
+            }
+        } else {
+            if (from_direction == DIRECTION_NEG_Y) {
+                if (!can_small_dripleaf_survive_at(from_type, cur_state)) {
+                    try_set_block_state(pos, 0);
+                    push_direct_neighbour_block_updates(pos, buc);
+                    return 1;
+                }
+            } else if (from_direction == DIRECTION_POS_Y) {
+                if (from_type != cur_type
+                        || from_info.double_block_half != DOUBLE_BLOCK_HALF_UPPER) {
+                    try_set_block_state(pos, 0);
+                    push_direct_neighbour_block_updates(pos, buc);
+                    return 1;
+                }
+            }
+        }
+        return 0;
+    }
+    case BLOCK_HANGING_ROOTS:
     default:
          // nothing
          break;
@@ -3576,6 +3810,7 @@ use_block(entity_base * player,
         return 1;
     }
     case BLOCK_REDSTONE_ORE:
+    case BLOCK_DEEPSLATE_REDSTONE_ORE:
         // @TODO
         return 0;
     case BLOCK_STONE_BUTTON:
@@ -3667,6 +3902,9 @@ use_block(entity_base * player,
         // @TODO
         return 0;
     case BLOCK_CAULDRON:
+    case BLOCK_WATER_CAULDRON:
+    case BLOCK_LAVA_CAULDRON:
+    case BLOCK_POWDER_SNOW_CAULDRON:
         // @TODO
         return 0;
     case BLOCK_DRAGON_EGG:
@@ -3777,6 +4015,12 @@ use_block(entity_base * player,
     case BLOCK_POTTED_WARPED_ROOTS:
         // @TODO
         return 0;
+    case BLOCK_POTTED_AZALEA_BUSH:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_FLOWERING_AZALEA_BUSH:
+        // @TODO
+        return 0;
     case BLOCK_ANVIL:
     case BLOCK_CHIPPED_ANVIL:
     case BLOCK_DAMAGED_ANVIL:
@@ -3807,6 +4051,9 @@ use_block(entity_base * player,
         // @TODO
         return 0;
     case BLOCK_DROPPER:
+        // @TODO
+        return 0;
+    case BLOCK_LIGHT:
         // @TODO
         return 0;
     case BLOCK_SHULKER_BOX:
@@ -3884,6 +4131,62 @@ use_block(entity_base * player,
     case BLOCK_RESPAWN_ANCHOR:
         // @TODO
         return 0;
+    case BLOCK_CANDLE:
+    case BLOCK_WHITE_CANDLE:
+    case BLOCK_ORANGE_CANDLE:
+    case BLOCK_MAGENTA_CANDLE:
+    case BLOCK_LIGHT_BLUE_CANDLE:
+    case BLOCK_YELLOW_CANDLE:
+    case BLOCK_LIME_CANDLE:
+    case BLOCK_PINK_CANDLE:
+    case BLOCK_GRAY_CANDLE:
+    case BLOCK_LIGHT_GRAY_CANDLE:
+    case BLOCK_CYAN_CANDLE:
+    case BLOCK_PURPLE_CANDLE:
+    case BLOCK_BLUE_CANDLE:
+    case BLOCK_BROWN_CANDLE:
+    case BLOCK_GREEN_CANDLE:
+    case BLOCK_RED_CANDLE:
+    case BLOCK_BLACK_CANDLE: {
+        item_stack * main = player->player.slots + player->player.selected_slot;
+        item_stack * off = player->player.slots + PLAYER_OFF_HAND_SLOT;
+        item_stack * used = hand == PLAYER_MAIN_HAND ? main : off;
+
+        if ((player->flags & PLAYER_CAN_BUILD) && used->size == 0 && cur_info.lit) {
+            cur_info.lit = 0;
+            mc_ushort new_state = make_block_state(&cur_info);
+            try_set_block_state(clicked_pos, new_state);
+            push_direct_neighbour_block_updates(clicked_pos, buc);
+            // @TODO(traks) particles, sounds, game events
+            return 1;
+        }
+        return 0;
+    }
+    case BLOCK_CANDLE_CAKE:
+    case BLOCK_WHITE_CANDLE_CAKE:
+    case BLOCK_ORANGE_CANDLE_CAKE:
+    case BLOCK_MAGENTA_CANDLE_CAKE:
+    case BLOCK_LIGHT_BLUE_CANDLE_CAKE:
+    case BLOCK_YELLOW_CANDLE_CAKE:
+    case BLOCK_LIME_CANDLE_CAKE:
+    case BLOCK_PINK_CANDLE_CAKE:
+    case BLOCK_GRAY_CANDLE_CAKE:
+    case BLOCK_LIGHT_GRAY_CANDLE_CAKE:
+    case BLOCK_CYAN_CANDLE_CAKE:
+    case BLOCK_PURPLE_CANDLE_CAKE:
+    case BLOCK_BLUE_CANDLE_CAKE:
+    case BLOCK_BROWN_CANDLE_CAKE:
+    case BLOCK_GREEN_CANDLE_CAKE:
+    case BLOCK_RED_CANDLE_CAKE:
+    case BLOCK_BLACK_CANDLE_CAKE: {
+        // @TODO
+        return 0;
+    }
+    case BLOCK_CAVE_VINES:
+    case BLOCK_CAVE_VINES_PLANT: {
+        // @TODO
+        return 0;
+    }
     default:
         // other blocks have no use action
         return 0;
@@ -4000,6 +4303,8 @@ finalise_block_props(block_properties * props) {
 
     mc_int block_type = props - serv->block_properties_table;
     int block_states = count_block_states(props);
+
+    assert(serv->actual_block_state_count + block_states <= ARRAY_SIZE(serv->block_type_by_state));
 
     for (int i = 0; i < block_states; i++) {
         serv->block_type_by_state[serv->actual_block_state_count + i] = block_type;
@@ -4383,6 +4688,56 @@ init_snowy_grassy_block(mc_int block_type, char * resource_loc) {
     set_collision_model_for_all_states(props, BLOCK_MODEL_FULL);
 }
 
+static void
+init_redstone_ore(mc_int block_type, char * resource_loc) {
+    register_block_type(block_type, resource_loc);
+    block_properties * props = serv->block_properties_table + block_type;
+    add_block_property(props, BLOCK_PROPERTY_LIT, "false");
+    finalise_block_props(props);
+    set_collision_model_for_all_states(props, BLOCK_MODEL_FULL);
+}
+
+static void
+init_cauldron(mc_int block_type, char * resource_loc, int layered) {
+    // @TODO(traks) collision models
+    register_block_type(block_type, resource_loc);
+    block_properties * props = serv->block_properties_table + block_type;
+    if (layered) {
+        add_block_property(props, BLOCK_PROPERTY_LEVEL_CAULDRON, "1");
+    }
+    finalise_block_props(props);
+}
+
+static void
+init_candle(mc_int block_type, char * resource_loc) {
+    // @TODO(traks) collision models
+    register_block_type(block_type, resource_loc);
+    block_properties * props = serv->block_properties_table + block_type;
+    add_block_property(props, BLOCK_PROPERTY_CANDLES, "1");
+    add_block_property(props, BLOCK_PROPERTY_LIT, "false");
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
+    finalise_block_props(props);
+}
+
+static void
+init_candle_cake(mc_int block_type, char * resource_loc) {
+    // @TODO(traks) collision models
+    register_block_type(block_type, resource_loc);
+    block_properties * props = serv->block_properties_table + block_type;
+    add_block_property(props, BLOCK_PROPERTY_LIT, "false");
+    finalise_block_props(props);
+}
+
+static void
+init_amethyst_cluster(mc_int block_type, char * resource_loc) {
+    // @TODO(traks) collision models
+    register_block_type(block_type, resource_loc);
+    block_properties * props = serv->block_properties_table + block_type;
+    add_block_property(props, BLOCK_PROPERTY_FACING, "up");
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
+    finalise_block_props(props);
+}
+
 typedef struct {
     float min_a;
     float min_b;
@@ -4728,6 +5083,7 @@ init_block_data(void) {
     register_bool_property(BLOCK_PROPERTY_UNSTABLE, "unstable");
     register_bool_property(BLOCK_PROPERTY_WATERLOGGED, "waterlogged");
     register_bool_property(BLOCK_PROPERTY_VINE_END, "vine_end");
+    register_bool_property(BLOCK_PROPERTY_BERRIES, "berries");
     register_property_v(BLOCK_PROPERTY_HORIZONTAL_AXIS, "axis", 2, "x", "z");
     register_property_v(BLOCK_PROPERTY_AXIS, "axis", 3, "x", "y", "z");
     register_bool_property(BLOCK_PROPERTY_POS_Y, "up");
@@ -4762,15 +5118,17 @@ init_block_data(void) {
     register_range_property(BLOCK_PROPERTY_AGE_15, "age", 0, 15);
     register_range_property(BLOCK_PROPERTY_AGE_25, "age", 0, 25);
     register_range_property(BLOCK_PROPERTY_BITES, "bites", 0, 6);
+    register_range_property(BLOCK_PROPERTY_CANDLES, "candles", 1, 4);
     register_range_property(BLOCK_PROPERTY_DELAY, "delay", 1, 4);
     register_range_property(BLOCK_PROPERTY_DISTANCE, "distance", 1, 7);
     register_range_property(BLOCK_PROPERTY_EGGS, "eggs", 1, 4);
     register_range_property(BLOCK_PROPERTY_HATCH, "hatch", 0, 2);
     register_range_property(BLOCK_PROPERTY_LAYERS, "layers", 1, 8);
-    register_range_property(BLOCK_PROPERTY_LEVEL_CAULDRON, "level", 0, 3);
+    register_range_property(BLOCK_PROPERTY_LEVEL_CAULDRON, "level", 1, 3);
     register_range_property(BLOCK_PROPERTY_LEVEL_COMPOSTER, "level", 0, 8);
     register_range_property(BLOCK_PROPERTY_LEVEL_HONEY, "honey_level", 0, 5);
     register_range_property(BLOCK_PROPERTY_LEVEL, "level", 0, 15);
+    register_range_property(BLOCK_PROPERTY_LEVEL_LIGHT, "level", 0, 15);
     register_range_property(BLOCK_PROPERTY_MOISTURE, "moisture", 0, 7);
     register_range_property(BLOCK_PROPERTY_NOTE, "note", 0, 24);
     register_range_property(BLOCK_PROPERTY_PICKLES, "pickles", 1, 4);
@@ -4789,6 +5147,10 @@ init_block_data(void) {
     register_property_v(BLOCK_PROPERTY_STAIRS_SHAPE, "shape", 5, "straight", "inner_left", "inner_right", "outer_left", "outer_right");
     register_property_v(BLOCK_PROPERTY_STRUCTUREBLOCK_MODE, "mode", 4, "save", "load", "corner", "data");
     register_property_v(BLOCK_PROPERTY_BAMBOO_LEAVES, "leaves", 3, "none", "small", "large");
+    register_property_v(BLOCK_PROPERTY_DRIPLEAF_TILT, "tilt", 4, "none", "unstable", "partial", "full");
+    register_property_v(BLOCK_PROPERTY_VERTICAL_DIRECTION, "vertical_direction", 2, "up", "down");
+    register_property_v(BLOCK_PROPERTY_DRIPSTONE_THICKNESS, "thickness", 5, "tip_merge", "tip", "frustum", "middle", "base");
+    register_property_v(BLOCK_PROPERTY_SCULK_SENSOR_PHASE, "sculk_sensor_phase", 3, "inactive", "active", "cooldown");
 
     // @TODO(traks) all these resource locations were very annoying to type out.
     // Perhaps we could write a program that converts all the block type enum
@@ -4842,8 +5204,11 @@ init_block_data(void) {
     init_simple_block(BLOCK_RED_SAND, "minecraft:red_sand", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_GRAVEL, "minecraft:gravel", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_GOLD_ORE, "minecraft:gold_ore", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_DEEPSLATE_GOLD_ORE, "minecraft:deepslate_gold_ore", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_IRON_ORE, "minecraft:iron_ore", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_DEEPSLATE_IRON_ORE, "minecraft:deepslate_iron_ore", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_COAL_ORE, "minecraft:coal_ore", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_DEEPSLATE_COAL_ORE, "minecraft:deepslate_coal_ore", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_NETHER_GOLD_ORE, "minecraft:nether_gold_ore", BLOCK_MODEL_FULL);
     init_pillar(BLOCK_OAK_LOG, "minecraft:oak_log");
     init_pillar(BLOCK_SPRUCE_LOG, "minecraft:spruce_log");
@@ -4875,10 +5240,13 @@ init_block_data(void) {
     init_leaves(BLOCK_JUNGLE_LEAVES, "minecraft:jungle_leaves");
     init_leaves(BLOCK_ACACIA_LEAVES, "minecraft:acacia_leaves");
     init_leaves(BLOCK_DARK_OAK_LEAVES, "minecraft:dark_oak_leaves");
+    init_leaves(BLOCK_AZALEA_LEAVES, "minecraft:azalea_leaves");
+    init_leaves(BLOCK_FLOWERING_AZALEA_LEAVES, "minecraft:flowering_azalea_leaves");
     init_simple_block(BLOCK_SPONGE, "minecraft:sponge", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_WET_SPONGE, "minecraft:wet_sponge", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_GLASS, "minecraft:glass", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_LAPIS_ORE, "minecraft:lapis_ore", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_DEEPSLATE_LAPIS_ORE, "minecraft:deepslate_lapis_ore", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_LAPIS_BLOCK, "minecraft:lapis_block", BLOCK_MODEL_FULL);
 
     register_block_type(BLOCK_DISPENSER, "minecraft:dispenser");
@@ -4921,6 +5289,7 @@ init_block_data(void) {
     props = serv->block_properties_table + BLOCK_POWERED_RAIL;
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
     add_block_property(props, BLOCK_PROPERTY_RAIL_SHAPE_STRAIGHT, "north_south");
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
     finalise_block_props(props);
     set_collision_model_for_all_states(props, BLOCK_MODEL_EMPTY);
 
@@ -4928,6 +5297,7 @@ init_block_data(void) {
     props = serv->block_properties_table + BLOCK_DETECTOR_RAIL;
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
     add_block_property(props, BLOCK_PROPERTY_RAIL_SHAPE_STRAIGHT, "north_south");
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
     finalise_block_props(props);
     set_collision_model_for_all_states(props, BLOCK_MODEL_EMPTY);
 
@@ -5059,6 +5429,7 @@ init_block_data(void) {
     set_collision_model_for_all_states(props, BLOCK_MODEL_EMPTY);
 
     init_simple_block(BLOCK_DIAMOND_ORE, "minecraft:diamond_ore", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_DEEPSLATE_DIAMOND_ORE, "minecraft:deepslate_diamond_ore", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_DIAMOND_BLOCK, "minecraft:diamond_block", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_CRAFTING_TABLE, "minecraft:crafting_table", BLOCK_MODEL_FULL);
 
@@ -5101,6 +5472,7 @@ init_block_data(void) {
     register_block_type(BLOCK_RAIL, "minecraft:rail");
     props = serv->block_properties_table + BLOCK_RAIL;
     add_block_property(props, BLOCK_PROPERTY_RAIL_SHAPE, "north_south");
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
     finalise_block_props(props);
     set_collision_model_for_all_states(props, BLOCK_MODEL_EMPTY);
 
@@ -5132,11 +5504,8 @@ init_block_data(void) {
     init_pressure_plate(BLOCK_ACACIA_PRESSURE_PLATE, "minecraft:acacia_pressure_plate");
     init_pressure_plate(BLOCK_DARK_OAK_PRESSURE_PLATE, "minecraft:dark_oak_pressure_plate");
 
-    register_block_type(BLOCK_REDSTONE_ORE, "minecraft:redstone_ore");
-    props = serv->block_properties_table + BLOCK_REDSTONE_ORE;
-    add_block_property(props, BLOCK_PROPERTY_LIT, "false");
-    finalise_block_props(props);
-    set_collision_model_for_all_states(props, BLOCK_MODEL_FULL);
+    init_redstone_ore(BLOCK_REDSTONE_ORE, "minecraft:redstone_ore");
+    init_redstone_ore(BLOCK_DEEPSLATE_REDSTONE_ORE, "minecraft:deepslate_redstone_ore");
 
     register_block_type(BLOCK_REDSTONE_TORCH, "minecraft:redstone_torch");
     props = serv->block_properties_table + BLOCK_REDSTONE_TORCH;
@@ -5324,6 +5693,18 @@ init_block_data(void) {
     finalise_block_props(props);
     set_collision_model_for_all_states(props, BLOCK_MODEL_EMPTY);
 
+    register_block_type(BLOCK_GLOW_LICHEN, "minecraft:glow_lichen");
+    props = serv->block_properties_table + BLOCK_GLOW_LICHEN;
+    add_block_property(props, BLOCK_PROPERTY_NEG_Y, "false");
+    add_block_property(props, BLOCK_PROPERTY_POS_Y, "false");
+    add_block_property(props, BLOCK_PROPERTY_NEG_Z, "false");
+    add_block_property(props, BLOCK_PROPERTY_POS_Z, "false");
+    add_block_property(props, BLOCK_PROPERTY_NEG_X, "false");
+    add_block_property(props, BLOCK_PROPERTY_POS_X, "false");
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
+    finalise_block_props(props);
+    set_collision_model_for_all_states(props, BLOCK_MODEL_EMPTY);
+
     init_fence_gate(BLOCK_OAK_FENCE_GATE, "minecraft:oak_fence_gate");
 
     init_stair_props(BLOCK_BRICK_STAIRS, "minecraft:brick_stairs");
@@ -5354,11 +5735,10 @@ init_block_data(void) {
     add_block_property(props, BLOCK_PROPERTY_HAS_BOTTLE_2, "false");
     finalise_block_props(props);
 
-    // @TODO(traks) collision models
-    register_block_type(BLOCK_CAULDRON, "minecraft:cauldron");
-    props = serv->block_properties_table + BLOCK_CAULDRON;
-    add_block_property(props, BLOCK_PROPERTY_LEVEL_CAULDRON, "0");
-    finalise_block_props(props);
+    init_cauldron(BLOCK_CAULDRON, "minecraft:cauldron", 0);
+    init_cauldron(BLOCK_WATER_CAULDRON, "minecraft:water_cauldron", 1);
+    init_cauldron(BLOCK_LAVA_CAULDRON, "minecraft:lava_cauldron", 0);
+    init_cauldron(BLOCK_POWDER_SNOW_CAULDRON, "minecraft:powder_snow_cauldron", 1);
 
     init_simple_block(BLOCK_END_PORTAL, "minecraft:end_portal", BLOCK_MODEL_EMPTY);
 
@@ -5389,6 +5769,7 @@ init_block_data(void) {
     init_stair_props(BLOCK_SANDSTONE_STAIRS, "minecraft:sandstone_stairs");
 
     init_simple_block(BLOCK_EMERALD_ORE, "minecraft:emerald_ore", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_DEEPSLATE_EMERALD_ORE, "minecraft:deepslate_emerald_ore", BLOCK_MODEL_FULL);
 
     // @TODO(traks) collision models
     register_block_type(BLOCK_ENDER_CHEST, "minecraft:ender_chest");
@@ -5545,10 +5926,10 @@ init_block_data(void) {
     add_block_property(props, BLOCK_PROPERTY_FACING_HOPPER, "down");
     finalise_block_props(props);
 
-    init_simple_block(BLOCK_QUARTZ_BLOCK, "minecraft:quartz_ore", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_QUARTZ_BLOCK, "minecraft:quartz_block", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_CHISELED_QUARTZ_BLOCK, "minecraft:chiseled_quartz_block", BLOCK_MODEL_FULL);
 
-    init_pillar(BLOCK_QUARTZ_PILLAR, "minecraft:quartz_piller");
+    init_pillar(BLOCK_QUARTZ_PILLAR, "minecraft:quartz_pillar");
 
     init_stair_props(BLOCK_QUARTZ_STAIRS, "minecraft:quartz_stairs");
 
@@ -5556,6 +5937,7 @@ init_block_data(void) {
     props = serv->block_properties_table + BLOCK_ACTIVATOR_RAIL;
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
     add_block_property(props, BLOCK_PROPERTY_RAIL_SHAPE_STRAIGHT, "north_south");
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
     finalise_block_props(props);
     set_collision_model_for_all_states(props, BLOCK_MODEL_EMPTY);
 
@@ -5573,7 +5955,7 @@ init_block_data(void) {
     init_simple_block(BLOCK_YELLOW_TERRACOTTA, "minecraft:yellow_terracotta", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_LIME_TERRACOTTA, "minecraft:lime_terracotta", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_PINK_TERRACOTTA, "minecraft:pink_terracotta", BLOCK_MODEL_FULL);
-    init_simple_block(BLOCK_GRAY_TERRACOTTA, "minecraft:gray_terrcotta", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_GRAY_TERRACOTTA, "minecraft:gray_terracotta", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_LIGHT_GRAY_TERRACOTTA, "minecraft:light_gray_terracotta", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_CYAN_TERRACOTTA, "minecraft:cyan_terracotta", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_PURPLE_TERRACOTTA, "minecraft:purple_terracotta", BLOCK_MODEL_FULL);
@@ -5605,6 +5987,13 @@ init_block_data(void) {
 
     init_simple_block(BLOCK_SLIME_BLOCK, "minecraft:slime_block", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_BARRIER, "minecraft:barrier", BLOCK_MODEL_FULL);
+
+    register_block_type(BLOCK_LIGHT, "minecraft:light");
+    props = serv->block_properties_table + BLOCK_LIGHT;
+    add_block_property(props, BLOCK_PROPERTY_LEVEL_LIGHT, "15");
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
+    finalise_block_props(props);
+    set_collision_model_for_all_states(props, BLOCK_MODEL_EMPTY);
 
     init_trapdoor_props(BLOCK_IRON_TRAPDOOR, "minecraft:iron_trapdoor");
 
@@ -5771,7 +6160,7 @@ init_block_data(void) {
     finalise_block_props(props);
     set_collision_model_for_all_states(props, BLOCK_MODEL_EMPTY);
 
-    init_simple_block(BLOCK_GRASS_PATH, "minecraft:grass_path", BLOCK_MODEL_Y_15);
+    init_simple_block(BLOCK_DIRT_PATH, "minecraft:dirt_path", BLOCK_MODEL_Y_15);
     init_simple_block(BLOCK_END_GATEWAY, "minecraft:end_gateway", BLOCK_MODEL_EMPTY);
 
     register_block_type(BLOCK_REPEATING_COMMAND_BLOCK, "minecraft:repeating_command_block");
@@ -6045,7 +6434,7 @@ init_block_data(void) {
     finalise_block_props(props);
     set_collision_model_for_all_states(props, BLOCK_MODEL_FULL);
 
-    register_block_type(BLOCK_FURNACE, "minecraft:furnace");
+    register_block_type(BLOCK_BLAST_FURNACE, "minecraft:blast_furnace");
     props = serv->block_properties_table + BLOCK_BLAST_FURNACE;
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_LIT, "false");
@@ -6281,8 +6670,217 @@ init_block_data(void) {
     init_wall_props(BLOCK_POLISHED_BLACKSTONE_WALL, "minecraft:polished_blackstone_wall");
 
     init_simple_block(BLOCK_CHISELED_NETHER_BRICKS, "minecraft:chiseled_nether_bricks", BLOCK_MODEL_FULL);
-    init_simple_block(BLOCK_CRACKED_NETHER_BRICKS, "minecraft:crakced_nether_bricks", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_CRACKED_NETHER_BRICKS, "minecraft:cracked_nether_bricks", BLOCK_MODEL_FULL);
     init_simple_block(BLOCK_QUARTZ_BRICKS, "minecraft:quartz_bricks", BLOCK_MODEL_FULL);
+
+    init_candle(BLOCK_CANDLE, "minecraft:candle");
+    init_candle(BLOCK_WHITE_CANDLE, "minecraft:white_candle");
+    init_candle(BLOCK_ORANGE_CANDLE, "minecraft:orange_candle");
+    init_candle(BLOCK_MAGENTA_CANDLE, "minecraft:magenta_candle");
+    init_candle(BLOCK_LIGHT_BLUE_CANDLE, "minecraft:light_blue_candle");
+    init_candle(BLOCK_YELLOW_CANDLE, "minecraft:yellow_candle");
+    init_candle(BLOCK_LIME_CANDLE, "minecraft:lime_candle");
+    init_candle(BLOCK_PINK_CANDLE, "minecraft:pink_candle");
+    init_candle(BLOCK_GRAY_CANDLE, "minecraft:gray_candle");
+    init_candle(BLOCK_LIGHT_GRAY_CANDLE, "minecraft:light_gray_candle");
+    init_candle(BLOCK_CYAN_CANDLE, "minecraft:cyan_candle");
+    init_candle(BLOCK_PURPLE_CANDLE, "minecraft:purple_candle");
+    init_candle(BLOCK_BLUE_CANDLE, "minecraft:blue_candle");
+    init_candle(BLOCK_BROWN_CANDLE, "minecraft:brown_candle");
+    init_candle(BLOCK_GREEN_CANDLE, "minecraft:green_candle");
+    init_candle(BLOCK_RED_CANDLE, "minecraft:red_candle");
+    init_candle(BLOCK_BLACK_CANDLE, "minecraft:black_candle");
+
+    init_candle_cake(BLOCK_CANDLE_CAKE, "minecraft:candle_cake");
+    init_candle_cake(BLOCK_WHITE_CANDLE_CAKE, "minecraft:white_candle_cake");
+    init_candle_cake(BLOCK_ORANGE_CANDLE_CAKE, "minecraft:orange_candle_cake");
+    init_candle_cake(BLOCK_MAGENTA_CANDLE_CAKE, "minecraft:magenta_candle_cake");
+    init_candle_cake(BLOCK_LIGHT_BLUE_CANDLE_CAKE, "minecraft:light_blue_candle_cake");
+    init_candle_cake(BLOCK_YELLOW_CANDLE_CAKE, "minecraft:yellow_candle_cake");
+    init_candle_cake(BLOCK_LIME_CANDLE_CAKE, "minecraft:lime_candle_cake");
+    init_candle_cake(BLOCK_PINK_CANDLE_CAKE, "minecraft:pink_candle_cake");
+    init_candle_cake(BLOCK_GRAY_CANDLE_CAKE, "minecraft:gray_candle_cake");
+    init_candle_cake(BLOCK_LIGHT_GRAY_CANDLE_CAKE, "minecraft:light_gray_candle_cake");
+    init_candle_cake(BLOCK_CYAN_CANDLE_CAKE, "minecraft:cyan_candle_cake");
+    init_candle_cake(BLOCK_PURPLE_CANDLE_CAKE, "minecraft:purple_candle_cake");
+    init_candle_cake(BLOCK_BLUE_CANDLE_CAKE, "minecraft:blue_candle_cake");
+    init_candle_cake(BLOCK_BROWN_CANDLE_CAKE, "minecraft:brown_candle_cake");
+    init_candle_cake(BLOCK_GREEN_CANDLE_CAKE, "minecraft:green_candle_cake");
+    init_candle_cake(BLOCK_RED_CANDLE_CAKE, "minecraft:red_candle_cake");
+    init_candle_cake(BLOCK_BLACK_CANDLE_CAKE, "minecraft:black_candle_cake");
+
+    init_simple_block(BLOCK_AMETHYST_BLOCK, "minecraft:amethyst_block", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_BUDDING_AMETHYST, "minecraft:budding_amethyst", BLOCK_MODEL_FULL);
+
+    init_amethyst_cluster(BLOCK_AMETHYST_CLUSTER, "minecraft:amethyst_cluster");
+    init_amethyst_cluster(BLOCK_LARGE_AMETHYST_BUD, "minecraft:large_amethyst_bud");
+    init_amethyst_cluster(BLOCK_MEDIUM_AMETHYST_BUD, "minecraft:medium_amethyst_bud");
+    init_amethyst_cluster(BLOCK_SMALL_AMETHYST_BUD, "minecraft:small_amethyst_bud");
+
+    init_simple_block(BLOCK_TUFF, "minecraft:tuff", BLOCK_MODEL_FULL);
+
+    init_simple_block(BLOCK_CALCITE, "minecraft:calcite", BLOCK_MODEL_FULL);
+
+    init_simple_block(BLOCK_TINTED_GLASS, "minecraft:tinted_glass", BLOCK_MODEL_FULL);
+
+    // @TODO(traks) correct collision model
+    init_simple_block(BLOCK_POWDER_SNOW, "minecraft:powder_snow", BLOCK_MODEL_EMPTY);
+
+    // @TODO(traks) collision model
+    register_block_type(BLOCK_SCULK_SENSOR, "minecraft:sculk_sensor");
+    props = serv->block_properties_table + BLOCK_SCULK_SENSOR;
+    add_block_property(props, BLOCK_PROPERTY_SCULK_SENSOR_PHASE, "inactive");
+    add_block_property(props, BLOCK_PROPERTY_POWER, "0");
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
+    finalise_block_props(props);
+
+    init_simple_block(BLOCK_OXIDIZED_COPPER, "minecraft:oxidized_copper", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_WEATHERED_COPPER, "minecraft:weathered_copper", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_EXPOSED_COPPER, "minecraft:exposed_copper", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_COPPER_BLOCK, "minecraft:copper_block", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_COPPER_ORE, "minecraft:copper_ore", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_DEEPSLATE_COPPER_ORE, "minecraft:deepslate_copper_ore", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_OXIDIZED_CUT_COPPER, "minecraft:oxidized_cut_copper", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_WEATHERED_CUT_COPPER, "minecraft:weathered_cut_copper", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_EXPOSED_CUT_COPPER, "minecraft:exposed_cut_copper", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_CUT_COPPER, "minecraft:cut_copper", BLOCK_MODEL_FULL);
+
+    init_stair_props(BLOCK_OXIDIZED_CUT_COPPER_STAIRS, "minecraft:oxidized_cut_copper_stairs");
+    init_stair_props(BLOCK_WEATHERED_CUT_COPPER_STAIRS, "minecraft:weathered_cut_copper_stairs");
+    init_stair_props(BLOCK_EXPOSED_CUT_COPPER_STAIRS, "minecraft:exposed_cut_copper_stairs");
+    init_stair_props(BLOCK_CUT_COPPER_STAIRS, "minecraft:cut_copper_stairs");
+
+    init_slab(BLOCK_OXIDIZED_CUT_COPPER_SLAB, "minecraft:oxidized_cut_copper_slab");
+    init_slab(BLOCK_WEATHERED_CUT_COPPER_SLAB, "minecraft:weathered_cut_copper_slab");
+    init_slab(BLOCK_EXPOSED_CUT_COPPER_SLAB, "minecraft:exposed_cut_copper_slab");
+    init_slab(BLOCK_CUT_COPPER_SLAB, "minecraft:cut_copper_slab");
+
+    init_simple_block(BLOCK_WAXED_COPPER_BLOCK, "minecraft:waxed_copper_block", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_WAXED_WEATHERED_COPPER, "minecraft:waxed_weathered_copper", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_WAXED_EXPOSED_COPPER, "minecraft:waxed_exposed_copper", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_WAXED_OXIDIZED_COPPER, "minecraft:waxed_oxidized_copper", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_WAXED_OXIDIZED_CUT_COPPER, "minecraft:waxed_oxidized_cut_copper", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_WAXED_WEATHERED_CUT_COPPER, "minecraft:waxed_weathered_cut_copper", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_WAXED_EXPOSED_CUT_COPPER, "minecraft:waxed_exposed_cut_copper", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_WAXED_CUT_COPPER, "minecraft:waxed_cut_copper", BLOCK_MODEL_FULL);
+
+    init_stair_props(BLOCK_WAXED_OXIDIZED_CUT_COPPER_STAIRS, "minecraft:waxed_oxidized_cut_copper_stairs");
+    init_stair_props(BLOCK_WAXED_WEATHERED_CUT_COPPER_STAIRS, "minecraft:waxed_weathered_cut_copper_stairs");
+    init_stair_props(BLOCK_WAXED_EXPOSED_CUT_COPPER_STAIRS, "minecraft:waxed_exposed_cut_copper_stairs");
+    init_stair_props(BLOCK_WAXED_CUT_COPPER_STAIRS, "minecraft:waxed_cut_copper_stairs");
+
+    init_slab(BLOCK_WAXED_OXIDIZED_CUT_COPPER_SLAB, "minecraft:waxed_oxidized_cut_copper_slab");
+    init_slab(BLOCK_WAXED_WEATHERED_CUT_COPPER_SLAB, "minecraft:waxed_weathered_cut_copper_slab");
+    init_slab(BLOCK_WAXED_EXPOSED_CUT_COPPER_SLAB, "minecraft:waxed_exposed_cut_copper_slab");
+    init_slab(BLOCK_WAXED_CUT_COPPER_SLAB, "minecraft:waxed_cut_copper_slab");
+
+    // @TODO(traks) collision model
+    register_block_type(BLOCK_LIGHTNING_ROD, "minecraft:lightning_rod");
+    props = serv->block_properties_table + BLOCK_LIGHTNING_ROD;
+    add_block_property(props, BLOCK_PROPERTY_FACING, "up");
+    add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
+    finalise_block_props(props);
+
+    // @TODO(traks) collision model
+    register_block_type(BLOCK_POINTED_DRIPSTONE, "minecraft:pointed_dripstone");
+    props = serv->block_properties_table + BLOCK_POINTED_DRIPSTONE;
+    add_block_property(props, BLOCK_PROPERTY_VERTICAL_DIRECTION, "up");
+    add_block_property(props, BLOCK_PROPERTY_DRIPSTONE_THICKNESS, "tip");
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
+    finalise_block_props(props);
+
+    init_simple_block(BLOCK_DRIPSTONE_BLOCK, "minecraft:dripstone_block", BLOCK_MODEL_FULL);
+
+    // @TODO(traks) collision model
+    register_block_type(BLOCK_CAVE_VINES, "minecraft:cave_vines");
+    props = serv->block_properties_table + BLOCK_CAVE_VINES;
+    add_block_property(props, BLOCK_PROPERTY_AGE_25, "0");
+    add_block_property(props, BLOCK_PROPERTY_BERRIES, "false");
+    finalise_block_props(props);
+
+    // @TODO(traks) collision model
+    register_block_type(BLOCK_CAVE_VINES_PLANT, "minecraft:cave_vines_plant");
+    props = serv->block_properties_table + BLOCK_CAVE_VINES_PLANT;
+    add_block_property(props, BLOCK_PROPERTY_BERRIES, "false");
+    finalise_block_props(props);
+
+    // @TODO(traks) collision model
+    init_simple_block(BLOCK_SPORE_BLOSSOM, "minecraft:spore_blossom", BLOCK_MODEL_EMPTY);
+
+    // @TODO(traks) collision models
+    init_simple_block(BLOCK_AZALEA, "minecraft:azalea", BLOCK_MODEL_EMPTY);
+    init_simple_block(BLOCK_FLOWERING_AZALEA, "minecraft:flowering_azalea", BLOCK_MODEL_EMPTY);
+
+    init_simple_block(BLOCK_MOSS_CARPET, "minecraft:moss_carpet", BLOCK_MODEL_EMPTY);
+    init_simple_block(BLOCK_MOSS_BLOCK, "minecraft:moss_block", BLOCK_MODEL_Y_1);
+
+    // @TODO(traks) collision model
+    register_block_type(BLOCK_BIG_DRIPLEAF, "minecraft:big_dripleaf");
+    props = serv->block_properties_table + BLOCK_BIG_DRIPLEAF;
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
+    add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
+    add_block_property(props, BLOCK_PROPERTY_DRIPLEAF_TILT, "none");
+    finalise_block_props(props);
+
+    // @TODO(traks) collision model
+    register_block_type(BLOCK_BIG_DRIPLEAF_STEM, "minecraft:big_dripleaf_stem");
+    props = serv->block_properties_table + BLOCK_BIG_DRIPLEAF_STEM;
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
+    add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
+    finalise_block_props(props);
+
+    // @TODO(traks) collision model
+    register_block_type(BLOCK_SMALL_DRIPLEAF, "minecraft:small_dripleaf");
+    props = serv->block_properties_table + BLOCK_SMALL_DRIPLEAF;
+    add_block_property(props, BLOCK_PROPERTY_DOUBLE_BLOCK_HALF, "lower");
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
+    add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
+    finalise_block_props(props);
+
+    register_block_type(BLOCK_HANGING_ROOTS, "minecraft:hanging_roots");
+    props = serv->block_properties_table + BLOCK_HANGING_ROOTS;
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
+    finalise_block_props(props);
+    set_collision_model_for_all_states(props, BLOCK_MODEL_EMPTY);
+
+    init_simple_block(BLOCK_ROOTED_DIRT, "minecraft:rooted_dirt", BLOCK_MODEL_FULL);
+
+    init_pillar(BLOCK_DEEPSLATE, "minecraft:deepslate");
+
+    init_simple_block(BLOCK_COBBLED_DEEPSLATE, "minecraft:cobbled_deepslate", BLOCK_MODEL_FULL);
+    init_stair_props(BLOCK_COBBLED_DEEPSLATE_STAIRS, "minecraft:cobbled_deepslate_stairs");
+    init_slab(BLOCK_COBBLED_DEEPSLATE_SLAB, "minecraft:cobbled_deepslate_slab");
+    init_wall_props(BLOCK_COBBLED_DEEPSLATE_WALL, "minecraft:cobbled_deepslate_wall");
+
+    init_simple_block(BLOCK_POLISHED_DEEPSLATE, "minecraft:polished_deepslate", BLOCK_MODEL_FULL);
+    init_stair_props(BLOCK_POLISHED_DEEPSLATE_STAIRS, "minecraft:polished_deepslate_stairs");
+    init_slab(BLOCK_POLISHED_DEEPSLATE_SLAB, "minecraft:polished_deepslate_slab");
+    init_wall_props(BLOCK_POLISHED_DEEPSLATE_WALL, "minecraft:polished_deepslate_wall");
+
+    init_simple_block(BLOCK_DEEPSLATE_TILES, "minecraft:deepslate_tiles", BLOCK_MODEL_FULL);
+    init_stair_props(BLOCK_DEEPSLATE_TILE_STAIRS, "minecraft:deepslate_tile_stairs");
+    init_slab(BLOCK_DEEPSLATE_TILE_SLAB, "minecraft:deepslate_tile_slab");
+    init_wall_props(BLOCK_DEEPSLATE_TILE_WALL, "minecraft:deepslate_tile_wall");
+
+    init_simple_block(BLOCK_DEEPSLATE_BRICKS, "minecraft:deepslate_bricks", BLOCK_MODEL_FULL);
+    init_stair_props(BLOCK_DEEPSLATE_BRICK_STAIRS, "minecraft:deepslate_brick_stairs");
+    init_slab(BLOCK_DEEPSLATE_BRICK_SLAB, "minecraft:deepslate_brick_slab");
+    init_wall_props(BLOCK_DEEPSLATE_BRICK_WALL, "minecraft:deepslate_brick_wall");
+
+    init_simple_block(BLOCK_CHISELED_DEEPSLATE, "minecraft:chiseled_deepslate", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_CRACKED_DEEPSLATE_BRICKS, "minecraft:cracked_deepslate_bricks", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_CRACKED_DEEPSLATE_TILES, "minecraft:cracked_deepslate_tiles", BLOCK_MODEL_FULL);
+
+    init_pillar(BLOCK_INFESTED_DEEPSLATE, "minecraft:infested_deepslate");
+
+    init_simple_block(BLOCK_SMOOTH_BASALT, "minecraft:smooth_basalt", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_RAW_IRON_BLOCK, "minecraft:raw_iron_block", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_RAW_COPPER_BLOCK, "minecraft:raw_copper_block", BLOCK_MODEL_FULL);
+    init_simple_block(BLOCK_RAW_GOLD_BLOCK, "minecraft:raw_gold_block", BLOCK_MODEL_FULL);
+
+    init_simple_block(BLOCK_POTTED_AZALEA_BUSH, "minecraft:potted_azalea_bush", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block(BLOCK_POTTED_FLOWERING_AZALEA_BUSH, "minecraft:potted_flowering_azalea_bush", BLOCK_MODEL_FLOWER_POT);
 
     serv->vanilla_block_state_count = serv->actual_block_state_count;
 

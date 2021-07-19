@@ -1,3 +1,7 @@
+key minecraft:fox_food
+value minecraft:sweet_berries
+value minecraft:glow_berries
+
 key minecraft:fishes
 value minecraft:cod
 value minecraft:cooked_cod
@@ -62,11 +66,18 @@ value minecraft:dark_oak_planks
 value minecraft:crimson_planks
 value minecraft:warped_planks
 
+key minecraft:emerald_ores
+value minecraft:emerald_ore
+value minecraft:deepslate_emerald_ore
+
 key minecraft:tall_flowers
 value minecraft:sunflower
 value minecraft:lilac
 value minecraft:peony
 value minecraft:rose_bush
+
+key minecraft:axolotl_tempt_items
+value minecraft:tropical_fish_bucket
 
 key minecraft:logs
 value minecraft:dark_oak_log
@@ -130,6 +141,32 @@ value minecraft:green_wool
 value minecraft:red_wool
 value minecraft:black_wool
 
+key minecraft:candles
+value minecraft:candle
+value minecraft:white_candle
+value minecraft:orange_candle
+value minecraft:magenta_candle
+value minecraft:light_blue_candle
+value minecraft:yellow_candle
+value minecraft:lime_candle
+value minecraft:pink_candle
+value minecraft:gray_candle
+value minecraft:light_gray_candle
+value minecraft:cyan_candle
+value minecraft:purple_candle
+value minecraft:blue_candle
+value minecraft:brown_candle
+value minecraft:green_candle
+value minecraft:red_candle
+value minecraft:black_candle
+
+key minecraft:freeze_immune_wearables
+value minecraft:leather_boots
+value minecraft:leather_leggings
+value minecraft:leather_chestplate
+value minecraft:leather_helmet
+value minecraft:leather_horse_armor
+
 key minecraft:wooden_buttons
 value minecraft:oak_button
 value minecraft:spruce_button
@@ -140,6 +177,10 @@ value minecraft:dark_oak_button
 value minecraft:crimson_button
 value minecraft:warped_button
 
+key minecraft:coal_ores
+value minecraft:coal_ore
+value minecraft:deepslate_coal_ore
+
 key minecraft:saplings
 value minecraft:oak_sapling
 value minecraft:spruce_sapling
@@ -147,6 +188,8 @@ value minecraft:birch_sapling
 value minecraft:jungle_sapling
 value minecraft:acacia_sapling
 value minecraft:dark_oak_sapling
+value minecraft:azalea
+value minecraft:flowering_azalea
 
 key minecraft:logs_that_burn
 value minecraft:dark_oak_log
@@ -183,10 +226,12 @@ value minecraft:stripped_spruce_wood
 key minecraft:stone_tool_materials
 value minecraft:cobblestone
 value minecraft:blackstone
+value minecraft:cobbled_deepslate
 
 key minecraft:gold_ores
 value minecraft:gold_ore
 value minecraft:nether_gold_ore
+value minecraft:deepslate_gold_ore
 
 key minecraft:non_flammable_wood
 value minecraft:warped_stem
@@ -255,6 +300,18 @@ value minecraft:diorite_stairs
 value minecraft:blackstone_stairs
 value minecraft:polished_blackstone_brick_stairs
 value minecraft:polished_blackstone_stairs
+value minecraft:cobbled_deepslate_stairs
+value minecraft:polished_deepslate_stairs
+value minecraft:deepslate_tile_stairs
+value minecraft:deepslate_brick_stairs
+value minecraft:oxidized_cut_copper_stairs
+value minecraft:weathered_cut_copper_stairs
+value minecraft:exposed_cut_copper_stairs
+value minecraft:cut_copper_stairs
+value minecraft:waxed_weathered_cut_copper_stairs
+value minecraft:waxed_exposed_cut_copper_stairs
+value minecraft:waxed_cut_copper_stairs
+value minecraft:waxed_oxidized_cut_copper_stairs
 
 key minecraft:crimson_stems
 value minecraft:crimson_stem
@@ -273,11 +330,33 @@ value minecraft:crimson_fence
 value minecraft:warped_fence
 value minecraft:nether_brick_fence
 
+key minecraft:occludes_vibration_signals
+value minecraft:white_wool
+value minecraft:orange_wool
+value minecraft:magenta_wool
+value minecraft:light_blue_wool
+value minecraft:yellow_wool
+value minecraft:lime_wool
+value minecraft:pink_wool
+value minecraft:gray_wool
+value minecraft:light_gray_wool
+value minecraft:cyan_wool
+value minecraft:purple_wool
+value minecraft:blue_wool
+value minecraft:brown_wool
+value minecraft:green_wool
+value minecraft:red_wool
+value minecraft:black_wool
+
 key minecraft:oak_logs
 value minecraft:oak_log
 value minecraft:oak_wood
 value minecraft:stripped_oak_log
 value minecraft:stripped_oak_wood
+
+key minecraft:iron_ores
+value minecraft:iron_ore
+value minecraft:deepslate_iron_ore
 
 key minecraft:small_flowers
 value minecraft:dandelion
@@ -293,6 +372,10 @@ value minecraft:oxeye_daisy
 value minecraft:cornflower
 value minecraft:lily_of_the_valley
 value minecraft:wither_rose
+
+key minecraft:piglin_food
+value minecraft:porkchop
+value minecraft:cooked_porkchop
 
 key minecraft:carpets
 value minecraft:white_carpet
@@ -311,6 +394,10 @@ value minecraft:brown_carpet
 value minecraft:green_carpet
 value minecraft:red_carpet
 value minecraft:black_carpet
+
+key minecraft:diamond_ores
+value minecraft:diamond_ore
+value minecraft:deepslate_diamond_ore
 
 key minecraft:slabs
 value minecraft:oak_slab
@@ -353,6 +440,22 @@ value minecraft:cut_red_sandstone_slab
 value minecraft:blackstone_slab
 value minecraft:polished_blackstone_brick_slab
 value minecraft:polished_blackstone_slab
+value minecraft:cobbled_deepslate_slab
+value minecraft:polished_deepslate_slab
+value minecraft:deepslate_tile_slab
+value minecraft:deepslate_brick_slab
+value minecraft:waxed_weathered_cut_copper_slab
+value minecraft:waxed_exposed_cut_copper_slab
+value minecraft:waxed_cut_copper_slab
+value minecraft:oxidized_cut_copper_slab
+value minecraft:weathered_cut_copper_slab
+value minecraft:exposed_cut_copper_slab
+value minecraft:cut_copper_slab
+value minecraft:waxed_oxidized_cut_copper_slab
+
+key minecraft:copper_ores
+value minecraft:copper_ore
+value minecraft:deepslate_copper_ore
 
 key minecraft:beacon_payment_items
 value minecraft:netherite_ingot
@@ -435,6 +538,23 @@ value minecraft:sunflower
 value minecraft:lilac
 value minecraft:peony
 value minecraft:rose_bush
+value minecraft:flowering_azalea_leaves
+value minecraft:flowering_azalea
+
+key minecraft:ignored_by_piglin_babies
+value minecraft:leather
+
+key minecraft:cluster_max_harvestables
+value minecraft:diamond_pickaxe
+value minecraft:golden_pickaxe
+value minecraft:iron_pickaxe
+value minecraft:netherite_pickaxe
+value minecraft:stone_pickaxe
+value minecraft:wooden_pickaxe
+
+key minecraft:redstone_ores
+value minecraft:redstone_ore
+value minecraft:deepslate_redstone_ore
 
 key minecraft:leaves
 value minecraft:jungle_leaves
@@ -443,6 +563,8 @@ value minecraft:spruce_leaves
 value minecraft:dark_oak_leaves
 value minecraft:acacia_leaves
 value minecraft:birch_leaves
+value minecraft:azalea_leaves
+value minecraft:flowering_azalea_leaves
 
 key minecraft:walls
 value minecraft:cobblestone_wall
@@ -462,6 +584,10 @@ value minecraft:diorite_wall
 value minecraft:blackstone_wall
 value minecraft:polished_blackstone_brick_wall
 value minecraft:polished_blackstone_wall
+value minecraft:cobbled_deepslate_wall
+value minecraft:polished_deepslate_wall
+value minecraft:deepslate_tile_wall
+value minecraft:deepslate_brick_wall
 
 key minecraft:wooden_doors
 value minecraft:oak_door
@@ -476,10 +602,16 @@ value minecraft:warped_door
 key minecraft:stone_crafting_materials
 value minecraft:cobblestone
 value minecraft:blackstone
+value minecraft:cobbled_deepslate
+
+key minecraft:lapis_ores
+value minecraft:lapis_ore
+value minecraft:deepslate_lapis_ore
 
 key minecraft:piglin_loved
 value minecraft:gold_ore
 value minecraft:nether_gold_ore
+value minecraft:deepslate_gold_ore
 value minecraft:gold_block
 value minecraft:gilded_blackstone
 value minecraft:light_weighted_pressure_plate
@@ -500,6 +632,8 @@ value minecraft:golden_pickaxe
 value minecraft:golden_shovel
 value minecraft:golden_axe
 value minecraft:golden_hoe
+value minecraft:raw_gold
+value minecraft:raw_gold_block
 
 key minecraft:banners
 value minecraft:white_banner
