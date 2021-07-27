@@ -170,13 +170,13 @@ logs_errno(void * format) {
 }
 
 void *
-alloc_in_arena(memory_arena * arena, i32 size) {
+alloc_in_arena(MemoryArena * arena, i32 size) {
     i32 align = alignof (max_align_t);
     // round up to multiple of align
     i32 actual_size = (size + align - 1) / align * align;
     assert(arena->size - actual_size >= arena->index);
 
-    void * res = arena->ptr + arena->index;
+    void * res = arena->data + arena->index;
     arena->index += actual_size;
     return res;
 }
@@ -187,12 +187,12 @@ handle_sigint(int sig) {
 }
 
 int
-net_string_equal(net_string a, net_string b) {
-    return a.size == b.size && memcmp(a.ptr, b.ptr, a.size) == 0;
+net_string_equal(String a, String b) {
+    return a.size == b.size && memcmp(a.data, b.data, a.size) == 0;
 }
 
-net_block_pos
-get_relative_block_pos(net_block_pos pos, int face) {
+BlockPos
+get_relative_block_pos(BlockPos pos, int face) {
     switch (face) {
     case DIRECTION_NEG_Y: pos.y--; break;
     case DIRECTION_POS_Y: pos.y++; break;
@@ -239,9 +239,9 @@ get_direction_axis(int direction) {
 }
 
 static u16
-hash_resource_loc(net_string resource_loc, resource_loc_table * table) {
+hash_resource_loc(String resource_loc, resource_loc_table * table) {
     u16 res = 0;
-    unsigned char * string = resource_loc.ptr;
+    unsigned char * string = resource_loc.data;
     for (int i = 0; i < resource_loc.size; i++) {
         res = res * 31 + string[i];
     }
@@ -249,7 +249,7 @@ hash_resource_loc(net_string resource_loc, resource_loc_table * table) {
 }
 
 void
-register_resource_loc(net_string resource_loc, i16 id,
+register_resource_loc(String resource_loc, i16 id,
         resource_loc_table * table) {
     u16 hash = hash_resource_loc(resource_loc, table);
 
@@ -265,7 +265,7 @@ register_resource_loc(net_string resource_loc, i16 id,
             entry->id = id;
 
             assert(string_buf_index + resource_loc.size <= table->string_buf_size);
-            memcpy(table->string_buf + string_buf_index, resource_loc.ptr,
+            memcpy(table->string_buf + string_buf_index, resource_loc.data,
                     resource_loc.size);
             table->last_string_buf_index += resource_loc.size;
 
@@ -292,13 +292,13 @@ alloc_resource_loc_table(resource_loc_table * table, i32 size,
 }
 
 i16
-resolve_resource_loc_id(net_string resource_loc, resource_loc_table * table) {
+resolve_resource_loc_id(String resource_loc, resource_loc_table * table) {
     u16 hash = hash_resource_loc(resource_loc, table);
     u16 i = hash;
     for (;;) {
         resource_loc_entry * entry = table->entries + i;
-        net_string name = {
-            .ptr = table->string_buf + entry->buf_index,
+        String name = {
+            .data = table->string_buf + entry->buf_index,
             .size = entry->size
         };
         if (net_string_equal(resource_loc, name)) {
@@ -314,19 +314,19 @@ resolve_resource_loc_id(net_string resource_loc, resource_loc_table * table) {
     }
 }
 
-net_string
+String
 get_resource_loc(u16 id, resource_loc_table * table) {
     assert(id < table->max_ids);
     resource_loc_entry * entry = table->entries + table->by_id[id];
-    net_string res = {
-        .ptr = table->string_buf + entry->buf_index,
+    String res = {
+        .data = table->string_buf + entry->buf_index,
         .size = entry->size
     };
     return res;
 }
 
 int
-find_property_value_index(block_property_spec * prop_spec, net_string val) {
+find_property_value_index(block_property_spec * prop_spec, String val) {
     unsigned char * tape = prop_spec->tape;
     tape += 1 + tape[0];
     for (int i = 0; ; i++) {
@@ -334,8 +334,8 @@ find_property_value_index(block_property_spec * prop_spec, net_string val) {
         if (tape[0] == 0) {
             return -1;
         }
-        net_string real_val = {
-            .ptr = tape + 1,
+        String real_val = {
+            .data = tape + 1,
             .size = tape[0]
         };
         if (net_string_equal(real_val, val)) {
@@ -472,7 +472,7 @@ move_entity(entity_base * entity) {
         for (int block_x = iter_min_x; block_x <= iter_max_x; block_x++) {
             for (int block_y = iter_min_y; block_y <= iter_max_y; block_y++) {
                 for (int block_z = iter_min_z; block_z <= iter_max_z; block_z++) {
-                    net_block_pos block_pos = {.x = block_x, .y = block_y, .z = block_z};
+                    BlockPos block_pos = {.x = block_x, .y = block_y, .z = block_z};
                     u16 cur_state = try_get_block_state(block_pos);
                     block_model model = get_collision_model(cur_state, block_pos);
 
@@ -615,7 +615,7 @@ move_entity(entity_base * entity) {
 }
 
 static void
-tick_entity(entity_base * entity, memory_arena * tick_arena) {
+tick_entity(entity_base * entity, MemoryArena * tick_arena) {
     // @TODO(traks) currently it's possible that an entity is spawned and ticked
     // the same tick. Is that an issue or not? Maybe that causes undesirable
     // off-by-one tick behaviour.
@@ -645,7 +645,7 @@ tick_entity(entity_base * entity, memory_arena * tick_arena) {
         if (entity->flags & ENTITY_ON_GROUND) {
             // Bit weird, but this is how MC works. Allows items to slide on
             // slabs if ice is below it.
-            net_block_pos ground = {
+            BlockPos ground = {
                 .x = floor(entity->x),
                 .y = floor(entity->y - 0.99),
                 .z = floor(entity->z),
@@ -759,13 +759,13 @@ server_tick(void) {
         } else {
             init_con->rec_cursor += rec_size;
 
-            buffer_cursor rec_cursor = {
-                .buf = init_con->rec_buf,
-                .limit = init_con->rec_cursor
+            BufferCursor rec_cursor = {
+                .data = init_con->rec_buf,
+                .size = init_con->rec_cursor
             };
-            buffer_cursor send_cursor = {
-                .buf = init_con->send_buf,
-                .limit = sizeof init_con->send_buf,
+            BufferCursor send_cursor = {
+                .data = init_con->send_buf,
+                .size = sizeof init_con->send_buf,
                 .index = init_con->send_cursor
             };
 
@@ -782,7 +782,7 @@ server_tick(void) {
                     initial_connection_count--;
                     break;
                 }
-                if (packet_size > rec_cursor.limit) {
+                if (packet_size > rec_cursor.size) {
                     // packet not fully received yet
                     break;
                 }
@@ -799,7 +799,7 @@ server_tick(void) {
 
                     // read client intention packet
                     i32 protocol_version = net_read_varint(&rec_cursor);
-                    net_string address = net_read_string(&rec_cursor, 255);
+                    String address = net_read_string(&rec_cursor, 255);
                     u16 port = net_read_ushort(&rec_cursor);
                     i32 next_state = net_read_varint(&rec_cursor);
 
@@ -827,8 +827,8 @@ server_tick(void) {
                     // read status request packet
                     // empty
 
-                    memory_arena scratch_arena = {
-                        .ptr = serv->short_lived_scratch,
+                    MemoryArena scratch_arena = {
+                        .data = serv->short_lived_scratch,
                         .size = serv->short_lived_scratch_size
                     };
 
@@ -906,13 +906,13 @@ server_tick(void) {
                     }
 
                     // read hello packet
-                    net_string username = net_read_string(&rec_cursor, 16);
+                    String username = net_read_string(&rec_cursor, 16);
                     // @TODO(traks) more username validation
                     if (username.size == 0) {
                         rec_cursor.error = 1;
                         break;
                     }
-                    memcpy(init_con->username, username.ptr, username.size);
+                    memcpy(init_con->username, username.data, username.size);
                     init_con->username_size = username.size;
 
                     // @TODO(traks) online mode
@@ -943,9 +943,9 @@ server_tick(void) {
                 }
             }
 
-            memmove(rec_cursor.buf, rec_cursor.buf + rec_cursor.index,
-                    rec_cursor.limit - rec_cursor.index);
-            init_con->rec_cursor = rec_cursor.limit - rec_cursor.index;
+            memmove(rec_cursor.data, rec_cursor.data + rec_cursor.index,
+                    rec_cursor.size - rec_cursor.index);
+            init_con->rec_cursor = rec_cursor.size - rec_cursor.index;
 
             init_con->send_cursor = send_cursor.index;
         }
@@ -1048,8 +1048,8 @@ server_tick(void) {
     // run scheduled block updates
     begin_timed_block("scheduled updates");
 
-    memory_arena scheduled_update_arena = {
-        .ptr = serv->short_lived_scratch,
+    MemoryArena scheduled_update_arena = {
+        .data = serv->short_lived_scratch,
         .size = serv->short_lived_scratch_size
     };
     propagate_delayed_block_updates(&scheduled_update_arena);
@@ -1065,8 +1065,8 @@ server_tick(void) {
             continue;
         }
 
-        memory_arena tick_arena = {
-            .ptr = serv->short_lived_scratch,
+        MemoryArena tick_arena = {
+            .data = serv->short_lived_scratch,
             .size = serv->short_lived_scratch_size
         };
 
@@ -1116,8 +1116,8 @@ server_tick(void) {
             continue;
         }
 
-        memory_arena tick_arena = {
-            .ptr = serv->short_lived_scratch,
+        MemoryArena tick_arena = {
+            .data = serv->short_lived_scratch,
             .size = serv->short_lived_scratch_size
         };
         send_packets_to_player(entity, &tick_arena);
@@ -1163,8 +1163,8 @@ server_tick(void) {
         }
 
         // @TODO(traks) actual chunk loading from whatever storage provider
-        memory_arena scratch_arena = {
-            .ptr = serv->short_lived_scratch,
+        MemoryArena scratch_arena = {
+            .data = serv->short_lived_scratch,
             .size = serv->short_lived_scratch_size
         };
         try_read_chunk_from_storage(pos, ch, &scratch_arena);
@@ -1217,20 +1217,20 @@ server_tick(void) {
 }
 
 static int
-parse_database_line(buffer_cursor * cursor, net_string * args) {
+parse_database_line(BufferCursor * cursor, String * args) {
     int arg_count = 0;
     int cur_size = 0;
     int i;
-    unsigned char * line = cursor->buf;
+    unsigned char * line = cursor->data;
     for (i = cursor->index; ; i++) {
-        if (i == cursor->limit || line[i] == ' ' || line[i] == '\n') {
+        if (i == cursor->size || line[i] == ' ' || line[i] == '\n') {
             if (cur_size > 0) {
-                args[arg_count].ptr = cursor->buf + (i - cur_size);
+                args[arg_count].data = cursor->data + (i - cur_size);
                 args[arg_count].size = cur_size;
                 arg_count++;
                 cur_size = 0;
             }
-            if (i == cursor->limit) {
+            if (i == cursor->size) {
                 break;
             }
             if (line[i] == '\n') {
@@ -1246,8 +1246,8 @@ parse_database_line(buffer_cursor * cursor, net_string * args) {
     return arg_count;
 }
 
-static buffer_cursor
-read_file(memory_arena * arena, char * file_name) {
+static BufferCursor
+read_file(MemoryArena * arena, char * file_name) {
     int fd = open(file_name, O_RDONLY);
     if (fd == -1) {
         logs_errno("Failed to open file: %s");
@@ -1283,19 +1283,16 @@ read_file(memory_arena * arena, char * file_name) {
 
     close(fd);
 
-    buffer_cursor res = {
-        .buf = buf,
-        .limit = file_size
+    BufferCursor res = {
+        .data = buf,
+        .size = file_size
     };
     return res;
 }
 
 static void
 register_entity_type(i32 entity_type, char * resource_loc) {
-    net_string key = {
-        .size = strlen(resource_loc),
-        .ptr = resource_loc
-    };
+    String key = STR(resource_loc);
     resource_loc_table * table = &serv->entity_resource_table;
     register_resource_loc(key, entity_type, table);
     assert(net_string_equal(key, get_resource_loc(entity_type, table)));
@@ -1421,10 +1418,7 @@ init_entity_data(void) {
 
 static void
 register_fluid_type(i32 fluid_type, char * resource_loc) {
-    net_string key = {
-        .size = strlen(resource_loc),
-        .ptr = resource_loc
-    };
+    String key = STR(resource_loc);
     resource_loc_table * table = &serv->fluid_resource_table;
     register_resource_loc(key, fluid_type, table);
     assert(net_string_equal(key, get_resource_loc(fluid_type, table)));
@@ -1442,10 +1436,7 @@ init_fluid_data(void) {
 
 static void
 register_game_event_type(i32 game_event_type, char * resource_loc) {
-    net_string key = {
-        .size = strlen(resource_loc),
-        .ptr = resource_loc
-    };
+    String key = STR(resource_loc);
     resource_loc_table * table = &serv->game_event_resource_table;
     register_resource_loc(key, game_event_type, table);
     assert(net_string_equal(key, get_resource_loc(game_event_type, table)));
@@ -1503,26 +1494,26 @@ init_game_event_data(void) {
 
 static void
 load_tags(char * file_name, char * list_name, tag_list * tags, resource_loc_table * table) {
-    memory_arena arena = {
-        .ptr = serv->short_lived_scratch,
+    MemoryArena arena = {
+        .data = serv->short_lived_scratch,
         .size = serv->short_lived_scratch_size,
     };
-    buffer_cursor cursor = read_file(&arena, file_name);
+    BufferCursor cursor = read_file(&arena, file_name);
 
     tags->name_size = strlen(list_name);
     memcpy(tags->name, list_name, strlen(list_name));
 
-    net_string args[16];
+    String args[16];
     tag_spec * tag;
 
     for (;;) {
         int arg_count = parse_database_line(&cursor, args);
         if (arg_count == 0) {
             // empty line
-            if (cursor.index == cursor.limit) {
+            if (cursor.index == cursor.size) {
                 break;
             }
-        } else if (net_string_equal(args[0], NET_STRING("key"))) {
+        } else if (net_string_equal(args[0], STR("key"))) {
             assert(tags->size < ARRAY_SIZE(tags->tags));
 
             tag = tags->tags + tags->size;
@@ -1540,9 +1531,9 @@ load_tags(char * file_name, char * list_name, tag_list * tags, resource_loc_tabl
 
             serv->tag_name_buf[serv->tag_name_count] = name_size;
             serv->tag_name_count++;
-            memcpy(serv->tag_name_buf + serv->tag_name_count, args[1].ptr, name_size);
+            memcpy(serv->tag_name_buf + serv->tag_name_count, args[1].data, name_size);
             serv->tag_name_count += name_size;
-        } else if (net_string_equal(args[0], NET_STRING("value"))) {
+        } else if (net_string_equal(args[0], STR("value"))) {
             i16 id = resolve_resource_loc_id(args[1], table);
             assert(id != -1);
 
@@ -1570,16 +1561,16 @@ init_dimension_types(void) {
         .ambient_light = 0
     };
 
-    net_string overworld_name = NET_STRING("minecraft:overworld");
-    memcpy(overworld->name, overworld_name.ptr, overworld_name.size);
+    String overworld_name = STR("minecraft:overworld");
+    memcpy(overworld->name, overworld_name.data, overworld_name.size);
     overworld->name_size = overworld_name.size;
 
-    net_string overworld_infiniburn = NET_STRING("minecraft:infiniburn_overworld");
-    memcpy(overworld->infiniburn, overworld_infiniburn.ptr, overworld_infiniburn.size);
+    String overworld_infiniburn = STR("minecraft:infiniburn_overworld");
+    memcpy(overworld->infiniburn, overworld_infiniburn.data, overworld_infiniburn.size);
     overworld->infiniburn_size = overworld_infiniburn.size;
 
-    net_string overworld_effects = NET_STRING("minecraft:overworld");
-    memcpy(overworld->effects, overworld_effects.ptr, overworld_effects.size);
+    String overworld_effects = STR("minecraft:overworld");
+    memcpy(overworld->effects, overworld_effects.data, overworld_effects.size);
     overworld->effects_size = overworld_effects.size;
 
     overworld->flags |= DIMENSION_HAS_SKYLIGHT | DIMENSION_NATURAL
@@ -1611,8 +1602,8 @@ init_biomes(void) {
         .grass_colour_mod = BIOME_GRASS_COLOUR_MOD_NONE,
     };
 
-    net_string ocean_name = NET_STRING("minecraft:ocean");
-    memcpy(ocean->name, ocean_name.ptr, ocean_name.size);
+    String ocean_name = STR("minecraft:ocean");
+    memcpy(ocean->name, ocean_name.data, ocean_name.size);
     ocean->name_size = ocean_name.size;
 
     biome * plains = serv->biomes + serv->biome_count;
@@ -1636,8 +1627,8 @@ init_biomes(void) {
         .grass_colour_mod = BIOME_GRASS_COLOUR_MOD_NONE,
     };
 
-    net_string plains_name = NET_STRING("minecraft:plains");
-    memcpy(plains->name, plains_name.ptr, plains_name.size);
+    String plains_name = STR("minecraft:plains");
+    memcpy(plains->name, plains_name.data, plains_name.size);
     plains->name_size = plains_name.size;
 
     // @TODO(traks) add all the vanilla biomes

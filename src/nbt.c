@@ -18,14 +18,14 @@ typedef struct {
 } printer_level_info;
 
 nbt_tape_entry *
-nbt_move_to_key(net_string matcher, nbt_tape_entry * tape,
-        buffer_cursor * cursor) {
+nbt_move_to_key(String matcher, nbt_tape_entry * tape,
+        BufferCursor * cursor) {
     while (tape->tag != NBT_TAG_END) {
         cursor->index = tape->buffer_index;
         u16 key_size = net_read_ushort(cursor);
-        unsigned char * key = cursor->buf + cursor->index;
+        unsigned char * key = cursor->data + cursor->index;
         if (key_size == matcher.size
-                && memcmp(key, matcher.ptr, matcher.size) == 0) {
+                && memcmp(key, matcher.data, matcher.size) == 0) {
             cursor->index += key_size;
             break;
         }
@@ -35,28 +35,28 @@ nbt_move_to_key(net_string matcher, nbt_tape_entry * tape,
     return tape;
 }
 
-net_string
-nbt_get_string(net_string matcher, nbt_tape_entry * tape,
-        buffer_cursor * cursor) {
+String
+nbt_get_string(String matcher, nbt_tape_entry * tape,
+        BufferCursor * cursor) {
     nbt_tape_entry * string_tape = nbt_move_to_key(matcher, tape, cursor);
 
     if (string_tape->tag != NBT_TAG_STRING) {
-        net_string res = {0};
+        String res = {0};
         return res;
     }
 
     // @NOTE(traks) already validated string length during NBT load
     u16 str_len = net_read_ushort(cursor);
-    net_string res = {
+    String res = {
         .size = str_len,
-        .ptr = cursor->buf + cursor->index
+        .data = cursor->data + cursor->index
     };
     return res;
 }
 
 nbt_tape_entry *
-nbt_get_compound(net_string matcher, nbt_tape_entry * tape,
-        buffer_cursor * cursor) {
+nbt_get_compound(String matcher, nbt_tape_entry * tape,
+        BufferCursor * cursor) {
     nbt_tape_entry * found = nbt_move_to_key(matcher, tape, cursor);
 
     if (found->tag != NBT_TAG_COMPOUND) {
@@ -71,7 +71,7 @@ nbt_get_compound(net_string matcher, nbt_tape_entry * tape,
 }
 
 nbt_tape_entry *
-load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_levels) {
+load_nbt(BufferCursor * cursor, MemoryArena * arena, int max_levels) {
     // Currently the tape format is as follows:
     //
     //  * An entry inside a compound has an NBT tag indicating the type and a
@@ -107,8 +107,8 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_levels) {
     // @TODO(traks) more appropriate value
     int max_entries = 1 << 16;
     nbt_tape_entry * tape = alloc_in_arena(arena, max_entries * sizeof *tape);
-    memory_arena scratch_arena = {
-        .ptr = arena->ptr,
+    MemoryArena scratch_arena = {
+        .data = arena->data,
         .index = arena->index,
         .size = arena->size
     };
@@ -133,7 +133,7 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_levels) {
 
     // skip key of root compound
     u16 key_size = net_read_ushort(cursor);
-    if (key_size > cursor->limit - cursor->index) {
+    if (key_size > cursor->size - cursor->index) {
         logs("Key too long: %ju", (uintmax_t) key_size);
         error = 1;
         goto bail;
@@ -179,7 +179,7 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_levels) {
 
             i32 entry_start = cursor->index;
             key_size = net_read_ushort(cursor);
-            if (key_size > cursor->limit - cursor->index) {
+            if (key_size > cursor->size - cursor->index) {
                 logs("Key too long: %ju", (uintmax_t) key_size);
                 error = 1;
                 goto bail;
@@ -225,7 +225,7 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_levels) {
         case NBT_TAG_FLOAT:
         case NBT_TAG_DOUBLE: {
             int bytes = elem_bytes[tag];
-            if (cursor->index > cursor->limit - bytes) {
+            if (cursor->index > cursor->size - bytes) {
                 logs("NBT value overflows buffer");
                 error = 1;
                 goto bail;
@@ -239,7 +239,7 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_levels) {
         case NBT_TAG_LONG_ARRAY: {
             i64 elem_bytes = array_elem_bytes[tag - NBT_TAG_BYTE_ARRAY];
             i64 array_size = net_read_uint(cursor);
-            if (cursor->index > (i64) cursor->limit
+            if (cursor->index > (i64) cursor->size
                     - elem_bytes * array_size) {
                 logs("NBT value overflows buffer");
                 error = 1;
@@ -251,7 +251,7 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_levels) {
         }
         case NBT_TAG_STRING: {
             u16 size = net_read_ushort(cursor);
-            if (cursor->index > cursor->limit - size) {
+            if (cursor->index > cursor->size - size) {
                 logs("NBT value overflows buffer");
                 error = 1;
                 goto bail;
@@ -306,8 +306,8 @@ bail:
 }
 
 void
-print_nbt(nbt_tape_entry * tape, buffer_cursor * cursor,
-        memory_arena * arena, int max_levels) {
+print_nbt(nbt_tape_entry * tape, BufferCursor * cursor,
+        MemoryArena * arena, int max_levels) {
     int cur_tape_index = 0;
     int cur_level = 0;
 
@@ -348,7 +348,7 @@ print_nbt(nbt_tape_entry * tape, buffer_cursor * cursor,
 
             cursor->index = base_entry->buffer_index;
             u16 key_size = net_read_ushort(cursor);
-            unsigned char * key = cursor->buf + cursor->index;
+            unsigned char * key = cursor->data + cursor->index;
             cursor->index += key_size;
             printf("\"%.*s\":", (int) key_size, key);
 
@@ -418,7 +418,7 @@ print_nbt(nbt_tape_entry * tape, buffer_cursor * cursor,
         }
         case NBT_TAG_STRING: {
             u16 val_size = net_read_ushort(cursor);
-            unsigned char * val = cursor->buf + cursor->index;
+            unsigned char * val = cursor->data + cursor->index;
             printf("\"%.*s\"", (int) val_size, val);
             break;
         }

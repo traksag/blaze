@@ -171,16 +171,16 @@ enum clientbound_packet_type {
 };
 
 static void
-nbt_write_key(buffer_cursor * cursor, u8 tag, net_string key) {
+nbt_write_key(BufferCursor * cursor, u8 tag, String key) {
     net_write_ubyte(cursor, tag);
     net_write_ushort(cursor, key.size);
-    net_write_data(cursor, key.ptr, key.size);
+    net_write_data(cursor, key.data, key.size);
 }
 
 static void
-nbt_write_string(buffer_cursor * cursor, net_string val) {
+nbt_write_string(BufferCursor * cursor, String val) {
     net_write_ushort(cursor, val.size);
-    net_write_data(cursor, val.ptr, val.size);
+    net_write_data(cursor, val.data, val.size);
 }
 
 void
@@ -330,8 +330,8 @@ drop_item(entity_base * player, item_stack * is, unsigned char drop_size) {
 }
 
 static void
-process_packet(entity_base * entity, buffer_cursor * rec_cursor,
-        memory_arena * process_arena) {
+process_packet(entity_base * entity, BufferCursor * rec_cursor,
+        MemoryArena * process_arena) {
     // @NOTE(traks) we need to handle packets in the order in which they arive,
     // so e.g. the client can move the player to a position, perform some
     // action, and then move the player a bit further, all in the same tick.
@@ -369,7 +369,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
         break;
     }
     case SBP_CHAT: {
-        net_string chat = net_read_string(rec_cursor, 256);
+        String chat = net_read_string(rec_cursor, 256);
 
         if (serv->global_msg_count < ARRAY_SIZE(serv->global_msgs)) {
             global_msg * msg = serv->global_msgs + serv->global_msg_count;
@@ -378,7 +378,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
                     (void *) msg->text, "<%.*s> %.*s",
                     (int) player->username_size,
                     player->username,
-                    (int) chat.size, chat.ptr);
+                    (int) chat.size, chat.data);
             msg->size = text_size;
         }
         break;
@@ -403,7 +403,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     }
     case SBP_CLIENT_INFORMATION: {
         logs("Packet client information");
-        net_string language = net_read_string(rec_cursor, 16);
+        String language = net_read_string(rec_cursor, 16);
         u8 view_distance = net_read_ubyte(rec_cursor);
         i32 chat_visibility = net_read_varint(rec_cursor);
         u8 sees_chat_colours = net_read_ubyte(rec_cursor);
@@ -417,7 +417,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
         // of 2 and the server maximum.
         player->new_chunk_cache_radius = MIN(MAX(view_distance, 2),
                 MAX_CHUNK_CACHE_RADIUS - 1) + 1;
-        memcpy(player->language, language.ptr, language.size);
+        memcpy(player->language, language.data, language.size);
         player->language_size = language.size;
         player->sees_chat_colours = sees_chat_colours;
         player->model_customisation = model_customisation;
@@ -428,7 +428,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     case SBP_COMMAND_SUGGESTION: {
         logs("Packet command suggestion");
         i32 id = net_read_varint(rec_cursor);
-        net_string command = net_read_string(rec_cursor, 32500);
+        String command = net_read_string(rec_cursor, 32500);
         break;
     }
     case SBP_CONTAINER_BUTTON_CLICK: {
@@ -516,9 +516,9 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     }
     case SBP_CUSTOM_PAYLOAD: {
         logs("Packet custom payload");
-        net_string id = net_read_string(rec_cursor, 32767);
-        unsigned char * payload = rec_cursor->buf + rec_cursor->index;
-        i32 payload_size = rec_cursor->limit - rec_cursor->index;
+        String id = net_read_string(rec_cursor, 32767);
+        unsigned char * payload = rec_cursor->data + rec_cursor->index;
+        i32 payload_size = rec_cursor->size - rec_cursor->index;
 
         if (payload_size > 32767) {
             // custom payload size too large
@@ -538,11 +538,11 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
             break;
         }
         for (int i = 0; i < page_count; i++) {
-            net_string page = net_read_string(rec_cursor, 8192);
+            String page = net_read_string(rec_cursor, 8192);
         }
 
         u8 has_title = net_read_ubyte(rec_cursor);
-        net_string title = {0};
+        String title = {0};
         if (has_title) {
             title = net_read_string(rec_cursor, 128);
         }
@@ -589,7 +589,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     }
     case SBP_JIGSAW_GENERATE: {
         logs("Packet jigsaw generate");
-        net_block_pos block_pos = net_read_block_pos(rec_cursor);
+        BlockPos block_pos = net_read_block_pos(rec_cursor);
         i32 levels = net_read_varint(rec_cursor);
         u8 keep_jigsaws = net_read_ubyte(rec_cursor);
         // @TODO(traks) processing
@@ -667,7 +667,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     case SBP_PLACE_RECIPE: {
         logs("Packet place recipe");
         u8 container_id = net_read_ubyte(rec_cursor);
-        net_string recipe = net_read_string(rec_cursor, 32767);
+        String recipe = net_read_string(rec_cursor, 32767);
         u8 shift_down = net_read_ubyte(rec_cursor);
         // @TODO(traks) handle packet
         break;
@@ -691,7 +691,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     case SBP_PLAYER_ACTION: {
         i32 action = net_read_varint(rec_cursor);
         // @TODO(traks) validate block pos inside world
-        net_block_pos block_pos = net_read_block_pos(rec_cursor);
+        BlockPos block_pos = net_read_block_pos(rec_cursor);
         u8 direction = net_read_ubyte(rec_cursor);
 
         // @NOTE(traks) destroying blocks in survival works as follows:
@@ -901,7 +901,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     }
     case SBP_RENAME_ITEM: {
         logs("Packet rename item");
-        net_string name = net_read_string(rec_cursor, 32767);
+        String name = net_read_string(rec_cursor, 32767);
         break;
     }
     case SBP_RESOURCE_PACK: {
@@ -939,7 +939,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     case SBP_SET_COMMAND_BLOCK: {
         logs("Packet set command block");
         u64 block_pos = net_read_ulong(rec_cursor);
-        net_string command = net_read_string(rec_cursor, 32767);
+        String command = net_read_string(rec_cursor, 32767);
         i32 mode = net_read_varint(rec_cursor);
         u8 flags = net_read_ubyte(rec_cursor);
         u8 track_output = (flags & 0x1);
@@ -950,7 +950,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     case SBP_SET_COMMAND_MINECART: {
         logs("Packet set command minecart");
         i32 entity_id = net_read_varint(rec_cursor);
-        net_string command = net_read_string(rec_cursor, 32767);
+        String command = net_read_string(rec_cursor, 32767);
         u8 track_output = net_read_ubyte(rec_cursor);
         break;
     }
@@ -977,8 +977,8 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
                         (u64) 1 << slot;
             }
 
-            net_string type_name = get_resource_loc(is->type, &serv->item_resource_table);
-            logs("Set creative slot: %.*s", (int) type_name.size, type_name.ptr);
+            String type_name = get_resource_loc(is->type, &serv->item_resource_table);
+            logs("Set creative slot: %.*s", (int) type_name.size, type_name.data);
 
             u8 max_size = get_max_stack_size(is->type);
             if (is->size > max_size) {
@@ -1000,11 +1000,11 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     case SBP_SET_JIGSAW_BLOCK: {
         logs("Packet set jigsaw block");
         u64 block_pos = net_read_ulong(rec_cursor);
-        net_string name = net_read_string(rec_cursor, 32767);
-        net_string target = net_read_string(rec_cursor, 32767);
-        net_string pool = net_read_string(rec_cursor, 32767);
-        net_string final_state = net_read_string(rec_cursor, 32767);
-        net_string joint = net_read_string(rec_cursor, 32767);
+        String name = net_read_string(rec_cursor, 32767);
+        String target = net_read_string(rec_cursor, 32767);
+        String pool = net_read_string(rec_cursor, 32767);
+        String final_state = net_read_string(rec_cursor, 32767);
+        String joint = net_read_string(rec_cursor, 32767);
         // @TODO(traks) handle packet
         break;
     }
@@ -1013,7 +1013,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
         u64 block_pos = net_read_ulong(rec_cursor);
         i32 update_type = net_read_varint(rec_cursor);
         i32 mode = net_read_varint(rec_cursor);
-        net_string name = net_read_string(rec_cursor, 32767);
+        String name = net_read_string(rec_cursor, 32767);
         // @TODO(traks) read signed bytes instead
         u8 offset_x = net_read_ubyte(rec_cursor);
         u8 offset_y = net_read_ubyte(rec_cursor);
@@ -1023,14 +1023,14 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
         u8 size_z = net_read_ubyte(rec_cursor);
         i32 mirror = net_read_varint(rec_cursor);
         i32 rotation = net_read_varint(rec_cursor);
-        net_string data = net_read_string(rec_cursor, 12);
+        String data = net_read_string(rec_cursor, 12);
         // @TODO(traks) further reading
         break;
     }
     case SBP_SIGN_UPDATE: {
         logs("Packet sign update");
         u64 block_pos = net_read_ulong(rec_cursor);
-        net_string lines[4];
+        String lines[4];
         for (int i = 0; i < ARRAY_SIZE(lines); i++) {
             lines[i] = net_read_string(rec_cursor, 384);
         }
@@ -1051,7 +1051,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     case SBP_USE_ITEM_ON: {
         logs("Packet use item on");
         i32 hand = net_read_varint(rec_cursor);
-        net_block_pos clicked_pos = net_read_block_pos(rec_cursor);
+        BlockPos clicked_pos = net_read_block_pos(rec_cursor);
         i32 clicked_face = net_read_varint(rec_cursor);
         float click_offset_x = net_read_float(rec_cursor);
         float click_offset_y = net_read_float(rec_cursor);
@@ -1110,8 +1110,8 @@ chunk_cache_index(chunk_pos pos) {
 }
 
 static void
-begin_packet(buffer_cursor * send_cursor, i32 id) {
-    if (send_cursor->limit - send_cursor->index < 6) {
+begin_packet(BufferCursor * send_cursor, i32 id) {
+    if (send_cursor->size - send_cursor->index < 6) {
         send_cursor->error = 1;
         return;
     }
@@ -1125,7 +1125,7 @@ begin_packet(buffer_cursor * send_cursor, i32 id) {
 }
 
 static void
-finish_packet(buffer_cursor * send_cursor, entity_base * player) {
+finish_packet(BufferCursor * send_cursor, entity_base * player) {
     // We use the written data to determine the packet size instead of
     // calculating the packet size up front. The major benefit is that
     // calculating the packet size up front is very error prone and requires a
@@ -1149,7 +1149,7 @@ finish_packet(buffer_cursor * send_cursor, entity_base * player) {
     if (player->flags & PLAYER_PACKET_COMPRESSION) {
         internal_header |= 0x80;
     }
-    send_cursor->buf[send_cursor->index] = internal_header;
+    send_cursor->data[send_cursor->index] = internal_header;
     send_cursor->index += 1 + size_offset;
 
     net_write_varint(send_cursor, packet_size);
@@ -1158,8 +1158,8 @@ finish_packet(buffer_cursor * send_cursor, entity_base * player) {
 }
 
 static void
-send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch,
-        entity_base * entity, memory_arena * tick_arena) {
+send_chunk_fully(BufferCursor * send_cursor, chunk_pos pos, chunk * ch,
+        entity_base * entity, MemoryArena * tick_arena) {
     begin_timed_block("send chunk fully");
 
     // bit mask for included chunk sections; bottom section in least
@@ -1200,9 +1200,9 @@ send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch,
     net_write_ulong(send_cursor, section_mask);
 
     // height map NBT
-    nbt_write_key(send_cursor, NBT_TAG_COMPOUND, NET_STRING(""));
+    nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR(""));
 
-    nbt_write_key(send_cursor, NBT_TAG_LONG_ARRAY, NET_STRING("MOTION_BLOCKING"));
+    nbt_write_key(send_cursor, NBT_TAG_LONG_ARRAY, STR("MOTION_BLOCKING"));
     // number of elements in long array
     net_write_int(send_cursor, 36);
     u64 compacted_map[36] = {0};
@@ -1284,8 +1284,8 @@ send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch,
 }
 
 static void
-send_light_update(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch,
-        entity_base * entity, memory_arena * tick_arena) {
+send_light_update(BufferCursor * send_cursor, chunk_pos pos, chunk * ch,
+        entity_base * entity, MemoryArena * tick_arena) {
     // There are 18 chunk sections from 1 section below the world to 1 section
     // above the world. The lowest chunk section comes first (and is the least
     // significant bit).
@@ -1425,7 +1425,7 @@ add_stack_to_player_inventory(entity_base * player, item_stack * to_add) {
 }
 
 void
-tick_player(entity_base * player, memory_arena * tick_arena) {
+tick_player(entity_base * player, MemoryArena * tick_arena) {
     begin_timed_block("tick player");
 
     assert(player->type == ENTITY_PLAYER);
@@ -1444,15 +1444,15 @@ tick_player(entity_base * player, memory_arena * tick_arena) {
     } else {
         player->player.rec_cursor += rec_size;
 
-        buffer_cursor rec_cursor = {
-            .buf = player->player.rec_buf,
-            .limit = player->player.rec_cursor
+        BufferCursor rec_cursor = {
+            .data = player->player.rec_buf,
+            .size = player->player.rec_cursor
         };
 
         // @TODO(traks) rate limit incoming packets per player
 
         for (;;) {
-            buffer_cursor packet_cursor = rec_cursor;
+            BufferCursor packet_cursor = rec_cursor;
             i32 packet_size = net_read_varint(&packet_cursor);
 
             if (packet_cursor.error != 0) {
@@ -1463,14 +1463,14 @@ tick_player(entity_base * player, memory_arena * tick_arena) {
                 disconnect_player_now(player);
                 break;
             }
-            if (packet_size > packet_cursor.limit - packet_cursor.index) {
+            if (packet_size > packet_cursor.size - packet_cursor.index) {
                 // packet not fully received yet
                 break;
             }
 
-            memory_arena process_arena = *tick_arena;
-            packet_cursor.limit = packet_cursor.index + packet_size;
-            rec_cursor.index = packet_cursor.limit;
+            MemoryArena process_arena = *tick_arena;
+            packet_cursor.size = packet_cursor.index + packet_size;
+            rec_cursor.index = packet_cursor.size;
 
             if (player->flags & PLAYER_PACKET_COMPRESSION) {
                 // ignore the uncompressed packet size, since we require all
@@ -1493,8 +1493,8 @@ tick_player(entity_base * player, memory_arena * tick_arena) {
                     break;
                 }
 
-                zstream.next_in = packet_cursor.buf + packet_cursor.index;
-                zstream.avail_in = packet_cursor.limit - packet_cursor.index;
+                zstream.next_in = packet_cursor.data + packet_cursor.index;
+                zstream.avail_in = packet_cursor.size - packet_cursor.index;
 
                 size_t max_uncompressed_size = 2 * (1 << 20);
                 unsigned char * uncompressed = alloc_in_arena(&process_arena,
@@ -1521,9 +1521,9 @@ tick_player(entity_base * player, memory_arena * tick_arena) {
                     break;
                 }
 
-                packet_cursor = (buffer_cursor) {
-                    .buf = uncompressed,
-                    .limit = zstream.total_out,
+                packet_cursor = (BufferCursor) {
+                    .data = uncompressed,
+                    .size = zstream.total_out,
                 };
             }
 
@@ -1535,16 +1535,16 @@ tick_player(entity_base * player, memory_arena * tick_arena) {
                 break;
             }
 
-            if (packet_cursor.index != packet_cursor.limit) {
+            if (packet_cursor.index != packet_cursor.size) {
                 logs("Player protocol packet not fully read");
                 disconnect_player_now(player);
                 break;
             }
         }
 
-        memmove(rec_cursor.buf, rec_cursor.buf + rec_cursor.index,
-                rec_cursor.limit - rec_cursor.index);
-        player->player.rec_cursor = rec_cursor.limit - rec_cursor.index;
+        memmove(rec_cursor.data, rec_cursor.data + rec_cursor.index,
+                rec_cursor.size - rec_cursor.index);
+        player->player.rec_cursor = rec_cursor.size - rec_cursor.index;
     }
 
     // @TODO(traks) only here because players could be disconnected and get
@@ -1612,198 +1612,198 @@ bail:
 }
 
 static void
-nbt_write_dimension_type(buffer_cursor * send_cursor,
+nbt_write_dimension_type(BufferCursor * send_cursor,
         dimension_type * dim_type) {
     if (dim_type->fixed_time != -1) {
-        nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("fixed_time"));
+        nbt_write_key(send_cursor, NBT_TAG_INT, STR("fixed_time"));
         net_write_int(send_cursor, dim_type->fixed_time);
     }
 
-    nbt_write_key(send_cursor, NBT_TAG_BYTE, NET_STRING("has_skylight"));
+    nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("has_skylight"));
     net_write_ubyte(send_cursor, !!(dim_type->flags & DIMENSION_HAS_SKYLIGHT));
 
-    nbt_write_key(send_cursor, NBT_TAG_BYTE, NET_STRING("has_ceiling"));
+    nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("has_ceiling"));
     net_write_ubyte(send_cursor, !!(dim_type->flags & DIMENSION_HAS_CEILING));
 
-    nbt_write_key(send_cursor, NBT_TAG_BYTE, NET_STRING("ultrawarm"));
+    nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("ultrawarm"));
     net_write_ubyte(send_cursor, !!(dim_type->flags & DIMENSION_ULTRAWARM));
 
-    nbt_write_key(send_cursor, NBT_TAG_BYTE, NET_STRING("natural"));
+    nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("natural"));
     net_write_ubyte(send_cursor, !!(dim_type->flags & DIMENSION_NATURAL));
 
-    nbt_write_key(send_cursor, NBT_TAG_DOUBLE, NET_STRING("coordinate_scale"));
+    nbt_write_key(send_cursor, NBT_TAG_DOUBLE, STR("coordinate_scale"));
     net_write_double(send_cursor, dim_type->coordinate_scale);
 
-    nbt_write_key(send_cursor, NBT_TAG_BYTE, NET_STRING("piglin_safe"));
+    nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("piglin_safe"));
     net_write_ubyte(send_cursor, !!(dim_type->flags & DIMENSION_PIGLIN_SAFE));
 
-    nbt_write_key(send_cursor, NBT_TAG_BYTE, NET_STRING("bed_works"));
+    nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("bed_works"));
     net_write_ubyte(send_cursor, !!(dim_type->flags & DIMENSION_BED_WORKS));
 
-    nbt_write_key(send_cursor, NBT_TAG_BYTE, NET_STRING("respawn_anchor_works"));
+    nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("respawn_anchor_works"));
     net_write_ubyte(send_cursor, !!(dim_type->flags & DIMENSION_RESPAWN_ANCHOR_WORKS));
 
-    nbt_write_key(send_cursor, NBT_TAG_BYTE, NET_STRING("has_raids"));
+    nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("has_raids"));
     net_write_ubyte(send_cursor, !!(dim_type->flags & DIMENSION_HAS_RAIDS));
 
-    nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("min_y"));
+    nbt_write_key(send_cursor, NBT_TAG_INT, STR("min_y"));
     net_write_int(send_cursor, dim_type->min_y);
 
-    nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("height"));
+    nbt_write_key(send_cursor, NBT_TAG_INT, STR("height"));
     net_write_int(send_cursor, dim_type->height);
 
-    nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("logical_height"));
+    nbt_write_key(send_cursor, NBT_TAG_INT, STR("logical_height"));
     net_write_int(send_cursor, dim_type->logical_height);
 
-    nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("infiniburn"));
-    net_string infiniburn = {
-        .ptr = dim_type->infiniburn,
+    nbt_write_key(send_cursor, NBT_TAG_STRING, STR("infiniburn"));
+    String infiniburn = {
+        .data = dim_type->infiniburn,
         .size = dim_type->infiniburn_size
     };
     nbt_write_string(send_cursor, infiniburn);
 
-    nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("effects"));
-    net_string effects = {
-        .ptr = dim_type->effects,
+    nbt_write_key(send_cursor, NBT_TAG_STRING, STR("effects"));
+    String effects = {
+        .data = dim_type->effects,
         .size = dim_type->effects_size
     };
     nbt_write_string(send_cursor, effects);
 
-    nbt_write_key(send_cursor, NBT_TAG_FLOAT, NET_STRING("ambient_light"));
+    nbt_write_key(send_cursor, NBT_TAG_FLOAT, STR("ambient_light"));
     net_write_float(send_cursor, dim_type->ambient_light);
 }
 
 static void
-nbt_write_biome(buffer_cursor * send_cursor, biome * b) {
-    nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("precipitation"));
+nbt_write_biome(BufferCursor * send_cursor, biome * b) {
+    nbt_write_key(send_cursor, NBT_TAG_STRING, STR("precipitation"));
     switch (b->precipitation) {
     case BIOME_PRECIPITATION_NONE:
-        nbt_write_string(send_cursor, NET_STRING("none"));
+        nbt_write_string(send_cursor, STR("none"));
         break;
     case BIOME_PRECIPITATION_RAIN:
-        nbt_write_string(send_cursor, NET_STRING("rain"));
+        nbt_write_string(send_cursor, STR("rain"));
         break;
     case BIOME_PRECIPITATION_SNOW:
-        nbt_write_string(send_cursor, NET_STRING("snow"));
+        nbt_write_string(send_cursor, STR("snow"));
         break;
     default:
         assert(0);
     }
 
-    nbt_write_key(send_cursor, NBT_TAG_FLOAT, NET_STRING("temperature"));
+    nbt_write_key(send_cursor, NBT_TAG_FLOAT, STR("temperature"));
     net_write_float(send_cursor, b->temperature);
 
     if (b->temperature_mod != BIOME_TEMPERATURE_MOD_NONE) {
-        nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("temperature_modifier"));
+        nbt_write_key(send_cursor, NBT_TAG_STRING, STR("temperature_modifier"));
         switch (b->temperature_mod) {
         case BIOME_TEMPERATURE_MOD_FROZEN:
-            nbt_write_string(send_cursor, NET_STRING("frozen"));
+            nbt_write_string(send_cursor, STR("frozen"));
             break;
         default:
             assert(0);
         }
     }
 
-    nbt_write_key(send_cursor, NBT_TAG_FLOAT, NET_STRING("downfall"));
+    nbt_write_key(send_cursor, NBT_TAG_FLOAT, STR("downfall"));
     net_write_float(send_cursor, b->downfall);
 
-    nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("category"));
+    nbt_write_key(send_cursor, NBT_TAG_STRING, STR("category"));
     switch (b->category) {
     case BIOME_CATEGORY_NONE:
-        nbt_write_string(send_cursor, NET_STRING("none"));
+        nbt_write_string(send_cursor, STR("none"));
         break;
     case BIOME_CATEGORY_TAIGA:
-        nbt_write_string(send_cursor, NET_STRING("taiga"));
+        nbt_write_string(send_cursor, STR("taiga"));
         break;
     case BIOME_CATEGORY_EXTREME_HILLS:
-        nbt_write_string(send_cursor, NET_STRING("extreme_hills"));
+        nbt_write_string(send_cursor, STR("extreme_hills"));
         break;
     case BIOME_CATEGORY_JUNGLE:
-        nbt_write_string(send_cursor, NET_STRING("jungle"));
+        nbt_write_string(send_cursor, STR("jungle"));
         break;
     case BIOME_CATEGORY_MESA:
-        nbt_write_string(send_cursor, NET_STRING("mesa"));
+        nbt_write_string(send_cursor, STR("mesa"));
         break;
     case BIOME_CATEGORY_PLAINS:
-        nbt_write_string(send_cursor, NET_STRING("plains"));
+        nbt_write_string(send_cursor, STR("plains"));
         break;
     case BIOME_CATEGORY_SAVANNA:
-        nbt_write_string(send_cursor, NET_STRING("savanna"));
+        nbt_write_string(send_cursor, STR("savanna"));
         break;
     case BIOME_CATEGORY_ICY:
-        nbt_write_string(send_cursor, NET_STRING("icy"));
+        nbt_write_string(send_cursor, STR("icy"));
         break;
     case BIOME_CATEGORY_THE_END:
-        nbt_write_string(send_cursor, NET_STRING("the_end"));
+        nbt_write_string(send_cursor, STR("the_end"));
         break;
     case BIOME_CATEGORY_BEACH:
-        nbt_write_string(send_cursor, NET_STRING("beach"));
+        nbt_write_string(send_cursor, STR("beach"));
         break;
     case BIOME_CATEGORY_FOREST:
-        nbt_write_string(send_cursor, NET_STRING("forest"));
+        nbt_write_string(send_cursor, STR("forest"));
         break;
     case BIOME_CATEGORY_OCEAN:
-        nbt_write_string(send_cursor, NET_STRING("ocean"));
+        nbt_write_string(send_cursor, STR("ocean"));
         break;
     case BIOME_CATEGORY_DESERT:
-        nbt_write_string(send_cursor, NET_STRING("desert"));
+        nbt_write_string(send_cursor, STR("desert"));
         break;
     case BIOME_CATEGORY_RIVER:
-        nbt_write_string(send_cursor, NET_STRING("river"));
+        nbt_write_string(send_cursor, STR("river"));
         break;
     case BIOME_CATEGORY_SWAMP:
-        nbt_write_string(send_cursor, NET_STRING("swamp"));
+        nbt_write_string(send_cursor, STR("swamp"));
         break;
     case BIOME_CATEGORY_MUSHROOM:
-        nbt_write_string(send_cursor, NET_STRING("mushroom"));
+        nbt_write_string(send_cursor, STR("mushroom"));
         break;
     case BIOME_CATEGORY_NETHER:
-        nbt_write_string(send_cursor, NET_STRING("nether"));
+        nbt_write_string(send_cursor, STR("nether"));
         break;
     case BIOME_CATEGORY_UNDERGROUND:
-        nbt_write_string(send_cursor, NET_STRING("underground"));
+        nbt_write_string(send_cursor, STR("underground"));
         break;
     }
 
-    nbt_write_key(send_cursor, NBT_TAG_FLOAT, NET_STRING("depth"));
+    nbt_write_key(send_cursor, NBT_TAG_FLOAT, STR("depth"));
     net_write_float(send_cursor, b->depth);
 
-    nbt_write_key(send_cursor, NBT_TAG_FLOAT, NET_STRING("scale"));
+    nbt_write_key(send_cursor, NBT_TAG_FLOAT, STR("scale"));
     net_write_float(send_cursor, b->scale);
 
     // special effects
-    nbt_write_key(send_cursor, NBT_TAG_COMPOUND, NET_STRING("effects"));
+    nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("effects"));
 
-    nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("fog_color"));
+    nbt_write_key(send_cursor, NBT_TAG_INT, STR("fog_color"));
     net_write_int(send_cursor, b->fog_colour);
 
-    nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("water_color"));
+    nbt_write_key(send_cursor, NBT_TAG_INT, STR("water_color"));
     net_write_int(send_cursor, b->water_colour);
 
-    nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("water_fog_color"));
+    nbt_write_key(send_cursor, NBT_TAG_INT, STR("water_fog_color"));
     net_write_int(send_cursor, b->water_fog_colour);
 
-    nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("sky_color"));
+    nbt_write_key(send_cursor, NBT_TAG_INT, STR("sky_color"));
     net_write_int(send_cursor, b->sky_colour);
 
     if (b->foliage_colour_override != -1) {
-        nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("foliage_color"));
+        nbt_write_key(send_cursor, NBT_TAG_INT, STR("foliage_color"));
         net_write_int(send_cursor, b->foliage_colour_override);
     }
 
     if (b->grass_colour_override != -1) {
-        nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("grass_color"));
+        nbt_write_key(send_cursor, NBT_TAG_INT, STR("grass_color"));
         net_write_int(send_cursor, b->grass_colour_override);
     }
 
     if (b->grass_colour_mod != BIOME_GRASS_COLOUR_MOD_NONE) {
-        nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("grass_color_modifier"));
+        nbt_write_key(send_cursor, NBT_TAG_STRING, STR("grass_color_modifier"));
         switch (b->grass_colour_mod) {
         case BIOME_GRASS_COLOUR_MOD_DARK_FOREST:
-            nbt_write_string(send_cursor, NET_STRING("dark_forest"));
+            nbt_write_string(send_cursor, STR("dark_forest"));
             break;
         case BIOME_GRASS_COLOUR_MOD_SWAMP:
-            nbt_write_string(send_cursor, NET_STRING("swamp"));
+            nbt_write_string(send_cursor, STR("swamp"));
             break;
         default:
             assert(0);
@@ -1813,9 +1813,9 @@ nbt_write_biome(buffer_cursor * send_cursor, biome * b) {
     // @TODO(traks) ambient particle effects
 
     if (b->ambient_sound_size > 0) {
-        nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("ambient_sound"));
-        net_string ambient_sound = {
-            .ptr = b->ambient_sound,
+        nbt_write_key(send_cursor, NBT_TAG_STRING, STR("ambient_sound"));
+        String ambient_sound = {
+            .data = b->ambient_sound,
             .size = b->ambient_sound_size
         };
         nbt_write_string(send_cursor, ambient_sound);
@@ -1823,22 +1823,22 @@ nbt_write_biome(buffer_cursor * send_cursor, biome * b) {
 
     if (b->mood_sound_size > 0) {
         // mood sound
-        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, NET_STRING("mood_sound"));
+        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("mood_sound"));
 
-        nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("sound"));
-        net_string mood_sound = {
-            .ptr = b->mood_sound,
+        nbt_write_key(send_cursor, NBT_TAG_STRING, STR("sound"));
+        String mood_sound = {
+            .data = b->mood_sound,
             .size = b->mood_sound_size
         };
         nbt_write_string(send_cursor, mood_sound);
 
-        nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("tick_delay"));
+        nbt_write_key(send_cursor, NBT_TAG_INT, STR("tick_delay"));
         net_write_int(send_cursor, b->mood_sound_tick_delay);
 
-        nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("block_search_extent"));
+        nbt_write_key(send_cursor, NBT_TAG_INT, STR("block_search_extent"));
         net_write_int(send_cursor, b->mood_sound_block_search_extent);
 
-        nbt_write_key(send_cursor, NBT_TAG_DOUBLE, NET_STRING("offset"));
+        nbt_write_key(send_cursor, NBT_TAG_DOUBLE, STR("offset"));
         net_write_int(send_cursor, b->mood_sound_offset);
 
         net_write_ubyte(send_cursor, NBT_TAG_END);
@@ -1847,16 +1847,16 @@ nbt_write_biome(buffer_cursor * send_cursor, biome * b) {
 
     if (b->additions_sound_size > 0) {
         // additions sound
-        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, NET_STRING("additions_sound"));
+        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("additions_sound"));
 
-        nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("sound"));
-        net_string additions_sound = {
-            .ptr = b->additions_sound,
+        nbt_write_key(send_cursor, NBT_TAG_STRING, STR("sound"));
+        String additions_sound = {
+            .data = b->additions_sound,
             .size = b->additions_sound_size
         };
         nbt_write_string(send_cursor, additions_sound);
 
-        nbt_write_key(send_cursor, NBT_TAG_DOUBLE, NET_STRING("tick_chance"));
+        nbt_write_key(send_cursor, NBT_TAG_DOUBLE, STR("tick_chance"));
         net_write_int(send_cursor, b->additions_sound_tick_chance);
 
         net_write_ubyte(send_cursor, NBT_TAG_END);
@@ -1865,22 +1865,22 @@ nbt_write_biome(buffer_cursor * send_cursor, biome * b) {
 
     if (b->music_sound_size > 0) {
         // music
-        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, NET_STRING("music"));
+        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("music"));
 
-        nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("sound"));
-        net_string music_sound = {
-            .ptr = b->music_sound,
+        nbt_write_key(send_cursor, NBT_TAG_STRING, STR("sound"));
+        String music_sound = {
+            .data = b->music_sound,
             .size = b->music_sound_size
         };
         nbt_write_string(send_cursor, music_sound);
 
-        nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("min_delay"));
+        nbt_write_key(send_cursor, NBT_TAG_INT, STR("min_delay"));
         net_write_int(send_cursor, b->music_min_delay);
 
-        nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("max_delay"));
+        nbt_write_key(send_cursor, NBT_TAG_INT, STR("max_delay"));
         net_write_int(send_cursor, b->music_max_delay);
 
-        nbt_write_key(send_cursor, NBT_TAG_BYTE, NET_STRING("replace_current_music"));
+        nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("replace_current_music"));
         net_write_ubyte(send_cursor, b->music_replace_current_music);
 
         net_write_ubyte(send_cursor, NBT_TAG_END);
@@ -1892,7 +1892,7 @@ nbt_write_biome(buffer_cursor * send_cursor, biome * b) {
 }
 
 static void
-send_changed_entity_data(buffer_cursor * send_cursor, entity_base * player,
+send_changed_entity_data(BufferCursor * send_cursor, entity_base * player,
         entity_base * entity, u32 changed_data) {
     if (changed_data == 0) {
         return;
@@ -1974,7 +1974,7 @@ send_changed_entity_data(buffer_cursor * send_cursor, entity_base * player,
 }
 
 static void
-send_take_item_entity_packet(entity_base * player, buffer_cursor * send_cursor,
+send_take_item_entity_packet(entity_base * player, BufferCursor * send_cursor,
         entity_id taker_id, entity_id pickup_id, u8 pickup_size) {
     begin_packet(send_cursor, CBP_TAKE_ITEM_ENTITY);
     net_write_varint(send_cursor, pickup_id);
@@ -1985,7 +1985,7 @@ send_take_item_entity_packet(entity_base * player, buffer_cursor * send_cursor,
 
 static void
 try_update_tracked_entity(entity_base * player,
-        buffer_cursor * send_cursor, memory_arena * tick_arena,
+        BufferCursor * send_cursor, MemoryArena * tick_arena,
         tracked_entity * tracked, entity_base * entity) {
     if (serv->current_tick - tracked->last_update_tick < tracked->update_interval
             && entity->changed_data == 0) {
@@ -2119,7 +2119,7 @@ try_update_tracked_entity(entity_base * player,
 
 static void
 start_tracking_entity(entity_base * player,
-        buffer_cursor * send_cursor, memory_arena * tick_arena,
+        BufferCursor * send_cursor, MemoryArena * tick_arena,
         tracked_entity * tracked, entity_base * entity) {
     *tracked = (tracked_entity) {0};
     tracked->eid = entity->eid;
@@ -2217,7 +2217,7 @@ start_tracking_entity(entity_base * player,
 }
 
 static void
-send_player_abilities(buffer_cursor * send_cursor, entity_base * player) {
+send_player_abilities(BufferCursor * send_cursor, entity_base * player) {
     begin_packet(send_cursor, CBP_PLAYER_ABILITIES);
     u8 ability_flags = 0;
 
@@ -2241,15 +2241,15 @@ send_player_abilities(buffer_cursor * send_cursor, entity_base * player) {
 }
 
 void
-send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
+send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     begin_timed_block("send packets");
 
     size_t max_uncompressed_packet_size = 1 << 20;
-    buffer_cursor send_cursor_ = {
-        .buf = alloc_in_arena(tick_arena, max_uncompressed_packet_size),
-        .limit = max_uncompressed_packet_size
+    BufferCursor send_cursor_ = {
+        .data = alloc_in_arena(tick_arena, max_uncompressed_packet_size),
+        .size = max_uncompressed_packet_size
     };
-    buffer_cursor * send_cursor = &send_cursor_;
+    BufferCursor * send_cursor = &send_cursor_;
 
     if (!(player->flags & PLAYER_DID_INIT_PACKETS)) {
         player->flags |= PLAYER_DID_INIT_PACKETS;
@@ -2268,14 +2268,14 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
         // @TODO(traks) send UUID
         net_write_ulong(send_cursor, 0);
         net_write_ulong(send_cursor, player->eid);
-        net_string username = {
+        String username = {
             .size = player->player.username_size,
-            .ptr = player->player.username
+            .data = player->player.username
         };
         net_write_string(send_cursor, username);
         finish_packet(send_cursor, player);
 
-        net_string level_name = NET_STRING("blaze:main");
+        String level_name = STR("blaze:main");
 
         begin_packet(send_cursor, CBP_LOGIN);
         net_write_uint(send_cursor, player->eid);
@@ -2290,31 +2290,31 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
 
         // Send all dimension-related NBT data
 
-        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, NET_STRING(""));
+        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR(""));
 
         // write dimension types
-        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, NET_STRING("minecraft:dimension_type"));
+        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("minecraft:dimension_type"));
 
-        nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("type"));
-        nbt_write_string(send_cursor, NET_STRING("minecraft:dimension_type"));
+        nbt_write_key(send_cursor, NBT_TAG_STRING, STR("type"));
+        nbt_write_string(send_cursor, STR("minecraft:dimension_type"));
 
-        nbt_write_key(send_cursor, NBT_TAG_LIST, NET_STRING("value"));
+        nbt_write_key(send_cursor, NBT_TAG_LIST, STR("value"));
         net_write_ubyte(send_cursor, NBT_TAG_COMPOUND);
         net_write_int(send_cursor, serv->dimension_type_count);
         for (int i = 0; i < serv->dimension_type_count; i++) {
             dimension_type * dim_type = serv->dimension_types + i;
 
-            nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("name"));
-            net_string name = {
-                .ptr = dim_type->name,
+            nbt_write_key(send_cursor, NBT_TAG_STRING, STR("name"));
+            String name = {
+                .data = dim_type->name,
                 .size = dim_type->name_size
             };
             nbt_write_string(send_cursor, name);
 
-            nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("id"));
+            nbt_write_key(send_cursor, NBT_TAG_INT, STR("id"));
             net_write_int(send_cursor, i);
 
-            nbt_write_key(send_cursor, NBT_TAG_COMPOUND, NET_STRING("element"));
+            nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("element"));
             nbt_write_dimension_type(send_cursor, dim_type);
             net_write_ubyte(send_cursor, NBT_TAG_END);
 
@@ -2325,28 +2325,28 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
         // end of dimension types
 
         // write biomes
-        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, NET_STRING("minecraft:worldgen/biome"));
+        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("minecraft:worldgen/biome"));
 
-        nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("type"));
-        nbt_write_string(send_cursor, NET_STRING("minecraft:worldgen/biome"));
+        nbt_write_key(send_cursor, NBT_TAG_STRING, STR("type"));
+        nbt_write_string(send_cursor, STR("minecraft:worldgen/biome"));
 
-        nbt_write_key(send_cursor, NBT_TAG_LIST, NET_STRING("value"));
+        nbt_write_key(send_cursor, NBT_TAG_LIST, STR("value"));
         net_write_ubyte(send_cursor, NBT_TAG_COMPOUND);
         net_write_int(send_cursor, serv->biome_count);
         for (int i = 0; i < serv->biome_count; i++) {
             biome * b = serv->biomes + i;
 
-            nbt_write_key(send_cursor, NBT_TAG_STRING, NET_STRING("name"));
-            net_string name = {
-                .ptr = b->name,
+            nbt_write_key(send_cursor, NBT_TAG_STRING, STR("name"));
+            String name = {
+                .data = b->name,
                 .size = b->name_size
             };
             nbt_write_string(send_cursor, name);
 
-            nbt_write_key(send_cursor, NBT_TAG_INT, NET_STRING("id"));
+            nbt_write_key(send_cursor, NBT_TAG_INT, STR("id"));
             net_write_int(send_cursor, i);
 
-            nbt_write_key(send_cursor, NBT_TAG_COMPOUND, NET_STRING("element"));
+            nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("element"));
             nbt_write_biome(send_cursor, b);
             net_write_ubyte(send_cursor, NBT_TAG_END);
 
@@ -2359,7 +2359,7 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
         net_write_ubyte(send_cursor, NBT_TAG_END);
 
         // dimension type NBT data of level player is joining
-        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, NET_STRING(""));
+        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR(""));
         nbt_write_dimension_type(send_cursor, serv->dimension_types);
         net_write_ubyte(send_cursor, NBT_TAG_END);
 
@@ -2394,9 +2394,9 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
         for (int tagsi = 0; tagsi < ARRAY_SIZE(tag_lists); tagsi++) {
             tag_list * tags = tag_lists[tagsi];
 
-            net_string name = {
+            String name = {
                 .size = tags->name_size,
-                .ptr = tags->name
+                .data = tags->name
             };
 
             net_write_string(send_cursor, name);
@@ -2405,9 +2405,9 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
             for (int i = 0; i < tags->size; i++) {
                 tag_spec * tag = tags->tags + i;
                 unsigned char * name_size = serv->tag_name_buf + tag->name_index;
-                net_string tag_name = {
+                String tag_name = {
                     .size = *name_size,
-                    .ptr = name_size + 1
+                    .data = name_size + 1
                 };
 
                 net_write_string(send_cursor, tag_name);
@@ -2422,8 +2422,8 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
         finish_packet(send_cursor, player);
 
         begin_packet(send_cursor, CBP_CUSTOM_PAYLOAD);
-        net_string brand_str = NET_STRING("minecraft:brand");
-        net_string brand = NET_STRING("blaze");
+        String brand_str = STR("minecraft:brand");
+        String brand = STR("blaze");
         net_write_string(send_cursor, brand_str);
         net_write_string(send_cursor, brand);
         finish_packet(send_cursor, player);
@@ -2503,7 +2503,7 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
 
     // send block changes for this player only
     for (int i = 0; i < player->player.changed_block_count; i++) {
-        net_block_pos pos = player->player.changed_blocks[i];
+        BlockPos pos = player->player.changed_blocks[i];
         u16 block_state = try_get_block_state(pos);
         if (block_state >= serv->vanilla_block_state_count) {
             // catches unknown blocks
@@ -2774,8 +2774,8 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
                 // @TODO(traks) write UUID
                 net_write_ulong(send_cursor, 0);
                 net_write_ulong(send_cursor, eid);
-                net_string username = {
-                    .ptr = player->player.username,
+                String username = {
+                    .data = player->player.username,
                     .size = player->player.username_size
                 };
                 net_write_string(send_cursor, username);
@@ -2812,8 +2812,8 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
                 // @TODO(traks) write UUID
                 net_write_ulong(send_cursor, 0);
                 net_write_ulong(send_cursor, eid);
-                net_string username = {
-                    .ptr = player->player.username,
+                String username = {
+                    .data = player->player.username,
                     .size = player->player.username_size
                 };
                 net_write_string(send_cursor, username);
@@ -2930,10 +2930,10 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
         // @TODO(traks) formatted messages and such
         unsigned char buf[1024];
         int buf_index = 0;
-        net_string prefix = NET_STRING("{\"text\":\"");
-        net_string suffix = NET_STRING("\"}");
+        String prefix = STR("{\"text\":\"");
+        String suffix = STR("\"}");
 
-        memcpy(buf + buf_index, prefix.ptr, prefix.size);
+        memcpy(buf + buf_index, prefix.data, prefix.size);
         buf_index += prefix.size;
 
         for (int i = 0; i < msg->size; i++) {
@@ -2945,7 +2945,7 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
             buf_index++;
         }
 
-        memcpy(buf + buf_index, suffix.ptr, suffix.size);
+        memcpy(buf + buf_index, suffix.data, suffix.size);
         buf_index += suffix.size;
 
         begin_packet(send_cursor, CBP_CHAT);
@@ -2972,17 +2972,17 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
 
     begin_timed_block("finalise packets");
 
-    buffer_cursor final_cursor_ = {
-        .buf = player->player.send_buf,
-        .limit = player->player.send_buf_size,
+    BufferCursor final_cursor_ = {
+        .data = player->player.send_buf,
+        .size = player->player.send_buf_size,
         .index = player->player.send_cursor
     };
-    buffer_cursor * final_cursor = &final_cursor_;
+    BufferCursor * final_cursor = &final_cursor_;
 
-    send_cursor->limit = send_cursor->index;
+    send_cursor->size = send_cursor->index;
     send_cursor->index = 0;
-    while (send_cursor->index != send_cursor->limit) {
-        int internal_header = send_cursor->buf[send_cursor->index];
+    while (send_cursor->index != send_cursor->size) {
+        int internal_header = send_cursor->data[send_cursor->index];
         int size_offset = internal_header & 0x7;
         int should_compress = internal_header & 0x80;
 
@@ -3005,10 +3005,10 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
                 break;
             }
 
-            zstream.next_in = send_cursor->buf + send_cursor->index;
+            zstream.next_in = send_cursor->data + send_cursor->index;
             zstream.avail_in = packet_end - send_cursor->index;
 
-            memory_arena temp_arena = *tick_arena;
+            MemoryArena temp_arena = *tick_arena;
             // @TODO(traks) appropriate value
             size_t max_compressed_size = 1 << 19;
             unsigned char * compressed = alloc_in_arena(&temp_arena,
@@ -3037,7 +3037,7 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
             net_write_data(final_cursor, compressed, zstream.total_out);
         } else {
             // @TODO(traks) should check somewhere that no error occurs
-            net_write_data(final_cursor, send_cursor->buf + packet_start,
+            net_write_data(final_cursor, send_cursor->data + packet_start,
                     packet_end - packet_start);
         }
 
@@ -3054,7 +3054,7 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
     }
 
     begin_timed_block("send()");
-    ssize_t send_size = send(player->player.sock, final_cursor->buf,
+    ssize_t send_size = send(player->player.sock, final_cursor->data,
             final_cursor->index, 0);
     end_timed_block();
 
@@ -3065,7 +3065,7 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
             disconnect_player_now(player);
         }
     } else {
-        memmove(final_cursor->buf, final_cursor->buf + send_size,
+        memmove(final_cursor->data, final_cursor->data + send_size,
                 final_cursor->index - send_size);
         player->player.send_cursor = final_cursor->index - send_size;
     }

@@ -126,7 +126,7 @@ hash_chunk_pos(chunk_pos pos) {
 }
 
 block_entity_base *
-try_get_block_entity(net_block_pos pos) {
+try_get_block_entity(BlockPos pos) {
     // @TODO(traks) return some special block entity instead of NULL?
     if (pos.y < 0) {
         return NULL;
@@ -166,7 +166,7 @@ try_get_block_entity(net_block_pos pos) {
 }
 
 u16
-try_get_block_state(net_block_pos pos) {
+try_get_block_state(BlockPos pos) {
     if (pos.y < 0) {
         return get_default_block_state(BLOCK_VOID_AIR);
     }
@@ -188,7 +188,7 @@ try_get_block_state(net_block_pos pos) {
 }
 
 void
-try_set_block_state(net_block_pos pos, u16 block_state) {
+try_set_block_state(BlockPos pos, u16 block_state) {
     if (pos.y < 0) {
         assert(0);
         return;
@@ -365,12 +365,12 @@ ceil_log2u(u32 x) {
 }
 
 static void
-fill_buffer_from_file(int fd, buffer_cursor * cursor) {
+fill_buffer_from_file(int fd, BufferCursor * cursor) {
     int start_index = cursor->index;
 
-    while (cursor->index < cursor->limit) {
-        int bytes_read = read(fd, cursor->buf + cursor->index,
-                cursor->limit - cursor->index);
+    while (cursor->index < cursor->size) {
+        int bytes_read = read(fd, cursor->data + cursor->index,
+                cursor->size - cursor->index);
         if (bytes_read == -1) {
             logs_errno("Failed to read region file: %s");
             cursor->error = 1;
@@ -378,7 +378,7 @@ fill_buffer_from_file(int fd, buffer_cursor * cursor) {
         }
         if (bytes_read == 0) {
             logs("Wanted %d bytes from region file, but got %d",
-                    cursor->limit - start_index,
+                    cursor->size - start_index,
                     cursor->index - start_index);
             cursor->error = 1;
             break;
@@ -387,13 +387,13 @@ fill_buffer_from_file(int fd, buffer_cursor * cursor) {
         cursor->index += bytes_read;
     }
 
-    cursor->limit = cursor->index;
+    cursor->size = cursor->index;
     cursor->index = start_index;
 }
 
 void
 try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
-        memory_arena * scratch_arena) {
+        MemoryArena * scratch_arena) {
     begin_timed_block("read chunk");
 
     // @TODO(traks) error handling and/or error messages for all failure cases
@@ -418,9 +418,9 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
         goto bail;
     }
 
-    buffer_cursor header_cursor = {
-        .buf = alloc_in_arena(scratch_arena, 4096),
-        .limit = 4096
+    BufferCursor header_cursor = {
+        .data = alloc_in_arena(scratch_arena, 4096),
+        .size = 4096
     };
     fill_buffer_from_file(region_fd, &header_cursor);
     if (header_cursor.error) {
@@ -459,20 +459,20 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
         goto bail;
     }
 
-    buffer_cursor cursor = {
-        .buf = alloc_in_arena(scratch_arena, sector_count << 12),
-        .limit = sector_count << 12
+    BufferCursor cursor = {
+        .data = alloc_in_arena(scratch_arena, sector_count << 12),
+        .size = sector_count << 12
     };
     fill_buffer_from_file(region_fd, &cursor);
 
     u32 size_in_bytes = net_read_uint(&cursor);
 
-    if (size_in_bytes > cursor.limit - cursor.index) {
+    if (size_in_bytes > cursor.size - cursor.index) {
         logs("Chunk data outside of its sectors");
         goto bail;
     }
 
-    cursor.limit = cursor.index + size_in_bytes;
+    cursor.size = cursor.index + size_in_bytes;
     u8 storage_type = net_read_ubyte(&cursor);
 
     if (cursor.error) {
@@ -517,8 +517,8 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
         goto bail;
     }
 
-    zstream.next_in = cursor.buf + cursor.index;
-    zstream.avail_in = cursor.limit - cursor.index;
+    zstream.next_in = cursor.data + cursor.index;
+    zstream.avail_in = cursor.size - cursor.index;
 
     // @TODO(traks) can be many many times larger in case of e.g. NBT data with
     // tons and tons of empty lists.
@@ -563,9 +563,9 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     }
     end_timed_block();
 
-    cursor = (buffer_cursor) {
-        .buf = uncompressed,
-        .limit = zstream.total_out
+    cursor = (BufferCursor) {
+        .data = uncompressed,
+        .size = zstream.total_out
     };
 
     // @TODO(traks) more appropriate max level
@@ -583,7 +583,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
         assert(ch->sections[section_y] == NULL);
     }
 
-    nbt_move_to_key(NET_STRING("DataVersion"), chunk_nbt, &cursor);
+    nbt_move_to_key(STR("DataVersion"), chunk_nbt, &cursor);
     i32 data_version = net_read_int(&cursor);
     if (data_version != SERVER_WORLD_VERSION) {
         logs("Data version %jd != %jd", (intmax_t) data_version,
@@ -591,18 +591,18 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
         goto bail;
     }
 
-    nbt_tape_entry * level_nbt = nbt_get_compound(NET_STRING("Level"),
+    nbt_tape_entry * level_nbt = nbt_get_compound(STR("Level"),
             chunk_nbt, &cursor);
 
-    net_string status = nbt_get_string(NET_STRING("Status"), level_nbt, &cursor);
-    if (!net_string_equal(status, NET_STRING("full"))) {
+    String status = nbt_get_string(STR("Status"), level_nbt, &cursor);
+    if (!net_string_equal(status, STR("full"))) {
         // @TODO(traks) this message gets spammed on the edges of pregenerated
         // terrain. Maybe turn it into a debug message.
         logs("Chunk not fully generated");
         goto bail;
     }
 
-    nbt_tape_entry * section_start = nbt_move_to_key(NET_STRING("Sections"),
+    nbt_tape_entry * section_start = nbt_move_to_key(STR("Sections"),
             level_nbt, &cursor);
 
     u32 section_count;
@@ -627,10 +627,10 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     }
 
     for (u32 sectioni = 0; sectioni < section_count; sectioni++) {
-        nbt_move_to_key(NET_STRING("Y"), section_nbt, &cursor);
+        nbt_move_to_key(STR("Y"), section_nbt, &cursor);
         i8 section_y = net_read_byte(&cursor);
 
-        nbt_tape_entry * palette_start = nbt_move_to_key(NET_STRING("Palette"),
+        nbt_tape_entry * palette_start = nbt_move_to_key(STR("Palette"),
                 section_nbt, &cursor);
 
         if (palette_start->tag != NBT_TAG_END) {
@@ -662,7 +662,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
             }
 
             for (uint palettei = 0; palettei < palette_size; palettei++) {
-                net_string resource_loc = nbt_get_string(NET_STRING("Name"),
+                String resource_loc = nbt_get_string(STR("Name"),
                         palette_entry, &cursor);
                 i16 type_id = resolve_resource_loc_id(resource_loc,
                         &serv->block_resource_table);
@@ -674,18 +674,18 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
                 u16 stride = 0;
 
                 nbt_tape_entry * props_nbt = nbt_get_compound(
-                        NET_STRING("Properties"), palette_entry, &cursor);
+                        STR("Properties"), palette_entry, &cursor);
 
                 block_properties * props = serv->block_properties_table + type_id;
                 for (int propi = 0; propi < props->property_count; propi++) {
                     block_property_spec * prop_spec = serv->block_property_specs
                             + props->property_specs[propi];
-                    net_string prop_name = {
+                    String prop_name = {
                         .size = prop_spec->tape[0],
-                        .ptr = prop_spec->tape + 1
+                        .data = prop_spec->tape + 1
                     };
 
-                    net_string prop_val = nbt_get_string(prop_name,
+                    String prop_val = nbt_get_string(prop_name,
                             props_nbt, &cursor);
 
                     int val_index = find_property_value_index(prop_spec, prop_val);
@@ -706,7 +706,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
                 palette_entry += 1;
             }
 
-            nbt_move_to_key(NET_STRING("BlockStates"), section_nbt, &cursor);
+            nbt_move_to_key(STR("BlockStates"), section_nbt, &cursor);
             u32 entry_count = net_read_uint(&cursor);
 
             if (entry_count > 4096) {

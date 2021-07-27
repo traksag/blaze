@@ -28,7 +28,7 @@ get_horizontal_direction_index(int dir) {
 }
 
 static void
-push_block_update(net_block_pos pos, int from_dir,
+push_block_update(BlockPos pos, int from_dir,
         block_update_context * buc) {
     if (buc->update_count >= buc->max_updates) {
         return;
@@ -41,14 +41,14 @@ push_block_update(net_block_pos pos, int from_dir,
 }
 
 static void
-push_neighbour_block_update(net_block_pos pos, int dir,
+push_neighbour_block_update(BlockPos pos, int dir,
         block_update_context * buc) {
     push_block_update(get_relative_block_pos(pos, dir),
             get_opposite_direction(dir), buc);
 }
 
 void
-push_direct_neighbour_block_updates(net_block_pos pos,
+push_direct_neighbour_block_updates(BlockPos pos,
         block_update_context * buc) {
     if (buc->max_updates - buc->update_count < 6) {
         return;
@@ -56,7 +56,7 @@ push_direct_neighbour_block_updates(net_block_pos pos,
 
     for (int j = 0; j < 6; j++) {
         int to_direction = update_order[j];
-        net_block_pos neighbour = get_relative_block_pos(pos, to_direction);
+        BlockPos neighbour = get_relative_block_pos(pos, to_direction);
         buc->blocks_to_update[buc->update_count] = (block_update) {
             .pos = neighbour,
             .from_direction = get_opposite_direction(to_direction),
@@ -66,7 +66,7 @@ push_direct_neighbour_block_updates(net_block_pos pos,
 }
 
 static void
-schedule_block_update(net_block_pos pos, int from_direction, int delay) {
+schedule_block_update(BlockPos pos, int from_direction, int delay) {
     assert(delay > 0);
     int count = serv->scheduled_block_update_count;
     if (count == ARRAY_SIZE(serv->scheduled_block_updates)) {
@@ -388,7 +388,7 @@ make_block_state(block_state_info * info) {
 }
 
 static void
-break_block(net_block_pos pos) {
+break_block(BlockPos pos) {
     u16 cur_state = try_get_block_state(pos);
     i32 cur_type = serv->block_type_by_state[cur_state];
 
@@ -418,7 +418,7 @@ break_block(net_block_pos pos) {
 // to check whether redstone wire connects diagonally through a block state;
 // this function returns false for those states.
 static int
-conducts_redstone(u16 block_state, net_block_pos pos) {
+conducts_redstone(u16 block_state, BlockPos pos) {
     i32 block_type = serv->block_type_by_state[block_state];
 
     switch (block_type) {
@@ -495,7 +495,7 @@ translate_model(block_model * model, float dx, float dy, float dz) {
 }
 
 block_model
-get_collision_model(u16 block_state, net_block_pos pos) {
+get_collision_model(u16 block_state, BlockPos pos) {
     i32 block_type = serv->block_type_by_state[block_state];
     block_model res;
 
@@ -751,7 +751,7 @@ can_big_dripleaf_survive_on(u16 state_below) {
 }
 
 int
-can_big_dripleaf_stem_survive_at(net_block_pos cur_pos) {
+can_big_dripleaf_stem_survive_at(BlockPos cur_pos) {
     u16 state_below = try_get_block_state(
             get_relative_block_pos(cur_pos, DIRECTION_NEG_Y));
     i32 type_below = serv->block_type_by_state[state_below];
@@ -872,7 +872,7 @@ can_redstone_wire_survive_on(u16 state_below) {
 }
 
 int
-can_sugar_cane_survive_at(net_block_pos cur_pos) {
+can_sugar_cane_survive_at(BlockPos cur_pos) {
     u16 state_below = try_get_block_state(
             get_relative_block_pos(cur_pos, DIRECTION_NEG_Y));
     i32 type_below = serv->block_type_by_state[state_below];
@@ -886,9 +886,9 @@ can_sugar_cane_survive_at(net_block_pos cur_pos) {
     case BLOCK_PODZOL:
     case BLOCK_SAND:
     case BLOCK_RED_SAND: {
-        net_block_pos neighbour_pos[4];
+        BlockPos neighbour_pos[4];
         for (int i = 0; i < 4; i++) {
-            net_block_pos pos = cur_pos;
+            BlockPos pos = cur_pos;
             pos.y--;
             neighbour_pos[i] = pos;
         }
@@ -899,7 +899,7 @@ can_sugar_cane_survive_at(net_block_pos cur_pos) {
 
         // check blocks next to ground block for water
         for (int i = 0; i < 4; i++) {
-            net_block_pos pos = neighbour_pos[i];
+            BlockPos pos = neighbour_pos[i];
             u16 neighbour_state = try_get_block_state(pos);
             i32 neighbour_type = serv->block_type_by_state[neighbour_state];
             switch (neighbour_type) {
@@ -1006,7 +1006,7 @@ rotate_direction_counter_clockwise(int direction) {
 }
 
 void
-update_stairs_shape(net_block_pos pos, block_state_info * cur_info) {
+update_stairs_shape(BlockPos pos, block_state_info * cur_info) {
     cur_info->stairs_shape = STAIRS_SHAPE_STRAIGHT;
 
     // first look on left and right of stairs block to see if there are other
@@ -1069,9 +1069,9 @@ update_stairs_shape(net_block_pos pos, block_state_info * cur_info) {
 }
 
 void
-update_pane_shape(net_block_pos pos,
+update_pane_shape(BlockPos pos,
         block_state_info * cur_info, int from_direction) {
-    net_block_pos neighbour_pos = get_relative_block_pos(pos, from_direction);
+    BlockPos neighbour_pos = get_relative_block_pos(pos, from_direction);
     u16 neighbour_state = try_get_block_state(neighbour_pos);
     i32 neighbour_type = serv->block_type_by_state[neighbour_state];
 
@@ -1219,9 +1219,9 @@ is_wall(i32 block_type) {
 }
 
 void
-update_fence_shape(net_block_pos pos,
+update_fence_shape(BlockPos pos,
         block_state_info * cur_info, int from_direction) {
-    net_block_pos neighbour_pos = get_relative_block_pos(pos, from_direction);
+    BlockPos neighbour_pos = get_relative_block_pos(pos, from_direction);
     u16 neighbour_state = try_get_block_state(neighbour_pos);
     i32 neighbour_type = serv->block_type_by_state[neighbour_state];
 
@@ -1285,9 +1285,9 @@ update_fence_shape(net_block_pos pos,
 }
 
 void
-update_wall_shape(net_block_pos pos,
+update_wall_shape(BlockPos pos,
         block_state_info * cur_info, int from_direction) {
-    net_block_pos neighbour_pos = get_relative_block_pos(pos, from_direction);
+    BlockPos neighbour_pos = get_relative_block_pos(pos, from_direction);
     u16 neighbour_state = try_get_block_state(neighbour_pos);
     i32 neighbour_type = serv->block_type_by_state[neighbour_state];
     block_state_info neighbour_info = describe_block_state(neighbour_state);
@@ -1691,9 +1691,9 @@ get_conducted_redstone_power(u16 block_state, int dir,
 }
 
 static int
-get_redstone_side_power(net_block_pos pos, int dir, int to_wire,
+get_redstone_side_power(BlockPos pos, int dir, int to_wire,
         int ignore_wires) {
-    net_block_pos side_pos = get_relative_block_pos(pos, dir);
+    BlockPos side_pos = get_relative_block_pos(pos, dir);
     int opp_dir = get_opposite_direction(dir);
     u16 side_state = try_get_block_state(side_pos);
     int res = get_emitted_redstone_power(side_state, opp_dir,
@@ -1722,8 +1722,8 @@ get_redstone_side_power(net_block_pos pos, int dir, int to_wire,
 }
 
 static int
-is_redstone_wire_connected(net_block_pos pos, block_state_info * info) {
-    net_block_pos pos_above = get_relative_block_pos(pos, DIRECTION_POS_Y);
+is_redstone_wire_connected(BlockPos pos, block_state_info * info) {
+    BlockPos pos_above = get_relative_block_pos(pos, DIRECTION_POS_Y);
     u16 state_above = try_get_block_state(pos_above);
     int conductor_above = conducts_redstone(state_above, pos_above);
 
@@ -1735,12 +1735,12 @@ is_redstone_wire_connected(net_block_pos pos, block_state_info * info) {
     for (int i = 0; i < 4; i++) {
         int dir = directions[i];
         int opp_dir = get_opposite_direction(dir);
-        net_block_pos pos_side = get_relative_block_pos(pos, dir);
+        BlockPos pos_side = get_relative_block_pos(pos, dir);
         u16 state_side = try_get_block_state(pos_side);
 
         if (!conductor_above) {
             // try to connect diagonally up
-            net_block_pos dest_pos = get_relative_block_pos(
+            BlockPos dest_pos = get_relative_block_pos(
                     pos_side, DIRECTION_POS_Y);
             u16 dest_state = try_get_block_state(dest_pos);
             i32 dest_type = serv->block_type_by_state[dest_state];
@@ -1757,7 +1757,7 @@ is_redstone_wire_connected(net_block_pos pos, block_state_info * info) {
 
         if (!conducts_redstone(state_side, pos_side)) {
             // try to connect diagonally down
-            net_block_pos dest_pos = get_relative_block_pos(
+            BlockPos dest_pos = get_relative_block_pos(
                     pos_side, DIRECTION_NEG_Y);
             u16 dest_state = try_get_block_state(dest_pos);
             i32 dest_type = serv->block_type_by_state[dest_state];
@@ -1785,9 +1785,9 @@ typedef struct {
 } redstone_wire_env;
 
 int
-update_redstone_wire(net_block_pos pos, u16 in_world_state,
+update_redstone_wire(BlockPos pos, u16 in_world_state,
         block_state_info * base_info, block_update_context * buc) {
-    net_block_pos pos_above = get_relative_block_pos(pos, DIRECTION_POS_Y);
+    BlockPos pos_above = get_relative_block_pos(pos, DIRECTION_POS_Y);
     u16 state_above = try_get_block_state(pos_above);
     int conductor_above = conducts_redstone(state_above, pos_above);
     int was_dot = is_redstone_wire_dot(base_info);
@@ -1804,7 +1804,7 @@ update_redstone_wire(net_block_pos pos, u16 in_world_state,
     for (int i = 0; i < 4; i++) {
         int dir = directions[i];
         int opp_dir = get_opposite_direction(dir);
-        net_block_pos pos_side = get_relative_block_pos(pos, dir);
+        BlockPos pos_side = get_relative_block_pos(pos, dir);
         u16 state_side = try_get_block_state(pos_side);
         i32 type_side = serv->block_type_by_state[state_side];
         block_state_info side_info = describe_block_state(state_side);
@@ -1812,7 +1812,7 @@ update_redstone_wire(net_block_pos pos, u16 in_world_state,
 
         if (!conductor_above) {
             // try to connect diagonally up
-            net_block_pos dest_pos = get_relative_block_pos(
+            BlockPos dest_pos = get_relative_block_pos(
                     pos_side, DIRECTION_POS_Y);
             u16 dest_state = try_get_block_state(dest_pos);
             i32 dest_type = serv->block_type_by_state[dest_state];
@@ -1840,7 +1840,7 @@ update_redstone_wire(net_block_pos pos, u16 in_world_state,
 
         if (!conductor_side) {
             // try to connect diagonally down
-            net_block_pos dest_pos = get_relative_block_pos(
+            BlockPos dest_pos = get_relative_block_pos(
                     pos_side, DIRECTION_NEG_Y);
             u16 dest_state = try_get_block_state(dest_pos);
             i32 dest_type = serv->block_type_by_state[dest_state];
@@ -1908,12 +1908,12 @@ update_redstone_wire(net_block_pos pos, u16 in_world_state,
     for (int i = 0; i < 4; i++) {
         int dir = directions[i];
         int opp_dir = get_opposite_direction(dir);
-        net_block_pos side_pos = get_relative_block_pos(pos, dir);
-        net_block_pos above_pos = get_relative_block_pos(side_pos, DIRECTION_POS_Y);
+        BlockPos side_pos = get_relative_block_pos(pos, dir);
+        BlockPos above_pos = get_relative_block_pos(side_pos, DIRECTION_POS_Y);
         if (env.connected[i][0]) {
             push_block_update(above_pos, opp_dir, buc);
         }
-        net_block_pos below_pos = get_relative_block_pos(side_pos, DIRECTION_NEG_Y);
+        BlockPos below_pos = get_relative_block_pos(side_pos, DIRECTION_NEG_Y);
         if (env.connected[i][2]) {
             push_block_update(below_pos, opp_dir, buc);
         }
@@ -1924,12 +1924,12 @@ update_redstone_wire(net_block_pos pos, u16 in_world_state,
 }
 
 redstone_wire_env
-calculate_redstone_wire_env(net_block_pos pos, u16 block_state,
+calculate_redstone_wire_env(BlockPos pos, u16 block_state,
         block_state_info * info, int ignore_same_line_power) {
-    net_block_pos pos_above = get_relative_block_pos(pos, DIRECTION_POS_Y);
+    BlockPos pos_above = get_relative_block_pos(pos, DIRECTION_POS_Y);
     u16 state_above = try_get_block_state(pos_above);
     int conductor_above = conducts_redstone(state_above, pos_above);
-    net_block_pos pos_below = get_relative_block_pos(pos, DIRECTION_NEG_Y);
+    BlockPos pos_below = get_relative_block_pos(pos, DIRECTION_NEG_Y);
     u16 state_below = try_get_block_state(pos_below);
     int conductor_below = conducts_redstone(state_below, pos_below);
 
@@ -1947,7 +1947,7 @@ calculate_redstone_wire_env(net_block_pos pos, u16 block_state,
     for (int i = 0; i < 4; i++) {
         int dir = directions[i];
         int opp_dir = get_opposite_direction(dir);
-        net_block_pos pos_side = get_relative_block_pos(pos, dir);
+        BlockPos pos_side = get_relative_block_pos(pos, dir);
         u16 state_side = try_get_block_state(pos_side);
         i32 type_side = serv->block_type_by_state[state_side];
         block_state_info side_info = describe_block_state(state_side);
@@ -1959,7 +1959,7 @@ calculate_redstone_wire_env(net_block_pos pos, u16 block_state,
 
         if (!conductor_above) {
             // try to connect diagonally up
-            net_block_pos dest_pos = get_relative_block_pos(
+            BlockPos dest_pos = get_relative_block_pos(
                     pos_side, DIRECTION_POS_Y);
             u16 dest_state = try_get_block_state(dest_pos);
             i32 dest_type = serv->block_type_by_state[dest_state];
@@ -1999,7 +1999,7 @@ calculate_redstone_wire_env(net_block_pos pos, u16 block_state,
 
         if (!conductor_side) {
             // try to connect diagonally down
-            net_block_pos dest_pos = get_relative_block_pos(
+            BlockPos dest_pos = get_relative_block_pos(
                     pos_side, DIRECTION_NEG_Y);
             u16 dest_state = try_get_block_state(dest_pos);
             i32 dest_type = serv->block_type_by_state[dest_state];
@@ -2079,12 +2079,12 @@ calculate_redstone_wire_env(net_block_pos pos, u16 block_state,
 }
 
 typedef struct {
-    net_block_pos pos;
+    BlockPos pos;
     unsigned char distance;
 } redstone_wire_pos;
 
 static void
-update_redstone_line(net_block_pos start_pos) {
+update_redstone_line(BlockPos start_pos) {
     u16 start_state = try_get_block_state(start_pos);
     block_state_info start_info = describe_block_state(start_state);
     redstone_wire_env start_env = calculate_redstone_wire_env(
@@ -2107,7 +2107,7 @@ update_redstone_line(net_block_pos start_pos) {
     if (start_env.power > start_info.power) {
         // power went up, spread it around!
 
-        net_block_pos wires[500];
+        BlockPos wires[500];
         int wire_count = 0;
         wires[0] = start_pos;
         wire_count++;
@@ -2117,14 +2117,14 @@ update_redstone_line(net_block_pos start_pos) {
         try_set_block_state(start_pos, new_start_state);
 
         for (int i = 0; i < wire_count; i++) {
-            net_block_pos wire_pos = wires[i];
+            BlockPos wire_pos = wires[i];
             u16 state = try_get_block_state(wire_pos);
             block_state_info info = describe_block_state(state);
             redstone_wire_env env = calculate_redstone_wire_env(
                     wire_pos, state, &info, 0);
 
             for (int i = 0; i < 4; i++) {
-                net_block_pos rel = get_relative_block_pos(
+                BlockPos rel = get_relative_block_pos(
                         wire_pos, directions[i]);
                 rel = get_relative_block_pos(rel, DIRECTION_POS_Y);
 
@@ -2153,7 +2153,7 @@ update_redstone_line(net_block_pos start_pos) {
         wires[0] = (redstone_wire_pos) {.pos = start_pos, .distance = 0};
         wire_count++;
 
-        net_block_pos sources[50];
+        BlockPos sources[50];
         int source_count = 0;
 
         redstone_wire_env lineless_env = calculate_redstone_wire_env(
@@ -2164,7 +2164,7 @@ update_redstone_line(net_block_pos start_pos) {
         }
 
         for (int i = 0; i < wire_count; i++) {
-            net_block_pos wire_pos = wires[i].pos;
+            BlockPos wire_pos = wires[i].pos;
             int distance = wires[i].distance;
             u16 state = try_get_block_state(wire_pos);
             block_state_info info = describe_block_state(state);
@@ -2172,7 +2172,7 @@ update_redstone_line(net_block_pos start_pos) {
                     wire_pos, state, &info, 1);
 
             for (int i = 0; i < 4; i++) {
-                net_block_pos rel = get_relative_block_pos(
+                BlockPos rel = get_relative_block_pos(
                         wire_pos, directions[i]);
                 rel = get_relative_block_pos(rel, DIRECTION_POS_Y);
 
@@ -2207,7 +2207,7 @@ update_redstone_line(net_block_pos start_pos) {
         }
 
         for (int i = 0; i < wire_count; i++) {
-            net_block_pos wire_pos = wires[i].pos;
+            BlockPos wire_pos = wires[i].pos;
             int distance = wires[i].distance;
             u16 state = try_get_block_state(wire_pos);
             block_state_info info = describe_block_state(state);
@@ -2233,7 +2233,7 @@ update_redstone_line(net_block_pos start_pos) {
             }
 
             for (int i = 0; i < 4; i++) {
-                net_block_pos rel = get_relative_block_pos(
+                BlockPos rel = get_relative_block_pos(
                         wire_pos, directions[i]);
                 rel = get_relative_block_pos(rel, DIRECTION_POS_Y);
 
@@ -2262,7 +2262,7 @@ update_redstone_line(net_block_pos start_pos) {
 
 // @TODO(traks) can we perhaps get rid of the from_direction for simplicity?
 static int
-update_block(net_block_pos pos, int from_direction, int is_delayed,
+update_block(BlockPos pos, int from_direction, int is_delayed,
         block_update_context * buc) {
     // @TODO(traks) ideally all these chunk lookups and block lookups should be
     // cached to make a single block update as fast as possible. It is after all
@@ -2272,7 +2272,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
     block_state_info cur_info = describe_block_state(cur_state);
     i32 cur_type = cur_info.block_type;
 
-    net_block_pos from_pos = get_relative_block_pos(pos, from_direction);
+    BlockPos from_pos = get_relative_block_pos(pos, from_direction);
     u16 from_state = try_get_block_state(from_pos);
     block_state_info from_info = describe_block_state(from_state);
     i32 from_type = from_info.block_type;
@@ -3650,8 +3650,8 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
 }
 
 void
-propagate_delayed_block_updates(memory_arena * scratch_arena) {
-    memory_arena temp_arena = *scratch_arena;
+propagate_delayed_block_updates(MemoryArena * scratch_arena) {
+    MemoryArena temp_arena = *scratch_arena;
     int max_updates = 512;
     block_update_context buc = {
         .blocks_to_update = alloc_in_arena(&temp_arena,
@@ -3673,14 +3673,14 @@ propagate_delayed_block_updates(memory_arena * scratch_arena) {
         i--;
 
         // @TODO(traks) also count these for number of updates
-        net_block_pos pos = sbu.pos;
+        BlockPos pos = sbu.pos;
         update_block(pos, sbu.from_direction, 1, &buc);
     }
 
     serv->scheduled_block_update_count = sbu_count;
 
     for (int i = 0; i < buc.update_count; i++) {
-        net_block_pos pos = buc.blocks_to_update[i].pos;
+        BlockPos pos = buc.blocks_to_update[i].pos;
         int from_direction = buc.blocks_to_update[i].from_direction;
         update_block(pos, from_direction, 0, &buc);
     }
@@ -3689,7 +3689,7 @@ propagate_delayed_block_updates(memory_arena * scratch_arena) {
 void
 propagate_block_updates(block_update_context * buc) {
     for (int i = 0; i < buc->update_count; i++) {
-        net_block_pos pos = buc->blocks_to_update[i].pos;
+        BlockPos pos = buc->blocks_to_update[i].pos;
         int from_direction = buc->blocks_to_update[i].from_direction;
         update_block(pos, from_direction, 0, buc);
     }
@@ -3697,7 +3697,7 @@ propagate_block_updates(block_update_context * buc) {
 
 int
 use_block(entity_base * player,
-        i32 hand, net_block_pos clicked_pos, i32 clicked_face,
+        i32 hand, BlockPos clicked_pos, i32 clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
         u8 is_inside, block_update_context * buc) {
     u16 cur_state = try_get_block_state(clicked_pos);
@@ -4262,15 +4262,12 @@ add_block_property(block_properties * props, int id, char * default_value) {
     int default_value_index = spec->value_count;
     int tape_index = 1 + spec->tape[0];
 
-    net_string default_string = {
-        .size = strlen(default_value),
-        .ptr = default_value
-    };
+    String default_string = STR(default_value);
 
     for (int i = 0; i < spec->value_count; i++) {
-        net_string value = {
+        String value = {
             .size = spec->tape[tape_index],
-            .ptr = spec->tape + tape_index + 1
+            .data = spec->tape + tape_index + 1
         };
         if (net_string_equal(default_string, value)) {
             default_value_index = i;
@@ -4315,10 +4312,7 @@ finalise_block_props(block_properties * props) {
 
 static void
 register_block_type(i32 block_type, char * resource_loc) {
-    net_string key = {
-        .size = strlen(resource_loc),
-        .ptr = resource_loc
-    };
+    String key = STR(resource_loc);
     resource_loc_table * table = &serv->block_resource_table;
     register_resource_loc(key, block_type, table);
     assert(net_string_equal(key, get_resource_loc(block_type, table)));

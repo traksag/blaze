@@ -66,34 +66,34 @@ typedef uint32_t u32;
 typedef uint64_t u64;
 
 typedef struct {
-    unsigned char * ptr;
+    u8 * data;
     i32 size;
     i32 index;
-} memory_arena;
+} MemoryArena;
 
 typedef struct {
     i32 x;
     i32 y;
     i32 z;
-} net_block_pos;
+} BlockPos;
 
 typedef struct {
     // @TODO(traks) could the compiler think that the buffer points to some
     // buffer that contains this struct itself, meaning it has to reload fields
     // after we write something to it?
-    unsigned char * buf;
-    int limit;
-    int index;
-    int error;
-    int mark;
-} buffer_cursor;
-
-#define NET_STRING(x) ((net_string) {.size = sizeof (x) - 1, .ptr = (x)})
+    unsigned char * data;
+    i32 size;
+    i32 index;
+    i32 error;
+    i32 mark;
+} BufferCursor;
 
 typedef struct {
+    u8 * data;
     i32 size;
-    void * ptr;
-} net_string;
+} String;
+
+#define STR(x) ((String) {.size = strlen(x), .data = (u8 *) (x)})
 
 enum nbt_tag {
     NBT_TAG_END,
@@ -290,7 +290,7 @@ typedef struct {
 
 typedef struct {
     int type;
-    net_block_pos pos;
+    BlockPos pos;
     i32 data;
 } level_event;
 
@@ -3283,7 +3283,7 @@ typedef struct {
 } tracked_entity;
 
 typedef struct {
-    net_block_pos pos;
+    BlockPos pos;
     u16 new_state;
     unsigned char action;
     unsigned char success;
@@ -3346,7 +3346,7 @@ typedef struct {
     // @TODO(traks) this feels a bit silly, but very simple
     tracked_entity tracked_entities[MAX_ENTITIES];
 
-    net_block_pos changed_blocks[8];
+    BlockPos changed_blocks[8];
     u8 changed_block_count;
 
     // @TODO(traks) figure out the maximum number of blocks broken per tick by
@@ -3627,13 +3627,13 @@ typedef struct {
 } biome;
 
 typedef struct {
-    net_block_pos pos;
+    BlockPos pos;
     int from_direction;
     i64 for_tick;
 } scheduled_block_update;
 
 typedef struct {
-    net_block_pos pos;
+    BlockPos pos;
     unsigned char from_direction;
 } block_update;
 
@@ -3733,119 +3733,119 @@ void
 logs_errno(void * format);
 
 void *
-alloc_in_arena(memory_arena * arena, i32 size);
+alloc_in_arena(MemoryArena * arena, i32 size);
 
 i32
-net_read_varint(buffer_cursor * cursor);
+net_read_varint(BufferCursor * cursor);
 
 void
-net_write_varint(buffer_cursor * cursor, i32 val);
+net_write_varint(BufferCursor * cursor, i32 val);
 
 int
 net_varint_size(i32 val);
 
 i64
-net_read_varlong(buffer_cursor * cursor);
+net_read_varlong(BufferCursor * cursor);
 
 void
-net_write_varlong(buffer_cursor * cursor, i64 val);
+net_write_varlong(BufferCursor * cursor, i64 val);
 
 i32
-net_read_int(buffer_cursor * cursor);
+net_read_int(BufferCursor * cursor);
 
 void
-net_write_int(buffer_cursor * cursor, i32 val);
+net_write_int(BufferCursor * cursor, i32 val);
 
 i16
-net_read_short(buffer_cursor * cursor);
+net_read_short(BufferCursor * cursor);
 
 void
-net_write_short(buffer_cursor * cursor, i16 val);
+net_write_short(BufferCursor * cursor, i16 val);
 
 i8
-net_read_byte(buffer_cursor * cursor);
+net_read_byte(BufferCursor * cursor);
 
 void
-net_write_byte(buffer_cursor * cursor, i8 val);
+net_write_byte(BufferCursor * cursor, i8 val);
 
 i64
-net_read_long(buffer_cursor * cursor);
+net_read_long(BufferCursor * cursor);
 
 void
-net_write_long(buffer_cursor * cursor, i64 val);
+net_write_long(BufferCursor * cursor, i64 val);
 
 u16
-net_read_ushort(buffer_cursor * cursor);
+net_read_ushort(BufferCursor * cursor);
 
 void
-net_write_ushort(buffer_cursor * cursor, u16 val);
+net_write_ushort(BufferCursor * cursor, u16 val);
 
 u64
-net_read_ulong(buffer_cursor * cursor);
+net_read_ulong(BufferCursor * cursor);
 
 void
-net_write_ulong(buffer_cursor * cursor, u64 val);
+net_write_ulong(BufferCursor * cursor, u64 val);
 
 u32
-net_read_uint(buffer_cursor * cursor);
+net_read_uint(BufferCursor * cursor);
 
 void
-net_write_uint(buffer_cursor * cursor, u32 val);
+net_write_uint(BufferCursor * cursor, u32 val);
 
 u8
-net_read_ubyte(buffer_cursor * cursor);
+net_read_ubyte(BufferCursor * cursor);
 
 void
-net_write_ubyte(buffer_cursor * cursor, u8 val);
+net_write_ubyte(BufferCursor * cursor, u8 val);
 
-net_string
-net_read_string(buffer_cursor * cursor, i32 max_size);
+String
+net_read_string(BufferCursor * cursor, i32 max_size);
 
 void
-net_write_string(buffer_cursor * cursor, net_string val);
+net_write_string(BufferCursor * cursor, String val);
 
 float
-net_read_float(buffer_cursor * cursor);
+net_read_float(BufferCursor * cursor);
 
 void
-net_write_float(buffer_cursor * cursor, float val);
+net_write_float(BufferCursor * cursor, float val);
 
 double
-net_read_double(buffer_cursor * cursor);
+net_read_double(BufferCursor * cursor);
 
 void
-net_write_double(buffer_cursor * cursor, double val);
+net_write_double(BufferCursor * cursor, double val);
 
-net_block_pos
-net_read_block_pos(buffer_cursor * cursor);
-
-void
-net_write_block_pos(buffer_cursor * cursor, net_block_pos val);
+BlockPos
+net_read_block_pos(BufferCursor * cursor);
 
 void
-net_write_data(buffer_cursor * cursor, void * restrict src, size_t size);
+net_write_block_pos(BufferCursor * cursor, BlockPos val);
+
+void
+net_write_data(BufferCursor * cursor, void * restrict src, size_t size);
 
 nbt_tape_entry *
-nbt_move_to_key(net_string matcher, nbt_tape_entry * tape,
-        buffer_cursor * cursor);
+nbt_move_to_key(String matcher, nbt_tape_entry * tape,
+        BufferCursor * cursor);
 
-net_string
-nbt_get_string(net_string matcher, nbt_tape_entry * tape,
-        buffer_cursor * cursor);
-
-nbt_tape_entry *
-nbt_get_compound(net_string matcher, nbt_tape_entry * tape,
-        buffer_cursor * cursor);
+String
+nbt_get_string(String matcher, nbt_tape_entry * tape,
+        BufferCursor * cursor);
 
 nbt_tape_entry *
-load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_level);
+nbt_get_compound(String matcher, nbt_tape_entry * tape,
+        BufferCursor * cursor);
+
+nbt_tape_entry *
+load_nbt(BufferCursor * cursor, MemoryArena * arena, int max_level);
 
 void
-print_nbt(nbt_tape_entry * tape, buffer_cursor * cursor,
-        memory_arena * arena, int max_levels);
+print_nbt(nbt_tape_entry * tape, BufferCursor * cursor,
+        MemoryArena * arena, int max_levels);
 
 int
-find_property_value_index(block_property_spec * prop_spec, net_string val);
+find_property_value_index(block_property_spec * prop_spec, String val);
 
 chunk *
 get_or_create_chunk(chunk_pos pos);
@@ -3857,13 +3857,13 @@ chunk *
 get_chunk_if_available(chunk_pos pos);
 
 block_entity_base *
-try_get_block_entity(net_block_pos pos);
+try_get_block_entity(BlockPos pos);
 
 u16
-try_get_block_state(net_block_pos pos);
+try_get_block_state(BlockPos pos);
 
 void
-try_set_block_state(net_block_pos pos, u16 block_state);
+try_set_block_state(BlockPos pos, u16 block_state);
 
 void
 chunk_set_block_state(chunk * ch, int x, int y, int z, u16 block_state);
@@ -3873,7 +3873,7 @@ chunk_get_block_state(chunk * ch, int x, int y, int z);
 
 void
 try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
-        memory_arena * scratch_arena);
+        MemoryArena * scratch_arena);
 
 chunk_section *
 alloc_chunk_section(void);
@@ -3905,33 +3905,33 @@ void
 add_stack_to_player_inventory(entity_base * player, item_stack * to_add);
 
 void
-tick_player(entity_base * entity, memory_arena * tick_arena);
+tick_player(entity_base * entity, MemoryArena * tick_arena);
 
 void
-send_packets_to_player(entity_base * entity, memory_arena * tick_arena);
+send_packets_to_player(entity_base * entity, MemoryArena * tick_arena);
 
 void
-register_resource_loc(net_string resource_loc, i16 id,
+register_resource_loc(String resource_loc, i16 id,
         resource_loc_table * table);
 
 i16
-resolve_resource_loc_id(net_string resource_loc, resource_loc_table * table);
+resolve_resource_loc_id(String resource_loc, resource_loc_table * table);
 
-net_string
+String
 get_resource_loc(u16 id, resource_loc_table * table);
 
 int
-net_string_equal(net_string a, net_string b);
+net_string_equal(String a, String b);
 
 void
 process_use_item_on_packet(entity_base * player,
-        i32 hand, net_block_pos clicked_pos, i32 clicked_face,
+        i32 hand, BlockPos clicked_pos, i32 clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
-        u8 is_inside, memory_arena * scratch_arena);
+        u8 is_inside, MemoryArena * scratch_arena);
 
 int
 use_block(entity_base * player,
-        i32 hand, net_block_pos clicked_pos, i32 clicked_face,
+        i32 hand, BlockPos clicked_pos, i32 clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
         u8 is_inside, block_update_context * buc);
 
@@ -3939,13 +3939,13 @@ u8
 get_max_stack_size(i32 item_type);
 
 void
-propagate_delayed_block_updates(memory_arena * scratch_arena);
+propagate_delayed_block_updates(MemoryArena * scratch_arena);
 
 void
 propagate_block_updates(block_update_context * buc);
 
-net_block_pos
-get_relative_block_pos(net_block_pos pos, int face);
+BlockPos
+get_relative_block_pos(BlockPos pos, int face);
 
 int
 can_plant_survive_on(i32 type_below);
@@ -3984,11 +3984,11 @@ int
 can_redstone_wire_survive_on(u16 state_below);
 
 int
-update_redstone_wire(net_block_pos pos, u16 in_world_state,
+update_redstone_wire(BlockPos pos, u16 in_world_state,
         block_state_info * base_info, block_update_context * buc);
 
 int
-can_sugar_cane_survive_at(net_block_pos cur_pos);
+can_sugar_cane_survive_at(BlockPos cur_pos);
 
 int
 get_opposite_direction(int direction);
@@ -4018,18 +4018,18 @@ u16
 make_block_state(block_state_info * info);
 
 void
-update_stairs_shape(net_block_pos pos, block_state_info * cur_info);
+update_stairs_shape(BlockPos pos, block_state_info * cur_info);
 
 void
-update_pane_shape(net_block_pos pos,
+update_pane_shape(BlockPos pos,
         block_state_info * cur_info, int from_direction);
 
 void
-update_fence_shape(net_block_pos pos,
+update_fence_shape(BlockPos pos,
         block_state_info * cur_info, int from_direction);
 
 void
-update_wall_shape(net_block_pos pos,
+update_wall_shape(BlockPos pos,
         block_state_info * cur_info, int from_direction);
 
 int
@@ -4039,7 +4039,7 @@ int
 is_wall(i32 block_type);
 
 block_model
-get_collision_model(u16 block_state, net_block_pos pos);
+get_collision_model(u16 block_state, BlockPos pos);
 
 support_model
 get_support_model(u16 block_state);
@@ -4054,7 +4054,7 @@ int
 is_full_water(u16 state);
 
 void
-push_direct_neighbour_block_updates(net_block_pos pos,
+push_direct_neighbour_block_updates(BlockPos pos,
         block_update_context * buc);
 
 #endif

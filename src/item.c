@@ -6,7 +6,7 @@
 #define PLACE_CAN_PLACE ((unsigned) (1 << 1))
 
 typedef struct {
-    net_block_pos pos;
+    BlockPos pos;
     u16 cur_state;
     unsigned char flags;
     i32 cur_type;
@@ -14,12 +14,12 @@ typedef struct {
 
 typedef struct {
     entity_base * player;
-    net_block_pos clicked_pos;
+    BlockPos clicked_pos;
     i32 clicked_face;
     float click_offset_x;
     float click_offset_y;
     float click_offset_z;
-    memory_arena * scratch_arena;
+    MemoryArena * scratch_arena;
     block_update_context * buc;
 } place_context;
 
@@ -81,10 +81,10 @@ can_replace(i32 place_type, i32 cur_type) {
 }
 
 static place_target
-determine_place_target(net_block_pos clicked_pos,
+determine_place_target(BlockPos clicked_pos,
         i32 clicked_face, i32 place_type) {
     place_target res = {0};
-    net_block_pos target_pos = clicked_pos;
+    BlockPos target_pos = clicked_pos;
     u16 cur_state = try_get_block_state(target_pos);
     i32 cur_type = serv->block_type_by_state[cur_state];
     int replacing = PLACE_REPLACING;
@@ -347,7 +347,7 @@ place_chain(place_context context, i32 place_type) {
 
 static void
 place_slab(place_context context, i32 place_type) {
-    net_block_pos target_pos = context.clicked_pos;
+    BlockPos target_pos = context.clicked_pos;
     u16 cur_state = try_get_block_state(target_pos);
     block_state_info cur_info = describe_block_state(cur_state);
     i32 cur_type = cur_info.block_type;
@@ -402,7 +402,7 @@ place_slab(place_context context, i32 place_type) {
 
 static void
 place_sea_pickle(place_context context, i32 place_type) {
-    net_block_pos target_pos = context.clicked_pos;
+    BlockPos target_pos = context.clicked_pos;
     u16 cur_state = try_get_block_state(target_pos);
     block_state_info cur_info = describe_block_state(cur_state);
     i32 cur_type = cur_info.block_type;
@@ -452,7 +452,7 @@ place_sea_pickle(place_context context, i32 place_type) {
 
 static void
 place_snow(place_context context, i32 place_type) {
-    net_block_pos target_pos = context.clicked_pos;
+    BlockPos target_pos = context.clicked_pos;
     u16 cur_state = try_get_block_state(target_pos);
     block_state_info cur_info = describe_block_state(cur_state);
     i32 cur_type = cur_info.block_type;
@@ -706,7 +706,7 @@ place_mushroom_block(place_context context, i32 place_type) {
     int directions[] = {0, 1, 2, 3, 4, 5};
 
     for (int i = 0; i < 6; i++) {
-        net_block_pos pos = get_relative_block_pos(target.pos, directions[i]);
+        BlockPos pos = get_relative_block_pos(target.pos, directions[i]);
         u16 state = try_get_block_state(pos);
         i32 type = serv->block_type_by_state[state];
 
@@ -736,7 +736,7 @@ place_end_rod(place_context context, i32 place_type) {
 
     int opposite_face = get_opposite_direction(context.clicked_face);
 
-    net_block_pos opposite_pos = get_relative_block_pos(target.pos, opposite_face);
+    BlockPos opposite_pos = get_relative_block_pos(target.pos, opposite_face);
     u16 opposite_state = try_get_block_state(opposite_pos);
     block_state_info opposite_info = describe_block_state(opposite_state);
 
@@ -923,7 +923,7 @@ place_dead_coral_fan(place_context context, i32 base_place_type,
             continue;
         }
 
-        net_block_pos attach_pos = get_relative_block_pos(target.pos, dir);
+        BlockPos attach_pos = get_relative_block_pos(target.pos, dir);
         u16 wall_state = try_get_block_state(attach_pos);
         int wall_face = get_opposite_direction(dir);
         support_model support = get_support_model(wall_state);
@@ -985,7 +985,7 @@ place_torch(place_context context, i32 base_place_type,
             continue;
         }
 
-        net_block_pos attach_pos = get_relative_block_pos(target.pos, dir);
+        BlockPos attach_pos = get_relative_block_pos(target.pos, dir);
         u16 wall_state = try_get_block_state(attach_pos);
         int wall_face = get_opposite_direction(dir);
         support_model support = get_support_model(wall_state);
@@ -1041,7 +1041,7 @@ place_ladder(place_context context, i32 place_type) {
             continue;
         }
 
-        net_block_pos attach_pos = get_relative_block_pos(target.pos, dir);
+        BlockPos attach_pos = get_relative_block_pos(target.pos, dir);
         u16 wall_state = try_get_block_state(attach_pos);
         support_model support = get_support_model(wall_state);
         int wall_face = get_opposite_direction(dir);
@@ -1126,7 +1126,7 @@ place_bed(place_context context, i32 place_type, int dye_colour) {
     }
 
     int facing = get_player_facing(context.player);
-    net_block_pos head_pos = get_relative_block_pos(target.pos, facing);
+    BlockPos head_pos = get_relative_block_pos(target.pos, facing);
     u16 neighbour_state = try_get_block_state(head_pos);
     i32 neighbour_type = serv->block_type_by_state[neighbour_state];
 
@@ -1323,7 +1323,7 @@ place_lever_or_button(place_context context, i32 place_type) {
 
     for (int i = 0; i < 6; i++) {
         int dir = list.directions[i];
-        net_block_pos attach_pos = get_relative_block_pos(target.pos, dir);
+        BlockPos attach_pos = get_relative_block_pos(target.pos, dir);
         u16 wall_state = try_get_block_state(attach_pos);
         int wall_face = get_opposite_direction(dir);
         support_model support = get_support_model(wall_state);
@@ -1425,7 +1425,7 @@ place_amethyst_cluster(place_context context, i32 place_type) {
     }
 
     int opposite_face = get_opposite_direction(context.clicked_face);
-    net_block_pos opposite_pos = get_relative_block_pos(target.pos, opposite_face);
+    BlockPos opposite_pos = get_relative_block_pos(target.pos, opposite_face);
     u16 opposite_state = try_get_block_state(opposite_pos);
 
     support_model support = get_support_model(opposite_state);
@@ -1444,9 +1444,9 @@ place_amethyst_cluster(place_context context, i32 place_type) {
 
 void
 process_use_item_on_packet(entity_base * player,
-        i32 hand, net_block_pos clicked_pos, i32 clicked_face,
+        i32 hand, BlockPos clicked_pos, i32 clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
-        u8 is_inside, memory_arena * scratch_arena) {
+        u8 is_inside, MemoryArena * scratch_arena) {
     if (player->flags & ENTITY_TELEPORTING) {
         // ignore
         return;
@@ -3962,7 +3962,7 @@ process_use_item_on_packet(entity_base * player,
     // can update a desynced block by clicking on it.
 
     // @TODO(traks) we shouldn't assert here
-    net_block_pos changed_pos = clicked_pos;
+    BlockPos changed_pos = clicked_pos;
     assert(player->player.changed_block_count < ARRAY_SIZE(player->player.changed_blocks));
     player->player.changed_blocks[player->player.changed_block_count] = changed_pos;
     player->player.changed_block_count++;
@@ -4161,10 +4161,7 @@ get_max_stack_size(i32 item_type) {
 
 static void
 register_item_type(i32 item_type, char * resource_loc) {
-    net_string key = {
-        .size = strlen(resource_loc),
-        .ptr = resource_loc
-    };
+    String key = STR(resource_loc);
     resource_loc_table * table = &serv->item_resource_table;
     register_resource_loc(key, item_type, table);
     assert(net_string_equal(key, get_resource_loc(item_type, table)));

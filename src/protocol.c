@@ -12,10 +12,10 @@
 // Is unsigned to signed casting well defined?
 
 i32
-net_read_varint(buffer_cursor * cursor) {
+net_read_varint(BufferCursor * cursor) {
     u32 in = 0;
-    unsigned char * data = cursor->buf + cursor->index;
-    int remaining = cursor->limit - cursor->index;
+    unsigned char * data = cursor->data + cursor->index;
+    int remaining = cursor->size - cursor->index;
     // first decode the first 1-4 bytes
     int end = MIN(remaining, 4);
     int i;
@@ -48,10 +48,10 @@ exit:
 }
 
 void
-net_write_varint(buffer_cursor * cursor, i32 val) {
+net_write_varint(BufferCursor * cursor, i32 val) {
     u32 out = val;
-    int remaining = cursor->limit - cursor->index;
-    unsigned char * data = cursor->buf + cursor->index;
+    int remaining = cursor->size - cursor->index;
+    unsigned char * data = cursor->data + cursor->index;
 
     // write each block of 7 bits until no more are necessary
     int i = 0;
@@ -88,10 +88,10 @@ net_varint_size(i32 val) {
 }
 
 i64
-net_read_varlong(buffer_cursor * cursor) {
+net_read_varlong(BufferCursor * cursor) {
     u64 in = 0;
-    unsigned char * data = cursor->buf + cursor->index;
-    int remaining = cursor->limit - cursor->index;
+    unsigned char * data = cursor->data + cursor->index;
+    int remaining = cursor->size - cursor->index;
     // first decode the first 1-9 bytes
     int end = MIN(remaining, 9);
     int i;
@@ -124,10 +124,10 @@ exit:
 }
 
 void
-net_write_varlong(buffer_cursor * cursor, i64 val) {
+net_write_varlong(BufferCursor * cursor, i64 val) {
     u64 out = val;
-    int remaining = cursor->limit - cursor->index;
-    unsigned char * data = cursor->buf + cursor->index;
+    int remaining = cursor->size - cursor->index;
+    unsigned char * data = cursor->data + cursor->index;
 
     // write each block of 7 bits until no more are necessary
     int i = 0;
@@ -149,7 +149,7 @@ net_write_varlong(buffer_cursor * cursor, i64 val) {
 }
 
 i32
-net_read_int(buffer_cursor * cursor) {
+net_read_int(BufferCursor * cursor) {
     u32 in = net_read_uint(cursor);
     if (in <= 0x7fffffff) {
         return in;
@@ -159,12 +159,12 @@ net_read_int(buffer_cursor * cursor) {
 }
 
 void
-net_write_int(buffer_cursor * cursor, i32 val) {
+net_write_int(BufferCursor * cursor, i32 val) {
     net_write_uint(cursor, val);
 }
 
 i16
-net_read_short(buffer_cursor * cursor) {
+net_read_short(BufferCursor * cursor) {
     u16 in = net_read_ushort(cursor);
     if (in <= 0x7fff) {
         return in;
@@ -174,12 +174,12 @@ net_read_short(buffer_cursor * cursor) {
 }
 
 void
-net_write_short(buffer_cursor * cursor, i16 val) {
+net_write_short(BufferCursor * cursor, i16 val) {
     net_write_ushort(cursor, val);
 }
 
 i8
-net_read_byte(buffer_cursor * cursor) {
+net_read_byte(BufferCursor * cursor) {
     u8 in = net_read_ubyte(cursor);
     if (in <= 0x7f) {
         return in;
@@ -189,12 +189,12 @@ net_read_byte(buffer_cursor * cursor) {
 }
 
 void
-net_write_byte(buffer_cursor * cursor, i8 val) {
+net_write_byte(BufferCursor * cursor, i8 val) {
     net_write_ubyte(cursor, val);
 }
 
 i64
-net_read_long(buffer_cursor * cursor) {
+net_read_long(BufferCursor * cursor) {
     u64 in = net_read_ulong(cursor);
     if (in <= 0x7fffffffffffffff) {
         return in;
@@ -204,18 +204,18 @@ net_read_long(buffer_cursor * cursor) {
 }
 
 void
-net_write_long(buffer_cursor * cursor, i64 val) {
+net_write_long(BufferCursor * cursor, i64 val) {
     net_write_ulong(cursor, val);
 }
 
 u16
-net_read_ushort(buffer_cursor * cursor) {
-    if (cursor->limit - cursor->index < 2) {
+net_read_ushort(BufferCursor * cursor) {
+    if (cursor->size - cursor->index < 2) {
         cursor->error = 1;
         return 0;
     }
 
-    unsigned char * buf = cursor->buf + cursor->index;
+    unsigned char * buf = cursor->data + cursor->index;
     u16 res = 0;
     res |= (u16) buf[0] << 8;
     res |= (u16) buf[1];
@@ -224,26 +224,26 @@ net_read_ushort(buffer_cursor * cursor) {
 }
 
 void
-net_write_ushort(buffer_cursor * cursor, u16 val) {
-    if (cursor->limit - cursor->index < 2) {
+net_write_ushort(BufferCursor * cursor, u16 val) {
+    if (cursor->size - cursor->index < 2) {
         cursor->error = 1;
         return;
     }
 
-    unsigned char * buf = cursor->buf + cursor->index;
+    unsigned char * buf = cursor->data + cursor->index;
     buf[0] = (val >> 8) & 0xff;
     buf[1] = (val >> 0) & 0xff;
     cursor->index += 2;
 }
 
 u64
-net_read_ulong(buffer_cursor * cursor) {
-    if (cursor->limit - cursor->index < 8) {
+net_read_ulong(BufferCursor * cursor) {
+    if (cursor->size - cursor->index < 8) {
         cursor->error = 1;
         return 0;
     }
 
-    unsigned char * buf = cursor->buf + cursor->index;
+    unsigned char * buf = cursor->data + cursor->index;
     u64 res = 0;
     res |= (u64) buf[0] << 56;
     res |= (u64) buf[1] << 48;
@@ -258,13 +258,13 @@ net_read_ulong(buffer_cursor * cursor) {
 }
 
 void
-net_write_ulong(buffer_cursor * cursor, u64 val) {
-    if (cursor->limit - cursor->index < 8) {
+net_write_ulong(BufferCursor * cursor, u64 val) {
+    if (cursor->size - cursor->index < 8) {
         cursor->error = 1;
         return;
     }
 
-    unsigned char * buf = cursor->buf + cursor->index;
+    unsigned char * buf = cursor->data + cursor->index;
     buf[0] = (val >> 56) & 0xff;
     buf[1] = (val >> 48) & 0xff;
     buf[2] = (val >> 40) & 0xff;
@@ -277,13 +277,13 @@ net_write_ulong(buffer_cursor * cursor, u64 val) {
 }
 
 u32
-net_read_uint(buffer_cursor * cursor) {
-    if (cursor->limit - cursor->index < 4) {
+net_read_uint(BufferCursor * cursor) {
+    if (cursor->size - cursor->index < 4) {
         cursor->error = 1;
         return 0;
     }
 
-    unsigned char * buf = cursor->buf + cursor->index;
+    unsigned char * buf = cursor->data + cursor->index;
     u32 res = 0;
     res |= (u32) buf[0] << 24;
     res |= (u32) buf[1] << 16;
@@ -294,13 +294,13 @@ net_read_uint(buffer_cursor * cursor) {
 }
 
 void
-net_write_uint(buffer_cursor * cursor, u32 val) {
-    if (cursor->limit - cursor->index < 4) {
+net_write_uint(BufferCursor * cursor, u32 val) {
+    if (cursor->size - cursor->index < 4) {
         cursor->error = 1;
         return;
     }
 
-    unsigned char * buf = cursor->buf + cursor->index;
+    unsigned char * buf = cursor->data + cursor->index;
     buf[0] = (val >> 24) & 0xff;
     buf[1] = (val >> 16) & 0xff;
     buf[2] = (val >> 8) & 0xff;
@@ -309,53 +309,53 @@ net_write_uint(buffer_cursor * cursor, u32 val) {
 }
 
 u8
-net_read_ubyte(buffer_cursor * cursor) {
-    if (cursor->limit - cursor->index < 1) {
+net_read_ubyte(BufferCursor * cursor) {
+    if (cursor->size - cursor->index < 1) {
         cursor->error = 1;
         return 0;
     }
 
-    unsigned char * buf = cursor->buf + cursor->index;
+    unsigned char * buf = cursor->data + cursor->index;
     u8 res = buf[0];
     cursor->index += 1;
     return res;
 }
 
 void
-net_write_ubyte(buffer_cursor * cursor, u8 val) {
-    if (cursor->limit - cursor->index < 1) {
+net_write_ubyte(BufferCursor * cursor, u8 val) {
+    if (cursor->size - cursor->index < 1) {
         cursor->error = 1;
         return;
     }
 
-    unsigned char * buf = cursor->buf + cursor->index;
+    unsigned char * buf = cursor->data + cursor->index;
     buf[0] = val & 0xff;
     cursor->index += 1;
 }
 
-net_string
-net_read_string(buffer_cursor * cursor, i32 max_size) {
+String
+net_read_string(BufferCursor * cursor, i32 max_size) {
     i32 size = net_read_varint(cursor);
-    net_string res = {0};
-    if (size < 0 || size > cursor->limit - cursor->index || size > max_size) {
+    String res = {0};
+    if (size < 0 || size > cursor->size - cursor->index || size > max_size) {
         cursor->error = 1;
         return res;
     }
 
     res.size = size;
-    res.ptr = cursor->buf + cursor->index;
+    res.data = cursor->data + cursor->index;
     cursor->index += size;
     return res;
 }
 
 void
-net_write_string(buffer_cursor * cursor, net_string val) {
+net_write_string(BufferCursor * cursor, String val) {
     net_write_varint(cursor, val.size);
-    if (cursor->limit - cursor->index < val.size) {
+    if (cursor->size - cursor->index < val.size) {
         cursor->error = 1;
         return;
     }
-    memcpy(cursor->buf + cursor->index, val.ptr, val.size);
+    memcpy(cursor->data + cursor->index, val.data, val.size);
     cursor->index += val.size;
 }
 
@@ -367,7 +367,7 @@ net_write_string(buffer_cursor * cursor, net_string val) {
 // probably filter out all non-finite representations too.
 
 float
-net_read_float(buffer_cursor * cursor) {
+net_read_float(BufferCursor * cursor) {
     u32 in = net_read_uint(cursor);
     int encoded_e = (in >> 23) & 0xff;
     i32 significand = in & 0x7fffff;
@@ -396,17 +396,17 @@ net_read_float(buffer_cursor * cursor) {
 }
 
 static void
-net_write_float_zero(buffer_cursor * cursor, int neg) {
+net_write_float_zero(BufferCursor * cursor, int neg) {
     net_write_uint(cursor, neg ? 0x80000000 : 0);
 }
 
 static void
-net_write_float_inf(buffer_cursor * cursor, int neg) {
+net_write_float_inf(BufferCursor * cursor, int neg) {
     net_write_uint(cursor, neg ? 0xff800000 : 0x7f800000);
 }
 
 void
-net_write_float(buffer_cursor * cursor, float val) {
+net_write_float(BufferCursor * cursor, float val) {
     switch (fpclassify(val)) {
     case FP_NORMAL:
     case FP_SUBNORMAL: {
@@ -468,7 +468,7 @@ net_write_float(buffer_cursor * cursor, float val) {
 }
 
 double
-net_read_double(buffer_cursor * cursor) {
+net_read_double(BufferCursor * cursor) {
     u64 in = net_read_ulong(cursor);
     int encoded_e = (in >> 52) & 0x7ff;
     i64 significand = in & 0xfffffffffffff;
@@ -497,17 +497,17 @@ net_read_double(buffer_cursor * cursor) {
 }
 
 static void
-net_write_double_zero(buffer_cursor * cursor, int neg) {
+net_write_double_zero(BufferCursor * cursor, int neg) {
     net_write_ulong(cursor, neg ? 0x8000000000000000 : 0);
 }
 
 static void
-net_write_double_inf(buffer_cursor * cursor, int neg) {
+net_write_double_inf(BufferCursor * cursor, int neg) {
     net_write_ulong(cursor, neg ? 0xfff0000000000000 : 0x7ff0000000000000);
 }
 
 void
-net_write_double(buffer_cursor * cursor, double val) {
+net_write_double(BufferCursor * cursor, double val) {
     // @TODO We use functions that depend on the actual type double is.
     switch (fpclassify(val)) {
     case FP_NORMAL:
@@ -570,18 +570,18 @@ net_write_double(buffer_cursor * cursor, double val) {
     }
 }
 
-net_block_pos
-net_read_block_pos(buffer_cursor * cursor) {
+BlockPos
+net_read_block_pos(BufferCursor * cursor) {
     i64 val = net_read_long(cursor);
     i32 x = val >> 38;
     i32 y = (val << 52) >> 52;
     i32 z = (val << 26) >> 38;
-    net_block_pos res = {.x = x, .y = y, .z = z};
+    BlockPos res = {.x = x, .y = y, .z = z};
     return res;
 }
 
 void
-net_write_block_pos(buffer_cursor * cursor, net_block_pos val) {
+net_write_block_pos(BufferCursor * cursor, BlockPos val) {
     i64 x = (i64) val.x & 0x3ffffff;
     i64 y = (i64) val.y & 0xfff;
     i64 z = (i64) val.z & 0x3ffffff;
@@ -590,12 +590,12 @@ net_write_block_pos(buffer_cursor * cursor, net_block_pos val) {
 }
 
 void
-net_write_data(buffer_cursor * cursor, void * restrict src, size_t size) {
-    if (cursor->limit - cursor->index < size) {
+net_write_data(BufferCursor * cursor, void * restrict src, size_t size) {
+    if (cursor->size - cursor->index < size) {
         cursor->error = 1;
         return;
     }
 
-    memcpy(cursor->buf + cursor->index, src, size);
+    memcpy(cursor->data + cursor->index, src, size);
     cursor->index += size;
 }
