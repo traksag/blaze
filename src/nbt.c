@@ -5,16 +5,16 @@
 typedef struct {
     unsigned char is_list;
     unsigned char element_tag;
-    mc_ushort prev_compound_entry;
-    mc_uint list_elems_remaining;
+    u16 prev_compound_entry;
+    u32 list_elems_remaining;
 } nbt_level_info;
 
 typedef struct {
     unsigned char is_list;
     unsigned char element_tag;
-    mc_uint list_size;
-    mc_uint list_index;
-    mc_uint entry_index;
+    u32 list_size;
+    u32 list_index;
+    u32 entry_index;
 } printer_level_info;
 
 nbt_tape_entry *
@@ -22,7 +22,7 @@ nbt_move_to_key(net_string matcher, nbt_tape_entry * tape,
         buffer_cursor * cursor) {
     while (tape->tag != NBT_TAG_END) {
         cursor->index = tape->buffer_index;
-        mc_ushort key_size = net_read_ushort(cursor);
+        u16 key_size = net_read_ushort(cursor);
         unsigned char * key = cursor->buf + cursor->index;
         if (key_size == matcher.size
                 && memcmp(key, matcher.ptr, matcher.size) == 0) {
@@ -46,7 +46,7 @@ nbt_get_string(net_string matcher, nbt_tape_entry * tape,
     }
 
     // @NOTE(traks) already validated string length during NBT load
-    mc_ushort str_len = net_read_ushort(cursor);
+    u16 str_len = net_read_ushort(cursor);
     net_string res = {
         .size = str_len,
         .ptr = cursor->buf + cursor->index
@@ -118,7 +118,7 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_levels) {
     int cur_level = 0;
     level_info[0] = (nbt_level_info) {0};
 
-    mc_ubyte tag = net_read_ubyte(cursor);
+    u8 tag = net_read_ubyte(cursor);
     int error = 0;
 
     if (tag == NBT_TAG_END) {
@@ -132,7 +132,7 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_levels) {
     }
 
     // skip key of root compound
-    mc_ushort key_size = net_read_ushort(cursor);
+    u16 key_size = net_read_ushort(cursor);
     if (key_size > cursor->limit - cursor->index) {
         logs("Key too long: %ju", (uintmax_t) key_size);
         error = 1;
@@ -162,7 +162,7 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_levels) {
             // entry yet. Currently the previous entry is just the current entry
             // for the first one, so we write to the next tape entry. This is of
             // course not a problem (and circumvents if-statements and such).
-            mc_uint prev = level_info[cur_level].prev_compound_entry + 1;
+            u32 prev = level_info[cur_level].prev_compound_entry + 1;
             tape[prev].next_compound_entry_offset = cur_tape_index - prev;
 
             if (tag == NBT_TAG_END) {
@@ -177,7 +177,7 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_levels) {
                 }
             }
 
-            mc_int entry_start = cursor->index;
+            i32 entry_start = cursor->index;
             key_size = net_read_ushort(cursor);
             if (key_size > cursor->limit - cursor->index) {
                 logs("Key too long: %ju", (uintmax_t) key_size);
@@ -215,8 +215,8 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_levels) {
             }
         }
 
-        static mc_byte elem_bytes[] = {0, 1, 2, 4, 8, 4, 8};
-        static mc_byte array_elem_bytes[] = {1, 0, 0, 0, 4, 8};
+        static i8 elem_bytes[] = {0, 1, 2, 4, 8, 4, 8};
+        static i8 array_elem_bytes[] = {1, 0, 0, 0, 4, 8};
         switch (tag) {
         case NBT_TAG_BYTE:
         case NBT_TAG_SHORT:
@@ -237,9 +237,9 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_levels) {
         case NBT_TAG_BYTE_ARRAY:
         case NBT_TAG_INT_ARRAY:
         case NBT_TAG_LONG_ARRAY: {
-            mc_long elem_bytes = array_elem_bytes[tag - NBT_TAG_BYTE_ARRAY];
-            mc_long array_size = net_read_uint(cursor);
-            if (cursor->index > (mc_long) cursor->limit
+            i64 elem_bytes = array_elem_bytes[tag - NBT_TAG_BYTE_ARRAY];
+            i64 array_size = net_read_uint(cursor);
+            if (cursor->index > (i64) cursor->limit
                     - elem_bytes * array_size) {
                 logs("NBT value overflows buffer");
                 error = 1;
@@ -250,7 +250,7 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_levels) {
             break;
         }
         case NBT_TAG_STRING: {
-            mc_ushort size = net_read_ushort(cursor);
+            u16 size = net_read_ushort(cursor);
             if (cursor->index > cursor->limit - size) {
                 logs("NBT value overflows buffer");
                 error = 1;
@@ -262,8 +262,8 @@ load_nbt(buffer_cursor * cursor, memory_arena * arena, int max_levels) {
         }
         case NBT_TAG_LIST: {
             cur_level++;
-            mc_uint element_tag = net_read_ubyte(cursor);
-            mc_long list_size = net_read_uint(cursor);
+            u32 element_tag = net_read_ubyte(cursor);
+            i64 list_size = net_read_uint(cursor);
             level_info[cur_level] = (nbt_level_info) {
                 .is_list = 1,
                 .element_tag = element_tag,
@@ -319,7 +319,7 @@ print_nbt(nbt_tape_entry * tape, buffer_cursor * cursor,
         assert(cur_level < max_levels);
 
         nbt_tape_entry * base_entry = NULL;
-        mc_ubyte tag;
+        u8 tag;
 
         if (!level_info[cur_level].is_list) {
             // inside compound
@@ -347,7 +347,7 @@ print_nbt(nbt_tape_entry * tape, buffer_cursor * cursor,
             level_info[cur_level].entry_index++;
 
             cursor->index = base_entry->buffer_index;
-            mc_ushort key_size = net_read_ushort(cursor);
+            u16 key_size = net_read_ushort(cursor);
             unsigned char * key = cursor->buf + cursor->index;
             cursor->index += key_size;
             printf("\"%.*s\":", (int) key_size, key);
@@ -382,22 +382,22 @@ print_nbt(nbt_tape_entry * tape, buffer_cursor * cursor,
 
         switch (tag) {
         case NBT_TAG_BYTE: {
-            mc_ubyte val = net_read_ubyte(cursor);
+            u8 val = net_read_ubyte(cursor);
             printf("%ju", (uintmax_t) val);
             break;
         }
         case NBT_TAG_SHORT: {
-            mc_ushort val = net_read_ushort(cursor);
+            u16 val = net_read_ushort(cursor);
             printf("%ju", (uintmax_t) val);
             break;
         }
         case NBT_TAG_INT: {
-            mc_int val = net_read_int(cursor);
+            i32 val = net_read_int(cursor);
             printf("%jd", (intmax_t) val);
             break;
         }
         case NBT_TAG_LONG: {
-            mc_ulong val = net_read_ulong(cursor);
+            u64 val = net_read_ulong(cursor);
             printf("%ju", (uintmax_t) val);
             break;
         }
@@ -417,13 +417,13 @@ print_nbt(nbt_tape_entry * tape, buffer_cursor * cursor,
             break;
         }
         case NBT_TAG_STRING: {
-            mc_ushort val_size = net_read_ushort(cursor);
+            u16 val_size = net_read_ushort(cursor);
             unsigned char * val = cursor->buf + cursor->index;
             printf("\"%.*s\"", (int) val_size, val);
             break;
         }
         case NBT_TAG_LIST: {
-            mc_uint list_size = tape[cur_tape_index].list_size;
+            u32 list_size = tape[cur_tape_index].list_size;
             cur_tape_index++;
 
             cur_level++;

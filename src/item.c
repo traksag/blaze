@@ -7,15 +7,15 @@
 
 typedef struct {
     net_block_pos pos;
-    mc_ushort cur_state;
+    u16 cur_state;
     unsigned char flags;
-    mc_int cur_type;
+    i32 cur_type;
 } place_target;
 
 typedef struct {
     entity_base * player;
     net_block_pos clicked_pos;
-    mc_int clicked_face;
+    i32 clicked_face;
     float click_offset_x;
     float click_offset_y;
     float click_offset_z;
@@ -24,7 +24,7 @@ typedef struct {
 } place_context;
 
 static int
-can_replace(mc_int place_type, mc_int cur_type) {
+can_replace(i32 place_type, i32 cur_type) {
     // @TODO(traks) this is probably not OK for things like flint and steel,
     // water buckets, etc., for which there is no clear correspondence between
     // the item type and the placed state
@@ -82,11 +82,11 @@ can_replace(mc_int place_type, mc_int cur_type) {
 
 static place_target
 determine_place_target(net_block_pos clicked_pos,
-        mc_int clicked_face, mc_int place_type) {
+        i32 clicked_face, i32 place_type) {
     place_target res = {0};
     net_block_pos target_pos = clicked_pos;
-    mc_ushort cur_state = try_get_block_state(target_pos);
-    mc_int cur_type = serv->block_type_by_state[cur_state];
+    u16 cur_state = try_get_block_state(target_pos);
+    i32 cur_type = serv->block_type_by_state[cur_state];
     int replacing = PLACE_REPLACING;
 
     if (!can_replace(place_type, cur_type)) {
@@ -110,20 +110,20 @@ determine_place_target(net_block_pos clicked_pos,
 }
 
 static void
-place_simple_block(place_context context, mc_int place_type) {
+place_simple_block(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort place_state = get_default_block_state(place_type);
+    u16 place_state = get_default_block_state(place_type);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_snowy_grassy_block(place_context context, mc_int place_type) {
+place_snowy_grassy_block(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
@@ -131,9 +131,9 @@ place_snowy_grassy_block(place_context context, mc_int place_type) {
     }
 
     block_state_info place_info = describe_default_block_state(place_type);
-    mc_ushort state_above = try_get_block_state(
+    u16 state_above = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_POS_Y));
-    mc_int type_above = serv->block_type_by_state[state_above];
+    i32 type_above = serv->block_type_by_state[state_above];
 
     if (type_above == BLOCK_SNOW_BLOCK || type_above == BLOCK_SNOW) {
         place_info.snowy = 1;
@@ -141,55 +141,55 @@ place_snowy_grassy_block(place_context context, mc_int place_type) {
         place_info.snowy = 0;
     }
 
-    mc_ushort place_state = make_block_state(&place_info);
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_plant(place_context context, mc_int place_type) {
+place_plant(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort state_below = try_get_block_state(
+    u16 state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
-    mc_int type_below = serv->block_type_by_state[state_below];
+    i32 type_below = serv->block_type_by_state[state_below];
 
     if (!can_plant_survive_on(type_below)) {
         return;
     }
 
-    mc_ushort place_state = get_default_block_state(place_type);
+    u16 place_state = get_default_block_state(place_type);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_azalea(place_context context, mc_int place_type) {
+place_azalea(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort state_below = try_get_block_state(
+    u16 state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
-    mc_int type_below = serv->block_type_by_state[state_below];
+    i32 type_below = serv->block_type_by_state[state_below];
 
     if (!can_azalea_survive_on(type_below)) {
         return;
     }
 
-    mc_ushort place_state = get_default_block_state(place_type);
+    u16 place_state = get_default_block_state(place_type);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_lily_pad(place_context context, mc_int place_type) {
+place_lily_pad(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
@@ -201,95 +201,95 @@ place_lily_pad(place_context context, mc_int place_type) {
         return;
     }
 
-    mc_ushort state_below = try_get_block_state(
+    u16 state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
     if (!can_lily_pad_survive_on(state_below)) {
         return;
     }
 
-    mc_ushort place_state = get_default_block_state(place_type);
+    u16 place_state = get_default_block_state(place_type);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_dead_bush(place_context context, mc_int place_type) {
+place_dead_bush(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort state_below = try_get_block_state(
+    u16 state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
-    mc_int type_below = serv->block_type_by_state[state_below];
+    i32 type_below = serv->block_type_by_state[state_below];
 
     if (!can_dead_bush_survive_on(type_below)) {
         return;
     }
 
-    mc_ushort place_state = get_default_block_state(place_type);
+    u16 place_state = get_default_block_state(place_type);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_wither_rose(place_context context, mc_int place_type) {
+place_wither_rose(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort state_below = try_get_block_state(
+    u16 state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
-    mc_int type_below = serv->block_type_by_state[state_below];
+    i32 type_below = serv->block_type_by_state[state_below];
 
     if (!can_wither_rose_survive_on(type_below)) {
         return;
     }
 
-    mc_ushort place_state = get_default_block_state(place_type);
+    u16 place_state = get_default_block_state(place_type);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_nether_plant(place_context context, mc_int place_type) {
+place_nether_plant(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort state_below = try_get_block_state(
+    u16 state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
-    mc_int type_below = serv->block_type_by_state[state_below];
+    i32 type_below = serv->block_type_by_state[state_below];
 
     if (!can_nether_plant_survive_on(type_below)) {
         return;
     }
 
-    mc_ushort place_state = get_default_block_state(place_type);
+    u16 place_state = get_default_block_state(place_type);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_pressure_plate(place_context context, mc_int place_type) {
+place_pressure_plate(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort state_below = try_get_block_state(
+    u16 state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
     if (!can_pressure_plate_survive_on(state_below)) {
         return;
     }
 
-    mc_ushort place_state = get_default_block_state(place_type);
+    u16 place_state = get_default_block_state(place_type);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
@@ -313,7 +313,7 @@ set_axis_by_clicked_face(block_state_info * place_info, int clicked_face) {
 }
 
 static void
-place_simple_pillar(place_context context, mc_int place_type) {
+place_simple_pillar(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
@@ -323,13 +323,13 @@ place_simple_pillar(place_context context, mc_int place_type) {
     block_state_info place_info = describe_default_block_state(place_type);
     set_axis_by_clicked_face(&place_info, context.clicked_face);
 
-    mc_ushort place_state = make_block_state(&place_info);
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_chain(place_context context, mc_int place_type) {
+place_chain(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
@@ -340,17 +340,17 @@ place_chain(place_context context, mc_int place_type) {
     set_axis_by_clicked_face(&place_info, context.clicked_face);
     place_info.waterlogged = is_water_source(target.cur_state);
 
-    mc_ushort place_state = make_block_state(&place_info);
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_slab(place_context context, mc_int place_type) {
+place_slab(place_context context, i32 place_type) {
     net_block_pos target_pos = context.clicked_pos;
-    mc_ushort cur_state = try_get_block_state(target_pos);
+    u16 cur_state = try_get_block_state(target_pos);
     block_state_info cur_info = describe_block_state(cur_state);
-    mc_int cur_type = cur_info.block_type;
+    i32 cur_type = cur_info.block_type;
 
     int replace_cur = 0;
     if (cur_type == place_type) {
@@ -395,17 +395,17 @@ place_slab(place_context context, mc_int place_type) {
         place_info.waterlogged = is_water_source(cur_state);
     }
 
-    mc_ushort place_state = make_block_state(&place_info);
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target_pos, place_state);
     push_direct_neighbour_block_updates(target_pos, context.buc);
 }
 
 static void
-place_sea_pickle(place_context context, mc_int place_type) {
+place_sea_pickle(place_context context, i32 place_type) {
     net_block_pos target_pos = context.clicked_pos;
-    mc_ushort cur_state = try_get_block_state(target_pos);
+    u16 cur_state = try_get_block_state(target_pos);
     block_state_info cur_info = describe_block_state(cur_state);
-    mc_int cur_type = cur_info.block_type;
+    i32 cur_type = cur_info.block_type;
 
     int replace_cur = 0;
     if (cur_type == place_type) {
@@ -431,9 +431,9 @@ place_sea_pickle(place_context context, mc_int place_type) {
         }
     }
 
-    mc_ushort state_below = try_get_block_state(
+    u16 state_below = try_get_block_state(
             get_relative_block_pos(target_pos, DIRECTION_NEG_Y));
-    mc_int type_below = serv->block_type_by_state[state_below];
+    i32 type_below = serv->block_type_by_state[state_below];
     if (!can_sea_pickle_survive_on(state_below)) {
         return;
     }
@@ -445,17 +445,17 @@ place_sea_pickle(place_context context, mc_int place_type) {
     }
     place_info.waterlogged = is_water_source(cur_state);
 
-    mc_ushort place_state = make_block_state(&place_info);
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target_pos, place_state);
     push_direct_neighbour_block_updates(target_pos, context.buc);
 }
 
 static void
-place_snow(place_context context, mc_int place_type) {
+place_snow(place_context context, i32 place_type) {
     net_block_pos target_pos = context.clicked_pos;
-    mc_ushort cur_state = try_get_block_state(target_pos);
+    u16 cur_state = try_get_block_state(target_pos);
     block_state_info cur_info = describe_block_state(cur_state);
-    mc_int cur_type = cur_info.block_type;
+    i32 cur_type = cur_info.block_type;
 
     int replace_cur = 0;
     if (cur_type == place_type) {
@@ -481,9 +481,9 @@ place_snow(place_context context, mc_int place_type) {
         }
     }
 
-    mc_ushort state_below = try_get_block_state(
+    u16 state_below = try_get_block_state(
             get_relative_block_pos(target_pos, DIRECTION_NEG_Y));
-    mc_int type_below = serv->block_type_by_state[state_below];
+    i32 type_below = serv->block_type_by_state[state_below];
     if (!can_snow_survive_on(state_below)) {
         return;
     }
@@ -493,13 +493,13 @@ place_snow(place_context context, mc_int place_type) {
         place_info.layers = cur_info.layers + 1;
     }
 
-    mc_ushort place_state = make_block_state(&place_info);
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target_pos, place_state);
     push_direct_neighbour_block_updates(target_pos, context.buc);
 }
 
 static void
-place_leaves(place_context context, mc_int place_type) {
+place_leaves(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
@@ -508,7 +508,7 @@ place_leaves(place_context context, mc_int place_type) {
 
     // @TODO(traks) calculate distance to nearest log block and modify block
     // state with that information
-    mc_ushort place_state = serv->block_properties_table[place_type].base_state;
+    u16 place_state = serv->block_properties_table[place_type].base_state;
     place_state += 0; // persistent = true
 
     try_set_block_state(target.pos, place_state);
@@ -516,7 +516,7 @@ place_leaves(place_context context, mc_int place_type) {
 }
 
 static void
-place_horizontal_facing(place_context context, mc_int place_type) {
+place_horizontal_facing(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
@@ -526,13 +526,13 @@ place_horizontal_facing(place_context context, mc_int place_type) {
     block_state_info place_info = describe_default_block_state(place_type);
     place_info.horizontal_facing = get_opposite_direction(get_player_facing(context.player));
 
-    mc_ushort place_state = make_block_state(&place_info);
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_end_portal_frame(place_context context, mc_int place_type) {
+place_end_portal_frame(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
@@ -543,13 +543,13 @@ place_end_portal_frame(place_context context, mc_int place_type) {
     place_info.horizontal_facing = get_opposite_direction(get_player_facing(context.player));
     place_info.eye = 0;
 
-    mc_ushort place_state = make_block_state(&place_info);
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_trapdoor(place_context context, mc_int place_type) {
+place_trapdoor(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
@@ -579,13 +579,13 @@ place_trapdoor(place_context context, mc_int place_type) {
 
     // @TODO(traks) open trapdoor and set powered if necessary
 
-    mc_ushort place_state = make_block_state(&place_info);
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_fence_gate(place_context context, mc_int place_type) {
+place_fence_gate(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
@@ -618,22 +618,22 @@ place_fence_gate(place_context context, mc_int place_type) {
 
     // @TODO(traks) open fence gate and set powered if necessary
 
-    mc_ushort place_state = make_block_state(&place_info);
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_crop(place_context context, mc_int place_type) {
+place_crop(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort state_below = try_get_block_state(
+    u16 state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
-    mc_int type_below = serv->block_type_by_state[state_below];
+    i32 type_below = serv->block_type_by_state[state_below];
 
     // @TODO(traks) light level also needs to be sufficient
     switch (type_below) {
@@ -643,22 +643,22 @@ place_crop(place_context context, mc_int place_type) {
         return;
     }
 
-    mc_ushort place_state = get_default_block_state(place_type);
+    u16 place_state = get_default_block_state(place_type);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_nether_wart(place_context context, mc_int place_type) {
+place_nether_wart(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort state_below = try_get_block_state(
+    u16 state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
-    mc_int type_below = serv->block_type_by_state[state_below];
+    i32 type_below = serv->block_type_by_state[state_below];
 
     switch (type_below) {
     case BLOCK_SOUL_SAND:
@@ -667,23 +667,23 @@ place_nether_wart(place_context context, mc_int place_type) {
         return;
     }
 
-    mc_ushort place_state = get_default_block_state(place_type);
+    u16 place_state = get_default_block_state(place_type);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_carpet(place_context context, mc_int place_type) {
+place_carpet(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort place_state = get_default_block_state(place_type);
-    mc_ushort state_below = try_get_block_state(
+    u16 place_state = get_default_block_state(place_type);
+    u16 state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
-    mc_int type_below = serv->block_type_by_state[state_below];
+    i32 type_below = serv->block_type_by_state[state_below];
 
     if (!can_carpet_survive_on(type_below)) {
         return;
@@ -694,7 +694,7 @@ place_carpet(place_context context, mc_int place_type) {
 }
 
 static void
-place_mushroom_block(place_context context, mc_int place_type) {
+place_mushroom_block(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
@@ -707,8 +707,8 @@ place_mushroom_block(place_context context, mc_int place_type) {
 
     for (int i = 0; i < 6; i++) {
         net_block_pos pos = get_relative_block_pos(target.pos, directions[i]);
-        mc_ushort state = try_get_block_state(pos);
-        mc_int type = serv->block_type_by_state[state];
+        u16 state = try_get_block_state(pos);
+        i32 type = serv->block_type_by_state[state];
 
         // connect to neighbouring mushroom blocks of the same type by setting
         // the six facing properties to true if connected
@@ -719,13 +719,13 @@ place_mushroom_block(place_context context, mc_int place_type) {
         }
     }
 
-    mc_ushort place_state = make_block_state(&place_info);
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_end_rod(place_context context, mc_int place_type) {
+place_end_rod(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
@@ -737,7 +737,7 @@ place_end_rod(place_context context, mc_int place_type) {
     int opposite_face = get_opposite_direction(context.clicked_face);
 
     net_block_pos opposite_pos = get_relative_block_pos(target.pos, opposite_face);
-    mc_ushort opposite_state = try_get_block_state(opposite_pos);
+    u16 opposite_state = try_get_block_state(opposite_pos);
     block_state_info opposite_info = describe_block_state(opposite_state);
 
     if (opposite_info.block_type == place_type) {
@@ -750,13 +750,13 @@ place_end_rod(place_context context, mc_int place_type) {
         place_info.facing = context.clicked_face;
     }
 
-    mc_ushort place_state = make_block_state(&place_info);
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_sugar_cane(place_context context, mc_int place_type) {
+place_sugar_cane(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
@@ -766,20 +766,20 @@ place_sugar_cane(place_context context, mc_int place_type) {
         return;
     }
 
-    mc_ushort place_state = get_default_block_state(place_type);
+    u16 place_state = get_default_block_state(place_type);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_dead_coral(place_context context, mc_int place_type) {
+place_dead_coral(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort state_below = try_get_block_state(
+    u16 state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
     support_model support = get_support_model(state_below);
     if (!(support.full_face_flags & (1 << DIRECTION_POS_Y))) {
@@ -790,7 +790,7 @@ place_dead_coral(place_context context, mc_int place_type) {
     block_state_info place_info = describe_default_block_state(place_type);
     place_info.waterlogged = is_full_water(target.cur_state);
 
-    mc_ushort place_state = make_block_state(&place_info);
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
@@ -902,8 +902,8 @@ get_attach_directions_by_preference(place_context context, place_target target) 
 }
 
 static void
-place_dead_coral_fan(place_context context, mc_int base_place_type,
-        mc_int wall_place_type) {
+place_dead_coral_fan(place_context context, i32 base_place_type,
+        i32 wall_place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, base_place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
@@ -924,7 +924,7 @@ place_dead_coral_fan(place_context context, mc_int base_place_type,
         }
 
         net_block_pos attach_pos = get_relative_block_pos(target.pos, dir);
-        mc_ushort wall_state = try_get_block_state(attach_pos);
+        u16 wall_state = try_get_block_state(attach_pos);
         int wall_face = get_opposite_direction(dir);
         support_model support = get_support_model(wall_state);
 
@@ -952,20 +952,20 @@ place_dead_coral_fan(place_context context, mc_int base_place_type,
         return;
     }
 
-    mc_int place_type = selected_dir == DIRECTION_NEG_Y ?
+    i32 place_type = selected_dir == DIRECTION_NEG_Y ?
             base_place_type : wall_place_type;
     block_state_info place_info = describe_default_block_state(place_type);
     place_info.waterlogged = is_full_water(target.cur_state);
     place_info.horizontal_facing = get_opposite_direction(selected_dir);
 
-    mc_ushort place_state = make_block_state(&place_info);
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_torch(place_context context, mc_int base_place_type,
-        mc_int wall_place_type) {
+place_torch(place_context context, i32 base_place_type,
+        i32 wall_place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, base_place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
@@ -986,7 +986,7 @@ place_torch(place_context context, mc_int base_place_type,
         }
 
         net_block_pos attach_pos = get_relative_block_pos(target.pos, dir);
-        mc_ushort wall_state = try_get_block_state(attach_pos);
+        u16 wall_state = try_get_block_state(attach_pos);
         int wall_face = get_opposite_direction(dir);
         support_model support = get_support_model(wall_state);
 
@@ -1014,18 +1014,18 @@ place_torch(place_context context, mc_int base_place_type,
         return;
     }
 
-    mc_int place_type = selected_dir == DIRECTION_NEG_Y ?
+    i32 place_type = selected_dir == DIRECTION_NEG_Y ?
             base_place_type : wall_place_type;
     block_state_info place_info = describe_default_block_state(place_type);
     place_info.horizontal_facing = get_opposite_direction(selected_dir);
 
-    mc_ushort place_state = make_block_state(&place_info);
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_ladder(place_context context, mc_int place_type) {
+place_ladder(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
@@ -1042,7 +1042,7 @@ place_ladder(place_context context, mc_int place_type) {
         }
 
         net_block_pos attach_pos = get_relative_block_pos(target.pos, dir);
-        mc_ushort wall_state = try_get_block_state(attach_pos);
+        u16 wall_state = try_get_block_state(attach_pos);
         support_model support = get_support_model(wall_state);
         int wall_face = get_opposite_direction(dir);
 
@@ -1060,13 +1060,13 @@ place_ladder(place_context context, mc_int place_type) {
     place_info.horizontal_facing = get_opposite_direction(selected_dir);
     place_info.waterlogged = is_water_source(target.cur_state);
 
-    mc_ushort place_state = make_block_state(&place_info);
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_door(place_context context, mc_int place_type) {
+place_door(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
@@ -1076,7 +1076,7 @@ place_door(place_context context, mc_int place_type) {
         return;
     }
 
-    mc_ushort state_below = try_get_block_state(
+    u16 state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
     support_model support = get_support_model(state_below);
     if (!(support.full_face_flags & (1 << DIRECTION_POS_Y))) {
@@ -1084,9 +1084,9 @@ place_door(place_context context, mc_int place_type) {
         return;
     }
 
-    mc_ushort state_above = try_get_block_state(
+    u16 state_above = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_POS_Y));
-    mc_int type_above = serv->block_type_by_state[state_above];
+    i32 type_above = serv->block_type_by_state[state_above];
 
     if (!can_replace(place_type, type_above)) {
         return;
@@ -1102,7 +1102,7 @@ place_door(place_context context, mc_int place_type) {
     place_info.powered = 0;
 
     // place lower half
-    mc_ushort place_state = make_block_state(&place_info);
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
 
     // place upper half
@@ -1118,7 +1118,7 @@ place_door(place_context context, mc_int place_type) {
 }
 
 static void
-place_bed(place_context context, mc_int place_type, int dye_colour) {
+place_bed(place_context context, i32 place_type, int dye_colour) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
@@ -1127,8 +1127,8 @@ place_bed(place_context context, mc_int place_type, int dye_colour) {
 
     int facing = get_player_facing(context.player);
     net_block_pos head_pos = get_relative_block_pos(target.pos, facing);
-    mc_ushort neighbour_state = try_get_block_state(head_pos);
-    mc_int neighbour_type = serv->block_type_by_state[neighbour_state];
+    u16 neighbour_state = try_get_block_state(head_pos);
+    i32 neighbour_type = serv->block_type_by_state[neighbour_state];
 
     if (!can_replace(place_type, neighbour_type)) {
         return;
@@ -1138,7 +1138,7 @@ place_bed(place_context context, mc_int place_type, int dye_colour) {
     place_info.horizontal_facing = facing;
 
     // place foot part
-    mc_ushort place_state = make_block_state(&place_info);
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
 
     // place head part
@@ -1167,7 +1167,7 @@ place_bed(place_context context, mc_int place_type, int dye_colour) {
 }
 
 static void
-place_bamboo(place_context context, mc_int place_type) {
+place_bamboo(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
@@ -1179,15 +1179,15 @@ place_bamboo(place_context context, mc_int place_type) {
         return;
     }
 
-    mc_ushort state_below = try_get_block_state(
+    u16 state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
-    mc_int type_below = serv->block_type_by_state[state_below];
+    i32 type_below = serv->block_type_by_state[state_below];
 
     if (!is_bamboo_plantable_on(type_below)) {
         return;
     }
 
-    mc_ushort place_state;
+    u16 place_state;
 
     switch (type_below) {
     case BLOCK_BAMBOO_SAPLING:
@@ -1205,7 +1205,7 @@ place_bamboo(place_context context, mc_int place_type) {
 }
 
 static void
-place_stairs(place_context context, mc_int place_type) {
+place_stairs(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
@@ -1222,13 +1222,13 @@ place_stairs(place_context context, mc_int place_type) {
     place_info.waterlogged = is_water_source(target.cur_state);
     update_stairs_shape(target.pos, &place_info);
 
-    mc_ushort place_state = make_block_state(&place_info);
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_fence(place_context context, mc_int place_type) {
+place_fence(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
@@ -1243,13 +1243,13 @@ place_fence(place_context context, mc_int place_type) {
         update_fence_shape(target.pos, &place_info, face);
     }
 
-    mc_ushort place_state = make_block_state(&place_info);
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_pane(place_context context, mc_int place_type) {
+place_pane(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
@@ -1264,13 +1264,13 @@ place_pane(place_context context, mc_int place_type) {
         update_pane_shape(target.pos, &place_info, face);
     }
 
-    mc_ushort place_state = make_block_state(&place_info);
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_wall(place_context context, mc_int place_type) {
+place_wall(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
@@ -1285,13 +1285,13 @@ place_wall(place_context context, mc_int place_type) {
         update_wall_shape(target.pos, &place_info, face);
     }
 
-    mc_ushort place_state = make_block_state(&place_info);
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_rail(place_context context, mc_int place_type) {
+place_rail(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
@@ -1305,13 +1305,13 @@ place_rail(place_context context, mc_int place_type) {
     place_info.rail_shape = player_facing == DIRECTION_NEG_X
             || player_facing == DIRECTION_POS_X ? RAIL_SHAPE_X : RAIL_SHAPE_Z;
 
-    mc_ushort place_state = make_block_state(&place_info);
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_lever_or_button(place_context context, mc_int place_type) {
+place_lever_or_button(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
@@ -1324,7 +1324,7 @@ place_lever_or_button(place_context context, mc_int place_type) {
     for (int i = 0; i < 6; i++) {
         int dir = list.directions[i];
         net_block_pos attach_pos = get_relative_block_pos(target.pos, dir);
-        mc_ushort wall_state = try_get_block_state(attach_pos);
+        u16 wall_state = try_get_block_state(attach_pos);
         int wall_face = get_opposite_direction(dir);
         support_model support = get_support_model(wall_state);
 
@@ -1354,13 +1354,13 @@ place_lever_or_button(place_context context, mc_int place_type) {
         place_info.horizontal_facing = get_opposite_direction(selected_dir);
     }
 
-    mc_ushort place_state = make_block_state(&place_info);
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_grindstone(place_context context, mc_int place_type) {
+place_grindstone(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
@@ -1386,22 +1386,22 @@ place_grindstone(place_context context, mc_int place_type) {
         place_info.horizontal_facing = get_opposite_direction(selected_dir);
     }
 
-    mc_ushort place_state = make_block_state(&place_info);
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
-place_redstone_wire(place_context context, mc_int place_type) {
+place_redstone_wire(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
         return;
     }
 
-    mc_ushort state_below = try_get_block_state(
+    u16 state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
-    mc_int type_below = serv->block_type_by_state[state_below];
+    i32 type_below = serv->block_type_by_state[state_below];
 
     if (!can_redstone_wire_survive_on(state_below)) {
         return;
@@ -1417,7 +1417,7 @@ place_redstone_wire(place_context context, mc_int place_type) {
 }
 
 static void
-place_amethyst_cluster(place_context context, mc_int place_type) {
+place_amethyst_cluster(place_context context, i32 place_type) {
     place_target target = determine_place_target(
             context.clicked_pos, context.clicked_face, place_type);
     if (!(target.flags & PLACE_CAN_PLACE)) {
@@ -1426,7 +1426,7 @@ place_amethyst_cluster(place_context context, mc_int place_type) {
 
     int opposite_face = get_opposite_direction(context.clicked_face);
     net_block_pos opposite_pos = get_relative_block_pos(target.pos, opposite_face);
-    mc_ushort opposite_state = try_get_block_state(opposite_pos);
+    u16 opposite_state = try_get_block_state(opposite_pos);
 
     support_model support = get_support_model(opposite_state);
     if (!(support.full_face_flags & (1 << context.clicked_face))) {
@@ -1437,16 +1437,16 @@ place_amethyst_cluster(place_context context, mc_int place_type) {
     place_info.facing = context.clicked_face;
     place_info.waterlogged = is_water_source(target.cur_state);
 
-    mc_ushort place_state = make_block_state(&place_info);
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 void
 process_use_item_on_packet(entity_base * player,
-        mc_int hand, net_block_pos clicked_pos, mc_int clicked_face,
+        i32 hand, net_block_pos clicked_pos, i32 clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
-        mc_ubyte is_inside, memory_arena * scratch_arena) {
+        u8 is_inside, memory_arena * scratch_arena) {
     if (player->flags & ENTITY_TELEPORTING) {
         // ignore
         return;
@@ -3973,8 +3973,8 @@ process_use_item_on_packet(entity_base * player,
     player->player.changed_block_count++;
 }
 
-mc_ubyte
-get_max_stack_size(mc_int item_type) {
+u8
+get_max_stack_size(i32 item_type) {
     switch (item_type) {
     case ITEM_AIR:
         return 0;
@@ -4160,7 +4160,7 @@ get_max_stack_size(mc_int item_type) {
 }
 
 static void
-register_item_type(mc_int item_type, char * resource_loc) {
+register_item_type(i32 item_type, char * resource_loc) {
     net_string key = {
         .size = strlen(resource_loc),
         .ptr = resource_loc

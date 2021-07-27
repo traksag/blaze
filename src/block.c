@@ -86,20 +86,20 @@ schedule_block_update(net_block_pos pos, int from_direction, int delay) {
 
 static void
 mark_block_state_property(block_state_info * info, int prop) {
-    info->available_properties[prop >> 6] |= (mc_ulong) 1 << (prop & 0x3f);
+    info->available_properties[prop >> 6] |= (u64) 1 << (prop & 0x3f);
 }
 
 int
 has_block_state_property(block_state_info * info, int prop) {
-    return !!(info->available_properties[prop >> 6] & ((mc_ulong) 1 << (prop & 0x3f)));
+    return !!(info->available_properties[prop >> 6] & ((u64) 1 << (prop & 0x3f)));
 }
 
 block_state_info
-describe_block_state(mc_ushort block_state) {
+describe_block_state(u16 block_state) {
     block_state_info res = {0};
-    mc_int block_type = serv->block_type_by_state[block_state];
+    i32 block_type = serv->block_type_by_state[block_state];
     block_properties * props = serv->block_properties_table + block_type;
-    mc_ushort base_state = props->base_state;
+    u16 base_state = props->base_state;
     int offset = block_state - base_state;
 
     for (int i = props->property_count - 1; i >= 0; i--) {
@@ -233,8 +233,8 @@ describe_block_state(mc_ushort block_state) {
     return res;
 }
 
-mc_ushort
-get_default_block_state(mc_int block_type) {
+u16
+get_default_block_state(i32 block_type) {
     block_properties * props = serv->block_properties_table + block_type;
     int offset = 0;
 
@@ -246,16 +246,16 @@ get_default_block_state(mc_int block_type) {
         offset = offset * value_count + value_index;
     }
 
-    mc_ushort default_state = props->base_state + offset;
+    u16 default_state = props->base_state + offset;
     return default_state;
 }
 
 block_state_info
-describe_default_block_state(mc_int block_type) {
+describe_default_block_state(i32 block_type) {
     return describe_block_state(get_default_block_state(block_type));
 }
 
-mc_ushort
+u16
 make_block_state(block_state_info * info) {
     block_properties * props = serv->block_properties_table + info->block_type;
     int offset = 0;
@@ -383,14 +383,14 @@ make_block_state(block_state_info * info) {
         offset = offset * value_count + value_index;
     }
 
-    mc_ushort res = props->base_state + offset;
+    u16 res = props->base_state + offset;
     return res;
 }
 
 static void
 break_block(net_block_pos pos) {
-    mc_ushort cur_state = try_get_block_state(pos);
-    mc_int cur_type = serv->block_type_by_state[cur_state];
+    u16 cur_state = try_get_block_state(pos);
+    i32 cur_type = serv->block_type_by_state[cur_state];
 
     // @TODO(traks) block setting for this
     if (cur_type != BLOCK_FIRE && cur_type != BLOCK_SOUL_FIRE) {
@@ -418,8 +418,8 @@ break_block(net_block_pos pos) {
 // to check whether redstone wire connects diagonally through a block state;
 // this function returns false for those states.
 static int
-conducts_redstone(mc_ushort block_state, net_block_pos pos) {
-    mc_int block_type = serv->block_type_by_state[block_state];
+conducts_redstone(u16 block_state, net_block_pos pos) {
+    i32 block_type = serv->block_type_by_state[block_state];
 
     switch (block_type) {
     // A bunch of materials are excluded in this list: air, carpets and a bunch
@@ -495,13 +495,13 @@ translate_model(block_model * model, float dx, float dy, float dz) {
 }
 
 block_model
-get_collision_model(mc_ushort block_state, net_block_pos pos) {
-    mc_int block_type = serv->block_type_by_state[block_state];
+get_collision_model(u16 block_state, net_block_pos pos) {
+    i32 block_type = serv->block_type_by_state[block_state];
     block_model res;
 
     switch (block_type) {
     case BLOCK_BAMBOO: {
-        mc_ulong seed = ((mc_ulong) pos.x * 3129871) ^ ((mc_ulong) pos.z * 116129781);
+        u64 seed = ((u64) pos.x * 3129871) ^ ((u64) pos.z * 116129781);
         seed = seed * seed * 42317861 + seed * 11;
         seed >>= 16;
         res = serv->block_models[serv->collision_model_by_state[block_state]];
@@ -540,8 +540,8 @@ get_collision_model(mc_ushort block_state, net_block_pos pos) {
 }
 
 support_model
-get_support_model(mc_ushort block_state) {
-    mc_int block_type = serv->block_type_by_state[block_state];
+get_support_model(u16 block_state) {
+    i32 block_type = serv->block_type_by_state[block_state];
     support_model res;
 
     switch (block_type) {
@@ -591,7 +591,7 @@ get_support_model(mc_ushort block_state) {
 }
 
 int
-get_water_level(mc_ushort state) {
+get_water_level(u16 state) {
     block_state_info info = describe_block_state(state);
 
     switch (info.block_type) {
@@ -613,12 +613,12 @@ get_water_level(mc_ushort state) {
 }
 
 int
-is_water_source(mc_ushort state) {
+is_water_source(u16 state) {
     return get_water_level(state) == FLUID_LEVEL_SOURCE;
 }
 
 int
-is_full_water(mc_ushort state) {
+is_full_water(u16 state) {
     int level = get_water_level(state);
     // @TODO(traks) maybe ensure falling level is 8, although Minecraft doesn't
     // differentiate between falling water levels
@@ -626,7 +626,7 @@ is_full_water(mc_ushort state) {
 }
 
 int
-can_plant_survive_on(mc_int type_below) {
+can_plant_survive_on(i32 type_below) {
     // @TODO(traks) actually this is dirt block tag + farmland block
     switch (type_below) {
     case BLOCK_DIRT:
@@ -644,14 +644,14 @@ can_plant_survive_on(mc_int type_below) {
 }
 
 int
-can_lily_pad_survive_on(mc_ushort state_below) {
+can_lily_pad_survive_on(u16 state_below) {
     // @TODO(traks) state at lily pad location must not contain fluid if lily
     // pad is being placed
     if (is_water_source(state_below)) {
         return 1;
     }
 
-    mc_int type_below = serv->block_type_by_state[state_below];
+    i32 type_below = serv->block_type_by_state[state_below];
     switch (type_below) {
     case BLOCK_ICE:
     case BLOCK_FROSTED_ICE:
@@ -664,7 +664,7 @@ can_lily_pad_survive_on(mc_ushort state_below) {
 }
 
 int
-can_carpet_survive_on(mc_int type_below) {
+can_carpet_survive_on(i32 type_below) {
     switch (type_below) {
     case BLOCK_AIR:
     case BLOCK_VOID_AIR:
@@ -676,7 +676,7 @@ can_carpet_survive_on(mc_int type_below) {
 }
 
 int
-can_dead_bush_survive_on(mc_int type_below) {
+can_dead_bush_survive_on(i32 type_below) {
     switch (type_below) {
     case BLOCK_SAND:
     case BLOCK_RED_SAND:
@@ -712,7 +712,7 @@ can_dead_bush_survive_on(mc_int type_below) {
 }
 
 int
-can_wither_rose_survive_on(mc_int type_below) {
+can_wither_rose_survive_on(i32 type_below) {
     switch (type_below) {
     case BLOCK_NETHERRACK:
     case BLOCK_SOUL_SAND:
@@ -724,7 +724,7 @@ can_wither_rose_survive_on(mc_int type_below) {
 }
 
 int
-can_azalea_survive_on(mc_int type_below) {
+can_azalea_survive_on(i32 type_below) {
     switch (type_below) {
     case BLOCK_CLAY:
         return 1;
@@ -734,8 +734,8 @@ can_azalea_survive_on(mc_int type_below) {
 }
 
 int
-can_big_dripleaf_survive_on(mc_ushort state_below) {
-    mc_int type_below = serv->block_type_by_state[state_below];
+can_big_dripleaf_survive_on(u16 state_below) {
+    i32 type_below = serv->block_type_by_state[state_below];
     switch (type_below) {
     case BLOCK_BIG_DRIPLEAF_STEM:
     case BLOCK_BIG_DRIPLEAF:
@@ -752,13 +752,13 @@ can_big_dripleaf_survive_on(mc_ushort state_below) {
 
 int
 can_big_dripleaf_stem_survive_at(net_block_pos cur_pos) {
-    mc_ushort state_below = try_get_block_state(
+    u16 state_below = try_get_block_state(
             get_relative_block_pos(cur_pos, DIRECTION_NEG_Y));
-    mc_int type_below = serv->block_type_by_state[state_below];
+    i32 type_below = serv->block_type_by_state[state_below];
     support_model support_below = get_support_model(state_below);
-    mc_ushort state_above = try_get_block_state(
+    u16 state_above = try_get_block_state(
             get_relative_block_pos(cur_pos, DIRECTION_POS_Y));
-    mc_int type_above = serv->block_type_by_state[state_above];
+    i32 type_above = serv->block_type_by_state[state_above];
 
     if ((type_below == BLOCK_BIG_DRIPLEAF_STEM || support_below.full_face_flags & (1 << DIRECTION_POS_Y))
             && (type_above == BLOCK_BIG_DRIPLEAF_STEM || type_above == BLOCK_BIG_DRIPLEAF)) {
@@ -768,7 +768,7 @@ can_big_dripleaf_stem_survive_at(net_block_pos cur_pos) {
 }
 
 int
-can_small_dripleaf_survive_at(mc_int type_below, mc_ushort cur_state) {
+can_small_dripleaf_survive_at(i32 type_below, u16 cur_state) {
     switch (type_below) {
     // small dripleaf placeable block tag
     case BLOCK_CLAY:
@@ -783,7 +783,7 @@ can_small_dripleaf_survive_at(mc_int type_below, mc_ushort cur_state) {
 }
 
 int
-can_nether_plant_survive_on(mc_int type_below) {
+can_nether_plant_survive_on(i32 type_below) {
     switch (type_below) {
     case BLOCK_SOUL_SOIL:
     // nylium block tag
@@ -796,7 +796,7 @@ can_nether_plant_survive_on(mc_int type_below) {
 }
 
 int
-is_bamboo_plantable_on(mc_int type_below) {
+is_bamboo_plantable_on(i32 type_below) {
     switch (type_below) {
     // bamboo plantable on block tag
     case BLOCK_SAND:
@@ -818,7 +818,7 @@ is_bamboo_plantable_on(mc_int type_below) {
 }
 
 int
-can_sea_pickle_survive_on(mc_ushort state_below) {
+can_sea_pickle_survive_on(u16 state_below) {
     // @TODO(traks) is this correct?
     support_model support = get_support_model(state_below);
     if (support.non_empty_face_flags & (1 << DIRECTION_POS_Y)) {
@@ -828,8 +828,8 @@ can_sea_pickle_survive_on(mc_ushort state_below) {
 }
 
 int
-can_snow_survive_on(mc_ushort state_below) {
-    mc_int type_below = serv->block_type_by_state[state_below];
+can_snow_survive_on(u16 state_below) {
+    i32 type_below = serv->block_type_by_state[state_below];
     switch (type_below) {
     case BLOCK_ICE:
     case BLOCK_PACKED_ICE:
@@ -850,7 +850,7 @@ can_snow_survive_on(mc_ushort state_below) {
 }
 
 int
-can_pressure_plate_survive_on(mc_ushort state_below) {
+can_pressure_plate_survive_on(u16 state_below) {
     // @TODO(traks) can survive if top face is circle too (e.g. cauldron)
     support_model support = get_support_model(state_below);
     if (support.pole_face_flags & (1 << DIRECTION_POS_Y)) {
@@ -860,9 +860,9 @@ can_pressure_plate_survive_on(mc_ushort state_below) {
 }
 
 int
-can_redstone_wire_survive_on(mc_ushort state_below) {
+can_redstone_wire_survive_on(u16 state_below) {
     support_model support = get_support_model(state_below);
-    mc_int type_below = serv->block_type_by_state[state_below];
+    i32 type_below = serv->block_type_by_state[state_below];
     if (support.full_face_flags & (1 << DIRECTION_POS_Y)) {
         return 1;
     } else if (type_below == BLOCK_HOPPER) {
@@ -873,9 +873,9 @@ can_redstone_wire_survive_on(mc_ushort state_below) {
 
 int
 can_sugar_cane_survive_at(net_block_pos cur_pos) {
-    mc_ushort state_below = try_get_block_state(
+    u16 state_below = try_get_block_state(
             get_relative_block_pos(cur_pos, DIRECTION_NEG_Y));
-    mc_int type_below = serv->block_type_by_state[state_below];
+    i32 type_below = serv->block_type_by_state[state_below];
 
     switch (type_below) {
     case BLOCK_SUGAR_CANE:
@@ -900,8 +900,8 @@ can_sugar_cane_survive_at(net_block_pos cur_pos) {
         // check blocks next to ground block for water
         for (int i = 0; i < 4; i++) {
             net_block_pos pos = neighbour_pos[i];
-            mc_ushort neighbour_state = try_get_block_state(pos);
-            mc_int neighbour_type = serv->block_type_by_state[neighbour_state];
+            u16 neighbour_state = try_get_block_state(pos);
+            i32 neighbour_type = serv->block_type_by_state[neighbour_state];
             switch (neighbour_type) {
             case BLOCK_FROSTED_ICE:
                 return 1;
@@ -923,7 +923,7 @@ can_sugar_cane_survive_at(net_block_pos cur_pos) {
 // @TODO(traks) maybe store this kind of info in block properties and block
 // state info structs. Use stairs block tag?
 static int
-is_stairs(mc_int block_type) {
+is_stairs(i32 block_type) {
     switch (block_type) {
     case BLOCK_OAK_STAIRS:
     case BLOCK_SPRUCE_STAIRS:
@@ -1014,7 +1014,7 @@ update_stairs_shape(net_block_pos pos, block_state_info * cur_info) {
     int force_connect_right = 0;
     int force_connect_left = 0;
 
-    mc_ushort state_right = try_get_block_state(get_relative_block_pos(pos,
+    u16 state_right = try_get_block_state(get_relative_block_pos(pos,
             rotate_direction_clockwise(cur_info->horizontal_facing)));
     block_state_info info_right = describe_block_state(state_right);
     if (is_stairs(info_right.block_type)) {
@@ -1023,7 +1023,7 @@ update_stairs_shape(net_block_pos pos, block_state_info * cur_info) {
         }
     }
 
-    mc_ushort state_left = try_get_block_state(get_relative_block_pos(pos, rotate_direction_counter_clockwise(cur_info->horizontal_facing)));
+    u16 state_left = try_get_block_state(get_relative_block_pos(pos, rotate_direction_counter_clockwise(cur_info->horizontal_facing)));
     block_state_info info_left = describe_block_state(state_left);
     if (is_stairs(info_left.block_type)) {
         if (info_left.half == cur_info->half && info_left.horizontal_facing == cur_info->horizontal_facing) {
@@ -1032,7 +1032,7 @@ update_stairs_shape(net_block_pos pos, block_state_info * cur_info) {
     }
 
     // try to connect with stairs in front
-    mc_ushort state_front = try_get_block_state(get_relative_block_pos(pos,
+    u16 state_front = try_get_block_state(get_relative_block_pos(pos,
             get_opposite_direction(cur_info->horizontal_facing)));
     block_state_info info_front = describe_block_state(state_front);
     if (is_stairs(info_front.block_type)) {
@@ -1050,7 +1050,7 @@ update_stairs_shape(net_block_pos pos, block_state_info * cur_info) {
     }
 
     // try to connect with stairs behind
-    mc_ushort state_behind = try_get_block_state(get_relative_block_pos(pos,
+    u16 state_behind = try_get_block_state(get_relative_block_pos(pos,
             cur_info->horizontal_facing));
     block_state_info info_behind = describe_block_state(state_behind);
     if (is_stairs(info_behind.block_type)) {
@@ -1072,8 +1072,8 @@ void
 update_pane_shape(net_block_pos pos,
         block_state_info * cur_info, int from_direction) {
     net_block_pos neighbour_pos = get_relative_block_pos(pos, from_direction);
-    mc_ushort neighbour_state = try_get_block_state(neighbour_pos);
-    mc_int neighbour_type = serv->block_type_by_state[neighbour_state];
+    u16 neighbour_state = try_get_block_state(neighbour_pos);
+    i32 neighbour_type = serv->block_type_by_state[neighbour_state];
 
     *(&cur_info->neg_y + from_direction) = 0;
 
@@ -1171,7 +1171,7 @@ update_pane_shape(net_block_pos pos,
 
 // @TODO(traks) block tag?
 static int
-is_wooden_fence(mc_int block_type) {
+is_wooden_fence(i32 block_type) {
     switch (block_type) {
     case BLOCK_OAK_FENCE:
     case BLOCK_ACACIA_FENCE:
@@ -1189,7 +1189,7 @@ is_wooden_fence(mc_int block_type) {
 
 // @TODO(traks) block tag?
 int
-is_wall(mc_int block_type) {
+is_wall(i32 block_type) {
     switch (block_type) {
     case BLOCK_COBBLESTONE_WALL:
     case BLOCK_MOSSY_COBBLESTONE_WALL:
@@ -1222,8 +1222,8 @@ void
 update_fence_shape(net_block_pos pos,
         block_state_info * cur_info, int from_direction) {
     net_block_pos neighbour_pos = get_relative_block_pos(pos, from_direction);
-    mc_ushort neighbour_state = try_get_block_state(neighbour_pos);
-    mc_int neighbour_type = serv->block_type_by_state[neighbour_state];
+    u16 neighbour_state = try_get_block_state(neighbour_pos);
+    i32 neighbour_type = serv->block_type_by_state[neighbour_state];
 
     *(&cur_info->neg_y + from_direction) = 0;
 
@@ -1288,8 +1288,8 @@ void
 update_wall_shape(net_block_pos pos,
         block_state_info * cur_info, int from_direction) {
     net_block_pos neighbour_pos = get_relative_block_pos(pos, from_direction);
-    mc_ushort neighbour_state = try_get_block_state(neighbour_pos);
-    mc_int neighbour_type = serv->block_type_by_state[neighbour_state];
+    u16 neighbour_state = try_get_block_state(neighbour_pos);
+    i32 neighbour_type = serv->block_type_by_state[neighbour_state];
     block_state_info neighbour_info = describe_block_state(neighbour_state);
 
     if (from_direction == DIRECTION_POS_Y) {
@@ -1414,8 +1414,8 @@ is_redstone_wire_dot(block_state_info * info) {
 }
 
 static int
-can_redstone_wire_connect_horizontally(mc_ushort block_state, int to_dir) {
-    mc_int block_type = serv->block_type_by_state[block_state];
+can_redstone_wire_connect_horizontally(u16 block_state, int to_dir) {
+    i32 block_type = serv->block_type_by_state[block_state];
     block_state_info state_info = describe_block_state(block_state);
 
     switch (block_type) {
@@ -1473,9 +1473,9 @@ can_redstone_wire_connect_horizontally(mc_ushort block_state, int to_dir) {
 }
 
 static int
-get_emitted_redstone_power(mc_ushort block_state, int dir,
+get_emitted_redstone_power(u16 block_state, int dir,
         int to_wire, int ignore_wires) {
-    mc_int block_type = serv->block_type_by_state[block_state];
+    i32 block_type = serv->block_type_by_state[block_state];
     block_state_info info = describe_block_state(block_state);
 
     switch (block_type) {
@@ -1577,9 +1577,9 @@ get_emitted_redstone_power(mc_ushort block_state, int dir,
 }
 
 static int
-get_conducted_redstone_power(mc_ushort block_state, int dir,
+get_conducted_redstone_power(u16 block_state, int dir,
         int to_wire, int ignore_wires) {
-    mc_int block_type = serv->block_type_by_state[block_state];
+    i32 block_type = serv->block_type_by_state[block_state];
     block_state_info info = describe_block_state(block_state);
 
     switch (block_type) {
@@ -1695,7 +1695,7 @@ get_redstone_side_power(net_block_pos pos, int dir, int to_wire,
         int ignore_wires) {
     net_block_pos side_pos = get_relative_block_pos(pos, dir);
     int opp_dir = get_opposite_direction(dir);
-    mc_ushort side_state = try_get_block_state(side_pos);
+    u16 side_state = try_get_block_state(side_pos);
     int res = get_emitted_redstone_power(side_state, opp_dir,
             to_wire, ignore_wires);
 
@@ -1710,7 +1710,7 @@ get_redstone_side_power(net_block_pos pos, int dir, int to_wire,
                 break;
             }
 
-            mc_ushort state = try_get_block_state(
+            u16 state = try_get_block_state(
                     get_relative_block_pos(side_pos, dir_on_side));
             int power = get_conducted_redstone_power(
                     state, get_opposite_direction(dir_on_side),
@@ -1724,7 +1724,7 @@ get_redstone_side_power(net_block_pos pos, int dir, int to_wire,
 static int
 is_redstone_wire_connected(net_block_pos pos, block_state_info * info) {
     net_block_pos pos_above = get_relative_block_pos(pos, DIRECTION_POS_Y);
-    mc_ushort state_above = try_get_block_state(pos_above);
+    u16 state_above = try_get_block_state(pos_above);
     int conductor_above = conducts_redstone(state_above, pos_above);
 
     // order of redstone side entries in block state info struct
@@ -1736,14 +1736,14 @@ is_redstone_wire_connected(net_block_pos pos, block_state_info * info) {
         int dir = directions[i];
         int opp_dir = get_opposite_direction(dir);
         net_block_pos pos_side = get_relative_block_pos(pos, dir);
-        mc_ushort state_side = try_get_block_state(pos_side);
+        u16 state_side = try_get_block_state(pos_side);
 
         if (!conductor_above) {
             // try to connect diagonally up
             net_block_pos dest_pos = get_relative_block_pos(
                     pos_side, DIRECTION_POS_Y);
-            mc_ushort dest_state = try_get_block_state(dest_pos);
-            mc_int dest_type = serv->block_type_by_state[dest_state];
+            u16 dest_state = try_get_block_state(dest_pos);
+            i32 dest_type = serv->block_type_by_state[dest_state];
 
             // can only connect diagonally to redstone wire
             if (dest_type == BLOCK_REDSTONE_WIRE) {
@@ -1759,8 +1759,8 @@ is_redstone_wire_connected(net_block_pos pos, block_state_info * info) {
             // try to connect diagonally down
             net_block_pos dest_pos = get_relative_block_pos(
                     pos_side, DIRECTION_NEG_Y);
-            mc_ushort dest_state = try_get_block_state(dest_pos);
-            mc_int dest_type = serv->block_type_by_state[dest_state];
+            u16 dest_state = try_get_block_state(dest_pos);
+            i32 dest_type = serv->block_type_by_state[dest_state];
 
             // can only connect diagonally to redstone wire
             if (dest_type == BLOCK_REDSTONE_WIRE) {
@@ -1785,10 +1785,10 @@ typedef struct {
 } redstone_wire_env;
 
 int
-update_redstone_wire(net_block_pos pos, mc_ushort in_world_state,
+update_redstone_wire(net_block_pos pos, u16 in_world_state,
         block_state_info * base_info, block_update_context * buc) {
     net_block_pos pos_above = get_relative_block_pos(pos, DIRECTION_POS_Y);
-    mc_ushort state_above = try_get_block_state(pos_above);
+    u16 state_above = try_get_block_state(pos_above);
     int conductor_above = conducts_redstone(state_above, pos_above);
     int was_dot = is_redstone_wire_dot(base_info);
 
@@ -1805,8 +1805,8 @@ update_redstone_wire(net_block_pos pos, mc_ushort in_world_state,
         int dir = directions[i];
         int opp_dir = get_opposite_direction(dir);
         net_block_pos pos_side = get_relative_block_pos(pos, dir);
-        mc_ushort state_side = try_get_block_state(pos_side);
-        mc_int type_side = serv->block_type_by_state[state_side];
+        u16 state_side = try_get_block_state(pos_side);
+        i32 type_side = serv->block_type_by_state[state_side];
         block_state_info side_info = describe_block_state(state_side);
         int new_side = REDSTONE_SIDE_NONE;
 
@@ -1814,8 +1814,8 @@ update_redstone_wire(net_block_pos pos, mc_ushort in_world_state,
             // try to connect diagonally up
             net_block_pos dest_pos = get_relative_block_pos(
                     pos_side, DIRECTION_POS_Y);
-            mc_ushort dest_state = try_get_block_state(dest_pos);
-            mc_int dest_type = serv->block_type_by_state[dest_state];
+            u16 dest_state = try_get_block_state(dest_pos);
+            i32 dest_type = serv->block_type_by_state[dest_state];
 
             // can only connect diagonally to redstone wire
             if (dest_type == BLOCK_REDSTONE_WIRE) {
@@ -1842,8 +1842,8 @@ update_redstone_wire(net_block_pos pos, mc_ushort in_world_state,
             // try to connect diagonally down
             net_block_pos dest_pos = get_relative_block_pos(
                     pos_side, DIRECTION_NEG_Y);
-            mc_ushort dest_state = try_get_block_state(dest_pos);
-            mc_int dest_type = serv->block_type_by_state[dest_state];
+            u16 dest_state = try_get_block_state(dest_pos);
+            i32 dest_type = serv->block_type_by_state[dest_state];
 
             // can only connect diagonally to redstone wire
             if (dest_type == BLOCK_REDSTONE_WIRE) {
@@ -1896,7 +1896,7 @@ update_redstone_wire(net_block_pos pos, mc_ushort in_world_state,
         }
     }
 
-    mc_ushort new_state = make_block_state(base_info);
+    u16 new_state = make_block_state(base_info);
     if (new_state == in_world_state) {
         return 0;
     }
@@ -1924,13 +1924,13 @@ update_redstone_wire(net_block_pos pos, mc_ushort in_world_state,
 }
 
 redstone_wire_env
-calculate_redstone_wire_env(net_block_pos pos, mc_ushort block_state,
+calculate_redstone_wire_env(net_block_pos pos, u16 block_state,
         block_state_info * info, int ignore_same_line_power) {
     net_block_pos pos_above = get_relative_block_pos(pos, DIRECTION_POS_Y);
-    mc_ushort state_above = try_get_block_state(pos_above);
+    u16 state_above = try_get_block_state(pos_above);
     int conductor_above = conducts_redstone(state_above, pos_above);
     net_block_pos pos_below = get_relative_block_pos(pos, DIRECTION_NEG_Y);
-    mc_ushort state_below = try_get_block_state(pos_below);
+    u16 state_below = try_get_block_state(pos_below);
     int conductor_below = conducts_redstone(state_below, pos_below);
 
     // order of redstone side entries in block state info struct
@@ -1948,8 +1948,8 @@ calculate_redstone_wire_env(net_block_pos pos, mc_ushort block_state,
         int dir = directions[i];
         int opp_dir = get_opposite_direction(dir);
         net_block_pos pos_side = get_relative_block_pos(pos, dir);
-        mc_ushort state_side = try_get_block_state(pos_side);
-        mc_int type_side = serv->block_type_by_state[state_side];
+        u16 state_side = try_get_block_state(pos_side);
+        i32 type_side = serv->block_type_by_state[state_side];
         block_state_info side_info = describe_block_state(state_side);
         int conductor_side = conducts_redstone(state_side, pos_side);
         int new_side = REDSTONE_SIDE_NONE;
@@ -1961,8 +1961,8 @@ calculate_redstone_wire_env(net_block_pos pos, mc_ushort block_state,
             // try to connect diagonally up
             net_block_pos dest_pos = get_relative_block_pos(
                     pos_side, DIRECTION_POS_Y);
-            mc_ushort dest_state = try_get_block_state(dest_pos);
-            mc_int dest_type = serv->block_type_by_state[dest_state];
+            u16 dest_state = try_get_block_state(dest_pos);
+            i32 dest_type = serv->block_type_by_state[dest_state];
 
             // can only connect diagonally to redstone wire
             if (dest_type == BLOCK_REDSTONE_WIRE) {
@@ -2001,8 +2001,8 @@ calculate_redstone_wire_env(net_block_pos pos, mc_ushort block_state,
             // try to connect diagonally down
             net_block_pos dest_pos = get_relative_block_pos(
                     pos_side, DIRECTION_NEG_Y);
-            mc_ushort dest_state = try_get_block_state(dest_pos);
-            mc_int dest_type = serv->block_type_by_state[dest_state];
+            u16 dest_state = try_get_block_state(dest_pos);
+            i32 dest_type = serv->block_type_by_state[dest_state];
 
             // can only connect diagonally to redstone wire
             if (dest_type == BLOCK_REDSTONE_WIRE) {
@@ -2085,7 +2085,7 @@ typedef struct {
 
 static void
 update_redstone_line(net_block_pos start_pos) {
-    mc_ushort start_state = try_get_block_state(start_pos);
+    u16 start_state = try_get_block_state(start_pos);
     block_state_info start_info = describe_block_state(start_state);
     redstone_wire_env start_env = calculate_redstone_wire_env(
             start_pos, start_state, &start_info, 0);
@@ -2113,12 +2113,12 @@ update_redstone_line(net_block_pos start_pos) {
         wire_count++;
 
         start_info.power = start_env.power;
-        mc_ushort new_start_state = make_block_state(&start_info);
+        u16 new_start_state = make_block_state(&start_info);
         try_set_block_state(start_pos, new_start_state);
 
         for (int i = 0; i < wire_count; i++) {
             net_block_pos wire_pos = wires[i];
-            mc_ushort state = try_get_block_state(wire_pos);
+            u16 state = try_get_block_state(wire_pos);
             block_state_info info = describe_block_state(state);
             redstone_wire_env env = calculate_redstone_wire_env(
                     wire_pos, state, &info, 0);
@@ -2130,7 +2130,7 @@ update_redstone_line(net_block_pos start_pos) {
 
                 for (int j = 0; j < 3; j++) {
                     if (env.wire_out[i][j]) {
-                        mc_ushort out_state = try_get_block_state(rel);
+                        u16 out_state = try_get_block_state(rel);
                         block_state_info out_info = describe_block_state(out_state);
                         redstone_wire_env out_env = calculate_redstone_wire_env(
                                 rel, out_state, &out_info, 0);
@@ -2166,7 +2166,7 @@ update_redstone_line(net_block_pos start_pos) {
         for (int i = 0; i < wire_count; i++) {
             net_block_pos wire_pos = wires[i].pos;
             int distance = wires[i].distance;
-            mc_ushort state = try_get_block_state(wire_pos);
+            u16 state = try_get_block_state(wire_pos);
             block_state_info info = describe_block_state(state);
             redstone_wire_env env = calculate_redstone_wire_env(
                     wire_pos, state, &info, 1);
@@ -2209,7 +2209,7 @@ update_redstone_line(net_block_pos start_pos) {
         for (int i = 0; i < wire_count; i++) {
             net_block_pos wire_pos = wires[i].pos;
             int distance = wires[i].distance;
-            mc_ushort state = try_get_block_state(wire_pos);
+            u16 state = try_get_block_state(wire_pos);
             block_state_info info = describe_block_state(state);
             int cur_power = info.power;
             redstone_wire_env env = calculate_redstone_wire_env(
@@ -2268,14 +2268,14 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
     // cached to make a single block update as fast as possible. It is after all
     // incredibly easy to create tons of block updates in a single tick.
 
-    mc_ushort cur_state = try_get_block_state(pos);
+    u16 cur_state = try_get_block_state(pos);
     block_state_info cur_info = describe_block_state(cur_state);
-    mc_int cur_type = cur_info.block_type;
+    i32 cur_type = cur_info.block_type;
 
     net_block_pos from_pos = get_relative_block_pos(pos, from_direction);
-    mc_ushort from_state = try_get_block_state(from_pos);
+    u16 from_state = try_get_block_state(from_pos);
     block_state_info from_info = describe_block_state(from_state);
-    mc_int from_type = from_info.block_type;
+    i32 from_type = from_info.block_type;
 
     // @TODO(traks) drop items if the block is broken
 
@@ -2289,14 +2289,14 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
             return 0;
         }
 
-        mc_int type_above = from_type;
+        i32 type_above = from_type;
         if (type_above == BLOCK_SNOW_BLOCK || type_above == BLOCK_SNOW) {
             cur_info.snowy = 1;
         } else {
             cur_info.snowy = 0;
         }
 
-        mc_ushort new_state = make_block_state(&cur_info);
+        u16 new_state = make_block_state(&cur_info);
         if (new_state == cur_state) {
             return 0;
         }
@@ -2329,7 +2329,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
             return 0;
         }
 
-        mc_int type_below = from_type;
+        i32 type_below = from_type;
         if (can_plant_survive_on(type_below)) {
             return 0;
         }
@@ -2381,7 +2381,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
         int facing = cur_info.horizontal_facing;
         if (from_direction == facing) {
             if (cur_info.bed_part == BED_PART_FOOT) {
-                mc_ushort new_state;
+                u16 new_state;
                 if (from_type == cur_type && from_info.bed_part == BED_PART_HEAD) {
                     cur_info.occupied = from_info.occupied;
                     new_state = make_block_state(&cur_info);
@@ -2399,7 +2399,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
             }
         } else if (from_direction == get_opposite_direction(facing)) {
             if (cur_info.bed_part == BED_PART_HEAD) {
-                mc_ushort new_state;
+                u16 new_state;
                 if (from_type == cur_type && from_info.bed_part == BED_PART_FOOT) {
                     cur_info.occupied = from_info.occupied;
                     new_state = make_block_state(&cur_info);
@@ -2429,7 +2429,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
             return 0;
         }
 
-        mc_int type_below = from_type;
+        i32 type_below = from_type;
         if (can_dead_bush_survive_on(type_below)) {
             return 0;
         }
@@ -2452,7 +2452,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
             return 0;
         }
 
-        mc_int type_below = from_type;
+        i32 type_below = from_type;
         if (can_wither_rose_survive_on(type_below)) {
             return 0;
         }
@@ -2611,7 +2611,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
         }
 
         // @TODO(traks) light level also needs to be sufficient
-        mc_int type_below = from_type;
+        i32 type_below = from_type;
         if (type_below == BLOCK_FARMLAND) {
             return 0;
         }
@@ -2647,7 +2647,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
     case BLOCK_WARPED_DOOR: {
         if (from_direction == DIRECTION_POS_Y) {
             if (cur_info.double_block_half == DOUBLE_BLOCK_HALF_LOWER) {
-                mc_ushort new_state;
+                u16 new_state;
                 if (from_type == cur_type
                         && from_info.double_block_half == DOUBLE_BLOCK_HALF_UPPER) {
                     cur_info = from_info;
@@ -2667,7 +2667,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
             }
         } else if (from_direction == DIRECTION_NEG_Y) {
             if (cur_info.double_block_half == DOUBLE_BLOCK_HALF_UPPER) {
-                mc_ushort new_state;
+                u16 new_state;
                 if (from_type == cur_type
                         && from_info.double_block_half == DOUBLE_BLOCK_HALF_LOWER) {
                     cur_info = from_info;
@@ -2818,7 +2818,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
             return 0;
         }
         update_fence_shape(pos, &cur_info, from_direction);
-        mc_ushort new_state = make_block_state(&cur_info);
+        u16 new_state = make_block_state(&cur_info);
         if (new_state == cur_state) {
             return 0;
         }
@@ -2872,7 +2872,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
 
         // connect to neighbouring mushroom block of the same type
         cur_info.values[BLOCK_PROPERTY_NEG_Y + from_direction] = 0;
-        mc_ushort new_state = make_block_state(&cur_info);
+        u16 new_state = make_block_state(&cur_info);
         if (new_state == cur_state) {
             return 0;
         }
@@ -2905,7 +2905,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
             return 0;
         }
         update_pane_shape(pos, &cur_info, from_direction);
-        mc_ushort new_state = make_block_state(&cur_info);
+        u16 new_state = make_block_state(&cur_info);
         if (new_state == cur_state) {
             return 0;
         }
@@ -2925,7 +2925,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
             return 0;
         }
 
-        mc_int type_below = from_type;
+        i32 type_below = from_type;
         if (type_below == BLOCK_FARMLAND) {
             return 0;
         }
@@ -2974,7 +2974,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
             }
         }
 
-        mc_ushort new_state = make_block_state(&cur_info);
+        u16 new_state = make_block_state(&cur_info);
         if (new_state == cur_state) {
             return 0;
         }
@@ -2998,7 +2998,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
             return 0;
         }
 
-        mc_int type_below = from_type;
+        i32 type_below = from_type;
         if (type_below == BLOCK_SOUL_SAND) {
             return 0;
         }
@@ -3052,7 +3052,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
             return 0;
         }
         update_wall_shape(pos, &cur_info, from_direction);
-        mc_ushort new_state = make_block_state(&cur_info);
+        u16 new_state = make_block_state(&cur_info);
         if (new_state == cur_state) {
             return 0;
         }
@@ -3153,7 +3153,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
             return 0;
         }
 
-        mc_int type_below = from_type;
+        i32 type_below = from_type;
         if (can_carpet_survive_on(type_below)) {
             return 0;
         }
@@ -3434,7 +3434,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
             }
         } else if (from_direction == DIRECTION_POS_Y) {
             if (from_type == BLOCK_BAMBOO) {
-                mc_ushort new_state = get_default_block_state(BLOCK_BAMBOO);
+                u16 new_state = get_default_block_state(BLOCK_BAMBOO);
                 try_set_block_state(pos, new_state);
                 push_direct_neighbour_block_updates(pos, buc);
                 return 1;
@@ -3456,7 +3456,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
         } else if (from_direction == DIRECTION_POS_Y) {
             if (from_type == BLOCK_BAMBOO && from_info.age_1 > cur_info.age_1) {
                 cur_info.age_1++;
-                mc_ushort new_state = make_block_state(&cur_info);
+                u16 new_state = make_block_state(&cur_info);
                 try_set_block_state(pos, new_state);
                 push_direct_neighbour_block_updates(pos, buc);
                 return 1;
@@ -3487,7 +3487,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
             return 0;
         }
 
-        mc_int type_below = from_type;
+        i32 type_below = from_type;
         if (can_nether_plant_survive_on(type_below)) {
             return 0;
         }
@@ -3570,7 +3570,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
             return 0;
         }
 
-        mc_int type_below = from_type;
+        i32 type_below = from_type;
         if (can_azalea_survive_on(type_below)) {
             return 0;
         }
@@ -3590,7 +3590,7 @@ update_block(net_block_pos pos, int from_direction, int is_delayed,
             if (from_type == cur_type) {
                 // transform into stem block with same properties
                 cur_info.block_type = BLOCK_BIG_DRIPLEAF_STEM;
-                mc_ushort new_state = make_block_state(&cur_info);
+                u16 new_state = make_block_state(&cur_info);
                 try_set_block_state(pos, new_state);
                 push_direct_neighbour_block_updates(pos, buc);
                 return 1;
@@ -3697,12 +3697,12 @@ propagate_block_updates(block_update_context * buc) {
 
 int
 use_block(entity_base * player,
-        mc_int hand, net_block_pos clicked_pos, mc_int clicked_face,
+        i32 hand, net_block_pos clicked_pos, i32 clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
-        mc_ubyte is_inside, block_update_context * buc) {
-    mc_ushort cur_state = try_get_block_state(clicked_pos);
+        u8 is_inside, block_update_context * buc) {
+    u16 cur_state = try_get_block_state(clicked_pos);
     block_state_info cur_info = describe_block_state(cur_state);
-    mc_int cur_type = cur_info.block_type;
+    i32 cur_type = cur_info.block_type;
 
     switch (cur_type) {
     case BLOCK_DISPENSER:
@@ -3741,7 +3741,7 @@ use_block(entity_base * player,
             cur_info.redstone_pos_z = REDSTONE_SIDE_SIDE;
             cur_info.redstone_neg_x = REDSTONE_SIDE_SIDE;
             cur_info.redstone_neg_z = REDSTONE_SIDE_SIDE;
-            mc_ushort new_state = make_block_state(&cur_info);
+            u16 new_state = make_block_state(&cur_info);
             try_set_block_state(clicked_pos, new_state);
             push_direct_neighbour_block_updates(clicked_pos, buc);
             return 1;
@@ -3750,7 +3750,7 @@ use_block(entity_base * player,
             cur_info.redstone_pos_z = REDSTONE_SIDE_NONE;
             cur_info.redstone_neg_x = REDSTONE_SIDE_NONE;
             cur_info.redstone_neg_z = REDSTONE_SIDE_NONE;
-            mc_ushort new_state = make_block_state(&cur_info);
+            u16 new_state = make_block_state(&cur_info);
             try_set_block_state(clicked_pos, new_state);
             push_direct_neighbour_block_updates(clicked_pos, buc);
             return 1;
@@ -3786,7 +3786,7 @@ use_block(entity_base * player,
     case BLOCK_LEVER: {
         // @TODO play flip sound
         cur_info.powered = !cur_info.powered;
-        mc_ushort new_state = make_block_state(&cur_info);
+        u16 new_state = make_block_state(&cur_info);
         try_set_block_state(clicked_pos, new_state);
         push_direct_neighbour_block_updates(clicked_pos, buc);
         return 1;
@@ -3801,7 +3801,7 @@ use_block(entity_base * player,
     case BLOCK_WARPED_DOOR: {
         // @TODO(traks) play opening/closing sound
         cur_info.open = !cur_info.open;
-        mc_ushort new_state = make_block_state(&cur_info);
+        u16 new_state = make_block_state(&cur_info);
         try_set_block_state(clicked_pos, new_state);
         // this will cause the other half of the door to switch states
         // @TODO(traks) perhaps we should just update the other half of the door
@@ -3849,7 +3849,7 @@ use_block(entity_base * player,
         // @TODO(traks) do stuff if there's a signal going through the repeater
         // currently?
         cur_info.delay = (cur_info.delay & 0x3) + 1;
-        mc_ushort new_state = make_block_state(&cur_info);
+        u16 new_state = make_block_state(&cur_info);
         try_set_block_state(clicked_pos, new_state);
         push_direct_neighbour_block_updates(clicked_pos, buc);
         return 1;
@@ -3864,7 +3864,7 @@ use_block(entity_base * player,
     case BLOCK_WARPED_TRAPDOOR: {
         // @TODO(traks) play opening/closing sound
         cur_info.open = !cur_info.open;
-        mc_ushort new_state = make_block_state(&cur_info);
+        u16 new_state = make_block_state(&cur_info);
         try_set_block_state(clicked_pos, new_state);
         push_direct_neighbour_block_updates(clicked_pos, buc);
         return 1;
@@ -3888,7 +3888,7 @@ use_block(entity_base * player,
             cur_info.open = 1;
         }
 
-        mc_ushort new_state = make_block_state(&cur_info);
+        u16 new_state = make_block_state(&cur_info);
         try_set_block_state(clicked_pos, new_state);
         push_direct_neighbour_block_updates(clicked_pos, buc);
 
@@ -4034,7 +4034,7 @@ use_block(entity_base * player,
         // comparator currently
         // @TODO(traks) play sound
         cur_info.mode_comparator = !cur_info.mode_comparator;
-        mc_ushort new_state = make_block_state(&cur_info);
+        u16 new_state = make_block_state(&cur_info);
         try_set_block_state(clicked_pos, new_state);
         push_direct_neighbour_block_updates(clicked_pos, buc);
         return 1;
@@ -4042,7 +4042,7 @@ use_block(entity_base * player,
     case BLOCK_DAYLIGHT_DETECTOR: {
         // @TODO(traks) update output signal
         cur_info.inverted = !cur_info.inverted;
-        mc_ushort new_state = make_block_state(&cur_info);
+        u16 new_state = make_block_state(&cur_info);
         try_set_block_state(clicked_pos, new_state);
         push_direct_neighbour_block_updates(clicked_pos, buc);
         return 1;
@@ -4154,7 +4154,7 @@ use_block(entity_base * player,
 
         if ((player->flags & PLAYER_CAN_BUILD) && used->size == 0 && cur_info.lit) {
             cur_info.lit = 0;
-            mc_ushort new_state = make_block_state(&cur_info);
+            u16 new_state = make_block_state(&cur_info);
             try_set_block_state(clicked_pos, new_state);
             push_direct_neighbour_block_updates(clicked_pos, buc);
             // @TODO(traks) particles, sounds, game events
@@ -4301,7 +4301,7 @@ static void
 finalise_block_props(block_properties * props) {
     props->base_state = serv->actual_block_state_count;
 
-    mc_int block_type = props - serv->block_properties_table;
+    i32 block_type = props - serv->block_properties_table;
     int block_states = count_block_states(props);
 
     assert(serv->actual_block_state_count + block_states <= ARRAY_SIZE(serv->block_type_by_state));
@@ -4314,7 +4314,7 @@ finalise_block_props(block_properties * props) {
 }
 
 static void
-register_block_type(mc_int block_type, char * resource_loc) {
+register_block_type(i32 block_type, char * resource_loc) {
     net_string key = {
         .size = strlen(resource_loc),
         .ptr = resource_loc
@@ -4336,7 +4336,7 @@ set_collision_model_for_all_states(block_properties * props,
 }
 
 static void
-init_simple_block(mc_int block_type, char * resource_loc,
+init_simple_block(i32 block_type, char * resource_loc,
         int collision_model) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
@@ -4345,7 +4345,7 @@ init_simple_block(mc_int block_type, char * resource_loc,
 }
 
 static void
-init_sapling(mc_int block_type, char * resource_loc) {
+init_sapling(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_STAGE, "0");
@@ -4354,7 +4354,7 @@ init_sapling(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_pillar(mc_int block_type, char * resource_loc) {
+init_pillar(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_AXIS, "y");
@@ -4363,7 +4363,7 @@ init_pillar(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_leaves(mc_int block_type, char * resource_loc) {
+init_leaves(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_DISTANCE, "7");
@@ -4373,7 +4373,7 @@ init_leaves(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_bed(mc_int block_type, char * resource_loc) {
+init_bed(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
@@ -4382,7 +4382,7 @@ init_bed(mc_int block_type, char * resource_loc) {
     finalise_block_props(props);
 
     for (int i = 0; i < count_block_states(props); i++) {
-        mc_ushort block_state = props->base_state + i;
+        u16 block_state = props->base_state + i;
         block_state_info info = describe_block_state(block_state);
         int facing = info.horizontal_facing;
         if (info.bed_part == BED_PART_HEAD) {
@@ -4400,14 +4400,14 @@ init_bed(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_slab(mc_int block_type, char * resource_loc) {
+init_slab(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_SLAB_TYPE, "bottom");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
     finalise_block_props(props);
     for (int i = 0; i < count_block_states(props); i++) {
-        mc_ushort block_state = props->base_state + i;
+        u16 block_state = props->base_state + i;
         block_state_info info = describe_block_state(block_state);
         int model_index;
         switch (info.slab_type) {
@@ -4420,7 +4420,7 @@ init_slab(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_sign(mc_int block_type, char * resource_loc) {
+init_sign(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_ROTATION_16, "0");
@@ -4430,7 +4430,7 @@ init_sign(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_wall_sign(mc_int block_type, char * resource_loc) {
+init_wall_sign(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
@@ -4440,7 +4440,7 @@ init_wall_sign(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_stair_props(mc_int block_type, char * resource_loc) {
+init_stair_props(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
@@ -4451,7 +4451,7 @@ init_stair_props(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_tall_plant(mc_int block_type, char * resource_loc) {
+init_tall_plant(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_DOUBLE_BLOCK_HALF, "lower");
@@ -4460,7 +4460,7 @@ init_tall_plant(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_glazed_terracotta(mc_int block_type, char * resource_loc) {
+init_glazed_terracotta(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
@@ -4469,7 +4469,7 @@ init_glazed_terracotta(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_shulker_box_props(mc_int block_type, char * resource_loc) {
+init_shulker_box_props(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_FACING, "up");
@@ -4477,7 +4477,7 @@ init_shulker_box_props(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_wall_props(mc_int block_type, char * resource_loc) {
+init_wall_props(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_WALL_POS_X, "none");
@@ -4490,7 +4490,7 @@ init_wall_props(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_pressure_plate(mc_int block_type, char * resource_loc) {
+init_pressure_plate(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
@@ -4499,7 +4499,7 @@ init_pressure_plate(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_pane(mc_int block_type, char * resource_loc) {
+init_pane(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_POS_X, "false");
@@ -4509,7 +4509,7 @@ init_pane(mc_int block_type, char * resource_loc) {
     add_block_property(props, BLOCK_PROPERTY_NEG_X, "false");
     finalise_block_props(props);
     for (int i = 0; i < count_block_states(props); i++) {
-        mc_ushort block_state = props->base_state + i;
+        u16 block_state = props->base_state + i;
         block_state_info info = describe_block_state(block_state);
         int flags = (info.pos_x << 3) | (info.neg_x << 2) | (info.pos_z << 1) | info.neg_z;
         int model_index = BLOCK_MODEL_PANE_CENTRE + flags;
@@ -4518,7 +4518,7 @@ init_pane(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_fence(mc_int block_type, char * resource_loc) {
+init_fence(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_POS_X, "false");
@@ -4528,7 +4528,7 @@ init_fence(mc_int block_type, char * resource_loc) {
     add_block_property(props, BLOCK_PROPERTY_NEG_X, "false");
     finalise_block_props(props);
     for (int i = 0; i < count_block_states(props); i++) {
-        mc_ushort block_state = props->base_state + i;
+        u16 block_state = props->base_state + i;
         block_state_info info = describe_block_state(block_state);
         int flags = (info.pos_x << 3) | (info.neg_x << 2) | (info.pos_z << 1) | info.neg_z;
         int model_index = BLOCK_MODEL_FENCE_CENTRE + flags;
@@ -4537,7 +4537,7 @@ init_fence(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_door_props(mc_int block_type, char * resource_loc) {
+init_door_props(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
@@ -4549,7 +4549,7 @@ init_door_props(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_button(mc_int block_type, char * resource_loc) {
+init_button(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_ATTACH_FACE, "wall");
@@ -4560,7 +4560,7 @@ init_button(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_trapdoor_props(mc_int block_type, char * resource_loc) {
+init_trapdoor_props(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
@@ -4572,7 +4572,7 @@ init_trapdoor_props(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_fence_gate(mc_int block_type, char * resource_loc) {
+init_fence_gate(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
@@ -4581,7 +4581,7 @@ init_fence_gate(mc_int block_type, char * resource_loc) {
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
     finalise_block_props(props);
     for (int i = 0; i < count_block_states(props); i++) {
-        mc_ushort block_state = props->base_state + i;
+        u16 block_state = props->base_state + i;
         block_state_info info = describe_block_state(block_state);
         int model_index;
         if (info.open) {
@@ -4596,7 +4596,7 @@ init_fence_gate(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_mushroom_block(mc_int block_type, char * resource_loc) {
+init_mushroom_block(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_NEG_Y, "true");
@@ -4610,7 +4610,7 @@ init_mushroom_block(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_skull_props(mc_int block_type, char * resource_loc) {
+init_skull_props(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_ROTATION_16, "0");
@@ -4618,7 +4618,7 @@ init_skull_props(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_wall_skull_props(mc_int block_type, char * resource_loc) {
+init_wall_skull_props(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
@@ -4626,7 +4626,7 @@ init_wall_skull_props(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_anvil_props(mc_int block_type, char * resource_loc) {
+init_anvil_props(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
@@ -4634,7 +4634,7 @@ init_anvil_props(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_banner(mc_int block_type, char * resource_loc) {
+init_banner(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_ROTATION_16, "0");
@@ -4643,7 +4643,7 @@ init_banner(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_wall_banner(mc_int block_type, char * resource_loc) {
+init_wall_banner(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
@@ -4652,7 +4652,7 @@ init_wall_banner(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_coral(mc_int block_type, char * resource_loc) {
+init_coral(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "true");
@@ -4661,7 +4661,7 @@ init_coral(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_coral_fan(mc_int block_type, char * resource_loc) {
+init_coral_fan(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "true");
@@ -4670,7 +4670,7 @@ init_coral_fan(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_coral_wall_fan(mc_int block_type, char * resource_loc) {
+init_coral_wall_fan(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
@@ -4680,7 +4680,7 @@ init_coral_wall_fan(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_snowy_grassy_block(mc_int block_type, char * resource_loc) {
+init_snowy_grassy_block(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_SNOWY, "false");
@@ -4689,7 +4689,7 @@ init_snowy_grassy_block(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_redstone_ore(mc_int block_type, char * resource_loc) {
+init_redstone_ore(i32 block_type, char * resource_loc) {
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_LIT, "false");
@@ -4698,7 +4698,7 @@ init_redstone_ore(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_cauldron(mc_int block_type, char * resource_loc, int layered) {
+init_cauldron(i32 block_type, char * resource_loc, int layered) {
     // @TODO(traks) collision models
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
@@ -4709,7 +4709,7 @@ init_cauldron(mc_int block_type, char * resource_loc, int layered) {
 }
 
 static void
-init_candle(mc_int block_type, char * resource_loc) {
+init_candle(i32 block_type, char * resource_loc) {
     // @TODO(traks) collision models
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
@@ -4720,7 +4720,7 @@ init_candle(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_candle_cake(mc_int block_type, char * resource_loc) {
+init_candle_cake(i32 block_type, char * resource_loc) {
     // @TODO(traks) collision models
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
@@ -4729,7 +4729,7 @@ init_candle_cake(mc_int block_type, char * resource_loc) {
 }
 
 static void
-init_amethyst_cluster(mc_int block_type, char * resource_loc) {
+init_amethyst_cluster(i32 block_type, char * resource_loc) {
     // @TODO(traks) collision models
     register_block_type(block_type, resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
@@ -5527,7 +5527,7 @@ init_block_data(void) {
     add_block_property(props, BLOCK_PROPERTY_LAYERS, "1");
     finalise_block_props(props);
     for (int i = 0; i < count_block_states(props); i++) {
-        mc_ushort block_state = props->base_state + i;
+        u16 block_state = props->base_state + i;
         block_state_info info = describe_block_state(block_state);
         int model_index = BLOCK_MODEL_EMPTY + (info.layers - 1) * 2;
         serv->collision_model_by_state[block_state] = model_index;

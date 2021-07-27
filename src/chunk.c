@@ -165,7 +165,7 @@ try_get_block_entity(net_block_pos pos) {
     return NULL;
 }
 
-mc_ushort
+u16
 try_get_block_state(net_block_pos pos) {
     if (pos.y < 0) {
         return get_default_block_state(BLOCK_VOID_AIR);
@@ -188,7 +188,7 @@ try_get_block_state(net_block_pos pos) {
 }
 
 void
-try_set_block_state(net_block_pos pos, mc_ushort block_state) {
+try_set_block_state(net_block_pos pos, u16 block_state) {
     if (pos.y < 0) {
         assert(0);
         return;
@@ -216,7 +216,7 @@ try_set_block_state(net_block_pos pos, mc_ushort block_state) {
     return chunk_set_block_state(ch, pos.x & 0xf, pos.y, pos.z & 0xf, block_state);
 }
 
-mc_ushort
+u16
 chunk_get_block_state(chunk * ch, int x, int y, int z) {
     assert(0 <= x && x < 16);
     assert(0 <= y && y < 256);
@@ -241,7 +241,7 @@ recalculate_chunk_motion_blocking_height_map(chunk * ch) {
     for (int zx = 0; zx < 16 * 16; zx++) {
         ch->motion_blocking_height_map[zx] = 0;
         for (int y = 255; y >= 0; y--) {
-            mc_ushort block_state = chunk_get_block_state(ch,
+            u16 block_state = chunk_get_block_state(ch,
                     zx & 0xf, y, zx >> 4);
             // @TODO(traks) other airs
             if (block_state != 0) {
@@ -253,7 +253,7 @@ recalculate_chunk_motion_blocking_height_map(chunk * ch) {
 }
 
 void
-chunk_set_block_state(chunk * ch, int x, int y, int z, mc_ushort block_state) {
+chunk_set_block_state(chunk * ch, int x, int y, int z, u16 block_state) {
     assert(0 <= x && x < 16);
     assert(0 <= y && y < 256);
     assert(0 <= z && z < 16);
@@ -308,7 +308,7 @@ chunk_set_block_state(chunk * ch, int x, int y, int z, mc_ushort block_state) {
 
     int height_map_index = (z << 4) | x;
 
-    mc_ushort max_height = ch->motion_blocking_height_map[height_map_index];
+    u16 max_height = ch->motion_blocking_height_map[height_map_index];
     if (y + 1 == max_height) {
         if (block_state == 0) {
             // @TODO(traks) handle other airs
@@ -332,7 +332,7 @@ chunk_set_block_state(chunk * ch, int x, int y, int z, mc_ushort block_state) {
 }
 
 static int
-ceil_log2u(mc_uint x) {
+ceil_log2u(u32 x) {
     assert(x != 0);
     // @TODO(traks) use lzcnt if available. Maybe not necessary with -O3.
     // @NOTE(traks) based on floor log2 from
@@ -431,15 +431,15 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     // block) the chunk data starts.
     int index = ((pos.z & 0x1f) << 5) | (pos.x & 0x1f);
     header_cursor.index = index << 2;
-    mc_uint loc = net_read_uint(&header_cursor);
+    u32 loc = net_read_uint(&header_cursor);
 
     if (loc == 0) {
         // chunk not present in region file
         goto bail;
     }
 
-    mc_uint sector_offset = loc >> 8;
-    mc_uint sector_count = loc & 0xff;
+    u32 sector_offset = loc >> 8;
+    u32 sector_count = loc & 0xff;
 
     if (sector_offset < 2) {
         logs("Chunk data in header");
@@ -465,7 +465,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     };
     fill_buffer_from_file(region_fd, &cursor);
 
-    mc_uint size_in_bytes = net_read_uint(&cursor);
+    u32 size_in_bytes = net_read_uint(&cursor);
 
     if (size_in_bytes > cursor.limit - cursor.index) {
         logs("Chunk data outside of its sectors");
@@ -473,7 +473,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     }
 
     cursor.limit = cursor.index + size_in_bytes;
-    mc_ubyte storage_type = net_read_ubyte(&cursor);
+    u8 storage_type = net_read_ubyte(&cursor);
 
     if (cursor.error) {
         logs("Chunk header reading error");
@@ -584,7 +584,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     }
 
     nbt_move_to_key(NET_STRING("DataVersion"), chunk_nbt, &cursor);
-    mc_int data_version = net_read_int(&cursor);
+    i32 data_version = net_read_int(&cursor);
     if (data_version != SERVER_WORLD_VERSION) {
         logs("Data version %jd != %jd", (intmax_t) data_version,
                 (intmax_t) SERVER_WORLD_VERSION);
@@ -605,7 +605,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     nbt_tape_entry * section_start = nbt_move_to_key(NET_STRING("Sections"),
             level_nbt, &cursor);
 
-    mc_uint section_count;
+    u32 section_count;
     nbt_tape_entry * section_nbt;
 
     if (section_start->tag != NBT_TAG_LIST) {
@@ -618,17 +618,17 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
 
     // maximum amount of memory the palette will ever use
     int max_palette_map_size = 4096;
-    mc_ushort * palette_map = alloc_in_arena(scratch_arena,
-            max_palette_map_size * sizeof (mc_ushort));
+    u16 * palette_map = alloc_in_arena(scratch_arena,
+            max_palette_map_size * sizeof (u16));
 
     if (section_count > 18) {
         logs("Too many chunk sections: %ju", (uintmax_t) section_count);
         goto bail;
     }
 
-    for (mc_uint sectioni = 0; sectioni < section_count; sectioni++) {
+    for (u32 sectioni = 0; sectioni < section_count; sectioni++) {
         nbt_move_to_key(NET_STRING("Y"), section_nbt, &cursor);
-        mc_byte section_y = net_read_byte(&cursor);
+        i8 section_y = net_read_byte(&cursor);
 
         nbt_tape_entry * palette_start = nbt_move_to_key(NET_STRING("Palette"),
                 section_nbt, &cursor);
@@ -653,7 +653,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
             // gets removed somewhere else in the code base.
             ch->sections[section_y] = section;
 
-            mc_uint palette_size = palette_start[2].list_size;
+            u32 palette_size = palette_start[2].list_size;
             nbt_tape_entry * palette_entry = palette_start + 3;
 
             if (palette_size == 0 || palette_size > max_palette_map_size) {
@@ -664,14 +664,14 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
             for (uint palettei = 0; palettei < palette_size; palettei++) {
                 net_string resource_loc = nbt_get_string(NET_STRING("Name"),
                         palette_entry, &cursor);
-                mc_short type_id = resolve_resource_loc_id(resource_loc,
+                i16 type_id = resolve_resource_loc_id(resource_loc,
                         &serv->block_resource_table);
                 if (type_id == -1) {
                     // @TODO(traks) should probably just error out
                     type_id = 2;
                 }
 
-                mc_ushort stride = 0;
+                u16 stride = 0;
 
                 nbt_tape_entry * props_nbt = nbt_get_compound(
                         NET_STRING("Properties"), palette_entry, &cursor);
@@ -707,7 +707,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
             }
 
             nbt_move_to_key(NET_STRING("BlockStates"), section_nbt, &cursor);
-            mc_uint entry_count = net_read_uint(&cursor);
+            u32 entry_count = net_read_uint(&cursor);
 
             if (entry_count > 4096) {
                 logs("Too many entries: %ju", (uintmax_t) entry_count);
@@ -716,12 +716,12 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
 
             int palette_size_ceil_log2 = ceil_log2u(palette_size);
             int bits_per_id = MAX(4, palette_size_ceil_log2);
-            mc_uint id_mask = (1 << bits_per_id) - 1;
+            u32 id_mask = (1 << bits_per_id) - 1;
             int offset = 0;
-            mc_ulong entry = net_read_ulong(&cursor);
+            u64 entry = net_read_ulong(&cursor);
 
             for (int j = 0; j < 4096; j++) {
-                mc_uint id = (entry >> offset) & id_mask;
+                u32 id = (entry >> offset) & id_mask;
                 offset += bits_per_id;
                 if (offset > 64 - bits_per_id) {
                     entry = net_read_ulong(&cursor);
@@ -733,7 +733,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
                     goto bail;
                 }
 
-                mc_ushort block_state = palette_map[id];
+                u16 block_state = palette_map[id];
                 section->block_states[j] = block_state;
 
                 if (block_state != 0) {

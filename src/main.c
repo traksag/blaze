@@ -170,10 +170,10 @@ logs_errno(void * format) {
 }
 
 void *
-alloc_in_arena(memory_arena * arena, mc_int size) {
-    mc_int align = alignof (max_align_t);
+alloc_in_arena(memory_arena * arena, i32 size) {
+    i32 align = alignof (max_align_t);
     // round up to multiple of align
-    mc_int actual_size = (size + align - 1) / align * align;
+    i32 actual_size = (size + align - 1) / align * align;
     assert(arena->size - actual_size >= arena->index);
 
     void * res = arena->ptr + arena->index;
@@ -238,9 +238,9 @@ get_direction_axis(int direction) {
     }
 }
 
-static mc_ushort
+static u16
 hash_resource_loc(net_string resource_loc, resource_loc_table * table) {
-    mc_ushort res = 0;
+    u16 res = 0;
     unsigned char * string = resource_loc.ptr;
     for (int i = 0; i < resource_loc.size; i++) {
         res = res * 31 + string[i];
@@ -249,18 +249,18 @@ hash_resource_loc(net_string resource_loc, resource_loc_table * table) {
 }
 
 void
-register_resource_loc(net_string resource_loc, mc_short id,
+register_resource_loc(net_string resource_loc, i16 id,
         resource_loc_table * table) {
-    mc_ushort hash = hash_resource_loc(resource_loc, table);
+    u16 hash = hash_resource_loc(resource_loc, table);
 
-    for (mc_ushort i = hash; ; i = (i + 1) & table->size_mask) {
+    for (u16 i = hash; ; i = (i + 1) & table->size_mask) {
         assert(((i + 1) & table->size_mask) != hash);
         resource_loc_entry * entry = table->entries + i;
 
         if (entry->size == 0) {
             assert(resource_loc.size <= RESOURCE_LOC_MAX_SIZE);
             entry->size = resource_loc.size;
-            mc_int string_buf_index = table->last_string_buf_index;
+            i32 string_buf_index = table->last_string_buf_index;
             entry->buf_index = string_buf_index;
             entry->id = id;
 
@@ -277,8 +277,8 @@ register_resource_loc(net_string resource_loc, mc_short id,
 }
 
 static void
-alloc_resource_loc_table(resource_loc_table * table, mc_int size,
-        mc_int string_buf_size, mc_ushort max_ids) {
+alloc_resource_loc_table(resource_loc_table * table, i32 size,
+        i32 string_buf_size, u16 max_ids) {
     *table = (resource_loc_table) {
         .size_mask = size - 1,
         .string_buf_size = string_buf_size,
@@ -291,10 +291,10 @@ alloc_resource_loc_table(resource_loc_table * table, mc_int size,
     assert(table->string_buf != NULL);
 }
 
-mc_short
+i16
 resolve_resource_loc_id(net_string resource_loc, resource_loc_table * table) {
-    mc_ushort hash = hash_resource_loc(resource_loc, table);
-    mc_ushort i = hash;
+    u16 hash = hash_resource_loc(resource_loc, table);
+    u16 i = hash;
     for (;;) {
         resource_loc_entry * entry = table->entries + i;
         net_string name = {
@@ -315,7 +315,7 @@ resolve_resource_loc_id(net_string resource_loc, resource_loc_table * table) {
 }
 
 net_string
-get_resource_loc(mc_ushort id, resource_loc_table * table) {
+get_resource_loc(u16 id, resource_loc_table * table) {
     assert(id < table->max_ids);
     resource_loc_entry * entry = table->entries + table->by_id[id];
     net_string res = {
@@ -347,7 +347,7 @@ find_property_value_index(block_property_spec * prop_spec, net_string val) {
 
 entity_base *
 resolve_entity(entity_id eid) {
-    mc_uint index = eid & ENTITY_INDEX_MASK;
+    u32 index = eid & ENTITY_INDEX_MASK;
     entity_base * entity = serv->entities + index;
     if (entity->eid != eid || !(entity->flags & ENTITY_IN_USE)) {
         // return the null entity
@@ -361,8 +361,8 @@ try_reserve_entity(unsigned type) {
     for (uint32_t i = 0; i < MAX_ENTITIES; i++) {
         entity_base * entity = serv->entities + i;
         if (!(entity->flags & ENTITY_IN_USE)) {
-            mc_ushort generation = serv->next_entity_generations[i];
-            entity_id eid = ((mc_uint) generation << 20) | i;
+            u16 generation = serv->next_entity_generations[i];
+            entity_id eid = ((u32) generation << 20) | i;
 
             *entity = (entity_base) {0};
             // @NOTE(traks) default initialisation is only guaranteed to
@@ -457,14 +457,14 @@ move_entity(entity_base * entity) {
         max_y += 1;
         max_z += 1;
 
-        mc_int iter_min_x = floor(min_x);
-        mc_int iter_max_x = floor(max_x);
-        mc_int iter_min_y = floor(min_y);
-        mc_int iter_max_y = floor(max_y);
-        mc_int iter_min_z = floor(min_z);
-        mc_int iter_max_z = floor(max_z);
+        i32 iter_min_x = floor(min_x);
+        i32 iter_max_x = floor(max_x);
+        i32 iter_min_y = floor(min_y);
+        i32 iter_max_y = floor(max_y);
+        i32 iter_min_z = floor(min_z);
+        i32 iter_max_z = floor(max_z);
 
-        mc_ushort hit_state = 0;
+        u16 hit_state = 0;
         int hit_face;
 
         double dt = 1;
@@ -473,7 +473,7 @@ move_entity(entity_base * entity) {
             for (int block_y = iter_min_y; block_y <= iter_max_y; block_y++) {
                 for (int block_z = iter_min_z; block_z <= iter_max_z; block_z++) {
                     net_block_pos block_pos = {.x = block_x, .y = block_y, .z = block_z};
-                    mc_ushort cur_state = try_get_block_state(block_pos);
+                    u16 cur_state = try_get_block_state(block_pos);
                     block_model model = get_collision_model(cur_state, block_pos);
 
                     for (int boxi = 0; boxi < model.box_count; boxi++) {
@@ -537,7 +537,7 @@ move_entity(entity_base * entity) {
         y += dt * dy;
         z += dt * dz;
 
-        mc_int hit_type = serv->block_type_by_state[hit_state];
+        i32 hit_type = serv->block_type_by_state[hit_state];
 
         if (hit_state != 0) {
             switch (hit_face) {
@@ -651,8 +651,8 @@ tick_entity(entity_base * entity, memory_arena * tick_arena) {
                 .z = floor(entity->z),
             };
 
-            mc_ushort ground_state = try_get_block_state(ground);
-            mc_int ground_type = serv->block_type_by_state[ground_state];
+            u16 ground_state = try_get_block_state(ground);
+            i32 ground_type = serv->block_type_by_state[ground_state];
 
             // Minecraft block friction
             float friction;
@@ -770,7 +770,7 @@ server_tick(void) {
             };
 
             for (;;) {
-                mc_int packet_size = net_read_varint(&rec_cursor);
+                i32 packet_size = net_read_varint(&rec_cursor);
 
                 if (rec_cursor.error != 0) {
                     // packet size not fully received yet
@@ -788,7 +788,7 @@ server_tick(void) {
                 }
 
                 int packet_start = rec_cursor.index;
-                mc_int packet_id = net_read_varint(&rec_cursor);
+                i32 packet_id = net_read_varint(&rec_cursor);
                 logs("Initial packet %d", packet_id);
 
                 switch (init_con->protocol_state) {
@@ -798,10 +798,10 @@ server_tick(void) {
                     }
 
                     // read client intention packet
-                    mc_int protocol_version = net_read_varint(&rec_cursor);
+                    i32 protocol_version = net_read_varint(&rec_cursor);
                     net_string address = net_read_string(&rec_cursor, 255);
-                    mc_ushort port = net_read_ushort(&rec_cursor);
-                    mc_int next_state = net_read_varint(&rec_cursor);
+                    u16 port = net_read_ushort(&rec_cursor);
+                    i32 next_state = net_read_varint(&rec_cursor);
 
                     if (next_state == 1) {
                         init_con->protocol_state = PROTOCOL_AWAIT_STATUS_REQUEST;
@@ -892,7 +892,7 @@ server_tick(void) {
                     }
 
                     // read ping request packet
-                    mc_ulong payload = net_read_ulong(&rec_cursor);
+                    u64 payload = net_read_ulong(&rec_cursor);
 
                     int out_size = net_varint_size(1) + 8;
                     net_write_varint(&send_cursor, out_size);
@@ -1291,7 +1291,7 @@ read_file(memory_arena * arena, char * file_name) {
 }
 
 static void
-register_entity_type(mc_int entity_type, char * resource_loc) {
+register_entity_type(i32 entity_type, char * resource_loc) {
     net_string key = {
         .size = strlen(resource_loc),
         .ptr = resource_loc
@@ -1420,7 +1420,7 @@ init_entity_data(void) {
 }
 
 static void
-register_fluid_type(mc_int fluid_type, char * resource_loc) {
+register_fluid_type(i32 fluid_type, char * resource_loc) {
     net_string key = {
         .size = strlen(resource_loc),
         .ptr = resource_loc
@@ -1441,7 +1441,7 @@ init_fluid_data(void) {
 }
 
 static void
-register_game_event_type(mc_int game_event_type, char * resource_loc) {
+register_game_event_type(i32 game_event_type, char * resource_loc) {
     net_string key = {
         .size = strlen(resource_loc),
         .ptr = resource_loc
@@ -1543,7 +1543,7 @@ load_tags(char * file_name, char * list_name, tag_list * tags, resource_loc_tabl
             memcpy(serv->tag_name_buf + serv->tag_name_count, args[1].ptr, name_size);
             serv->tag_name_count += name_size;
         } else if (net_string_equal(args[0], NET_STRING("value"))) {
-            mc_short id = resolve_resource_loc_id(args[1], table);
+            i16 id = resolve_resource_loc_id(args[1], table);
             assert(id != -1);
 
             assert(tag->values_index + tag->value_count

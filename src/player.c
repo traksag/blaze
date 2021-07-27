@@ -171,7 +171,7 @@ enum clientbound_packet_type {
 };
 
 static void
-nbt_write_key(buffer_cursor * cursor, mc_ubyte tag, net_string key) {
+nbt_write_key(buffer_cursor * cursor, u8 tag, net_string key) {
     net_write_ubyte(cursor, tag);
     net_write_ushort(cursor, key.size);
     net_write_data(cursor, key.ptr, key.size);
@@ -341,11 +341,11 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     // action.
 
     entity_player * player = &entity->player;
-    mc_int packet_id = net_read_varint(rec_cursor);
+    i32 packet_id = net_read_varint(rec_cursor);
 
     switch (packet_id) {
     case SBP_ACCEPT_TELEPORT: {
-        mc_int teleport_id = net_read_varint(rec_cursor);
+        i32 teleport_id = net_read_varint(rec_cursor);
 
         if ((entity->flags & ENTITY_TELEPORTING)
                 && (entity->flags & PLAYER_SENT_TELEPORT)
@@ -357,14 +357,14 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     }
     case SBP_BLOCK_ENTITY_TAG_QUERY: {
         logs("Packet block entity tag query");
-        mc_int id = net_read_varint(rec_cursor);
-        mc_ulong block_pos = net_read_ulong(rec_cursor);
+        i32 id = net_read_varint(rec_cursor);
+        u64 block_pos = net_read_ulong(rec_cursor);
         // @TODO(traks) handle packet
         break;
     }
     case SBP_CHANGE_DIFFICULTY: {
         logs("Packet change difficulty");
-        mc_ubyte difficulty = net_read_ubyte(rec_cursor);
+        u8 difficulty = net_read_ubyte(rec_cursor);
         // @TODO(traks) handle packet
         break;
     }
@@ -385,7 +385,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     }
     case SBP_CLIENT_COMMAND: {
         logs("Packet client command");
-        mc_int action = net_read_varint(rec_cursor);
+        i32 action = net_read_varint(rec_cursor);
         switch (action) {
         case 0: { // perform respawn
             // @TODO(traks) implement
@@ -404,12 +404,12 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     case SBP_CLIENT_INFORMATION: {
         logs("Packet client information");
         net_string language = net_read_string(rec_cursor, 16);
-        mc_ubyte view_distance = net_read_ubyte(rec_cursor);
-        mc_int chat_visibility = net_read_varint(rec_cursor);
-        mc_ubyte sees_chat_colours = net_read_ubyte(rec_cursor);
-        mc_ubyte model_customisation = net_read_ubyte(rec_cursor);
-        mc_int main_hand = net_read_varint(rec_cursor);
-        mc_ubyte text_filtering = net_read_ubyte(rec_cursor);
+        u8 view_distance = net_read_ubyte(rec_cursor);
+        i32 chat_visibility = net_read_varint(rec_cursor);
+        u8 sees_chat_colours = net_read_ubyte(rec_cursor);
+        u8 model_customisation = net_read_ubyte(rec_cursor);
+        i32 main_hand = net_read_varint(rec_cursor);
+        u8 text_filtering = net_read_ubyte(rec_cursor);
 
         // View distance is without the extra border of chunks,
         // while chunk cache radius is with the extra border of
@@ -427,24 +427,24 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     }
     case SBP_COMMAND_SUGGESTION: {
         logs("Packet command suggestion");
-        mc_int id = net_read_varint(rec_cursor);
+        i32 id = net_read_varint(rec_cursor);
         net_string command = net_read_string(rec_cursor, 32500);
         break;
     }
     case SBP_CONTAINER_BUTTON_CLICK: {
         logs("Packet container button click");
-        mc_ubyte container_id = net_read_ubyte(rec_cursor);
-        mc_ubyte button_id = net_read_ubyte(rec_cursor);
+        u8 container_id = net_read_ubyte(rec_cursor);
+        u8 button_id = net_read_ubyte(rec_cursor);
         break;
     }
     case SBP_CONTAINER_CLICK: {
         logs("Packet container click");
-        mc_ubyte container_id = net_read_ubyte(rec_cursor);
-        mc_int state_id = net_read_varint(rec_cursor);
-        mc_ushort slot = net_read_ushort(rec_cursor);
-        mc_ubyte button = net_read_ubyte(rec_cursor);
-        mc_int click_type = net_read_varint(rec_cursor);
-        mc_int changed_slot_count = net_read_varint(rec_cursor);
+        u8 container_id = net_read_ubyte(rec_cursor);
+        i32 state_id = net_read_varint(rec_cursor);
+        u16 slot = net_read_ushort(rec_cursor);
+        u8 button = net_read_ubyte(rec_cursor);
+        i32 click_type = net_read_varint(rec_cursor);
+        i32 changed_slot_count = net_read_varint(rec_cursor);
         if (changed_slot_count > 100 || changed_slot_count < 0) {
             // @TODO(traks) better filtering of high values
             rec_cursor->error = 1;
@@ -454,9 +454,9 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
         // @TODO(traks) do something with the changed slots?
 
         for (int i = 0; i < changed_slot_count; i++) {
-            mc_ushort changed_slot = net_read_ushort(rec_cursor);
+            u16 changed_slot = net_read_ushort(rec_cursor);
             // @TODO(traks) read item function
-            mc_ubyte has_item = net_read_ubyte(rec_cursor);
+            u8 has_item = net_read_ubyte(rec_cursor);
             if (has_item) {
                 // @TODO(traks) is this the new item stack or what?
                 item_stack new_iss = {0};
@@ -479,7 +479,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
             break;
         }
 
-        mc_ubyte has_item = net_read_ubyte(rec_cursor);
+        u8 has_item = net_read_ubyte(rec_cursor);
         item_stack cursor_iss = {0};
         item_stack * cursor_is = &cursor_iss;
 
@@ -491,7 +491,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
                 cursor_is->type = 0;
                 // @TODO(traks) handle error (send slot updates?)
             }
-            mc_ubyte max_size = get_max_stack_size(cursor_is->type);
+            u8 max_size = get_max_stack_size(cursor_is->type);
             if (cursor_is->size > max_size) {
                 cursor_is->size = max_size;
                 // @TODO(traks) handle error (send slot updates?)
@@ -511,14 +511,14 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     }
     case SBP_CONTAINER_CLOSE: {
         logs("Packet container close");
-        mc_ubyte container_id = net_read_ubyte(rec_cursor);
+        u8 container_id = net_read_ubyte(rec_cursor);
         break;
     }
     case SBP_CUSTOM_PAYLOAD: {
         logs("Packet custom payload");
         net_string id = net_read_string(rec_cursor, 32767);
         unsigned char * payload = rec_cursor->buf + rec_cursor->index;
-        mc_int payload_size = rec_cursor->limit - rec_cursor->index;
+        i32 payload_size = rec_cursor->limit - rec_cursor->index;
 
         if (payload_size > 32767) {
             // custom payload size too large
@@ -531,8 +531,8 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     }
     case SBP_EDIT_BOOK: {
         logs("Packet edit book");
-        mc_int slot = net_read_varint(rec_cursor);
-        mc_int page_count = net_read_varint(rec_cursor);
+        i32 slot = net_read_varint(rec_cursor);
+        i32 page_count = net_read_varint(rec_cursor);
         if (page_count > 200 || page_count < 0) {
             rec_cursor->error = 1;
             break;
@@ -541,7 +541,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
             net_string page = net_read_string(rec_cursor, 8192);
         }
 
-        mc_ubyte has_title = net_read_ubyte(rec_cursor);
+        u8 has_title = net_read_ubyte(rec_cursor);
         net_string title = {0};
         if (has_title) {
             title = net_read_string(rec_cursor, 128);
@@ -552,24 +552,24 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     }
     case SBP_ENTITY_TAG_QUERY: {
         logs("Packet entity tag query");
-        mc_int transaction_id = net_read_varint(rec_cursor);
-        mc_int entity_id = net_read_varint(rec_cursor);
+        i32 transaction_id = net_read_varint(rec_cursor);
+        i32 entity_id = net_read_varint(rec_cursor);
         break;
     }
     case SBP_INTERACT: {
         logs("Packet interact");
-        mc_int entity_id = net_read_varint(rec_cursor);
-        mc_int action = net_read_varint(rec_cursor);
+        i32 entity_id = net_read_varint(rec_cursor);
+        i32 action = net_read_varint(rec_cursor);
 
         switch (action) {
         case 0: { // interact
-            mc_int hand = net_read_varint(rec_cursor);
-            mc_ubyte secondary_action = net_read_ubyte(rec_cursor);
+            i32 hand = net_read_varint(rec_cursor);
+            u8 secondary_action = net_read_ubyte(rec_cursor);
             // @TODO(traks) implement
             break;
         }
         case 1: { // attack
-            mc_ubyte secondary_action = net_read_ubyte(rec_cursor);
+            u8 secondary_action = net_read_ubyte(rec_cursor);
             // @TODO(traks) implement
             break;
         }
@@ -577,8 +577,8 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
             float x = net_read_float(rec_cursor);
             float y = net_read_float(rec_cursor);
             float z = net_read_float(rec_cursor);
-            mc_int hand = net_read_varint(rec_cursor);
-            mc_ubyte secondary_action = net_read_ubyte(rec_cursor);
+            i32 hand = net_read_varint(rec_cursor);
+            u8 secondary_action = net_read_ubyte(rec_cursor);
             // @TODO(traks) implement
             break;
         }
@@ -590,13 +590,13 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     case SBP_JIGSAW_GENERATE: {
         logs("Packet jigsaw generate");
         net_block_pos block_pos = net_read_block_pos(rec_cursor);
-        mc_int levels = net_read_varint(rec_cursor);
-        mc_ubyte keep_jigsaws = net_read_ubyte(rec_cursor);
+        i32 levels = net_read_varint(rec_cursor);
+        u8 keep_jigsaws = net_read_ubyte(rec_cursor);
         // @TODO(traks) processing
         break;
     }
     case SBP_KEEP_ALIVE: {
-        mc_ulong id = net_read_ulong(rec_cursor);
+        u64 id = net_read_ulong(rec_cursor);
         if (player->last_keep_alive_sent_tick == id) {
             entity->flags |= PLAYER_GOT_ALIVE_RESPONSE;
         }
@@ -604,7 +604,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     }
     case SBP_LOCK_DIFFICULTY: {
         logs("Packet lock difficulty");
-        mc_ubyte locked = net_read_ubyte(rec_cursor);
+        u8 locked = net_read_ubyte(rec_cursor);
         break;
     }
     case SBP_MOVE_PLAYER_POS: {
@@ -655,27 +655,27 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     }
     case SBP_PADDLE_BOAT: {
         logs("Packet paddle boat");
-        mc_ubyte left = net_read_ubyte(rec_cursor);
-        mc_ubyte right = net_read_ubyte(rec_cursor);
+        u8 left = net_read_ubyte(rec_cursor);
+        u8 right = net_read_ubyte(rec_cursor);
         break;
     }
     case SBP_PICK_ITEM: {
         logs("Packet pick item");
-        mc_int slot = net_read_varint(rec_cursor);
+        i32 slot = net_read_varint(rec_cursor);
         break;
     }
     case SBP_PLACE_RECIPE: {
         logs("Packet place recipe");
-        mc_ubyte container_id = net_read_ubyte(rec_cursor);
+        u8 container_id = net_read_ubyte(rec_cursor);
         net_string recipe = net_read_string(rec_cursor, 32767);
-        mc_ubyte shift_down = net_read_ubyte(rec_cursor);
+        u8 shift_down = net_read_ubyte(rec_cursor);
         // @TODO(traks) handle packet
         break;
     }
     case SBP_PLAYER_ABILITIES: {
         logs("Packet player abilities");
-        mc_ubyte flags = net_read_ubyte(rec_cursor);
-        mc_ubyte flying = flags & 0x2;
+        u8 flags = net_read_ubyte(rec_cursor);
+        u8 flying = flags & 0x2;
         // @TODO(traks) validate whether the player can toggle fly
         if (flying) {
             if (entity->flags & PLAYER_CAN_FLY) {
@@ -689,10 +689,10 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
         break;
     }
     case SBP_PLAYER_ACTION: {
-        mc_int action = net_read_varint(rec_cursor);
+        i32 action = net_read_varint(rec_cursor);
         // @TODO(traks) validate block pos inside world
         net_block_pos block_pos = net_read_block_pos(rec_cursor);
-        mc_ubyte direction = net_read_ubyte(rec_cursor);
+        u8 direction = net_read_ubyte(rec_cursor);
 
         // @NOTE(traks) destroying blocks in survival works as follows:
         //
@@ -743,7 +743,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
                     .max_updates = max_updates
                 };
 
-                mc_ushort new_state = 0;
+                u16 new_state = 0;
                 chunk_set_block_state(ch, block_pos.x & 0xf, block_pos.y,
                         block_pos.z & 0xf, new_state);
                 push_direct_neighbour_block_updates(block_pos, &buc);
@@ -784,7 +784,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
                     is->size = 0;
                     is->type = ITEM_AIR;
                 } else {
-                    player->slots_needing_update |= (mc_ulong) 1 << sel_slot;
+                    player->slots_needing_update |= (u64) 1 << sel_slot;
                 }
             }
             break;
@@ -803,7 +803,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
                         is->type = ITEM_AIR;
                     }
                 } else {
-                    player->slots_needing_update |= (mc_ulong) 1 << sel_slot;
+                    player->slots_needing_update |= (u64) 1 << sel_slot;
                 }
             }
             break;
@@ -821,8 +821,8 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
             *off = sel_copy;
             // client doesn't update its view of the inventory for
             // this packet, so send updates to the client
-            player->slots_needing_update |= (mc_ulong) 1 << sel_slot;
-            player->slots_needing_update |= (mc_ulong) 1 << PLAYER_OFF_HAND_SLOT;
+            player->slots_needing_update |= (u64) 1 << sel_slot;
+            player->slots_needing_update |= (u64) 1 << PLAYER_OFF_HAND_SLOT;
             break;
         }
         default:
@@ -831,9 +831,9 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
         break;
     }
     case SBP_PLAYER_COMMAND: {
-        mc_int id = net_read_varint(rec_cursor);
-        mc_int action = net_read_varint(rec_cursor);
-        mc_int data = net_read_varint(rec_cursor);
+        i32 id = net_read_varint(rec_cursor);
+        i32 action = net_read_varint(rec_cursor);
+        i32 data = net_read_varint(rec_cursor);
 
         switch (action) {
         case 0: // press shift key
@@ -885,7 +885,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     }
     case SBP_PONG: {
         logs("Packet pong");
-        mc_int id = net_read_int(rec_cursor);
+        i32 id = net_read_int(rec_cursor);
         // @TODO(traks) read packet
         break;
     }
@@ -906,29 +906,29 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     }
     case SBP_RESOURCE_PACK: {
         logs("Packet resource pack");
-        mc_int action = net_read_varint(rec_cursor);
+        i32 action = net_read_varint(rec_cursor);
         break;
     }
     case SBP_SEEN_ADVANCEMENTS: {
         logs("Packet seen advancements");
-        mc_int action = net_read_varint(rec_cursor);
+        i32 action = net_read_varint(rec_cursor);
         // @TODO(traks) further processing
         break;
     }
     case SBP_SELECT_TRADE: {
         logs("Packet select trade");
-        mc_int item = net_read_varint(rec_cursor);
+        i32 item = net_read_varint(rec_cursor);
         break;
     }
     case SBP_SET_BEACON: {
         logs("Packet set beacon");
-        mc_int primary_effect = net_read_varint(rec_cursor);
-        mc_int secondary_effect = net_read_varint(rec_cursor);
+        i32 primary_effect = net_read_varint(rec_cursor);
+        i32 secondary_effect = net_read_varint(rec_cursor);
         break;
     }
     case SBP_SET_CARRIED_ITEM: {
         logs("Set carried item");
-        mc_ushort slot = net_read_ushort(rec_cursor);
+        u16 slot = net_read_ushort(rec_cursor);
         if (slot > PLAYER_LAST_HOTBAR_SLOT - PLAYER_FIRST_HOTBAR_SLOT) {
             rec_cursor->error = 1;
             break;
@@ -938,26 +938,26 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     }
     case SBP_SET_COMMAND_BLOCK: {
         logs("Packet set command block");
-        mc_ulong block_pos = net_read_ulong(rec_cursor);
+        u64 block_pos = net_read_ulong(rec_cursor);
         net_string command = net_read_string(rec_cursor, 32767);
-        mc_int mode = net_read_varint(rec_cursor);
-        mc_ubyte flags = net_read_ubyte(rec_cursor);
-        mc_ubyte track_output = (flags & 0x1);
-        mc_ubyte conditional = (flags & 0x2);
-        mc_ubyte automatic = (flags & 0x4);
+        i32 mode = net_read_varint(rec_cursor);
+        u8 flags = net_read_ubyte(rec_cursor);
+        u8 track_output = (flags & 0x1);
+        u8 conditional = (flags & 0x2);
+        u8 automatic = (flags & 0x4);
         break;
     }
     case SBP_SET_COMMAND_MINECART: {
         logs("Packet set command minecart");
-        mc_int entity_id = net_read_varint(rec_cursor);
+        i32 entity_id = net_read_varint(rec_cursor);
         net_string command = net_read_string(rec_cursor, 32767);
-        mc_ubyte track_output = net_read_ubyte(rec_cursor);
+        u8 track_output = net_read_ubyte(rec_cursor);
         break;
     }
     case SBP_SET_CREATIVE_MODE_SLOT: {
         logs("Set creative mode slot");
-        mc_ushort slot = net_read_ushort(rec_cursor);
-        mc_ubyte has_item = net_read_ubyte(rec_cursor);
+        u16 slot = net_read_ushort(rec_cursor);
+        u8 has_item = net_read_ubyte(rec_cursor);
 
         if (slot >= PLAYER_SLOTS) {
             rec_cursor->error = 1;
@@ -974,17 +974,17 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
             if (is->type < 0 || is->type >= ITEM_TYPE_COUNT || is->size == 0) {
                 is->type = 0;
                 player->slots_needing_update |=
-                        (mc_ulong) 1 << slot;
+                        (u64) 1 << slot;
             }
 
             net_string type_name = get_resource_loc(is->type, &serv->item_resource_table);
             logs("Set creative slot: %.*s", (int) type_name.size, type_name.ptr);
 
-            mc_ubyte max_size = get_max_stack_size(is->type);
+            u8 max_size = get_max_stack_size(is->type);
             if (is->size > max_size) {
                 is->size = max_size;
                 player->slots_needing_update |=
-                        (mc_ulong) 1 << slot;
+                        (u64) 1 << slot;
             }
 
             // @TODO(traks) better value than 64 for the max level
@@ -999,7 +999,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     }
     case SBP_SET_JIGSAW_BLOCK: {
         logs("Packet set jigsaw block");
-        mc_ulong block_pos = net_read_ulong(rec_cursor);
+        u64 block_pos = net_read_ulong(rec_cursor);
         net_string name = net_read_string(rec_cursor, 32767);
         net_string target = net_read_string(rec_cursor, 32767);
         net_string pool = net_read_string(rec_cursor, 32767);
@@ -1010,26 +1010,26 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     }
     case SBP_SET_STRUCTURE_BLOCK: {
         logs("Packet set structure block");
-        mc_ulong block_pos = net_read_ulong(rec_cursor);
-        mc_int update_type = net_read_varint(rec_cursor);
-        mc_int mode = net_read_varint(rec_cursor);
+        u64 block_pos = net_read_ulong(rec_cursor);
+        i32 update_type = net_read_varint(rec_cursor);
+        i32 mode = net_read_varint(rec_cursor);
         net_string name = net_read_string(rec_cursor, 32767);
         // @TODO(traks) read signed bytes instead
-        mc_ubyte offset_x = net_read_ubyte(rec_cursor);
-        mc_ubyte offset_y = net_read_ubyte(rec_cursor);
-        mc_ubyte offset_z = net_read_ubyte(rec_cursor);
-        mc_ubyte size_x = net_read_ubyte(rec_cursor);
-        mc_ubyte size_y = net_read_ubyte(rec_cursor);
-        mc_ubyte size_z = net_read_ubyte(rec_cursor);
-        mc_int mirror = net_read_varint(rec_cursor);
-        mc_int rotation = net_read_varint(rec_cursor);
+        u8 offset_x = net_read_ubyte(rec_cursor);
+        u8 offset_y = net_read_ubyte(rec_cursor);
+        u8 offset_z = net_read_ubyte(rec_cursor);
+        u8 size_x = net_read_ubyte(rec_cursor);
+        u8 size_y = net_read_ubyte(rec_cursor);
+        u8 size_z = net_read_ubyte(rec_cursor);
+        i32 mirror = net_read_varint(rec_cursor);
+        i32 rotation = net_read_varint(rec_cursor);
         net_string data = net_read_string(rec_cursor, 12);
         // @TODO(traks) further reading
         break;
     }
     case SBP_SIGN_UPDATE: {
         logs("Packet sign update");
-        mc_ulong block_pos = net_read_ulong(rec_cursor);
+        u64 block_pos = net_read_ulong(rec_cursor);
         net_string lines[4];
         for (int i = 0; i < ARRAY_SIZE(lines); i++) {
             lines[i] = net_read_string(rec_cursor, 384);
@@ -1038,26 +1038,26 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     }
     case SBP_SWING: {
         // logs("Packet swing");
-        mc_int hand = net_read_varint(rec_cursor);
+        i32 hand = net_read_varint(rec_cursor);
         break;
     }
     case SBP_TELEPORT_TO_ENTITY: {
         logs("Packet teleport to entity");
         // @TODO(traks) read UUID instead
-        mc_ulong uuid_high = net_read_ulong(rec_cursor);
-        mc_ulong uuid_low = net_read_ulong(rec_cursor);
+        u64 uuid_high = net_read_ulong(rec_cursor);
+        u64 uuid_low = net_read_ulong(rec_cursor);
         break;
     }
     case SBP_USE_ITEM_ON: {
         logs("Packet use item on");
-        mc_int hand = net_read_varint(rec_cursor);
+        i32 hand = net_read_varint(rec_cursor);
         net_block_pos clicked_pos = net_read_block_pos(rec_cursor);
-        mc_int clicked_face = net_read_varint(rec_cursor);
+        i32 clicked_face = net_read_varint(rec_cursor);
         float click_offset_x = net_read_float(rec_cursor);
         float click_offset_y = net_read_float(rec_cursor);
         float click_offset_z = net_read_float(rec_cursor);
         // @TODO(traks) figure out what this is used for
-        mc_ubyte is_inside = net_read_ubyte(rec_cursor);
+        u8 is_inside = net_read_ubyte(rec_cursor);
 
         // @TODO(traks) if we cancel at any point and don't kick the
         // client, send some packets to the client to make the
@@ -1089,7 +1089,7 @@ process_packet(entity_base * entity, buffer_cursor * rec_cursor,
     }
     case SBP_USE_ITEM: {
         logs("Packet use item");
-        mc_int hand = net_read_varint(rec_cursor);
+        i32 hand = net_read_varint(rec_cursor);
         break;
     }
     default: {
@@ -1110,7 +1110,7 @@ chunk_cache_index(chunk_pos pos) {
 }
 
 static void
-begin_packet(buffer_cursor * send_cursor, mc_int id) {
+begin_packet(buffer_cursor * send_cursor, i32 id) {
     if (send_cursor->limit - send_cursor->index < 6) {
         send_cursor->error = 1;
         return;
@@ -1142,7 +1142,7 @@ finish_packet(buffer_cursor * send_cursor, entity_base * player) {
 
     int packet_end = send_cursor->index;
     send_cursor->index = send_cursor->mark;
-    mc_int packet_size = packet_end - send_cursor->index - 6;
+    i32 packet_size = packet_end - send_cursor->index - 6;
 
     int size_offset = 5 - net_varint_size(packet_size);
     int internal_header = size_offset;
@@ -1164,7 +1164,7 @@ send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch,
 
     // bit mask for included chunk sections; bottom section in least
     // significant bit. May be multiple longs if more than 64 sections height
-    mc_ulong section_mask = 0;
+    u64 section_mask = 0;
     for (int i = 0; i < 16; i++) {
         if (ch->sections[i] != NULL) {
             section_mask |= 1 << i;
@@ -1172,7 +1172,7 @@ send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch,
     }
 
     // calculate total size of chunk section data
-    mc_int section_data_size = 0;
+    i32 section_data_size = 0;
     // @TODO(traks) compute bits per block using block type table
     int bits_per_block = 15;
     int blocks_per_long = 64 / bits_per_block;
@@ -1205,13 +1205,13 @@ send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch,
     nbt_write_key(send_cursor, NBT_TAG_LONG_ARRAY, NET_STRING("MOTION_BLOCKING"));
     // number of elements in long array
     net_write_int(send_cursor, 36);
-    mc_ulong compacted_map[36] = {0};
+    u64 compacted_map[36] = {0};
 
     int shift = 0;
 
     for (int z = 0; z < 16; z++) {
         for (int x = 0; x < 16; x++) {
-            mc_ulong height = ch->motion_blocking_height_map[(z << 4) | x];
+            u64 height = ch->motion_blocking_height_map[(z << 4) | x];
             int start_long = shift >> 6;
             int offset = shift - (start_long << 6);
 
@@ -1256,11 +1256,11 @@ send_chunk_fully(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch,
         // number of longs used for the block states
         int longs = 16 * 16 * 16 / blocks_per_long;
         net_write_varint(send_cursor, longs);
-        mc_ulong val = 0;
+        u64 val = 0;
         int offset = 0;
 
         for (int j = 0; j < 16 * 16 * 16; j++) {
-            mc_ulong block_state = section->block_states[j];
+            u64 block_state = section->block_states[j];
             val |= block_state << offset;
             offset += bits_per_block;
 
@@ -1295,11 +1295,11 @@ send_light_update(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch,
     // @TODO(traks) send the real lighting data
 
     // light sections present as arrays in this packet
-    mc_ulong sky_light_mask = 0x3ffff;
-    mc_ulong block_light_mask = 0x3ffff;
+    u64 sky_light_mask = 0x3ffff;
+    u64 block_light_mask = 0x3ffff;
     // sections with all light values equal to 0
-    mc_ulong zero_sky_light_mask = 0;
-    mc_ulong zero_block_light_mask = 0;
+    u64 zero_sky_light_mask = 0;
+    u64 zero_block_light_mask = 0;
 
     begin_packet(send_cursor, CBP_LIGHT_UPDATE);
     net_write_varint(send_cursor, pos.x);
@@ -1318,7 +1318,7 @@ send_light_update(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch,
     for (int i = 0; i < 18; i++) {
         net_write_varint(send_cursor, 2048);
         for (int j = 0; j < 4096; j += 2) {
-            mc_ubyte light = 0xff;
+            u8 light = 0xff;
             net_write_ubyte(send_cursor, light);
         }
     }
@@ -1327,7 +1327,7 @@ send_light_update(buffer_cursor * send_cursor, chunk_pos pos, chunk * ch,
     for (int i = 0; i < 18; i++) {
         net_write_varint(send_cursor, 2048);
         for (int j = 0; j < 4096; j += 2) {
-            mc_ubyte light = 0;
+            u8 light = 0;
             net_write_ubyte(send_cursor, light);
         }
     }
@@ -1341,13 +1341,13 @@ disconnect_player_now(entity_base * entity) {
     entity_player * player = &entity->player;
     close(player->sock);
 
-    mc_short chunk_cache_min_x = player->chunk_cache_centre_x - player->chunk_cache_radius;
-    mc_short chunk_cache_max_x = player->chunk_cache_centre_x + player->chunk_cache_radius;
-    mc_short chunk_cache_min_z = player->chunk_cache_centre_z - player->chunk_cache_radius;
-    mc_short chunk_cache_max_z = player->chunk_cache_centre_z + player->chunk_cache_radius;
+    i16 chunk_cache_min_x = player->chunk_cache_centre_x - player->chunk_cache_radius;
+    i16 chunk_cache_max_x = player->chunk_cache_centre_x + player->chunk_cache_radius;
+    i16 chunk_cache_min_z = player->chunk_cache_centre_z - player->chunk_cache_radius;
+    i16 chunk_cache_max_z = player->chunk_cache_centre_z + player->chunk_cache_radius;
 
-    for (mc_short x = chunk_cache_min_x; x <= chunk_cache_max_x; x++) {
-        for (mc_short z = chunk_cache_min_z; z <= chunk_cache_max_z; z++) {
+    for (i16 x = chunk_cache_min_x; x <= chunk_cache_max_x; x++) {
+        for (i16 z = chunk_cache_min_z; z <= chunk_cache_max_z; z++) {
             chunk_pos pos = {.x = x, .z = z};
             chunk * ch = get_chunk_if_available(pos);
             assert(ch != NULL);
@@ -1384,7 +1384,7 @@ merge_stack_to_player_slot(entity_base * player, int slot, item_stack * to_add) 
         }
 
         if (add != 0) {
-            player->player.slots_needing_update |= (mc_ulong) 1 << slot;
+            player->player.slots_needing_update |= (u64) 1 << slot;
         }
     }
 }
@@ -1408,7 +1408,7 @@ add_stack_to_player_inventory(entity_base * player, item_stack * to_add) {
             if (is->type == ITEM_AIR) {
                 *is = *to_add;
                 *to_add = (item_stack) {0};
-                player->player.slots_needing_update |= (mc_ulong) 1 << i;
+                player->player.slots_needing_update |= (u64) 1 << i;
                 return;
             }
         }
@@ -1417,7 +1417,7 @@ add_stack_to_player_inventory(entity_base * player, item_stack * to_add) {
             if (is->type == ITEM_AIR) {
                 *is = *to_add;
                 *to_add = (item_stack) {0};
-                player->player.slots_needing_update |= (mc_ulong) 1 << i;
+                player->player.slots_needing_update |= (u64) 1 << i;
                 return;
             }
         }
@@ -1453,7 +1453,7 @@ tick_player(entity_base * player, memory_arena * tick_arena) {
 
         for (;;) {
             buffer_cursor packet_cursor = rec_cursor;
-            mc_int packet_size = net_read_varint(&packet_cursor);
+            i32 packet_size = net_read_varint(&packet_cursor);
 
             if (packet_cursor.error != 0) {
                 // packet size not fully received yet
@@ -1893,7 +1893,7 @@ nbt_write_biome(buffer_cursor * send_cursor, biome * b) {
 
 static void
 send_changed_entity_data(buffer_cursor * send_cursor, entity_base * player,
-        entity_base * entity, mc_uint changed_data) {
+        entity_base * entity, u32 changed_data) {
     if (changed_data == 0) {
         return;
     }
@@ -1904,7 +1904,7 @@ send_changed_entity_data(buffer_cursor * send_cursor, entity_base * player,
     if (changed_data & (1 << ENTITY_DATA_FLAGS)) {
         net_write_ubyte(send_cursor, ENTITY_DATA_FLAGS);
         net_write_varint(send_cursor, ENTITY_DATA_TYPE_BYTE);
-        mc_ubyte flags = 0;
+        u8 flags = 0;
         // @TODO(traks) shared flags
         flags |= !!(entity->flags & ENTITY_VISUAL_FIRE) << 0;
         flags |= !!(entity->flags & ENTITY_SHIFTING) << 1;
@@ -1975,7 +1975,7 @@ send_changed_entity_data(buffer_cursor * send_cursor, entity_base * player,
 
 static void
 send_take_item_entity_packet(entity_base * player, buffer_cursor * send_cursor,
-        entity_id taker_id, entity_id pickup_id, mc_ubyte pickup_size) {
+        entity_id taker_id, entity_id pickup_id, u8 pickup_size) {
     begin_packet(send_cursor, CBP_TAKE_ITEM_ENTITY);
     net_write_varint(send_cursor, pickup_id);
     net_write_varint(send_cursor, taker_id);
@@ -2015,9 +2015,9 @@ try_update_tracked_entity(entity_base * player,
                 || (serv->current_tick - tracked->last_send_pos_tick >= 100);
         int sent_rot = (encoded_rot_x - tracked->last_sent_rot_x) != 0
                 || (encoded_rot_y - tracked->last_sent_rot_y) != 0;
-        mc_short encoded_dx = floor(dx * 4096.0);
-        mc_short encoded_dy = floor(dy * 4096.0);
-        mc_short encoded_dz = floor(dz * 4096.0);
+        i16 encoded_dx = floor(dx * 4096.0);
+        i16 encoded_dy = floor(dy * 4096.0);
+        i16 encoded_dz = floor(dz * 4096.0);
 
         if (sent_pos && sent_rot) {
             begin_packet(send_cursor, CBP_MOVE_ENTITY_POS_ROT);
@@ -2047,9 +2047,9 @@ try_update_tracked_entity(entity_base * player,
         }
 
         if (sent_pos) {
-            mc_long encoded_last_x = floor(tracked->last_sent_x * 4096.0);
-            mc_long encoded_last_y = floor(tracked->last_sent_y * 4096.0);
-            mc_long encoded_last_z = floor(tracked->last_sent_z * 4096.0);
+            i64 encoded_last_x = floor(tracked->last_sent_x * 4096.0);
+            i64 encoded_last_y = floor(tracked->last_sent_y * 4096.0);
+            i64 encoded_last_z = floor(tracked->last_sent_z * 4096.0);
 
             // @NOTE(traks) this is the way the Minecraft client calculates the
             // new position. We emulate this to reduce accumulated precision
@@ -2219,7 +2219,7 @@ start_tracking_entity(entity_base * player,
 static void
 send_player_abilities(buffer_cursor * send_cursor, entity_base * player) {
     begin_packet(send_cursor, CBP_PLAYER_ABILITIES);
-    mc_ubyte ability_flags = 0;
+    u8 ability_flags = 0;
 
     if (player->flags & ENTITY_INVULNERABLE) {
         ability_flags |= 0x1;
@@ -2414,7 +2414,7 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
                 net_write_varint(send_cursor, tag->value_count);
 
                 for (int vali = 0; vali < tag->value_count; vali++) {
-                    mc_int val = serv->tag_value_id_buf[tag->values_index + vali];
+                    i32 val = serv->tag_value_id_buf[tag->values_index + vali];
                     net_write_varint(send_cursor, val);
                 }
             }
@@ -2504,7 +2504,7 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
     // send block changes for this player only
     for (int i = 0; i < player->player.changed_block_count; i++) {
         net_block_pos pos = player->player.changed_blocks[i];
-        mc_ushort block_state = try_get_block_state(pos);
+        u16 block_state = try_get_block_state(pos);
         if (block_state >= serv->vanilla_block_state_count) {
             // catches unknown blocks
             continue;
@@ -2519,18 +2519,18 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
 
     begin_timed_block("update chunk cache");
 
-    mc_short chunk_cache_min_x = player->player.chunk_cache_centre_x - player->player.chunk_cache_radius;
-    mc_short chunk_cache_min_z = player->player.chunk_cache_centre_z - player->player.chunk_cache_radius;
-    mc_short chunk_cache_max_x = player->player.chunk_cache_centre_x + player->player.chunk_cache_radius;
-    mc_short chunk_cache_max_z = player->player.chunk_cache_centre_z + player->player.chunk_cache_radius;
+    i16 chunk_cache_min_x = player->player.chunk_cache_centre_x - player->player.chunk_cache_radius;
+    i16 chunk_cache_min_z = player->player.chunk_cache_centre_z - player->player.chunk_cache_radius;
+    i16 chunk_cache_max_x = player->player.chunk_cache_centre_x + player->player.chunk_cache_radius;
+    i16 chunk_cache_max_z = player->player.chunk_cache_centre_z + player->player.chunk_cache_radius;
 
-    mc_short new_chunk_cache_centre_x = (mc_int) floor(player->x) >> 4;
-    mc_short new_chunk_cache_centre_z = (mc_int) floor(player->z) >> 4;
+    i16 new_chunk_cache_centre_x = (i32) floor(player->x) >> 4;
+    i16 new_chunk_cache_centre_z = (i32) floor(player->z) >> 4;
     assert(player->player.new_chunk_cache_radius <= MAX_CHUNK_CACHE_RADIUS);
-    mc_short new_chunk_cache_min_x = new_chunk_cache_centre_x - player->player.new_chunk_cache_radius;
-    mc_short new_chunk_cache_min_z = new_chunk_cache_centre_z - player->player.new_chunk_cache_radius;
-    mc_short new_chunk_cache_max_x = new_chunk_cache_centre_x + player->player.new_chunk_cache_radius;
-    mc_short new_chunk_cache_max_z = new_chunk_cache_centre_z + player->player.new_chunk_cache_radius;
+    i16 new_chunk_cache_min_x = new_chunk_cache_centre_x - player->player.new_chunk_cache_radius;
+    i16 new_chunk_cache_min_z = new_chunk_cache_centre_z - player->player.new_chunk_cache_radius;
+    i16 new_chunk_cache_max_x = new_chunk_cache_centre_x + player->player.new_chunk_cache_radius;
+    i16 new_chunk_cache_max_z = new_chunk_cache_centre_z + player->player.new_chunk_cache_radius;
 
     if (player->player.chunk_cache_centre_x != new_chunk_cache_centre_x
             || player->player.chunk_cache_centre_z != new_chunk_cache_centre_z) {
@@ -2547,8 +2547,8 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
     }
 
     // untrack old chunks
-    for (mc_short x = chunk_cache_min_x; x <= chunk_cache_max_x; x++) {
-        for (mc_short z = chunk_cache_min_z; z <= chunk_cache_max_z; z++) {
+    for (i16 x = chunk_cache_min_x; x <= chunk_cache_max_x; x++) {
+        for (i16 z = chunk_cache_min_z; z <= chunk_cache_max_z; z++) {
             chunk_pos pos = {.x = x, .z = z};
             int index = chunk_cache_index(pos);
 
@@ -2582,10 +2582,10 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
                         }
 
                         begin_packet(send_cursor, CBP_SECTION_BLOCKS_UPDATE);
-                        mc_ulong section_pos =
-                                ((mc_ulong) (x & 0x3fffff) << 42)
-                                | ((mc_ulong) (z & 0x3fffff) << 20)
-                                | (mc_ulong) (section & 0xfffff);
+                        u64 section_pos =
+                                ((u64) (x & 0x3fffff) << 42)
+                                | ((u64) (z & 0x3fffff) << 20)
+                                | (u64) (section & 0xfffff);
                         net_write_ulong(send_cursor, section_pos);
                         // @TODO(traks) appropriate value for this
                         net_write_ubyte(send_cursor, 1); // suppress light updates
@@ -2593,9 +2593,9 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
 
                         for (int i = 0; i < sec_changed_block_count; i++) {
                             compact_chunk_block_pos pos = sec_changed_blocks[i];
-                            mc_long block_state = chunk_get_block_state(ch,
+                            i64 block_state = chunk_get_block_state(ch,
                                     pos.x, pos.y, pos.z);
-                            mc_long encoded = (block_state << 12)
+                            i64 encoded = (block_state << 12)
                                     | (pos.x << 8) | (pos.z << 4) | (pos.y & 0xf);
                             net_write_varlong(send_cursor, encoded);
                         }
@@ -2633,8 +2633,8 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
     }
 
     // track new chunks
-    for (mc_short x = new_chunk_cache_min_x; x <= new_chunk_cache_max_x; x++) {
-        for (mc_short z = new_chunk_cache_min_z; z <= new_chunk_cache_max_z; z++) {
+    for (i16 x = new_chunk_cache_min_x; x <= new_chunk_cache_max_x; x++) {
+        for (i16 z = new_chunk_cache_min_z; z <= new_chunk_cache_max_z; z++) {
             if (x >= chunk_cache_min_x && x <= chunk_cache_max_x
                     && z >= chunk_cache_min_z && z <= chunk_cache_max_z) {
                 // chunk already in old region
@@ -2717,7 +2717,7 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
     begin_timed_block("send inventory");
 
     for (int i = 0; i < PLAYER_SLOTS; i++) {
-        if (!(player->player.slots_needing_update & ((mc_ulong) 1 << i))) {
+        if (!(player->player.slots_needing_update & ((u64) 1 << i))) {
             continue;
         }
 
@@ -2989,7 +2989,7 @@ send_packets_to_player(entity_base * player, memory_arena * tick_arena) {
         send_cursor->index += 1 + size_offset;
 
         int packet_start = send_cursor->index;
-        mc_int packet_size = net_read_varint(send_cursor);
+        i32 packet_size = net_read_varint(send_cursor);
         int packet_end = send_cursor->index + packet_size;
 
         if (should_compress) {

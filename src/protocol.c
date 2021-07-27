@@ -11,9 +11,9 @@
 // determine the two's complement value explicitly. Maybe there's a better way.
 // Is unsigned to signed casting well defined?
 
-mc_int
+i32
 net_read_varint(buffer_cursor * cursor) {
-    mc_uint in = 0;
+    u32 in = 0;
     unsigned char * data = cursor->buf + cursor->index;
     int remaining = cursor->limit - cursor->index;
     // first decode the first 1-4 bytes
@@ -21,7 +21,7 @@ net_read_varint(buffer_cursor * cursor) {
     int i;
     for (i = 0; i < end; i++) {
         unsigned char b = data[i];
-        in |= (mc_uint) (b & 0x7f) << (i * 7);
+        in |= (u32) (b & 0x7f) << (i * 7);
 
         if ((b & 0x80) == 0) {
             // final byte marker found
@@ -36,20 +36,20 @@ net_read_varint(buffer_cursor * cursor) {
         return 0;
     }
     unsigned char final = data[4];
-    in |= (mc_uint) (final & 0xf) << 28;
+    in |= (u32) (final & 0xf) << 28;
 
 exit:
     cursor->index += i + 1;
     if (in <= 0x7fffffff) {
         return in;
     } else {
-        return (mc_int) (in - 0x80000000) + (-0x7fffffff - 1);
+        return (i32) (in - 0x80000000) + (-0x7fffffff - 1);
     }
 }
 
 void
-net_write_varint(buffer_cursor * cursor, mc_int val) {
-    mc_uint out = val;
+net_write_varint(buffer_cursor * cursor, i32 val) {
+    u32 out = val;
     int remaining = cursor->limit - cursor->index;
     unsigned char * data = cursor->buf + cursor->index;
 
@@ -73,12 +73,12 @@ net_write_varint(buffer_cursor * cursor, mc_int val) {
 }
 
 int
-net_varint_size(mc_int val) {
+net_varint_size(i32 val) {
     // @TODO(traks) The current implementation of this function can probably be
     // optimised quite a bit. Maybe use an instruction to get the highest set
     // bit, then divide by 7.
 
-    mc_uint x = val;
+    u32 x = val;
     int res = 1;
     while (x > 0x7f) {
         x >>= 7;
@@ -87,9 +87,9 @@ net_varint_size(mc_int val) {
     return res;
 }
 
-mc_long
+i64
 net_read_varlong(buffer_cursor * cursor) {
-    mc_ulong in = 0;
+    u64 in = 0;
     unsigned char * data = cursor->buf + cursor->index;
     int remaining = cursor->limit - cursor->index;
     // first decode the first 1-9 bytes
@@ -97,7 +97,7 @@ net_read_varlong(buffer_cursor * cursor) {
     int i;
     for (i = 0; i < end; i++) {
         unsigned char b = data[i];
-        in |= (mc_ulong) (b & 0x7f) << (i * 7);
+        in |= (u64) (b & 0x7f) << (i * 7);
 
         if ((b & 0x80) == 0) {
             // final byte marker found
@@ -112,20 +112,20 @@ net_read_varlong(buffer_cursor * cursor) {
         return 0;
     }
     unsigned char final = data[9];
-    in |= (mc_ulong) (final & 0x1) << 63;
+    in |= (u64) (final & 0x1) << 63;
 
 exit:
     cursor->index += i + 1;
     if (in <= 0x7fffffffffffffff) {
         return in;
     } else {
-        return (mc_long) (in - 0x8000000000000000) + (-0x7fffffffffffffff - 1);
+        return (i64) (in - 0x8000000000000000) + (-0x7fffffffffffffff - 1);
     }
 }
 
 void
-net_write_varlong(buffer_cursor * cursor, mc_long val) {
-    mc_ulong out = val;
+net_write_varlong(buffer_cursor * cursor, i64 val) {
+    u64 out = val;
     int remaining = cursor->limit - cursor->index;
     unsigned char * data = cursor->buf + cursor->index;
 
@@ -148,67 +148,67 @@ net_write_varlong(buffer_cursor * cursor, mc_long val) {
     }
 }
 
-mc_int
+i32
 net_read_int(buffer_cursor * cursor) {
-    mc_uint in = net_read_uint(cursor);
+    u32 in = net_read_uint(cursor);
     if (in <= 0x7fffffff) {
         return in;
     } else {
-        return (mc_int) (in - 0x80000000) + (-0x7fffffff - 1);
+        return (i32) (in - 0x80000000) + (-0x7fffffff - 1);
     }
 }
 
 void
-net_write_int(buffer_cursor * cursor, mc_int val) {
+net_write_int(buffer_cursor * cursor, i32 val) {
     net_write_uint(cursor, val);
 }
 
-mc_short
+i16
 net_read_short(buffer_cursor * cursor) {
-    mc_ushort in = net_read_ushort(cursor);
+    u16 in = net_read_ushort(cursor);
     if (in <= 0x7fff) {
         return in;
     } else {
-        return (mc_short) (in - 0x8000) + (-0x7fff - 1);
+        return (i16) (in - 0x8000) + (-0x7fff - 1);
     }
 }
 
 void
-net_write_short(buffer_cursor * cursor, mc_short val) {
+net_write_short(buffer_cursor * cursor, i16 val) {
     net_write_ushort(cursor, val);
 }
 
-mc_byte
+i8
 net_read_byte(buffer_cursor * cursor) {
-    mc_ubyte in = net_read_ubyte(cursor);
+    u8 in = net_read_ubyte(cursor);
     if (in <= 0x7f) {
         return in;
     } else {
-        return (mc_byte) (in - 0x80) + (-0x7f - 1);
+        return (i8) (in - 0x80) + (-0x7f - 1);
     }
 }
 
 void
-net_write_byte(buffer_cursor * cursor, mc_byte val) {
+net_write_byte(buffer_cursor * cursor, i8 val) {
     net_write_ubyte(cursor, val);
 }
 
-mc_long
+i64
 net_read_long(buffer_cursor * cursor) {
-    mc_ulong in = net_read_ulong(cursor);
+    u64 in = net_read_ulong(cursor);
     if (in <= 0x7fffffffffffffff) {
         return in;
     } else {
-        return (mc_long) (in - 0x8000000000000000) + (-0x7fffffffffffffff - 1);
+        return (i64) (in - 0x8000000000000000) + (-0x7fffffffffffffff - 1);
     }
 }
 
 void
-net_write_long(buffer_cursor * cursor, mc_long val) {
+net_write_long(buffer_cursor * cursor, i64 val) {
     net_write_ulong(cursor, val);
 }
 
-mc_ushort
+u16
 net_read_ushort(buffer_cursor * cursor) {
     if (cursor->limit - cursor->index < 2) {
         cursor->error = 1;
@@ -216,15 +216,15 @@ net_read_ushort(buffer_cursor * cursor) {
     }
 
     unsigned char * buf = cursor->buf + cursor->index;
-    mc_ushort res = 0;
-    res |= (mc_ushort) buf[0] << 8;
-    res |= (mc_ushort) buf[1];
+    u16 res = 0;
+    res |= (u16) buf[0] << 8;
+    res |= (u16) buf[1];
     cursor->index += 2;
     return res;
 }
 
 void
-net_write_ushort(buffer_cursor * cursor, mc_ushort val) {
+net_write_ushort(buffer_cursor * cursor, u16 val) {
     if (cursor->limit - cursor->index < 2) {
         cursor->error = 1;
         return;
@@ -236,7 +236,7 @@ net_write_ushort(buffer_cursor * cursor, mc_ushort val) {
     cursor->index += 2;
 }
 
-mc_ulong
+u64
 net_read_ulong(buffer_cursor * cursor) {
     if (cursor->limit - cursor->index < 8) {
         cursor->error = 1;
@@ -244,21 +244,21 @@ net_read_ulong(buffer_cursor * cursor) {
     }
 
     unsigned char * buf = cursor->buf + cursor->index;
-    mc_ulong res = 0;
-    res |= (mc_ulong) buf[0] << 56;
-    res |= (mc_ulong) buf[1] << 48;
-    res |= (mc_ulong) buf[2] << 40;
-    res |= (mc_ulong) buf[3] << 32;
-    res |= (mc_ulong) buf[4] << 24;
-    res |= (mc_ulong) buf[5] << 16;
-    res |= (mc_ulong) buf[6] << 8;
-    res |= (mc_ulong) buf[7];
+    u64 res = 0;
+    res |= (u64) buf[0] << 56;
+    res |= (u64) buf[1] << 48;
+    res |= (u64) buf[2] << 40;
+    res |= (u64) buf[3] << 32;
+    res |= (u64) buf[4] << 24;
+    res |= (u64) buf[5] << 16;
+    res |= (u64) buf[6] << 8;
+    res |= (u64) buf[7];
     cursor->index += 8;
     return res;
 }
 
 void
-net_write_ulong(buffer_cursor * cursor, mc_ulong val) {
+net_write_ulong(buffer_cursor * cursor, u64 val) {
     if (cursor->limit - cursor->index < 8) {
         cursor->error = 1;
         return;
@@ -276,7 +276,7 @@ net_write_ulong(buffer_cursor * cursor, mc_ulong val) {
     cursor->index += 8;
 }
 
-mc_uint
+u32
 net_read_uint(buffer_cursor * cursor) {
     if (cursor->limit - cursor->index < 4) {
         cursor->error = 1;
@@ -284,17 +284,17 @@ net_read_uint(buffer_cursor * cursor) {
     }
 
     unsigned char * buf = cursor->buf + cursor->index;
-    mc_uint res = 0;
-    res |= (mc_uint) buf[0] << 24;
-    res |= (mc_uint) buf[1] << 16;
-    res |= (mc_uint) buf[2] << 8;
-    res |= (mc_uint) buf[3];
+    u32 res = 0;
+    res |= (u32) buf[0] << 24;
+    res |= (u32) buf[1] << 16;
+    res |= (u32) buf[2] << 8;
+    res |= (u32) buf[3];
     cursor->index += 4;
     return res;
 }
 
 void
-net_write_uint(buffer_cursor * cursor, mc_uint val) {
+net_write_uint(buffer_cursor * cursor, u32 val) {
     if (cursor->limit - cursor->index < 4) {
         cursor->error = 1;
         return;
@@ -308,7 +308,7 @@ net_write_uint(buffer_cursor * cursor, mc_uint val) {
     cursor->index += 4;
 }
 
-mc_ubyte
+u8
 net_read_ubyte(buffer_cursor * cursor) {
     if (cursor->limit - cursor->index < 1) {
         cursor->error = 1;
@@ -316,13 +316,13 @@ net_read_ubyte(buffer_cursor * cursor) {
     }
 
     unsigned char * buf = cursor->buf + cursor->index;
-    mc_ubyte res = buf[0];
+    u8 res = buf[0];
     cursor->index += 1;
     return res;
 }
 
 void
-net_write_ubyte(buffer_cursor * cursor, mc_ubyte val) {
+net_write_ubyte(buffer_cursor * cursor, u8 val) {
     if (cursor->limit - cursor->index < 1) {
         cursor->error = 1;
         return;
@@ -334,8 +334,8 @@ net_write_ubyte(buffer_cursor * cursor, mc_ubyte val) {
 }
 
 net_string
-net_read_string(buffer_cursor * cursor, mc_int max_size) {
-    mc_int size = net_read_varint(cursor);
+net_read_string(buffer_cursor * cursor, i32 max_size) {
+    i32 size = net_read_varint(cursor);
     net_string res = {0};
     if (size < 0 || size > cursor->limit - cursor->index || size > max_size) {
         cursor->error = 1;
@@ -368,10 +368,10 @@ net_write_string(buffer_cursor * cursor, net_string val) {
 
 float
 net_read_float(buffer_cursor * cursor) {
-    mc_uint in = net_read_uint(cursor);
+    u32 in = net_read_uint(cursor);
     int encoded_e = (in >> 23) & 0xff;
-    mc_int significand = in & 0x7fffff;
-    mc_uint sign = in & 0x80000000;
+    i32 significand = in & 0x7fffff;
+    u32 sign = in & 0x80000000;
 
     if (encoded_e == 0) {
         if (significand == 0) {
@@ -427,8 +427,8 @@ net_write_float(buffer_cursor * cursor, float val) {
             break;
         }
 
-        mc_int significand = ldexpf(normalised, 24);
-        mc_uint out;
+        i32 significand = ldexpf(normalised, 24);
+        u32 out;
 
         if (significand < 0) {
             significand = -significand;
@@ -469,10 +469,10 @@ net_write_float(buffer_cursor * cursor, float val) {
 
 double
 net_read_double(buffer_cursor * cursor) {
-    mc_ulong in = net_read_ulong(cursor);
+    u64 in = net_read_ulong(cursor);
     int encoded_e = (in >> 52) & 0x7ff;
-    mc_long significand = in & 0xfffffffffffff;
-    mc_ulong sign = in & 0x8000000000000000;
+    i64 significand = in & 0xfffffffffffff;
+    u64 sign = in & 0x8000000000000000;
 
     if (encoded_e == 0) {
         if (significand == 0) {
@@ -529,8 +529,8 @@ net_write_double(buffer_cursor * cursor, double val) {
             break;
         }
 
-        mc_long significand = ldexp(normalised, 53);
-        mc_ulong out;
+        i64 significand = ldexp(normalised, 53);
+        u64 out;
 
         if (significand < 0) {
             significand = -significand;
@@ -572,20 +572,20 @@ net_write_double(buffer_cursor * cursor, double val) {
 
 net_block_pos
 net_read_block_pos(buffer_cursor * cursor) {
-    mc_long val = net_read_long(cursor);
-    mc_int x = val >> 38;
-    mc_int y = (val << 52) >> 52;
-    mc_int z = (val << 26) >> 38;
+    i64 val = net_read_long(cursor);
+    i32 x = val >> 38;
+    i32 y = (val << 52) >> 52;
+    i32 z = (val << 26) >> 38;
     net_block_pos res = {.x = x, .y = y, .z = z};
     return res;
 }
 
 void
 net_write_block_pos(buffer_cursor * cursor, net_block_pos val) {
-    mc_long x = (mc_long) val.x & 0x3ffffff;
-    mc_long y = (mc_long) val.y & 0xfff;
-    mc_long z = (mc_long) val.z & 0x3ffffff;
-    mc_long out = (x << 38) | (z << 12) | y;
+    i64 x = (i64) val.x & 0x3ffffff;
+    i64 y = (i64) val.y & 0xfff;
+    i64 z = (i64) val.z & 0x3ffffff;
+    i64 out = (x << 38) | (z << 12) | y;
     net_write_long(cursor, out);
 }
 

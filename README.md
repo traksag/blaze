@@ -18,6 +18,7 @@ Your compiler must satisfy the following:
 
 * Integers are represented using two's complement representation and bitwise operations such as AND, work as expected on signed integers.
 * Signed right shift works by sign extension.
+* Casting to an unsigned or signed integer type works as expected.
 
 GCC satisfies these requirements as can be seen [here](https://gcc.gnu.org/onlinedocs/gcc/Integers-implementation.html). Hence Clang likely does as well (there is no accessible documentation of implementation-defined behaviour though).
 

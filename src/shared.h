@@ -56,25 +56,25 @@ extern int tracy_context_count;
 
 #define SERVER_WORLD_VERSION (2730)
 
-typedef int8_t mc_byte;
-typedef int16_t mc_short;
-typedef int32_t mc_int;
-typedef int64_t mc_long;
-typedef uint8_t mc_ubyte;
-typedef uint16_t mc_ushort;
-typedef uint32_t mc_uint;
-typedef uint64_t mc_ulong;
+typedef int8_t i8;
+typedef int16_t i16;
+typedef int32_t i32;
+typedef int64_t i64;
+typedef uint8_t u8;
+typedef uint16_t u16;
+typedef uint32_t u32;
+typedef uint64_t u64;
 
 typedef struct {
     unsigned char * ptr;
-    mc_int size;
-    mc_int index;
+    i32 size;
+    i32 index;
 } memory_arena;
 
 typedef struct {
-    mc_int x;
-    mc_int y;
-    mc_int z;
+    i32 x;
+    i32 y;
+    i32 z;
 } net_block_pos;
 
 typedef struct {
@@ -91,7 +91,7 @@ typedef struct {
 #define NET_STRING(x) ((net_string) {.size = sizeof (x) - 1, .ptr = (x)})
 
 typedef struct {
-    mc_int size;
+    i32 size;
     void * ptr;
 } net_string;
 
@@ -118,12 +118,12 @@ enum nbt_tag {
 
 typedef union {
     struct {
-        mc_uint buffer_index:22;
-        mc_uint tag:5;
-        mc_uint element_tag:5;
+        u32 buffer_index:22;
+        u32 tag:5;
+        u32 element_tag:5;
     };
-    mc_uint next_compound_entry_offset;
-    mc_uint list_size;
+    u32 next_compound_entry_offset;
+    u32 list_size;
 } nbt_tape_entry;
 
 #define MAX_CHUNK_CACHE_RADIUS (10)
@@ -202,15 +202,15 @@ enum dye_colour {
 };
 
 typedef struct {
-    mc_short x;
-    mc_short z;
+    i16 x;
+    i16 z;
 } chunk_pos;
 
 #define CHUNK_LOADED (1u << 0)
 
 typedef struct {
     int index_in_bucket;
-    mc_ushort block_states[4096];
+    u16 block_states[4096];
 } chunk_section;
 
 #define CHUNK_SECTIONS_PER_BUCKET (64)
@@ -229,9 +229,9 @@ struct chunk_section_bucket {
 };
 
 typedef struct {
-    mc_ushort x:4;
-    mc_ushort y:8;
-    mc_ushort z:4;
+    u16 x:4;
+    u16 y:8;
+    u16 z:4;
 } compact_chunk_block_pos;
 
 enum block_entity_type {
@@ -291,7 +291,7 @@ typedef struct {
 typedef struct {
     int type;
     net_block_pos pos;
-    mc_int data;
+    i32 data;
 } level_event;
 
 typedef struct {
@@ -299,14 +299,14 @@ typedef struct {
     // code will have to be updated as well (such as chunk sending and light
     // update sending).
     chunk_section * sections[16];
-    mc_ushort non_air_count[16];
+    u16 non_air_count[16];
     // need shorts to store 257 different heights
-    mc_ushort motion_blocking_height_map[256];
+    u16 motion_blocking_height_map[256];
 
     // increment if you want to keep a chunk available in the map, decrement
     // if you no longer care for the chunk.
     // If = 0 the chunk will be removed from the map at some point.
-    mc_uint available_interest;
+    u32 available_interest;
     unsigned flags;
 
     // @TODO(traks) more changed blocks, better compression. Can become very
@@ -315,7 +315,7 @@ typedef struct {
     // with a 1 if a block changed and a 0 otherwise. However, that has massive
     // memory overhead.
     compact_chunk_block_pos changed_blocks[200];
-    mc_ubyte changed_block_count;
+    u8 changed_block_count;
 
     // @TODO(traks) allow more block entities. Possibly use an internally
     // chained hashmap for this. The question is, where do we allocate this
@@ -331,7 +331,7 @@ typedef struct {
     block_entity_base block_entities[10];
 
     level_event local_events[64];
-    mc_ubyte local_event_count;
+    u8 local_event_count;
 } chunk;
 
 #define CHUNKS_PER_BUCKET (32)
@@ -1438,7 +1438,7 @@ typedef struct {
 } block_property_spec;
 
 typedef struct {
-    mc_ushort base_state;
+    u16 base_state;
     unsigned char property_count;
     unsigned char property_specs[8];
     unsigned char default_value_indices[8];
@@ -1668,110 +1668,110 @@ enum block_property {
 // support model, etc. just for convenience. Would also be nice to deduplicate
 // some fields such as facing & age.
 typedef struct {
-    mc_ulong available_properties[2];
-    mc_ushort block_type;
+    u64 available_properties[2];
+    u16 block_type;
 
     union {
-        mc_ubyte values[BLOCK_PROPERTY_COUNT];
+        u8 values[BLOCK_PROPERTY_COUNT];
         struct {
-            mc_ubyte attached;
-            mc_ubyte bottom;
-            mc_ubyte conditional;
-            mc_ubyte disarmed;
-            mc_ubyte drag;
-            mc_ubyte enabled;
-            mc_ubyte extended;
-            mc_ubyte eye;
-            mc_ubyte falling;
-            mc_ubyte hanging;
-            mc_ubyte has_bottle_0;
-            mc_ubyte has_bottle_1;
-            mc_ubyte has_bottle_2;
-            mc_ubyte has_record;
-            mc_ubyte has_book;
-            mc_ubyte inverted;
-            mc_ubyte in_wall;
-            mc_ubyte lit;
-            mc_ubyte locked;
-            mc_ubyte occupied;
-            mc_ubyte open;
-            mc_ubyte persistent;
-            mc_ubyte powered;
-            mc_ubyte short_piston;
-            mc_ubyte signal_fire;
-            mc_ubyte snowy;
-            mc_ubyte triggered;
-            mc_ubyte unstable;
-            mc_ubyte waterlogged;
-            mc_ubyte vine_end;
-            mc_ubyte berries;
-            mc_ubyte horizontal_axis;
-            mc_ubyte axis;
-            mc_ubyte neg_y;
-            mc_ubyte pos_y;
-            mc_ubyte neg_z;
-            mc_ubyte pos_z;
-            mc_ubyte neg_x;
-            mc_ubyte pos_x;
-            mc_ubyte facing;
-            mc_ubyte facing_hopper;
-            mc_ubyte horizontal_facing;
-            mc_ubyte jigsaw_orientation;
-            mc_ubyte attach_face;
-            mc_ubyte bell_attachment;
-            mc_ubyte wall_pos_x;
-            mc_ubyte wall_neg_z;
-            mc_ubyte wall_pos_z;
-            mc_ubyte wall_neg_x;
-            mc_ubyte redstone_pos_x;
-            mc_ubyte redstone_neg_z;
-            mc_ubyte redstone_pos_z;
-            mc_ubyte redstone_neg_x;
-            mc_ubyte double_block_half;
-            mc_ubyte half;
-            mc_ubyte rail_shape;
-            mc_ubyte rail_shape_straight;
-            mc_ubyte age_1;
-            mc_ubyte age_2;
-            mc_ubyte age_3;
-            mc_ubyte age_5;
-            mc_ubyte age_7;
-            mc_ubyte age_15;
-            mc_ubyte age_25;
-            mc_ubyte bites;
-            mc_ubyte candles;
-            mc_ubyte delay;
-            mc_ubyte distance;
-            mc_ubyte eggs;
-            mc_ubyte hatch;
-            mc_ubyte layers;
-            mc_ubyte level_cauldron;
-            mc_ubyte level_composter;
-            mc_ubyte level_honey;
-            mc_ubyte level;
-            mc_ubyte level_light;
-            mc_ubyte moisture;
-            mc_ubyte note;
-            mc_ubyte pickles;
-            mc_ubyte power;
-            mc_ubyte stage;
-            mc_ubyte stability_distance;
-            mc_ubyte respawn_anchor_charges;
-            mc_ubyte rotation_16;
-            mc_ubyte bed_part;
-            mc_ubyte chest_type;
-            mc_ubyte mode_comparator;
-            mc_ubyte door_hinge;
-            mc_ubyte noteblock_instrument;
-            mc_ubyte piston_type;
-            mc_ubyte slab_type;
-            mc_ubyte stairs_shape;
-            mc_ubyte structureblock_mode;
-            mc_ubyte bamboo_leaves;
-            mc_ubyte dripleaf_tilt;
-            mc_ubyte vertical_direction;
-            mc_ubyte dripstone_thickness;
-            mc_ubyte sculk_sensor_phase;
+            u8 attached;
+            u8 bottom;
+            u8 conditional;
+            u8 disarmed;
+            u8 drag;
+            u8 enabled;
+            u8 extended;
+            u8 eye;
+            u8 falling;
+            u8 hanging;
+            u8 has_bottle_0;
+            u8 has_bottle_1;
+            u8 has_bottle_2;
+            u8 has_record;
+            u8 has_book;
+            u8 inverted;
+            u8 in_wall;
+            u8 lit;
+            u8 locked;
+            u8 occupied;
+            u8 open;
+            u8 persistent;
+            u8 powered;
+            u8 short_piston;
+            u8 signal_fire;
+            u8 snowy;
+            u8 triggered;
+            u8 unstable;
+            u8 waterlogged;
+            u8 vine_end;
+            u8 berries;
+            u8 horizontal_axis;
+            u8 axis;
+            u8 neg_y;
+            u8 pos_y;
+            u8 neg_z;
+            u8 pos_z;
+            u8 neg_x;
+            u8 pos_x;
+            u8 facing;
+            u8 facing_hopper;
+            u8 horizontal_facing;
+            u8 jigsaw_orientation;
+            u8 attach_face;
+            u8 bell_attachment;
+            u8 wall_pos_x;
+            u8 wall_neg_z;
+            u8 wall_pos_z;
+            u8 wall_neg_x;
+            u8 redstone_pos_x;
+            u8 redstone_neg_z;
+            u8 redstone_pos_z;
+            u8 redstone_neg_x;
+            u8 double_block_half;
+            u8 half;
+            u8 rail_shape;
+            u8 rail_shape_straight;
+            u8 age_1;
+            u8 age_2;
+            u8 age_3;
+            u8 age_5;
+            u8 age_7;
+            u8 age_15;
+            u8 age_25;
+            u8 bites;
+            u8 candles;
+            u8 delay;
+            u8 distance;
+            u8 eggs;
+            u8 hatch;
+            u8 layers;
+            u8 level_cauldron;
+            u8 level_composter;
+            u8 level_honey;
+            u8 level;
+            u8 level_light;
+            u8 moisture;
+            u8 note;
+            u8 pickles;
+            u8 power;
+            u8 stage;
+            u8 stability_distance;
+            u8 respawn_anchor_charges;
+            u8 rotation_16;
+            u8 bed_part;
+            u8 chest_type;
+            u8 mode_comparator;
+            u8 door_hinge;
+            u8 noteblock_instrument;
+            u8 piston_type;
+            u8 slab_type;
+            u8 stairs_shape;
+            u8 structureblock_mode;
+            u8 bamboo_leaves;
+            u8 dripleaf_tilt;
+            u8 vertical_direction;
+            u8 dripstone_thickness;
+            u8 sculk_sensor_phase;
         };
     };
 } block_state_info;
@@ -2884,8 +2884,8 @@ enum item_type {
 typedef struct {
     // @NOTE(traks) zero size if and only if type is AIR, because that seems
     // what may be expected
-    mc_int type;
-    mc_ubyte size;
+    i32 type;
+    u8 size;
 } item_stack;
 
 // @TODO(traks) the names are not completely accurate, should improve names once
@@ -3092,7 +3092,7 @@ enum entity_type {
 // index into the entity table. Bits actually used for the index depends on
 // MAX_ENTITIES.
 static_assert(MAX_ENTITIES <= (1UL << 20), "MAX_ENTITIES too large");
-typedef mc_uint entity_id;
+typedef u32 entity_id;
 
 // in network order
 enum entity_pose {
@@ -3266,9 +3266,9 @@ typedef struct {
 typedef struct {
     entity_id eid;
 
-    mc_long last_tp_packet_tick;
-    mc_long last_send_pos_tick;
-    mc_long last_update_tick;
+    i64 last_tp_packet_tick;
+    i64 last_send_pos_tick;
+    i64 last_update_tick;
 
     unsigned char update_interval;
 
@@ -3284,7 +3284,7 @@ typedef struct {
 
 typedef struct {
     net_block_pos pos;
-    mc_ushort new_state;
+    u16 new_state;
     unsigned char action;
     unsigned char success;
 } block_break_ack;
@@ -3296,12 +3296,12 @@ typedef struct {
     item_stack slots_prev_tick[PLAYER_SLOTS];
     item_stack slots[PLAYER_SLOTS];
     static_assert(PLAYER_SLOTS <= 64, "Too many player slots");
-    mc_ulong slots_needing_update;
+    u64 slots_needing_update;
     unsigned char selected_slot;
 
     entity_id picked_up_item_id;
-    mc_ubyte picked_up_item_size;
-    mc_long picked_up_tick;
+    u8 picked_up_item_size;
+    i64 picked_up_tick;
 
     unsigned char gamemode;
 
@@ -3323,23 +3323,23 @@ typedef struct {
     // and including an extra outer rim the client doesn't render but uses
     // for connected blocks and such.
     int chunk_cache_radius;
-    mc_short chunk_cache_centre_x;
-    mc_short chunk_cache_centre_z;
+    i16 chunk_cache_centre_x;
+    i16 chunk_cache_centre_z;
     int new_chunk_cache_radius;
     // @TODO(traks) maybe this should just be a bitmap
     chunk_cache_entry chunk_cache[MAX_CHUNK_CACHE_DIAM * MAX_CHUNK_CACHE_DIAM];
 
-    mc_int current_teleport_id;
+    i32 current_teleport_id;
 
     unsigned char language[16];
     int language_size;
-    mc_int chat_visibility;
-    mc_ubyte sees_chat_colours;
-    mc_ubyte model_customisation;
-    mc_int main_hand;
-    mc_ubyte text_filtering;
+    i32 chat_visibility;
+    u8 sees_chat_colours;
+    u8 model_customisation;
+    i32 main_hand;
+    u8 text_filtering;
 
-    mc_long last_keep_alive_sent_tick;
+    i64 last_keep_alive_sent_tick;
 
     entity_id eid;
 
@@ -3347,7 +3347,7 @@ typedef struct {
     tracked_entity tracked_entities[MAX_ENTITIES];
 
     net_block_pos changed_blocks[8];
-    mc_ubyte changed_block_count;
+    u8 changed_block_count;
 
     // @TODO(traks) figure out the maximum number of blocks broken per tick by
     // a single player
@@ -3360,7 +3360,7 @@ typedef struct {
     item_stack contents;
     // minecraft calls this pickup delay. If equal to 32767, this item can't
     // ever be picked up (by players, foxes, etc.)
-    mc_short pickup_timeout;
+    i16 pickup_timeout;
 } entity_item;
 
 #define ENTITY_IN_USE ((unsigned) (1 << 0))
@@ -3393,8 +3393,8 @@ typedef struct {
 #define PLAYER_INSTABUILD ((unsigned) (1 << 24))
 #define PLAYER_CAN_BUILD ((unsigned) (1 << 25))
 
-#define PLAYER_ABILITIES_CHANGED ((mc_ulong) (1ULL << 32))
-#define PLAYER_GAMEMODE_CHANGED ((mc_ulong) (1ULL << 33))
+#define PLAYER_ABILITIES_CHANGED ((u64) (1ULL << 32))
+#define PLAYER_GAMEMODE_CHANGED ((u64) (1ULL << 33))
 
 typedef struct {
     entity_id eid;
@@ -3424,13 +3424,13 @@ typedef struct {
     // Bottom 32 bits for changed entity data: bit position equals entity data
     // id. Top 32 bits for other things. This is used to send packets with the
     // most up-to-date data.
-    mc_ulong changed_data;
+    u64 changed_data;
 
     // entity data
     unsigned flags;
-    mc_int air_supply;
+    i32 air_supply;
     unsigned char pose;
-    mc_int effect_colour; // living entities
+    i32 effect_colour; // living entities
 
     union {
         entity_player player;
@@ -3439,7 +3439,7 @@ typedef struct {
 } entity_base;
 
 typedef struct {
-    mc_ushort size;
+    u16 size;
     unsigned char text[512];
 } global_msg;
 
@@ -3464,19 +3464,19 @@ typedef struct {
 
 typedef struct {
     unsigned char size;
-    mc_ushort id;
-    mc_uint buf_index;
+    u16 id;
+    u32 buf_index;
 } resource_loc_entry;
 
 typedef struct {
-    mc_int size_mask;
-    mc_int string_buf_size;
+    i32 size_mask;
+    i32 string_buf_size;
     resource_loc_entry * entries;
     unsigned char * string_buf;
-    mc_int last_string_buf_index;
+    i32 last_string_buf_index;
 
-    mc_ushort * by_id;
-    mc_ushort max_ids;
+    u16 * by_id;
+    u16 max_ids;
 } resource_loc_table;
 
 // Currently dimension types have the following configurable properties that are
@@ -3532,12 +3532,12 @@ typedef struct {
 typedef struct {
     unsigned char name[64];
     unsigned char name_size;
-    mc_long fixed_time; // -1 if not used
+    i64 fixed_time; // -1 if not used
     unsigned flags;
     double coordinate_scale;
-    mc_int min_y;
-    mc_int height;
-    mc_int logical_height;
+    i32 min_y;
+    i32 height;
+    i32 logical_height;
     unsigned char infiniburn[128];
     unsigned char infiniburn_size;
     unsigned char effects[128];
@@ -3596,12 +3596,12 @@ typedef struct {
     float depth;
     float scale;
 
-    mc_int fog_colour;
-    mc_int water_colour;
-    mc_int water_fog_colour;
-    mc_int sky_colour;
-    mc_int foliage_colour_override; // -1 if not used
-    mc_int grass_colour_override; // -1 if not used
+    i32 fog_colour;
+    i32 water_colour;
+    i32 water_fog_colour;
+    i32 sky_colour;
+    i32 foliage_colour_override; // -1 if not used
+    i32 grass_colour_override; // -1 if not used
     unsigned char grass_colour_mod;
 
     // @TODO(traks) complex ambient particle settings
@@ -3611,8 +3611,8 @@ typedef struct {
 
     unsigned char mood_sound[64];
     unsigned char mood_sound_size;
-    mc_int mood_sound_tick_delay;
-    mc_int mood_sound_block_search_extent;
+    i32 mood_sound_tick_delay;
+    i32 mood_sound_block_search_extent;
     double mood_sound_offset;
 
     unsigned char additions_sound[64];
@@ -3621,15 +3621,15 @@ typedef struct {
 
     unsigned char music_sound[64];
     unsigned char music_sound_size;
-    mc_int music_min_delay;
-    mc_int music_max_delay;
-    mc_ubyte music_replace_current_music;
+    i32 music_min_delay;
+    i32 music_max_delay;
+    u8 music_replace_current_music;
 } biome;
 
 typedef struct {
     net_block_pos pos;
     int from_direction;
-    mc_long for_tick;
+    i64 for_tick;
 } scheduled_block_update;
 
 typedef struct {
@@ -3644,11 +3644,11 @@ typedef struct {
 } block_update_context;
 
 typedef struct {
-    mc_long current_tick;
+    i64 current_tick;
 
     entity_base entities[MAX_ENTITIES];
-    mc_ushort next_entity_generations[MAX_ENTITIES];
-    mc_int entity_count;
+    u16 next_entity_generations[MAX_ENTITIES];
+    i32 entity_count;
 
     // All chunks that should be loaded. Stored in a request list to allow for
     // ordered loads. If a
@@ -3661,7 +3661,7 @@ typedef struct {
     int global_msg_count;
 
     void * short_lived_scratch;
-    mc_int short_lived_scratch_size;
+    i32 short_lived_scratch_size;
 
     entity_id tab_list_added[64];
     int tab_list_added_count;
@@ -3682,7 +3682,7 @@ typedef struct {
     // buffer for the tag keys in the tag lists
     unsigned char tag_name_buf[1 << 13];
     // buffer for the lists of values associated to the tag keys
-    mc_ushort tag_value_id_buf[1 << 12];
+    u16 tag_value_id_buf[1 << 12];
 
     resource_loc_table block_resource_table;
     resource_loc_table item_resource_table;
@@ -3696,7 +3696,7 @@ typedef struct {
     block_property_spec block_property_specs[BLOCK_PROPERTY_COUNT];
     block_model block_models[128];
     support_model support_models[128];
-    mc_ubyte collision_model_by_state[18000];
+    u8 collision_model_by_state[18000];
 
     dimension_type dimension_types[32];
     int dimension_type_count;
@@ -3705,7 +3705,7 @@ typedef struct {
     int biome_count;
 
     // block state -> block type
-    mc_ushort block_type_by_state[21000];
+    u16 block_type_by_state[21000];
 
     // @TODO(traks) this is the simplest but dumbest thing. Should really store
     // this per chunk, since we need to save it when chunk is unloaded. Limit
@@ -3733,73 +3733,73 @@ void
 logs_errno(void * format);
 
 void *
-alloc_in_arena(memory_arena * arena, mc_int size);
+alloc_in_arena(memory_arena * arena, i32 size);
 
-mc_int
+i32
 net_read_varint(buffer_cursor * cursor);
 
 void
-net_write_varint(buffer_cursor * cursor, mc_int val);
+net_write_varint(buffer_cursor * cursor, i32 val);
 
 int
-net_varint_size(mc_int val);
+net_varint_size(i32 val);
 
-mc_long
+i64
 net_read_varlong(buffer_cursor * cursor);
 
 void
-net_write_varlong(buffer_cursor * cursor, mc_long val);
+net_write_varlong(buffer_cursor * cursor, i64 val);
 
-mc_int
+i32
 net_read_int(buffer_cursor * cursor);
 
 void
-net_write_int(buffer_cursor * cursor, mc_int val);
+net_write_int(buffer_cursor * cursor, i32 val);
 
-mc_short
+i16
 net_read_short(buffer_cursor * cursor);
 
 void
-net_write_short(buffer_cursor * cursor, mc_short val);
+net_write_short(buffer_cursor * cursor, i16 val);
 
-mc_byte
+i8
 net_read_byte(buffer_cursor * cursor);
 
 void
-net_write_byte(buffer_cursor * cursor, mc_byte val);
+net_write_byte(buffer_cursor * cursor, i8 val);
 
-mc_long
+i64
 net_read_long(buffer_cursor * cursor);
 
 void
-net_write_long(buffer_cursor * cursor, mc_long val);
+net_write_long(buffer_cursor * cursor, i64 val);
 
-mc_ushort
+u16
 net_read_ushort(buffer_cursor * cursor);
 
 void
-net_write_ushort(buffer_cursor * cursor, mc_ushort val);
+net_write_ushort(buffer_cursor * cursor, u16 val);
 
-mc_ulong
+u64
 net_read_ulong(buffer_cursor * cursor);
 
 void
-net_write_ulong(buffer_cursor * cursor, mc_ulong val);
+net_write_ulong(buffer_cursor * cursor, u64 val);
 
-mc_uint
+u32
 net_read_uint(buffer_cursor * cursor);
 
 void
-net_write_uint(buffer_cursor * cursor, mc_uint val);
+net_write_uint(buffer_cursor * cursor, u32 val);
 
-mc_ubyte
+u8
 net_read_ubyte(buffer_cursor * cursor);
 
 void
-net_write_ubyte(buffer_cursor * cursor, mc_ubyte val);
+net_write_ubyte(buffer_cursor * cursor, u8 val);
 
 net_string
-net_read_string(buffer_cursor * cursor, mc_int max_size);
+net_read_string(buffer_cursor * cursor, i32 max_size);
 
 void
 net_write_string(buffer_cursor * cursor, net_string val);
@@ -3859,16 +3859,16 @@ get_chunk_if_available(chunk_pos pos);
 block_entity_base *
 try_get_block_entity(net_block_pos pos);
 
-mc_ushort
+u16
 try_get_block_state(net_block_pos pos);
 
 void
-try_set_block_state(net_block_pos pos, mc_ushort block_state);
+try_set_block_state(net_block_pos pos, u16 block_state);
 
 void
-chunk_set_block_state(chunk * ch, int x, int y, int z, mc_ushort block_state);
+chunk_set_block_state(chunk * ch, int x, int y, int z, u16 block_state);
 
-mc_ushort
+u16
 chunk_get_block_state(chunk * ch, int x, int y, int z);
 
 void
@@ -3911,32 +3911,32 @@ void
 send_packets_to_player(entity_base * entity, memory_arena * tick_arena);
 
 void
-register_resource_loc(net_string resource_loc, mc_short id,
+register_resource_loc(net_string resource_loc, i16 id,
         resource_loc_table * table);
 
-mc_short
+i16
 resolve_resource_loc_id(net_string resource_loc, resource_loc_table * table);
 
 net_string
-get_resource_loc(mc_ushort id, resource_loc_table * table);
+get_resource_loc(u16 id, resource_loc_table * table);
 
 int
 net_string_equal(net_string a, net_string b);
 
 void
 process_use_item_on_packet(entity_base * player,
-        mc_int hand, net_block_pos clicked_pos, mc_int clicked_face,
+        i32 hand, net_block_pos clicked_pos, i32 clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
-        mc_ubyte is_inside, memory_arena * scratch_arena);
+        u8 is_inside, memory_arena * scratch_arena);
 
 int
 use_block(entity_base * player,
-        mc_int hand, net_block_pos clicked_pos, mc_int clicked_face,
+        i32 hand, net_block_pos clicked_pos, i32 clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
-        mc_ubyte is_inside, block_update_context * buc);
+        u8 is_inside, block_update_context * buc);
 
-mc_ubyte
-get_max_stack_size(mc_int item_type);
+u8
+get_max_stack_size(i32 item_type);
 
 void
 propagate_delayed_block_updates(memory_arena * scratch_arena);
@@ -3948,43 +3948,43 @@ net_block_pos
 get_relative_block_pos(net_block_pos pos, int face);
 
 int
-can_plant_survive_on(mc_int type_below);
+can_plant_survive_on(i32 type_below);
 
 int
-can_lily_pad_survive_on(mc_ushort state_below);
+can_lily_pad_survive_on(u16 state_below);
 
 int
-can_carpet_survive_on(mc_int type_below);
+can_carpet_survive_on(i32 type_below);
 
 int
-can_dead_bush_survive_on(mc_int type_below);
+can_dead_bush_survive_on(i32 type_below);
 
 int
-can_wither_rose_survive_on(mc_int type_below);
+can_wither_rose_survive_on(i32 type_below);
 
 int
-can_azalea_survive_on(mc_int type_below);
+can_azalea_survive_on(i32 type_below);
 
 int
-can_nether_plant_survive_on(mc_int type_below);
+can_nether_plant_survive_on(i32 type_below);
 
 int
-is_bamboo_plantable_on(mc_int type_below);
+is_bamboo_plantable_on(i32 type_below);
 
 int
-can_sea_pickle_survive_on(mc_ushort state_below);
+can_sea_pickle_survive_on(u16 state_below);
 
 int
-can_snow_survive_on(mc_ushort state_below);
+can_snow_survive_on(u16 state_below);
 
 int
-can_pressure_plate_survive_on(mc_ushort state_below);
+can_pressure_plate_survive_on(u16 state_below);
 
 int
-can_redstone_wire_survive_on(mc_ushort state_below);
+can_redstone_wire_survive_on(u16 state_below);
 
 int
-update_redstone_wire(net_block_pos pos, mc_ushort in_world_state,
+update_redstone_wire(net_block_pos pos, u16 in_world_state,
         block_state_info * base_info, block_update_context * buc);
 
 int
@@ -4006,15 +4006,15 @@ int
 has_block_state_property(block_state_info * info, int prop);
 
 block_state_info
-describe_block_state(mc_ushort block_state);
+describe_block_state(u16 block_state);
 
-mc_ushort
-get_default_block_state(mc_int block_type);
+u16
+get_default_block_state(i32 block_type);
 
 block_state_info
-describe_default_block_state(mc_int block_type);
+describe_default_block_state(i32 block_type);
 
-mc_ushort
+u16
 make_block_state(block_state_info * info);
 
 void
@@ -4036,22 +4036,22 @@ int
 get_player_facing(entity_base * player);
 
 int
-is_wall(mc_int block_type);
+is_wall(i32 block_type);
 
 block_model
-get_collision_model(mc_ushort block_state, net_block_pos pos);
+get_collision_model(u16 block_state, net_block_pos pos);
 
 support_model
-get_support_model(mc_ushort block_state);
+get_support_model(u16 block_state);
 
 int
-get_water_level(mc_ushort state);
+get_water_level(u16 state);
 
 int
-is_water_source(mc_ushort state);
+is_water_source(u16 state);
 
 int
-is_full_water(mc_ushort state);
+is_full_water(u16 state);
 
 void
 push_direct_neighbour_block_updates(net_block_pos pos,
