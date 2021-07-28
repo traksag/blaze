@@ -1,6 +1,6 @@
 #include <string.h>
 #include <stdio.h>
-#include "shared.h"
+#include "nbt.h"
 
 typedef struct {
     unsigned char is_list;
@@ -19,10 +19,10 @@ typedef struct {
 
 nbt_tape_entry *
 nbt_move_to_key(String matcher, nbt_tape_entry * tape,
-        BufferCursor * cursor) {
+        BufCursor * cursor) {
     while (tape->tag != NBT_TAG_END) {
         cursor->index = tape->buffer_index;
-        u16 key_size = net_read_ushort(cursor);
+        u16 key_size = CursorGetU16(cursor);
         unsigned char * key = cursor->data + cursor->index;
         if (key_size == matcher.size
                 && memcmp(key, matcher.data, matcher.size) == 0) {
@@ -37,7 +37,7 @@ nbt_move_to_key(String matcher, nbt_tape_entry * tape,
 
 String
 nbt_get_string(String matcher, nbt_tape_entry * tape,
-        BufferCursor * cursor) {
+        BufCursor * cursor) {
     nbt_tape_entry * string_tape = nbt_move_to_key(matcher, tape, cursor);
 
     if (string_tape->tag != NBT_TAG_STRING) {
@@ -46,7 +46,7 @@ nbt_get_string(String matcher, nbt_tape_entry * tape,
     }
 
     // @NOTE(traks) already validated string length during NBT load
-    u16 str_len = net_read_ushort(cursor);
+    u16 str_len = CursorGetU16(cursor);
     String res = {
         .size = str_len,
         .data = cursor->data + cursor->index
@@ -56,7 +56,7 @@ nbt_get_string(String matcher, nbt_tape_entry * tape,
 
 nbt_tape_entry *
 nbt_get_compound(String matcher, nbt_tape_entry * tape,
-        BufferCursor * cursor) {
+        BufCursor * cursor) {
     nbt_tape_entry * found = nbt_move_to_key(matcher, tape, cursor);
 
     if (found->tag != NBT_TAG_COMPOUND) {
@@ -71,7 +71,7 @@ nbt_get_compound(String matcher, nbt_tape_entry * tape,
 }
 
 nbt_tape_entry *
-load_nbt(BufferCursor * cursor, MemoryArena * arena, int max_levels) {
+load_nbt(BufCursor * cursor, MemoryArena * arena, int max_levels) {
     // Currently the tape format is as follows:
     //
     //  * An entry inside a compound has an NBT tag indicating the type and a
@@ -118,7 +118,7 @@ load_nbt(BufferCursor * cursor, MemoryArena * arena, int max_levels) {
     int cur_level = 0;
     level_info[0] = (nbt_level_info) {0};
 
-    u8 tag = net_read_ubyte(cursor);
+    u8 tag = CursorGetU8(cursor);
     int error = 0;
 
     if (tag == NBT_TAG_END) {
@@ -132,7 +132,7 @@ load_nbt(BufferCursor * cursor, MemoryArena * arena, int max_levels) {
     }
 
     // skip key of root compound
-    u16 key_size = net_read_ushort(cursor);
+    u16 key_size = CursorGetU16(cursor);
     if (key_size > cursor->size - cursor->index) {
         logs("Key too long: %ju", (uintmax_t) key_size);
         error = 1;
@@ -156,7 +156,7 @@ load_nbt(BufferCursor * cursor, MemoryArena * arena, int max_levels) {
 
         if (!level_info[cur_level].is_list) {
             // compound
-            tag = net_read_ubyte(cursor);
+            tag = CursorGetU8(cursor);
             // @NOTE(traks) we need to be a bit careful here in case this is the
             // first entry of the compound, because then there is no previous
             // entry yet. Currently the previous entry is just the current entry
@@ -178,7 +178,7 @@ load_nbt(BufferCursor * cursor, MemoryArena * arena, int max_levels) {
             }
 
             i32 entry_start = cursor->index;
-            key_size = net_read_ushort(cursor);
+            key_size = CursorGetU16(cursor);
             if (key_size > cursor->size - cursor->index) {
                 logs("Key too long: %ju", (uintmax_t) key_size);
                 error = 1;
@@ -238,7 +238,7 @@ load_nbt(BufferCursor * cursor, MemoryArena * arena, int max_levels) {
         case NBT_TAG_INT_ARRAY:
         case NBT_TAG_LONG_ARRAY: {
             i64 elem_bytes = array_elem_bytes[tag - NBT_TAG_BYTE_ARRAY];
-            i64 array_size = net_read_uint(cursor);
+            i64 array_size = CursorGetU32(cursor);
             if (cursor->index > (i64) cursor->size
                     - elem_bytes * array_size) {
                 logs("NBT value overflows buffer");
@@ -250,7 +250,7 @@ load_nbt(BufferCursor * cursor, MemoryArena * arena, int max_levels) {
             break;
         }
         case NBT_TAG_STRING: {
-            u16 size = net_read_ushort(cursor);
+            u16 size = CursorGetU16(cursor);
             if (cursor->index > cursor->size - size) {
                 logs("NBT value overflows buffer");
                 error = 1;
@@ -262,8 +262,8 @@ load_nbt(BufferCursor * cursor, MemoryArena * arena, int max_levels) {
         }
         case NBT_TAG_LIST: {
             cur_level++;
-            u32 element_tag = net_read_ubyte(cursor);
-            i64 list_size = net_read_uint(cursor);
+            u32 element_tag = CursorGetU8(cursor);
+            i64 list_size = CursorGetU32(cursor);
             level_info[cur_level] = (nbt_level_info) {
                 .is_list = 1,
                 .element_tag = element_tag,
@@ -306,7 +306,7 @@ bail:
 }
 
 void
-print_nbt(nbt_tape_entry * tape, BufferCursor * cursor,
+print_nbt(nbt_tape_entry * tape, BufCursor * cursor,
         MemoryArena * arena, int max_levels) {
     int cur_tape_index = 0;
     int cur_level = 0;
@@ -347,7 +347,7 @@ print_nbt(nbt_tape_entry * tape, BufferCursor * cursor,
             level_info[cur_level].entry_index++;
 
             cursor->index = base_entry->buffer_index;
-            u16 key_size = net_read_ushort(cursor);
+            u16 key_size = CursorGetU16(cursor);
             unsigned char * key = cursor->data + cursor->index;
             cursor->index += key_size;
             printf("\"%.*s\":", (int) key_size, key);
@@ -382,32 +382,32 @@ print_nbt(nbt_tape_entry * tape, BufferCursor * cursor,
 
         switch (tag) {
         case NBT_TAG_BYTE: {
-            u8 val = net_read_ubyte(cursor);
+            u8 val = CursorGetU8(cursor);
             printf("%ju", (uintmax_t) val);
             break;
         }
         case NBT_TAG_SHORT: {
-            u16 val = net_read_ushort(cursor);
+            u16 val = CursorGetU16(cursor);
             printf("%ju", (uintmax_t) val);
             break;
         }
         case NBT_TAG_INT: {
-            i32 val = net_read_int(cursor);
+            i32 val = CursorGetU32(cursor);
             printf("%jd", (intmax_t) val);
             break;
         }
         case NBT_TAG_LONG: {
-            u64 val = net_read_ulong(cursor);
+            u64 val = CursorGetU64(cursor);
             printf("%ju", (uintmax_t) val);
             break;
         }
         case NBT_TAG_FLOAT: {
-            float val = net_read_float(cursor);
+            float val = CursorGetF32(cursor);
             printf("%f", val);
             break;
         }
         case NBT_TAG_DOUBLE: {
-            double val = net_read_double(cursor);
+            double val = CursorGetF64(cursor);
             printf("%f", val);
             break;
         }
@@ -417,7 +417,7 @@ print_nbt(nbt_tape_entry * tape, BufferCursor * cursor,
             break;
         }
         case NBT_TAG_STRING: {
-            u16 val_size = net_read_ushort(cursor);
+            u16 val_size = CursorGetU16(cursor);
             unsigned char * val = cursor->data + cursor->index;
             printf("\"%.*s\"", (int) val_size, val);
             break;

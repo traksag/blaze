@@ -1,6 +1,6 @@
 # Blaze
 
-Handmade game server for Minecraft Java Edition.
+Handmade game server for Minecraft Java Edition 1.17.1.
 
 Currently a principal goal of this project is to make it easy to update it to newer versions of the game. Other goals are speed and stability: the server shouldn't have CPU spikes, memory spikes, a very slow and expensive start up, and should contain as little failure cases as possible (i.e. stuff Java can't). Users should be able to determine and control the maximum memory usage easily in advance.
 
@@ -12,15 +12,15 @@ All files in this repository are in the public domain. You can do whatever you w
 
 ## System Requirements
 
-This software is developed on macOS, but it should work fine on most UNIX systems. Maybe it works fine on Windows too. You must have zlib installed to build and run this program.
+This software can be compiled and run with Clang or GCC on mainstream hardware running macOS or Linux. You must have zlib installed to build and run this software.
 
-Your compiler must satisfy the following:
+If you're using a different compiler, a different operating system or exotic hardware, make sure the following are satisfied:
 
-* Integers are represented using two's complement representation and bitwise operations such as AND, work as expected on signed integers.
+* Integers are represented using two's complement representation and bitwise operations such as 'and', work as expected on signed integers.
 * Signed right shift works by sign extension.
-* Casting to an unsigned or signed integer type works as expected.
-
-GCC satisfies these requirements as can be seen [here](https://gcc.gnu.org/onlinedocs/gcc/Integers-implementation.html). Hence Clang likely does as well (there is no accessible documentation of implementation-defined behaviour though).
+* Casting an integer to another unsigned or signed integer type works by reduction modulo the range of the target type.
+* Several preprocessor macros and intrinsics must be available. These may give you compilation errors.
+* Floats and doubles are encoded as IEEE 754 binary32 and binary64 respectively.
 
 ## Usage
 
@@ -30,7 +30,7 @@ To start the server, simply run `./blaze`. Currently the 'blaze' binary needs to
 
 Blaze can load chunks from Anvil region files. Create a folder called 'world' in the repository root and copy paste the 'region' folder from some other place into it. Note that Blaze only loads chunks from the latest Minecraft version, hence you may need to optimise your world before copy pasting the 'region' folder.
 
-As of writing this, Blaze only runs in offline mode and has the following features:
+As of writing this, Blaze runs in offline mode and has the following features:
 
 1. Load chunks from region files with support for all block states.
 2. Chunk streaming to clients.

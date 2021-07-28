@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "shared.h"
+#include "nbt.h"
 
 // @TODO(traks) don't use a hash map. Performance depends on the chunks loaded,
 // which depends on the positions of players in the world. Doesn't seem good
@@ -365,7 +366,7 @@ ceil_log2u(u32 x) {
 }
 
 static void
-fill_buffer_from_file(int fd, BufferCursor * cursor) {
+fill_buffer_from_file(int fd, BufCursor * cursor) {
     int start_index = cursor->index;
 
     while (cursor->index < cursor->size) {
@@ -418,7 +419,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
         goto bail;
     }
 
-    BufferCursor header_cursor = {
+    BufCursor header_cursor = {
         .data = alloc_in_arena(scratch_arena, 4096),
         .size = 4096
     };
@@ -431,7 +432,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     // block) the chunk data starts.
     int index = ((pos.z & 0x1f) << 5) | (pos.x & 0x1f);
     header_cursor.index = index << 2;
-    u32 loc = net_read_uint(&header_cursor);
+    u32 loc = CursorGetU32(&header_cursor);
 
     if (loc == 0) {
         // chunk not present in region file
@@ -459,13 +460,13 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
         goto bail;
     }
 
-    BufferCursor cursor = {
+    BufCursor cursor = {
         .data = alloc_in_arena(scratch_arena, sector_count << 12),
         .size = sector_count << 12
     };
     fill_buffer_from_file(region_fd, &cursor);
 
-    u32 size_in_bytes = net_read_uint(&cursor);
+    u32 size_in_bytes = CursorGetU32(&cursor);
 
     if (size_in_bytes > cursor.size - cursor.index) {
         logs("Chunk data outside of its sectors");
@@ -473,7 +474,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     }
 
     cursor.size = cursor.index + size_in_bytes;
-    u8 storage_type = net_read_ubyte(&cursor);
+    u8 storage_type = CursorGetU8(&cursor);
 
     if (cursor.error) {
         logs("Chunk header reading error");
@@ -563,7 +564,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     }
     end_timed_block();
 
-    cursor = (BufferCursor) {
+    cursor = (BufCursor) {
         .data = uncompressed,
         .size = zstream.total_out
     };
@@ -584,7 +585,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     }
 
     nbt_move_to_key(STR("DataVersion"), chunk_nbt, &cursor);
-    i32 data_version = net_read_int(&cursor);
+    i32 data_version = CursorGetU32(&cursor);
     if (data_version != SERVER_WORLD_VERSION) {
         logs("Data version %jd != %jd", (intmax_t) data_version,
                 (intmax_t) SERVER_WORLD_VERSION);
@@ -628,7 +629,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
 
     for (u32 sectioni = 0; sectioni < section_count; sectioni++) {
         nbt_move_to_key(STR("Y"), section_nbt, &cursor);
-        i8 section_y = net_read_byte(&cursor);
+        i8 section_y = CursorGetU8(&cursor);
 
         nbt_tape_entry * palette_start = nbt_move_to_key(STR("Palette"),
                 section_nbt, &cursor);
@@ -707,7 +708,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
             }
 
             nbt_move_to_key(STR("BlockStates"), section_nbt, &cursor);
-            u32 entry_count = net_read_uint(&cursor);
+            u32 entry_count = CursorGetU32(&cursor);
 
             if (entry_count > 4096) {
                 logs("Too many entries: %ju", (uintmax_t) entry_count);
@@ -718,13 +719,13 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
             int bits_per_id = MAX(4, palette_size_ceil_log2);
             u32 id_mask = (1 << bits_per_id) - 1;
             int offset = 0;
-            u64 entry = net_read_ulong(&cursor);
+            u64 entry = CursorGetU64(&cursor);
 
             for (int j = 0; j < 4096; j++) {
                 u32 id = (entry >> offset) & id_mask;
                 offset += bits_per_id;
                 if (offset > 64 - bits_per_id) {
-                    entry = net_read_ulong(&cursor);
+                    entry = CursorGetU64(&cursor);
                     offset = 0;
                 }
 

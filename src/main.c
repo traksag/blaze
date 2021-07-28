@@ -15,6 +15,7 @@
 #include <stdalign.h>
 #include <math.h>
 #include "shared.h"
+#include "buf.h"
 
 #if defined(__APPLE__) && defined(__MACH__)
 #include <mach/mach_time.h>
@@ -759,18 +760,18 @@ server_tick(void) {
         } else {
             init_con->rec_cursor += rec_size;
 
-            BufferCursor rec_cursor = {
+            BufCursor rec_cursor = {
                 .data = init_con->rec_buf,
                 .size = init_con->rec_cursor
             };
-            BufferCursor send_cursor = {
+            BufCursor send_cursor = {
                 .data = init_con->send_buf,
                 .size = sizeof init_con->send_buf,
                 .index = init_con->send_cursor
             };
 
             for (;;) {
-                i32 packet_size = net_read_varint(&rec_cursor);
+                i32 packet_size = CursorGetVarU32(&rec_cursor);
 
                 if (rec_cursor.error != 0) {
                     // packet size not fully received yet
@@ -788,7 +789,7 @@ server_tick(void) {
                 }
 
                 int packet_start = rec_cursor.index;
-                i32 packet_id = net_read_varint(&rec_cursor);
+                i32 packet_id = CursorGetVarU32(&rec_cursor);
                 logs("Initial packet %d", packet_id);
 
                 switch (init_con->protocol_state) {
@@ -798,10 +799,10 @@ server_tick(void) {
                     }
 
                     // read client intention packet
-                    i32 protocol_version = net_read_varint(&rec_cursor);
-                    String address = net_read_string(&rec_cursor, 255);
-                    u16 port = net_read_ushort(&rec_cursor);
-                    i32 next_state = net_read_varint(&rec_cursor);
+                    i32 protocol_version = CursorGetVarU32(&rec_cursor);
+                    String address = CursorGetVarString(&rec_cursor, 255);
+                    u16 port = CursorGetU16(&rec_cursor);
+                    i32 next_state = CursorGetVarU32(&rec_cursor);
 
                     if (next_state == 1) {
                         init_con->protocol_state = PROTOCOL_AWAIT_STATUS_REQUEST;
@@ -844,7 +845,7 @@ server_tick(void) {
                     response_size += sprintf((char *) response + response_size,
                             "{\"version\":{\"name\":\"%s\",\"protocol\":%d},"
                             "\"players\":{\"max\":%d,\"online\":%d,\"sample\":[",
-                            "1.16.4, 1.16.5", SERVER_PROTOCOL_VERSION,
+                            "1.17.1", SERVER_PROTOCOL_VERSION,
                             (int) MAX_PLAYERS, (int) list_size);
 
                     for (int i = 0; i < sample_size; i++) {
@@ -875,13 +876,14 @@ server_tick(void) {
                     response_size += sprintf((char *) response + response_size,
                             "]},\"description\":{\"text\":\"Running Blaze\"}}");
 
-                    int out_size = net_varint_size(0)
-                            + net_varint_size(response_size)
+                    int out_size = VarU32Size(0)
+                            + VarU32Size(response_size)
                             + response_size;
-                    net_write_varint(&send_cursor, out_size);
-                    net_write_varint(&send_cursor, 0);
-                    net_write_varint(&send_cursor, response_size);
-                    net_write_data(&send_cursor, response, response_size);
+                    int start = send_cursor.index;
+                    CursorPutVarU32(&send_cursor, out_size);
+                    CursorPutVarU32(&send_cursor, 0);
+                    CursorPutVarU32(&send_cursor, response_size);
+                    CursorPutData(&send_cursor, response, response_size);
 
                     init_con->protocol_state = PROTOCOL_AWAIT_PING_REQUEST;
                     break;
@@ -892,12 +894,12 @@ server_tick(void) {
                     }
 
                     // read ping request packet
-                    u64 payload = net_read_ulong(&rec_cursor);
+                    u64 payload = CursorGetU64(&rec_cursor);
 
-                    int out_size = net_varint_size(1) + 8;
-                    net_write_varint(&send_cursor, out_size);
-                    net_write_varint(&send_cursor, 1);
-                    net_write_ulong(&send_cursor, payload);
+                    int out_size = VarU32Size(1) + 8;
+                    CursorPutVarU32(&send_cursor, out_size);
+                    CursorPutVarU32(&send_cursor, 1);
+                    CursorPutU64(&send_cursor, payload);
                     break;
                 }
                 case PROTOCOL_AWAIT_HELLO: {
@@ -906,7 +908,7 @@ server_tick(void) {
                     }
 
                     // read hello packet
-                    String username = net_read_string(&rec_cursor, 16);
+                    String username = CursorGetVarString(&rec_cursor, 16);
                     // @TODO(traks) more username validation
                     if (username.size == 0) {
                         rec_cursor.error = 1;
@@ -1217,7 +1219,7 @@ server_tick(void) {
 }
 
 static int
-parse_database_line(BufferCursor * cursor, String * args) {
+parse_database_line(BufCursor * cursor, String * args) {
     int arg_count = 0;
     int cur_size = 0;
     int i;
@@ -1246,7 +1248,7 @@ parse_database_line(BufferCursor * cursor, String * args) {
     return arg_count;
 }
 
-static BufferCursor
+static BufCursor
 read_file(MemoryArena * arena, char * file_name) {
     int fd = open(file_name, O_RDONLY);
     if (fd == -1) {
@@ -1283,7 +1285,7 @@ read_file(MemoryArena * arena, char * file_name) {
 
     close(fd);
 
-    BufferCursor res = {
+    BufCursor res = {
         .data = buf,
         .size = file_size
     };
@@ -1498,7 +1500,7 @@ load_tags(char * file_name, char * list_name, tag_list * tags, resource_loc_tabl
         .data = serv->short_lived_scratch,
         .size = serv->short_lived_scratch_size,
     };
-    BufferCursor cursor = read_file(&arena, file_name);
+    BufCursor cursor = read_file(&arena, file_name);
 
     tags->name_size = strlen(list_name);
     memcpy(tags->name, list_name, strlen(list_name));

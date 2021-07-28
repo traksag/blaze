@@ -64,6 +64,9 @@ typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
+// @NOTE(traks) assumed to be encoded as IEEE 754 binary32 and binary64
+typedef float f32;
+typedef double f64;
 
 typedef struct {
     u8 * data;
@@ -78,53 +81,11 @@ typedef struct {
 } BlockPos;
 
 typedef struct {
-    // @TODO(traks) could the compiler think that the buffer points to some
-    // buffer that contains this struct itself, meaning it has to reload fields
-    // after we write something to it?
-    unsigned char * data;
-    i32 size;
-    i32 index;
-    i32 error;
-    i32 mark;
-} BufferCursor;
-
-typedef struct {
     u8 * data;
     i32 size;
 } String;
 
 #define STR(x) ((String) {.size = strlen(x), .data = (u8 *) (x)})
-
-enum nbt_tag {
-    NBT_TAG_END,
-    NBT_TAG_BYTE,
-    NBT_TAG_SHORT,
-    NBT_TAG_INT,
-    NBT_TAG_LONG,
-    NBT_TAG_FLOAT,
-    NBT_TAG_DOUBLE,
-    NBT_TAG_BYTE_ARRAY,
-    NBT_TAG_STRING,
-    NBT_TAG_LIST,
-    NBT_TAG_COMPOUND,
-    NBT_TAG_INT_ARRAY,
-    NBT_TAG_LONG_ARRAY,
-
-    // our own tags for internal use
-    NBT_TAG_LIST_END,
-    NBT_TAG_COMPOUND_IN_LIST,
-    NBT_TAG_LIST_IN_LIST,
-};
-
-typedef union {
-    struct {
-        u32 buffer_index:22;
-        u32 tag:5;
-        u32 element_tag:5;
-    };
-    u32 next_compound_entry_offset;
-    u32 list_size;
-} nbt_tape_entry;
 
 #define MAX_CHUNK_CACHE_RADIUS (10)
 
@@ -3734,115 +3695,6 @@ logs_errno(void * format);
 
 void *
 alloc_in_arena(MemoryArena * arena, i32 size);
-
-i32
-net_read_varint(BufferCursor * cursor);
-
-void
-net_write_varint(BufferCursor * cursor, i32 val);
-
-int
-net_varint_size(i32 val);
-
-i64
-net_read_varlong(BufferCursor * cursor);
-
-void
-net_write_varlong(BufferCursor * cursor, i64 val);
-
-i32
-net_read_int(BufferCursor * cursor);
-
-void
-net_write_int(BufferCursor * cursor, i32 val);
-
-i16
-net_read_short(BufferCursor * cursor);
-
-void
-net_write_short(BufferCursor * cursor, i16 val);
-
-i8
-net_read_byte(BufferCursor * cursor);
-
-void
-net_write_byte(BufferCursor * cursor, i8 val);
-
-i64
-net_read_long(BufferCursor * cursor);
-
-void
-net_write_long(BufferCursor * cursor, i64 val);
-
-u16
-net_read_ushort(BufferCursor * cursor);
-
-void
-net_write_ushort(BufferCursor * cursor, u16 val);
-
-u64
-net_read_ulong(BufferCursor * cursor);
-
-void
-net_write_ulong(BufferCursor * cursor, u64 val);
-
-u32
-net_read_uint(BufferCursor * cursor);
-
-void
-net_write_uint(BufferCursor * cursor, u32 val);
-
-u8
-net_read_ubyte(BufferCursor * cursor);
-
-void
-net_write_ubyte(BufferCursor * cursor, u8 val);
-
-String
-net_read_string(BufferCursor * cursor, i32 max_size);
-
-void
-net_write_string(BufferCursor * cursor, String val);
-
-float
-net_read_float(BufferCursor * cursor);
-
-void
-net_write_float(BufferCursor * cursor, float val);
-
-double
-net_read_double(BufferCursor * cursor);
-
-void
-net_write_double(BufferCursor * cursor, double val);
-
-BlockPos
-net_read_block_pos(BufferCursor * cursor);
-
-void
-net_write_block_pos(BufferCursor * cursor, BlockPos val);
-
-void
-net_write_data(BufferCursor * cursor, void * restrict src, size_t size);
-
-nbt_tape_entry *
-nbt_move_to_key(String matcher, nbt_tape_entry * tape,
-        BufferCursor * cursor);
-
-String
-nbt_get_string(String matcher, nbt_tape_entry * tape,
-        BufferCursor * cursor);
-
-nbt_tape_entry *
-nbt_get_compound(String matcher, nbt_tape_entry * tape,
-        BufferCursor * cursor);
-
-nbt_tape_entry *
-load_nbt(BufferCursor * cursor, MemoryArena * arena, int max_level);
-
-void
-print_nbt(nbt_tape_entry * tape, BufferCursor * cursor,
-        MemoryArena * arena, int max_levels);
 
 int
 find_property_value_index(block_property_spec * prop_spec, String val);
