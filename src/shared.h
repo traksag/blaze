@@ -3652,6 +3652,7 @@ typedef struct {
     resource_loc_table game_event_resource_table;
 
     block_properties block_properties_table[ACTUAL_BLOCK_TYPE_COUNT];
+    int block_type_count;
     int vanilla_block_state_count;
     int actual_block_state_count;
     block_property_spec block_property_specs[BLOCK_PROPERTY_COUNT];
