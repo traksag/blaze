@@ -357,14 +357,14 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         break;
     }
     case SBP_BLOCK_ENTITY_TAG_QUERY: {
-        logs("Packet block entity tag query");
+        LogInfo("Packet block entity tag query");
         i32 id = CursorGetVarU32(rec_cursor);
         u64 block_pos = CursorGetU64(rec_cursor);
         // @TODO(traks) handle packet
         break;
     }
     case SBP_CHANGE_DIFFICULTY: {
-        logs("Packet change difficulty");
+        LogInfo("Packet change difficulty");
         u8 difficulty = CursorGetU8(rec_cursor);
         // @TODO(traks) handle packet
         break;
@@ -385,7 +385,7 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         break;
     }
     case SBP_CLIENT_COMMAND: {
-        logs("Packet client command");
+        LogInfo("Packet client command");
         i32 action = CursorGetVarU32(rec_cursor);
         switch (action) {
         case 0: { // perform respawn
@@ -403,7 +403,7 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         break;
     }
     case SBP_CLIENT_INFORMATION: {
-        logs("Packet client information");
+        LogInfo("Packet client information");
         String language = CursorGetVarString(rec_cursor, 16);
         u8 view_distance = CursorGetU8(rec_cursor);
         i32 chat_visibility = CursorGetVarU32(rec_cursor);
@@ -427,19 +427,19 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         break;
     }
     case SBP_COMMAND_SUGGESTION: {
-        logs("Packet command suggestion");
+        LogInfo("Packet command suggestion");
         i32 id = CursorGetVarU32(rec_cursor);
         String command = CursorGetVarString(rec_cursor, 32500);
         break;
     }
     case SBP_CONTAINER_BUTTON_CLICK: {
-        logs("Packet container button click");
+        LogInfo("Packet container button click");
         u8 container_id = CursorGetU8(rec_cursor);
         u8 button_id = CursorGetU8(rec_cursor);
         break;
     }
     case SBP_CONTAINER_CLICK: {
-        logs("Packet container click");
+        LogInfo("Packet container click");
         u8 container_id = CursorGetU8(rec_cursor);
         i32 state_id = CursorGetVarU32(rec_cursor);
         u16 slot = CursorGetU16(rec_cursor);
@@ -511,12 +511,12 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         break;
     }
     case SBP_CONTAINER_CLOSE: {
-        logs("Packet container close");
+        LogInfo("Packet container close");
         u8 container_id = CursorGetU8(rec_cursor);
         break;
     }
     case SBP_CUSTOM_PAYLOAD: {
-        logs("Packet custom payload");
+        LogInfo("Packet custom payload");
         String id = CursorGetVarString(rec_cursor, 32767);
         unsigned char * payload = rec_cursor->data + rec_cursor->index;
         i32 payload_size = rec_cursor->size - rec_cursor->index;
@@ -531,7 +531,7 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         break;
     }
     case SBP_EDIT_BOOK: {
-        logs("Packet edit book");
+        LogInfo("Packet edit book");
         i32 slot = CursorGetVarU32(rec_cursor);
         i32 page_count = CursorGetVarU32(rec_cursor);
         if (page_count > 200 || page_count < 0) {
@@ -552,13 +552,13 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         break;
     }
     case SBP_ENTITY_TAG_QUERY: {
-        logs("Packet entity tag query");
+        LogInfo("Packet entity tag query");
         i32 transaction_id = CursorGetVarU32(rec_cursor);
         i32 entity_id = CursorGetVarU32(rec_cursor);
         break;
     }
     case SBP_INTERACT: {
-        logs("Packet interact");
+        LogInfo("Packet interact");
         i32 entity_id = CursorGetVarU32(rec_cursor);
         i32 action = CursorGetVarU32(rec_cursor);
 
@@ -589,7 +589,7 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         break;
     }
     case SBP_JIGSAW_GENERATE: {
-        logs("Packet jigsaw generate");
+        LogInfo("Packet jigsaw generate");
         BlockPos block_pos = CursorGetBlockPos(rec_cursor);
         i32 levels = CursorGetVarU32(rec_cursor);
         u8 keep_jigsaws = CursorGetU8(rec_cursor);
@@ -604,7 +604,7 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         break;
     }
     case SBP_LOCK_DIFFICULTY: {
-        logs("Packet lock difficulty");
+        LogInfo("Packet lock difficulty");
         u8 locked = CursorGetU8(rec_cursor);
         break;
     }
@@ -645,7 +645,7 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         break;
     }
     case SBP_MOVE_VEHICLE: {
-        logs("Packet move vehicle");
+        LogInfo("Packet move vehicle");
         double x = CursorGetF64(rec_cursor);
         double y = CursorGetF64(rec_cursor);
         double z = CursorGetF64(rec_cursor);
@@ -655,18 +655,18 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         break;
     }
     case SBP_PADDLE_BOAT: {
-        logs("Packet paddle boat");
+        LogInfo("Packet paddle boat");
         u8 left = CursorGetU8(rec_cursor);
         u8 right = CursorGetU8(rec_cursor);
         break;
     }
     case SBP_PICK_ITEM: {
-        logs("Packet pick item");
+        LogInfo("Packet pick item");
         i32 slot = CursorGetVarU32(rec_cursor);
         break;
     }
     case SBP_PLACE_RECIPE: {
-        logs("Packet place recipe");
+        LogInfo("Packet place recipe");
         u8 container_id = CursorGetU8(rec_cursor);
         String recipe = CursorGetVarString(rec_cursor, 32767);
         u8 shift_down = CursorGetU8(rec_cursor);
@@ -674,7 +674,7 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         break;
     }
     case SBP_PLAYER_ABILITIES: {
-        logs("Packet player abilities");
+        LogInfo("Packet player abilities");
         u8 flags = CursorGetU8(rec_cursor);
         u8 flying = flags & 0x2;
         // @TODO(traks) validate whether the player can toggle fly
@@ -738,7 +738,7 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
                 // and stuff.
                 int max_updates = 512;
                 block_update_context buc = {
-                    .blocks_to_update = alloc_in_arena(process_arena,
+                    .blocks_to_update = MallocInArena(process_arena,
                             max_updates * sizeof (block_update)),
                     .update_count = 0,
                     .max_updates = max_updates
@@ -880,55 +880,55 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         break;
     }
     case SBP_PLAYER_INPUT: {
-        logs("Packet player input");
+        LogInfo("Packet player input");
         // @TODO(traks) read packet
         break;
     }
     case SBP_PONG: {
-        logs("Packet pong");
+        LogInfo("Packet pong");
         i32 id = CursorGetU32(rec_cursor);
         // @TODO(traks) read packet
         break;
     }
     case SBP_RECIPE_BOOK_CHANGE_SETTINGS: {
-        logs("Packet recipe book change settings");
+        LogInfo("Packet recipe book change settings");
         // @TODO(traks) read packet
         break;
     }
     case SBP_RECIPE_BOOK_SEEN_RECIPE: {
-        logs("Packet recipe book seen recipe");
+        LogInfo("Packet recipe book seen recipe");
         // @TODO(traks) read packet
         break;
     }
     case SBP_RENAME_ITEM: {
-        logs("Packet rename item");
+        LogInfo("Packet rename item");
         String name = CursorGetVarString(rec_cursor, 32767);
         break;
     }
     case SBP_RESOURCE_PACK: {
-        logs("Packet resource pack");
+        LogInfo("Packet resource pack");
         i32 action = CursorGetVarU32(rec_cursor);
         break;
     }
     case SBP_SEEN_ADVANCEMENTS: {
-        logs("Packet seen advancements");
+        LogInfo("Packet seen advancements");
         i32 action = CursorGetVarU32(rec_cursor);
         // @TODO(traks) further processing
         break;
     }
     case SBP_SELECT_TRADE: {
-        logs("Packet select trade");
+        LogInfo("Packet select trade");
         i32 item = CursorGetVarU32(rec_cursor);
         break;
     }
     case SBP_SET_BEACON: {
-        logs("Packet set beacon");
+        LogInfo("Packet set beacon");
         i32 primary_effect = CursorGetVarU32(rec_cursor);
         i32 secondary_effect = CursorGetVarU32(rec_cursor);
         break;
     }
     case SBP_SET_CARRIED_ITEM: {
-        logs("Set carried item");
+        LogInfo("Set carried item");
         u16 slot = CursorGetU16(rec_cursor);
         if (slot > PLAYER_LAST_HOTBAR_SLOT - PLAYER_FIRST_HOTBAR_SLOT) {
             rec_cursor->error = 1;
@@ -938,7 +938,7 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         break;
     }
     case SBP_SET_COMMAND_BLOCK: {
-        logs("Packet set command block");
+        LogInfo("Packet set command block");
         u64 block_pos = CursorGetU64(rec_cursor);
         String command = CursorGetVarString(rec_cursor, 32767);
         i32 mode = CursorGetVarU32(rec_cursor);
@@ -949,14 +949,14 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         break;
     }
     case SBP_SET_COMMAND_MINECART: {
-        logs("Packet set command minecart");
+        LogInfo("Packet set command minecart");
         i32 entity_id = CursorGetVarU32(rec_cursor);
         String command = CursorGetVarString(rec_cursor, 32767);
         u8 track_output = CursorGetU8(rec_cursor);
         break;
     }
     case SBP_SET_CREATIVE_MODE_SLOT: {
-        logs("Set creative mode slot");
+        LogInfo("Set creative mode slot");
         u16 slot = CursorGetU16(rec_cursor);
         u8 has_item = CursorGetU8(rec_cursor);
 
@@ -979,7 +979,7 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
             }
 
             String type_name = get_resource_loc(is->type, &serv->item_resource_table);
-            logs("Set creative slot: %.*s", (int) type_name.size, type_name.data);
+            LogInfo("Set creative slot: %.*s", (int) type_name.size, type_name.data);
 
             u8 max_size = get_max_stack_size(is->type);
             if (is->size > max_size) {
@@ -999,7 +999,7 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         break;
     }
     case SBP_SET_JIGSAW_BLOCK: {
-        logs("Packet set jigsaw block");
+        LogInfo("Packet set jigsaw block");
         u64 block_pos = CursorGetU64(rec_cursor);
         String name = CursorGetVarString(rec_cursor, 32767);
         String target = CursorGetVarString(rec_cursor, 32767);
@@ -1010,7 +1010,7 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         break;
     }
     case SBP_SET_STRUCTURE_BLOCK: {
-        logs("Packet set structure block");
+        LogInfo("Packet set structure block");
         u64 block_pos = CursorGetU64(rec_cursor);
         i32 update_type = CursorGetVarU32(rec_cursor);
         i32 mode = CursorGetVarU32(rec_cursor);
@@ -1029,7 +1029,7 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         break;
     }
     case SBP_SIGN_UPDATE: {
-        logs("Packet sign update");
+        LogInfo("Packet sign update");
         u64 block_pos = CursorGetU64(rec_cursor);
         String lines[4];
         for (int i = 0; i < ARRAY_SIZE(lines); i++) {
@@ -1038,19 +1038,19 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         break;
     }
     case SBP_SWING: {
-        // logs("Packet swing");
+        // LogInfo("Packet swing");
         i32 hand = CursorGetVarU32(rec_cursor);
         break;
     }
     case SBP_TELEPORT_TO_ENTITY: {
-        logs("Packet teleport to entity");
+        LogInfo("Packet teleport to entity");
         // @TODO(traks) read UUID instead
         u64 uuid_high = CursorGetU64(rec_cursor);
         u64 uuid_low = CursorGetU64(rec_cursor);
         break;
     }
     case SBP_USE_ITEM_ON: {
-        logs("Packet use item on");
+        LogInfo("Packet use item on");
         i32 hand = CursorGetVarU32(rec_cursor);
         BlockPos clicked_pos = CursorGetBlockPos(rec_cursor);
         i32 clicked_face = CursorGetVarU32(rec_cursor);
@@ -1089,12 +1089,12 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         break;
     }
     case SBP_USE_ITEM: {
-        logs("Packet use item");
+        LogInfo("Packet use item");
         i32 hand = CursorGetVarU32(rec_cursor);
         break;
     }
     default: {
-        logs("Unknown player packet id %jd", (intmax_t) packet_id);
+        LogInfo("Unknown player packet id %jd", (intmax_t) packet_id);
         rec_cursor->error = 1;
     }
     }
@@ -1161,7 +1161,7 @@ finish_packet(BufCursor * send_cursor, entity_base * player) {
 static void
 send_chunk_fully(BufCursor * send_cursor, chunk_pos pos, chunk * ch,
         entity_base * entity, MemoryArena * tick_arena) {
-    begin_timed_block("send chunk fully");
+    BeginTimedZone("send chunk fully");
 
     // bit mask for included chunk sections; bottom section in least
     // significant bit. May be multiple longs if more than 64 sections height
@@ -1281,7 +1281,7 @@ send_chunk_fully(BufCursor * send_cursor, chunk_pos pos, chunk * ch,
     CursorPutVarU32(send_cursor, 0);
     finish_packet(send_cursor, entity);
 
-    end_timed_block();
+    EndTimedZone();
 }
 
 static void
@@ -1291,7 +1291,7 @@ send_light_update(BufCursor * send_cursor, chunk_pos pos, chunk * ch,
     // above the world. The lowest chunk section comes first (and is the least
     // significant bit).
 
-    begin_timed_block("send light update");
+    BeginTimedZone("send light update");
 
     // @TODO(traks) send the real lighting data
 
@@ -1334,7 +1334,7 @@ send_light_update(BufCursor * send_cursor, chunk_pos pos, chunk * ch,
     }
     finish_packet(send_cursor, entity);
 
-    end_timed_block();
+    EndTimedZone();
 }
 
 static void
@@ -1427,7 +1427,7 @@ add_stack_to_player_inventory(entity_base * player, item_stack * to_add) {
 
 void
 tick_player(entity_base * player, MemoryArena * tick_arena) {
-    begin_timed_block("tick player");
+    BeginTimedZone("tick player");
 
     assert(player->type == ENTITY_PLAYER);
     int sock = player->player.sock;
@@ -1439,7 +1439,7 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
     } else if (rec_size == -1) {
         // EAGAIN means no data received
         if (errno != EAGAIN) {
-            logs_errno("Couldn't receive protocol data: %s");
+            LogErrno("Couldn't receive protocol data: %s");
             disconnect_player_now(player);
         }
     } else {
@@ -1489,7 +1489,7 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
                 zstream.opaque = Z_NULL;
 
                 if (inflateInit2(&zstream, 0) != Z_OK) {
-                    logs("inflateInit failed");
+                    LogInfo("inflateInit failed");
                     disconnect_player_now(player);
                     break;
                 }
@@ -1498,26 +1498,26 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
                 zstream.avail_in = packet_cursor.size - packet_cursor.index;
 
                 size_t max_uncompressed_size = 2 * (1 << 20);
-                unsigned char * uncompressed = alloc_in_arena(&process_arena,
+                unsigned char * uncompressed = MallocInArena(&process_arena,
                         max_uncompressed_size);
 
                 zstream.next_out = uncompressed;
                 zstream.avail_out = max_uncompressed_size;
 
                 if (inflate(&zstream, Z_FINISH) != Z_STREAM_END) {
-                    logs("Failed to finish inflating packet: %s", zstream.msg);
+                    LogInfo("Failed to finish inflating packet: %s", zstream.msg);
                     disconnect_player_now(player);
                     break;
                 }
 
                 if (inflateEnd(&zstream) != Z_OK) {
-                    logs("inflateEnd failed");
+                    LogInfo("inflateEnd failed");
                     disconnect_player_now(player);
                     break;
                 }
 
                 if (zstream.avail_in != 0) {
-                    logs("Didn't inflate entire packet");
+                    LogInfo("Didn't inflate entire packet");
                     disconnect_player_now(player);
                     break;
                 }
@@ -1531,13 +1531,13 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
             process_packet(player, &packet_cursor, &process_arena);
 
             if (packet_cursor.error != 0) {
-                logs("Player protocol error occurred");
+                LogInfo("Player protocol error occurred");
                 disconnect_player_now(player);
                 break;
             }
 
             if (packet_cursor.index != packet_cursor.size) {
-                logs("Player protocol packet not fully read");
+                LogInfo("Player protocol packet not fully read");
                 disconnect_player_now(player);
                 break;
             }
@@ -1609,7 +1609,7 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
     }
 
 bail:
-    end_timed_block();
+    EndTimedZone();
 }
 
 static void
@@ -2243,11 +2243,11 @@ send_player_abilities(BufCursor * send_cursor, entity_base * player) {
 
 void
 send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
-    begin_timed_block("send packets");
+    BeginTimedZone("send packets");
 
     size_t max_uncompressed_packet_size = 1 << 20;
     BufCursor send_cursor_ = {
-        .data = alloc_in_arena(tick_arena, max_uncompressed_packet_size),
+        .data = MallocInArena(tick_arena, max_uncompressed_packet_size),
         .size = max_uncompressed_packet_size
     };
     BufCursor * send_cursor = &send_cursor_;
@@ -2518,7 +2518,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     }
     player->player.changed_block_count = 0;
 
-    begin_timed_block("update chunk cache");
+    BeginTimedZone("update chunk cache");
 
     i16 chunk_cache_min_x = player->player.chunk_cache_centre_x - player->player.chunk_cache_radius;
     i16 chunk_cache_min_z = player->player.chunk_cache_centre_z - player->player.chunk_cache_radius;
@@ -2653,10 +2653,10 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     player->player.chunk_cache_centre_x = new_chunk_cache_centre_x;
     player->player.chunk_cache_centre_z = new_chunk_cache_centre_z;
 
-    end_timed_block();
+    EndTimedZone();
 
     // load and send tracked chunks
-    begin_timed_block("load and send chunks");
+    BeginTimedZone("load and send chunks");
 
     // We iterate in a spiral around the player, so chunks near the player
     // are processed first. This shortens server join times (since players
@@ -2712,17 +2712,17 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         }
     }
 
-    end_timed_block();
+    EndTimedZone();
 
     // send updates in player's own inventory
-    begin_timed_block("send inventory");
+    BeginTimedZone("send inventory");
 
     for (int i = 0; i < PLAYER_SLOTS; i++) {
         if (!(player->player.slots_needing_update & ((u64) 1 << i))) {
             continue;
         }
 
-        logs("Sending slot update for %d", i);
+        LogInfo("Sending slot update for %d", i);
         item_stack * is = player->player.slots + i;
 
         // @TODO(traks) under certain conditions, the client may not modify its
@@ -2756,10 +2756,10 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     memcpy(player->player.slots_prev_tick, player->player.slots,
             sizeof player->player.slots);
 
-    end_timed_block();
+    EndTimedZone();
 
     // tab list updates
-    begin_timed_block("send tab list");
+    BeginTimedZone("send tab list");
 
     if (!(player->flags & PLAYER_INITIALISED_TAB_LIST)) {
         player->flags |= PLAYER_INITIALISED_TAB_LIST;
@@ -2848,10 +2848,10 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         }
     }
 
-    end_timed_block();
+    EndTimedZone();
 
     // entity tracking
-    begin_timed_block("track entities");
+    BeginTimedZone("track entities");
 
     entity_id removed_entities[64];
     int removed_entity_count = 0;
@@ -2920,10 +2920,10 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         finish_packet(send_cursor, player);
     }
 
-    end_timed_block();
+    EndTimedZone();
 
     // send chat messages
-    begin_timed_block("send chat");
+    BeginTimedZone("send chat");
 
     for (int i = 0; i < serv->global_msg_count; i++) {
         global_msg * msg = serv->global_msgs + i;
@@ -2960,18 +2960,18 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         finish_packet(send_cursor, player);
     }
 
-    end_timed_block();
+    EndTimedZone();
 
     // try to write everything to the socket buffer
 
     if (send_cursor->error != 0) {
         // just disconnect the player
-        logs("Failed to create packets");
+        LogInfo("Failed to create packets");
         disconnect_player_now(player);
         goto bail;
     }
 
-    begin_timed_block("finalise packets");
+    BeginTimedZone("finalise packets");
 
     BufCursor final_cursor_ = {
         .data = player->player.send_buf,
@@ -3012,7 +3012,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             MemoryArena temp_arena = *tick_arena;
             // @TODO(traks) appropriate value
             size_t max_compressed_size = 1 << 19;
-            unsigned char * compressed = alloc_in_arena(&temp_arena,
+            unsigned char * compressed = MallocInArena(&temp_arena,
                     max_compressed_size);
 
             zstream.next_out = compressed;
@@ -3045,24 +3045,24 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         send_cursor->index = packet_end;
     }
 
-    end_timed_block();
+    EndTimedZone();
 
     if (final_cursor->error != 0) {
         // just disconnect the player
-        logs("Failed to finalise packets");
+        LogInfo("Failed to finalise packets");
         disconnect_player_now(player);
         goto bail;
     }
 
-    begin_timed_block("send()");
+    BeginTimedZone("send()");
     ssize_t send_size = send(player->player.sock, final_cursor->data,
             final_cursor->index, 0);
-    end_timed_block();
+    EndTimedZone();
 
     if (send_size == -1) {
         // EAGAIN means no data sent
         if (errno != EAGAIN) {
-            logs_errno("Couldn't send protocol data: %s");
+            LogErrno("Couldn't send protocol data: %s");
             disconnect_player_now(player);
         }
     } else {
@@ -3072,7 +3072,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     }
 
 bail:
-    end_timed_block();
+    EndTimedZone();
 }
 
 int

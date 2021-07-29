@@ -290,7 +290,7 @@ chunk_set_block_state(chunk * ch, int x, int y, int z, u16 block_state) {
         // getting the chunk should fail if chunk sections cannot be allocated
         section = alloc_chunk_section();
         if (section == NULL) {
-            logs_errno("Failed to allocate section: %s");
+            LogErrno("Failed to allocate section: %s");
             exit(1);
         }
         ch->sections[section_y] = section;
@@ -373,12 +373,12 @@ fill_buffer_from_file(int fd, BufCursor * cursor) {
         int bytes_read = read(fd, cursor->data + cursor->index,
                 cursor->size - cursor->index);
         if (bytes_read == -1) {
-            logs_errno("Failed to read region file: %s");
+            LogErrno("Failed to read region file: %s");
             cursor->error = 1;
             break;
         }
         if (bytes_read == 0) {
-            logs("Wanted %d bytes from region file, but got %d",
+            LogInfo("Wanted %d bytes from region file, but got %d",
                     cursor->size - start_index,
                     cursor->index - start_index);
             cursor->error = 1;
@@ -395,7 +395,7 @@ fill_buffer_from_file(int fd, BufCursor * cursor) {
 void
 try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
         MemoryArena * scratch_arena) {
-    begin_timed_block("read chunk");
+    BeginTimedZone("read chunk");
 
     // @TODO(traks) error handling and/or error messages for all failure cases
     // in this entire function?
@@ -409,18 +409,18 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
 
     int region_fd = open((void *) file_name, O_RDONLY);
     if (region_fd == -1) {
-        logs_errno("Failed to open region file: %s");
+        LogErrno("Failed to open region file: %s");
         goto bail;
     }
 
     struct stat region_stat;
     if (fstat(region_fd, &region_stat)) {
-        logs_errno("Failed to get region file stat: %s");
+        LogErrno("Failed to get region file stat: %s");
         goto bail;
     }
 
     BufCursor header_cursor = {
-        .data = alloc_in_arena(scratch_arena, 4096),
+        .data = MallocInArena(scratch_arena, 4096),
         .size = 4096
     };
     fill_buffer_from_file(region_fd, &header_cursor);
@@ -443,25 +443,25 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     u32 sector_count = loc & 0xff;
 
     if (sector_offset < 2) {
-        logs("Chunk data in header");
+        LogInfo("Chunk data in header");
         goto bail;
     }
     if (sector_count == 0) {
-        logs("Chunk data uses 0 sectors");
+        LogInfo("Chunk data uses 0 sectors");
         goto bail;
     }
     if (((sector_offset + sector_count) << 12) > region_stat.st_size) {
-        logs("Chunk data out of bounds");
+        LogInfo("Chunk data out of bounds");
         goto bail;
     }
 
     if (lseek(region_fd, sector_offset << 12, SEEK_SET) == -1) {
-        logs_errno("Failed to seek to chunk data: %s");
+        LogErrno("Failed to seek to chunk data: %s");
         goto bail;
     }
 
     BufCursor cursor = {
-        .data = alloc_in_arena(scratch_arena, sector_count << 12),
+        .data = MallocInArena(scratch_arena, sector_count << 12),
         .size = sector_count << 12
     };
     fill_buffer_from_file(region_fd, &cursor);
@@ -469,7 +469,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     u32 size_in_bytes = CursorGetU32(&cursor);
 
     if (size_in_bytes > cursor.size - cursor.index) {
-        logs("Chunk data outside of its sectors");
+        LogInfo("Chunk data outside of its sectors");
         goto bail;
     }
 
@@ -477,13 +477,13 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     u8 storage_type = CursorGetU8(&cursor);
 
     if (cursor.error) {
-        logs("Chunk header reading error");
+        LogInfo("Chunk header reading error");
         goto bail;
     }
 
     if (storage_type & 0x80) {
         // @TODO(traks) separate file is used to store the chunk
-        logs("External chunk storage");
+        LogInfo("External chunk storage");
         goto bail;
     }
 
@@ -498,11 +498,11 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
         // 0 means: zlib stream and determine window size from header
         windowBits = 0;
     } else {
-        logs("Unknown chunk compression method");
+        LogInfo("Unknown chunk compression method");
         goto bail;
     }
 
-    begin_timed_block("inflate");
+    BeginTimedZone("inflate");
     // @TODO(traks) perhaps use https://github.com/ebiggers/libdeflate instead
     // of zlib. Using zlib now just because I had the code for it laying around.
     // If we don't end up doing this, make sure the code below is actually
@@ -513,8 +513,8 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     zstream.opaque = Z_NULL;
 
     if (inflateInit2(&zstream, windowBits) != Z_OK) {
-        logs("inflateInit failed");
-        end_timed_block();
+        LogInfo("inflateInit failed");
+        EndTimedZone();
         goto bail;
     }
 
@@ -524,7 +524,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     // @TODO(traks) can be many many times larger in case of e.g. NBT data with
     // tons and tons of empty lists.
     size_t max_uncompressed_size = 2 * (1 << 20);
-    unsigned char * uncompressed = alloc_in_arena(scratch_arena,
+    unsigned char * uncompressed = MallocInArena(scratch_arena,
             max_uncompressed_size);
 
     zstream.next_out = uncompressed;
@@ -537,32 +537,32 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
         break;
     case Z_NEED_DICT:
     case Z_STREAM_ERROR:
-        logs("Chunk inflate stream error");
+        LogInfo("Chunk inflate stream error");
         break;
     case Z_DATA_ERROR:
-        logs("Failed to finish inflating chunk: %s", zstream.msg);
+        LogInfo("Failed to finish inflating chunk: %s", zstream.msg);
         break;
     case Z_MEM_ERROR:
-        logs("Chunk inflate not enough memory");
+        LogInfo("Chunk inflate not enough memory");
         break;
     case Z_BUF_ERROR:
     case Z_OK:
-        logs("Uncompressed chunk size too large");
+        LogInfo("Uncompressed chunk size too large");
         break;
     }
 
     if (inflateEnd(&zstream) != Z_OK) {
-        logs("inflateEnd failed");
-        end_timed_block();
+        LogInfo("inflateEnd failed");
+        EndTimedZone();
         goto bail;
     }
 
     // bail in case of any errors above
     if (zstream.avail_in != 0) {
-        end_timed_block();
+        EndTimedZone();
         goto bail;
     }
-    end_timed_block();
+    EndTimedZone();
 
     cursor = (BufCursor) {
         .data = uncompressed,
@@ -574,7 +574,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     nbt_tape_entry * chunk_nbt = load_nbt(&cursor, scratch_arena, max_levels);
 
     if (cursor.error) {
-        logs("Failed to load NBT data");
+        LogInfo("Failed to load NBT data");
         goto bail;
     }
 
@@ -587,7 +587,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     nbt_move_to_key(STR("DataVersion"), chunk_nbt, &cursor);
     i32 data_version = CursorGetU32(&cursor);
     if (data_version != SERVER_WORLD_VERSION) {
-        logs("Data version %jd != %jd", (intmax_t) data_version,
+        LogInfo("Data version %jd != %jd", (intmax_t) data_version,
                 (intmax_t) SERVER_WORLD_VERSION);
         goto bail;
     }
@@ -599,7 +599,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     if (!net_string_equal(status, STR("full"))) {
         // @TODO(traks) this message gets spammed on the edges of pregenerated
         // terrain. Maybe turn it into a debug message.
-        logs("Chunk not fully generated");
+        LogInfo("Chunk not fully generated");
         goto bail;
     }
 
@@ -619,11 +619,11 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
 
     // maximum amount of memory the palette will ever use
     int max_palette_map_size = 4096;
-    u16 * palette_map = alloc_in_arena(scratch_arena,
+    u16 * palette_map = MallocInArena(scratch_arena,
             max_palette_map_size * sizeof (u16));
 
     if (section_count > 18) {
-        logs("Too many chunk sections: %ju", (uintmax_t) section_count);
+        LogInfo("Too many chunk sections: %ju", (uintmax_t) section_count);
         goto bail;
     }
 
@@ -636,18 +636,18 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
 
         if (palette_start->tag != NBT_TAG_END) {
             if (section_y < 0 || section_y >= 16) {
-                logs("Section Y %d with palette", (int) section_y);
+                LogInfo("Section Y %d with palette", (int) section_y);
                 goto bail;
             }
 
             if (ch->sections[section_y] != NULL) {
-                logs("Duplicate section Y %d", (int) section_y);
+                LogInfo("Duplicate section Y %d", (int) section_y);
                 goto bail;
             }
 
             chunk_section * section = alloc_chunk_section();
             if (section == NULL) {
-                logs_errno("Failed to allocate section: %s");
+                LogErrno("Failed to allocate section: %s");
                 goto bail;
             }
             // Note that the section allocation will be freed when the chunk
@@ -658,7 +658,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
             nbt_tape_entry * palette_entry = palette_start + 3;
 
             if (palette_size == 0 || palette_size > max_palette_map_size) {
-                logs("Invalid palette size %ju", (uintmax_t) palette_size);
+                LogInfo("Invalid palette size %ju", (uintmax_t) palette_size);
                 goto bail;
             }
 
@@ -711,7 +711,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
             u32 entry_count = CursorGetU32(&cursor);
 
             if (entry_count > 4096) {
-                logs("Too many entries: %ju", (uintmax_t) entry_count);
+                LogInfo("Too many entries: %ju", (uintmax_t) entry_count);
                 goto bail;
             }
 
@@ -730,7 +730,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
                 }
 
                 if (id >= palette_size) {
-                    logs("Out of bounds palette ID");
+                    LogInfo("Out of bounds palette ID");
                     goto bail;
                 }
 
@@ -754,7 +754,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     recalculate_chunk_motion_blocking_height_map(ch);
 
     if (cursor.error) {
-        logs("Failed to decipher NBT data");
+        LogInfo("Failed to decipher NBT data");
         print_nbt(chunk_nbt, &cursor, scratch_arena, max_levels);
         goto bail;
     }
@@ -762,7 +762,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     ch->flags |= CHUNK_LOADED;
 
 bail:
-    end_timed_block();
+    EndTimedZone();
 
     if (region_fd != -1) {
         close(region_fd);

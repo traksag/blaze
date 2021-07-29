@@ -2,7 +2,7 @@
 #define BUFFER_H
 
 #include <string.h>
-#include "shared.h"
+#include "base.h"
 
 // @NOTE(traks) Clang doesn't define this for me
 #ifndef __FLOAT_WORD_ORDER__

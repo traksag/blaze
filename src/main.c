@@ -68,8 +68,8 @@ static int initial_connection_count;
 
 #ifdef PROFILE
 
-TracyCZoneCtx tracy_contexts[64];
-int tracy_context_count;
+TracyCZoneCtx tracyContexts[64];
+int tracyContextCount;
 
 #endif // PROFILE
 
@@ -111,7 +111,7 @@ program_nano_time() {
 #endif
 
 void
-logs(void * format, ...) {
+LogInfo(void * format, ...) {
     char msg[256];
     va_list ap;
     va_start(ap, format);
@@ -164,14 +164,14 @@ logs(void * format, ...) {
 }
 
 void
-logs_errno(void * format) {
+LogErrno(void * format) {
     char error_msg[64] = {0};
     strerror_r(errno, error_msg, sizeof error_msg);
-    logs(format, error_msg);
+    LogInfo(format, error_msg);
 }
 
 void *
-alloc_in_arena(MemoryArena * arena, i32 size) {
+MallocInArena(MemoryArena * arena, i32 size) {
     i32 align = alignof (max_align_t);
     // round up to multiple of align
     i32 actual_size = (size + align - 1) / align * align;
@@ -683,10 +683,10 @@ tick_entity(entity_base * entity, MemoryArena * tick_arena) {
 
 static void
 server_tick(void) {
-    begin_timed_block("server tick");
+    BeginTimedZone("server tick");
 
     // accept new connections
-    begin_timed_block("accept initial connections");
+    BeginTimedZone("accept initial connections");
 
     for (;;) {
         int accepted = accept(server_sock, NULL, NULL);
@@ -727,13 +727,13 @@ server_tick(void) {
         new_connection->sock = accepted;
         new_connection->flags |= INITIAL_CONNECTION_IN_USE;
         initial_connection_count++;
-        logs("Created initial connection");
+        LogInfo("Created initial connection");
     }
 
-    end_timed_block();
+    EndTimedZone();
 
     // update initial connections
-    begin_timed_block("update initial connections");
+    BeginTimedZone("update initial connections");
 
     for (int i = 0; i < ARRAY_SIZE(initial_connections); i++) {
         initial_connection * init_con = initial_connections + i;
@@ -752,7 +752,7 @@ server_tick(void) {
         } else if (rec_size == -1) {
             // EAGAIN means no data received
             if (errno != EAGAIN) {
-                logs_errno("Couldn't receive protocol data: %s");
+                LogErrno("Couldn't receive protocol data: %s");
                 close(sock);
                 init_con->flags &= ~INITIAL_CONNECTION_IN_USE;
                 initial_connection_count--;
@@ -790,7 +790,7 @@ server_tick(void) {
 
                 int packet_start = rec_cursor.index;
                 i32 packet_id = CursorGetVarU32(&rec_cursor);
-                logs("Initial packet %d", packet_id);
+                LogInfo("Initial packet %d", packet_id);
 
                 switch (init_con->protocol_state) {
                 case PROTOCOL_HANDSHAKE: {
@@ -808,7 +808,7 @@ server_tick(void) {
                         init_con->protocol_state = PROTOCOL_AWAIT_STATUS_REQUEST;
                     } else if (next_state == 2) {
                         if (protocol_version != SERVER_PROTOCOL_VERSION) {
-                            logs("Client protocol version %jd != %jd",
+                            LogInfo("Client protocol version %jd != %jd",
                                     (intmax_t) protocol_version,
                                     (intmax_t) SERVER_PROTOCOL_VERSION);
                             rec_cursor.error = 1;
@@ -835,12 +835,12 @@ server_tick(void) {
 
                     int list_size = serv->tab_list_size;
                     size_t list_bytes = list_size * sizeof (entity_id);
-                    entity_id * list = alloc_in_arena(
+                    entity_id * list = MallocInArena(
                             &scratch_arena, list_bytes);
                     memcpy(list, serv->tab_list, list_bytes);
                     int sample_size = MIN(12, list_size);
 
-                    unsigned char * response = alloc_in_arena(&scratch_arena, 2048);
+                    unsigned char * response = MallocInArena(&scratch_arena, 2048);
                     int response_size = 0;
                     response_size += sprintf((char *) response + response_size,
                             "{\"version\":{\"name\":\"%s\",\"protocol\":%d},"
@@ -924,7 +924,7 @@ server_tick(void) {
                     break;
                 }
                 default:
-                    logs("Protocol state %d not accepting packets",
+                    LogInfo("Protocol state %d not accepting packets",
                             init_con->protocol_state);
                     rec_cursor.error = 1;
                     break;
@@ -937,7 +937,7 @@ server_tick(void) {
                 }
 
                 if (rec_cursor.error != 0) {
-                    logs("Initial connection protocol error occurred");
+                    LogInfo("Initial connection protocol error occurred");
                     close(sock);
                     init_con->flags = 0;
                     initial_connection_count--;
@@ -953,9 +953,9 @@ server_tick(void) {
         }
     }
 
-    end_timed_block();
+    EndTimedZone();
 
-    begin_timed_block("send initial connections");
+    BeginTimedZone("send initial connections");
 
     for (int i = 0; i < ARRAY_SIZE(initial_connections); i++) {
         initial_connection * init_con = initial_connections + i;
@@ -970,7 +970,7 @@ server_tick(void) {
         if (send_size == -1) {
             // EAGAIN means no data sent
             if (errno != EAGAIN) {
-                logs_errno("Couldn't send protocol data: %s");
+                LogErrno("Couldn't send protocol data: %s");
                 close(sock);
                 init_con->flags = 0;
                 initial_connection_count--;
@@ -1039,16 +1039,16 @@ server_tick(void) {
                 serv->tab_list_added[serv->tab_list_added_count] = entity->eid;
                 serv->tab_list_added_count++;
 
-                logs("Player '%.*s' joined", (int) init_con->username_size,
+                LogInfo("Player '%.*s' joined", (int) init_con->username_size,
                         init_con->username);
             }
         }
     }
 
-    end_timed_block();
+    EndTimedZone();
 
     // run scheduled block updates
-    begin_timed_block("scheduled updates");
+    BeginTimedZone("scheduled updates");
 
     MemoryArena scheduled_update_arena = {
         .data = serv->short_lived_scratch,
@@ -1056,10 +1056,10 @@ server_tick(void) {
     };
     propagate_delayed_block_updates(&scheduled_update_arena);
 
-    end_timed_block();
+    EndTimedZone();
 
     // update entities
-    begin_timed_block("tick entities");
+    BeginTimedZone("tick entities");
 
     for (int i = 0; i < ARRAY_SIZE(serv->entities); i++) {
         entity_base * entity = serv->entities + i;
@@ -1075,9 +1075,9 @@ server_tick(void) {
         tick_entity(entity, &tick_arena);
     }
 
-    end_timed_block();
+    EndTimedZone();
 
-    begin_timed_block("update tab list");
+    BeginTimedZone("update tab list");
 
     // remove players from tab list if necessary
     for (int i = 0; i < serv->tab_list_size; i++) {
@@ -1105,9 +1105,9 @@ server_tick(void) {
         serv->tab_list_size++;
     }
 
-    end_timed_block();
+    EndTimedZone();
 
-    begin_timed_block("send players");
+    BeginTimedZone("send players");
 
     for (int i = 0; i < ARRAY_SIZE(serv->entities); i++) {
         entity_base * entity = serv->entities + i;
@@ -1125,7 +1125,7 @@ server_tick(void) {
         send_packets_to_player(entity, &tick_arena);
     }
 
-    end_timed_block();
+    EndTimedZone();
 
     // clear global messages
     serv->global_msg_count = 0;
@@ -1134,7 +1134,7 @@ server_tick(void) {
     serv->tab_list_added_count = 0;
     serv->tab_list_removed_count = 0;
 
-    begin_timed_block("clear entity changes");
+    BeginTimedZone("clear entity changes");
 
     for (int i = 0; i < ARRAY_SIZE(serv->entities); i++) {
         entity_base * entity = serv->entities + i;
@@ -1145,10 +1145,10 @@ server_tick(void) {
         entity->changed_data = 0;
     }
 
-    end_timed_block();
+    EndTimedZone();
 
     // load chunks from requests
-    begin_timed_block("load chunks");
+    BeginTimedZone("load chunks");
 
     for (int i = 0; i < serv->chunk_load_request_count; i++) {
         chunk_pos pos = serv->chunk_load_requests[i];
@@ -1188,7 +1188,7 @@ server_tick(void) {
             // available for chunk before even trying to load/generate it.
             ch->sections[0] = alloc_chunk_section();
             if (ch->sections[0] == NULL) {
-                logs("Failed to allocate chunk section during generation");
+                LogInfo("Failed to allocate chunk section during generation");
                 exit(1);
             }
 
@@ -1207,15 +1207,15 @@ server_tick(void) {
 
     serv->chunk_load_request_count = 0;
 
-    end_timed_block();
+    EndTimedZone();
 
     // update chunks
-    begin_timed_block("update chunks");
+    BeginTimedZone("update chunks");
     clean_up_unused_chunks();
-    end_timed_block();
+    EndTimedZone();
 
     serv->current_tick++;
-    end_timed_block();
+    EndTimedZone();
 }
 
 static int
@@ -1252,31 +1252,31 @@ static BufCursor
 read_file(MemoryArena * arena, char * file_name) {
     int fd = open(file_name, O_RDONLY);
     if (fd == -1) {
-        logs_errno("Failed to open file: %s");
-        logs("File in question was '%s'", file_name);
+        LogErrno("Failed to open file: %s");
+        LogInfo("File in question was '%s'", file_name);
         exit(1);
     }
 
     struct stat stat;
     if (fstat(fd, &stat)) {
-        logs_errno("Failed to fstat file: %s");
-        logs("File in question was '%s'", file_name);
+        LogErrno("Failed to fstat file: %s");
+        LogInfo("File in question was '%s'", file_name);
         exit(1);
     }
 
     int file_size = stat.st_size;
-    unsigned char * buf = alloc_in_arena(arena, file_size);
+    unsigned char * buf = MallocInArena(arena, file_size);
     int read_index = 0;
 
     while (read_index < file_size) {
         int bytes_read = read(fd, buf + read_index, file_size - read_index);
         if (bytes_read == -1) {
-            logs_errno("Failed to read: %s");
-            logs("File in question was '%s'", file_name);
+            LogErrno("Failed to read: %s");
+            LogInfo("File in question was '%s'", file_name);
             exit(1);
         }
         if (bytes_read == 0) {
-            logs("File size changed while reading '%s'", file_name);
+            LogInfo("File size changed while reading '%s'", file_name);
             exit(1);
         }
 
@@ -1640,7 +1640,7 @@ int
 main(void) {
     init_program_nano_time();
 
-    logs("Running Blaze");
+    LogInfo("Running Blaze");
 
     // Ignore SIGPIPE so the server doesn't crash (by getting signals) if a
     // client decides to abruptly close its end of the connection.
@@ -1661,12 +1661,12 @@ main(void) {
     server_sock = socket(AF_INET, SOCK_STREAM, 0);
 
     if (server_sock == -1) {
-        logs_errno("Failed to create socket: %s");
+        LogErrno("Failed to create socket: %s");
         exit(1);
     }
     if (server_sock >= FD_SETSIZE) {
         // can't select on this socket
-        logs("Socket is FD_SETSIZE or higher");
+        LogInfo("Socket is FD_SETSIZE or higher");
         exit(1);
     }
 
@@ -1675,39 +1675,39 @@ main(void) {
     int yes = 1;
     if (setsockopt(server_sock, SOL_SOCKET,
             SO_REUSEADDR, &yes, sizeof yes) == -1) {
-        logs_errno("Failed to set sock opt: %s");
+        LogErrno("Failed to set sock opt: %s");
         exit(1);
     }
 
     // @TODO(traks) non-blocking connect? Also note that connect will finish
     // asynchronously if it has been interrupted by a signal.
     if (bind(server_sock, addr_ptr, sizeof server_addr) == -1) {
-        logs_errno("Can't bind to address: %s");
+        LogErrno("Can't bind to address: %s");
         exit(1);
     }
 
     if (listen(server_sock, 16) == -1) {
-        logs_errno("Can't listen: %s");
+        LogErrno("Can't listen: %s");
         exit(1);
     }
 
     int flags = fcntl(server_sock, F_GETFL, 0);
 
     if (flags == -1) {
-        logs_errno("Can't get socket flags: %s");
+        LogErrno("Can't get socket flags: %s");
         exit(1);
     }
 
     if (fcntl(server_sock, F_SETFL, flags | O_NONBLOCK) == -1) {
-        logs_errno("Can't set socket flags: %s");
+        LogErrno("Can't set socket flags: %s");
         exit(1);
     }
 
-    logs("Bound to address");
+    LogInfo("Bound to address");
 
     serv = calloc(sizeof * serv, 1);
     if (serv == NULL) {
-        logs_errno("Failed to allocate server struct: %s");
+        LogErrno("Failed to allocate server struct: %s");
         exit(1);
     }
 
@@ -1719,7 +1719,7 @@ main(void) {
     serv->short_lived_scratch_size = 4 * (1 << 20);
     serv->short_lived_scratch = calloc(serv->short_lived_scratch_size, 1);
     if (serv->short_lived_scratch == NULL) {
-        logs_errno("Failed to allocate short lived scratch arena: %s");
+        LogErrno("Failed to allocate short lived scratch arena: %s");
         exit(1);
     }
 
@@ -1759,7 +1759,7 @@ main(void) {
         long long elapsed_micros = (end_time - start_time) / 1000;
 
         if (got_sigint) {
-            logs("Interrupted");
+            LogInfo("Interrupted");
             break;
         }
 
@@ -1768,6 +1768,6 @@ main(void) {
         }
     }
 
-    logs("Goodbye!");
+    LogInfo("Goodbye!");
     return 0;
 }

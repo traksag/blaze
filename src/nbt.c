@@ -102,17 +102,17 @@ load_nbt(BufCursor * cursor, MemoryArena * arena, int max_levels) {
     // over subtrees a lot less (depending on the block size) when iterating
     // through the keys, and that we don't need to track these jumps as is done
     // when constructing the tape.
-    begin_timed_block("load nbt");
+    BeginTimedZone("load nbt");
 
     // @TODO(traks) more appropriate value
     int max_entries = 1 << 16;
-    nbt_tape_entry * tape = alloc_in_arena(arena, max_entries * sizeof *tape);
+    nbt_tape_entry * tape = MallocInArena(arena, max_entries * sizeof *tape);
     MemoryArena scratch_arena = {
         .data = arena->data,
         .index = arena->index,
         .size = arena->size
     };
-    nbt_level_info * level_info = alloc_in_arena(&scratch_arena,
+    nbt_level_info * level_info = MallocInArena(&scratch_arena,
             (max_levels + 1) * sizeof *level_info);
     int cur_tape_index = 0;
     int cur_level = 0;
@@ -126,7 +126,7 @@ load_nbt(BufCursor * cursor, MemoryArena * arena, int max_levels) {
         tape[cur_tape_index] = (nbt_tape_entry) {.tag = NBT_TAG_END};
         goto bail;
     } else if (tag != NBT_TAG_COMPOUND) {
-        logs("Root tag not a compound");
+        LogInfo("Root tag not a compound");
         error = 1;
         goto bail;
     }
@@ -134,7 +134,7 @@ load_nbt(BufCursor * cursor, MemoryArena * arena, int max_levels) {
     // skip key of root compound
     u16 key_size = CursorGetU16(cursor);
     if (key_size > cursor->size - cursor->index) {
-        logs("Key too long: %ju", (uintmax_t) key_size);
+        LogInfo("Key too long: %ju", (uintmax_t) key_size);
         error = 1;
         goto bail;
     }
@@ -142,12 +142,12 @@ load_nbt(BufCursor * cursor, MemoryArena * arena, int max_levels) {
 
     for (;;) {
         if (cur_tape_index >= max_entries - 10) {
-            logs("Max NBT tape index reached");
+            LogInfo("Max NBT tape index reached");
             error = 1;
             goto bail;
         }
         if (cur_level == max_levels) {
-            logs("Max NBT level reached");
+            LogInfo("Max NBT level reached");
             error = 1;
             goto bail;
         }
@@ -180,7 +180,7 @@ load_nbt(BufCursor * cursor, MemoryArena * arena, int max_levels) {
             i32 entry_start = cursor->index;
             key_size = CursorGetU16(cursor);
             if (key_size > cursor->size - cursor->index) {
-                logs("Key too long: %ju", (uintmax_t) key_size);
+                LogInfo("Key too long: %ju", (uintmax_t) key_size);
                 error = 1;
                 goto bail;
             }
@@ -226,7 +226,7 @@ load_nbt(BufCursor * cursor, MemoryArena * arena, int max_levels) {
         case NBT_TAG_DOUBLE: {
             int bytes = elem_bytes[tag];
             if (cursor->index > cursor->size - bytes) {
-                logs("NBT value overflows buffer");
+                LogInfo("NBT value overflows buffer");
                 error = 1;
                 goto bail;
             } else {
@@ -241,7 +241,7 @@ load_nbt(BufCursor * cursor, MemoryArena * arena, int max_levels) {
             i64 array_size = CursorGetU32(cursor);
             if (cursor->index > (i64) cursor->size
                     - elem_bytes * array_size) {
-                logs("NBT value overflows buffer");
+                LogInfo("NBT value overflows buffer");
                 error = 1;
                 goto bail;
             } else {
@@ -252,7 +252,7 @@ load_nbt(BufCursor * cursor, MemoryArena * arena, int max_levels) {
         case NBT_TAG_STRING: {
             u16 size = CursorGetU16(cursor);
             if (cursor->index > cursor->size - size) {
-                logs("NBT value overflows buffer");
+                LogInfo("NBT value overflows buffer");
                 error = 1;
                 goto bail;
             } else {
@@ -286,7 +286,7 @@ load_nbt(BufCursor * cursor, MemoryArena * arena, int max_levels) {
             };
             break;
         default:
-            logs("Unknown tag: %ju", (uintmax_t) tag);
+            LogInfo("Unknown tag: %ju", (uintmax_t) tag);
             error = 1;
             goto bail;
         }
@@ -301,7 +301,7 @@ bail:
         cursor->error = error;
     }
 
-    end_timed_block();
+    EndTimedZone();
     return tape;
 }
 
@@ -311,7 +311,7 @@ print_nbt(nbt_tape_entry * tape, BufCursor * cursor,
     int cur_tape_index = 0;
     int cur_level = 0;
 
-    printer_level_info * level_info = alloc_in_arena(arena,
+    printer_level_info * level_info = MallocInArena(arena,
             (max_levels + 1) * sizeof *level_info);
     level_info[0] = (printer_level_info) {0};
 

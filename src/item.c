@@ -1459,7 +1459,7 @@ process_use_item_on_packet(entity_base * player,
 
     int max_updates = 512;
     block_update_context buc = {
-        .blocks_to_update = alloc_in_arena(scratch_arena,
+        .blocks_to_update = MallocInArena(scratch_arena,
                 max_updates * sizeof (block_update)),
         .update_count = 0,
         .max_updates = max_updates

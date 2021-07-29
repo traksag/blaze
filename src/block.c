@@ -3654,7 +3654,7 @@ propagate_delayed_block_updates(MemoryArena * scratch_arena) {
     MemoryArena temp_arena = *scratch_arena;
     int max_updates = 512;
     block_update_context buc = {
-        .blocks_to_update = alloc_in_arena(&temp_arena,
+        .blocks_to_update = MallocInArena(&temp_arena,
                 max_updates * sizeof (block_update)),
         .update_count = 0,
         .max_updates = max_updates

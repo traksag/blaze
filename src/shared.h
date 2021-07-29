@@ -1,91 +1,11 @@
-#ifndef CODEC_H
-#define CODEC_H
+#ifndef SHARED_H
+#define SHARED_H
 
-#include <stddef.h>
-#include <stdint.h>
-#include <assert.h>
-
-// @NOTE(traks) apparently tracy includes headers that define MIN/MAX, so define
-// them here in advance to prevent warnings
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
-
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
-
-#ifdef PROFILE
-
-#include <tracy/TracyC.h>
-
-extern TracyCZoneCtx tracy_contexts[64];
-extern int tracy_context_count;
-
-#define begin_timed_block(name) \
-    do { \
-        int tracy_i = tracy_context_count; \
-        tracy_context_count++; \
-        TracyCZoneNS(ctx, name, 10, 1); \
-        tracy_contexts[tracy_i] = ctx; \
-    } while (0)
-
-#define end_timed_block() \
-    do { \
-        tracy_context_count--; \
-        TracyCZoneCtx ctx = tracy_contexts[tracy_context_count]; \
-        TracyCZoneEnd(ctx); \
-    } while (0)
-
-#else
-
-#define begin_timed_block(name)
-#define end_timed_block()
-
-#endif // PROFILE
-
-#define ARRAY_SIZE(x) (sizeof (x) / sizeof *(x))
-
-#define ABS(a) ((a) < 0 ? -(a) : (a))
-
-#define CLAMP(x, l, u) (MAX(MIN((x), (u)), (l)))
-
-#define PI (3.141592653589f)
-
-#define DEGREES_PER_RADIAN (360.0f / (2.0f * PI))
-
-#define RADIANS_PER_DEGREE ((2.0f * PI) / 360.0f)
+#include "base.h"
 
 #define SERVER_PROTOCOL_VERSION (756)
 
 #define SERVER_WORLD_VERSION (2730)
-
-typedef int8_t i8;
-typedef int16_t i16;
-typedef int32_t i32;
-typedef int64_t i64;
-typedef uint8_t u8;
-typedef uint16_t u16;
-typedef uint32_t u32;
-typedef uint64_t u64;
-// @NOTE(traks) assumed to be encoded as IEEE 754 binary32 and binary64
-typedef float f32;
-typedef double f64;
-
-typedef struct {
-    u8 * data;
-    i32 size;
-    i32 index;
-} MemoryArena;
-
-typedef struct {
-    i32 x;
-    i32 y;
-    i32 z;
-} BlockPos;
-
-typedef struct {
-    u8 * data;
-    i32 size;
-} String;
-
-#define STR(x) ((String) {.size = strlen(x), .data = (u8 *) (x)})
 
 #define MAX_CHUNK_CACHE_RADIUS (10)
 
@@ -3687,15 +3607,6 @@ enum player_hand {
     PLAYER_MAIN_HAND,
     PLAYER_OFF_HAND,
 };
-
-void
-logs(void * format, ...);
-
-void
-logs_errno(void * format);
-
-void *
-alloc_in_arena(MemoryArena * arena, i32 size);
 
 int
 find_property_value_index(block_property_spec * prop_spec, String val);

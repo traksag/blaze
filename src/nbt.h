@@ -1,7 +1,6 @@
 #ifndef NBT_H
 #define NBT_H
 
-#include "shared.h"
 #include "buf.h"
 
 enum nbt_tag {
