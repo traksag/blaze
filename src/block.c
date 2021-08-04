@@ -102,6 +102,8 @@ describe_block_state(u16 block_state) {
     u16 base_state = props->base_state;
     int offset = block_state - base_state;
 
+    res.type_tags = props->type_tags;
+
     for (int i = props->property_count - 1; i >= 0; i--) {
         int id = props->property_specs[i];
         block_property_spec * spec = serv->block_property_specs + id;
@@ -920,65 +922,6 @@ can_sugar_cane_survive_at(BlockPos cur_pos) {
     }
 }
 
-// @TODO(traks) maybe store this kind of info in block properties and block
-// state info structs. Use stairs block tag?
-static int
-is_stairs(i32 block_type) {
-    switch (block_type) {
-    case BLOCK_OAK_STAIRS:
-    case BLOCK_SPRUCE_STAIRS:
-    case BLOCK_BIRCH_STAIRS:
-    case BLOCK_JUNGLE_STAIRS:
-    case BLOCK_ACACIA_STAIRS:
-    case BLOCK_DARK_OAK_STAIRS:
-    case BLOCK_CRIMSON_STAIRS:
-    case BLOCK_WARPED_STAIRS:
-    case BLOCK_COBBLESTONE_STAIRS:
-    case BLOCK_SANDSTONE_STAIRS:
-    case BLOCK_NETHER_BRICK_STAIRS:
-    case BLOCK_STONE_BRICK_STAIRS:
-    case BLOCK_BRICK_STAIRS:
-    case BLOCK_PURPUR_STAIRS:
-    case BLOCK_QUARTZ_STAIRS:
-    case BLOCK_RED_SANDSTONE_STAIRS:
-    case BLOCK_PRISMARINE_BRICK_STAIRS:
-    case BLOCK_PRISMARINE_STAIRS:
-    case BLOCK_DARK_PRISMARINE_STAIRS:
-    case BLOCK_POLISHED_GRANITE_STAIRS:
-    case BLOCK_SMOOTH_RED_SANDSTONE_STAIRS:
-    case BLOCK_MOSSY_STONE_BRICK_STAIRS:
-    case BLOCK_POLISHED_DIORITE_STAIRS:
-    case BLOCK_MOSSY_COBBLESTONE_STAIRS:
-    case BLOCK_END_STONE_BRICK_STAIRS:
-    case BLOCK_STONE_STAIRS:
-    case BLOCK_SMOOTH_SANDSTONE_STAIRS:
-    case BLOCK_SMOOTH_QUARTZ_STAIRS:
-    case BLOCK_GRANITE_STAIRS:
-    case BLOCK_ANDESITE_STAIRS:
-    case BLOCK_RED_NETHER_BRICK_STAIRS:
-    case BLOCK_POLISHED_ANDESITE_STAIRS:
-    case BLOCK_DIORITE_STAIRS:
-    case BLOCK_BLACKSTONE_STAIRS:
-    case BLOCK_POLISHED_BLACKSTONE_BRICK_STAIRS:
-    case BLOCK_POLISHED_BLACKSTONE_STAIRS:
-    case BLOCK_COBBLED_DEEPSLATE_STAIRS:
-    case BLOCK_POLISHED_DEEPSLATE_STAIRS:
-    case BLOCK_DEEPSLATE_TILE_STAIRS:
-    case BLOCK_DEEPSLATE_BRICK_STAIRS:
-    case BLOCK_OXIDIZED_CUT_COPPER_STAIRS:
-    case BLOCK_WEATHERED_CUT_COPPER_STAIRS:
-    case BLOCK_EXPOSED_CUT_COPPER_STAIRS:
-    case BLOCK_CUT_COPPER_STAIRS:
-    case BLOCK_WAXED_WEATHERED_CUT_COPPER_STAIRS:
-    case BLOCK_WAXED_EXPOSED_CUT_COPPER_STAIRS:
-    case BLOCK_WAXED_CUT_COPPER_STAIRS:
-    case BLOCK_WAXED_OXIDIZED_CUT_COPPER_STAIRS:
-        return 1;
-    default:
-        return 0;
-    }
-}
-
 static int
 rotate_direction_clockwise(int direction) {
     switch (direction) {
@@ -1017,7 +960,7 @@ update_stairs_shape(BlockPos pos, block_state_info * cur_info) {
     u16 state_right = try_get_block_state(get_relative_block_pos(pos,
             rotate_direction_clockwise(cur_info->horizontal_facing)));
     block_state_info info_right = describe_block_state(state_right);
-    if (is_stairs(info_right.block_type)) {
+    if (BlockHasTag(&info_right, BLOCK_TAG_STAIRS)) {
         if (info_right.half == cur_info->half && info_right.horizontal_facing == cur_info->horizontal_facing) {
             force_connect_right = 1;
         }
@@ -1025,7 +968,7 @@ update_stairs_shape(BlockPos pos, block_state_info * cur_info) {
 
     u16 state_left = try_get_block_state(get_relative_block_pos(pos, rotate_direction_counter_clockwise(cur_info->horizontal_facing)));
     block_state_info info_left = describe_block_state(state_left);
-    if (is_stairs(info_left.block_type)) {
+    if (BlockHasTag(&info_left, BLOCK_TAG_STAIRS)) {
         if (info_left.half == cur_info->half && info_left.horizontal_facing == cur_info->horizontal_facing) {
             force_connect_left = 1;
         }
@@ -1035,7 +978,7 @@ update_stairs_shape(BlockPos pos, block_state_info * cur_info) {
     u16 state_front = try_get_block_state(get_relative_block_pos(pos,
             get_opposite_direction(cur_info->horizontal_facing)));
     block_state_info info_front = describe_block_state(state_front);
-    if (is_stairs(info_front.block_type)) {
+    if (BlockHasTag(&info_front, BLOCK_TAG_STAIRS)) {
         if (info_front.half == cur_info->half) {
             if (cur_info->horizontal_facing == rotate_direction_clockwise(info_front.horizontal_facing)) {
                 if (!force_connect_left) {
@@ -1053,7 +996,7 @@ update_stairs_shape(BlockPos pos, block_state_info * cur_info) {
     u16 state_behind = try_get_block_state(get_relative_block_pos(pos,
             cur_info->horizontal_facing));
     block_state_info info_behind = describe_block_state(state_behind);
-    if (is_stairs(info_behind.block_type)) {
+    if (BlockHasTag(&info_behind, BLOCK_TAG_STAIRS)) {
         if (info_behind.half == cur_info->half) {
             if (cur_info->horizontal_facing == rotate_direction_clockwise(info_behind.horizontal_facing)) {
                 if (!force_connect_right) {
@@ -1068,154 +1011,45 @@ update_stairs_shape(BlockPos pos, block_state_info * cur_info) {
     }
 }
 
+int CanCrossConnectToGeneric(block_state_info * curInfo,
+        block_state_info * neighbourInfo, u16 neighbourState,
+        int fromDir) {
+    // @NOTE(traks) can connect to sturdy faces with some exceptions
+    support_model support = get_support_model(neighbourState);
+    u32 neighbourType = neighbourInfo->block_type;
+    if (support.full_face_flags & (1 << get_opposite_direction(fromDir))) {
+        if (BlockHasTag(neighbourInfo, BLOCK_TAG_LEAVES)
+                || BlockHasTag(neighbourInfo, BLOCK_TAG_SHULKER_BOX)
+                || neighbourType == BLOCK_BARRIER
+                || neighbourType == BLOCK_PUMPKIN
+                || neighbourType == BLOCK_CARVED_PUMPKIN
+                || neighbourType == BLOCK_JACK_O_LANTERN
+                || neighbourType == BLOCK_MELON) {
+            return 0;
+        }
+        return 1;
+    }
+    return 0;
+}
+
 void
 update_pane_shape(BlockPos pos,
         block_state_info * cur_info, int from_direction) {
     BlockPos neighbour_pos = get_relative_block_pos(pos, from_direction);
     u16 neighbour_state = try_get_block_state(neighbour_pos);
     i32 neighbour_type = serv->block_type_by_state[neighbour_state];
+    block_state_info neighbour_info = describe_block_state(neighbour_state);
 
-    *(&cur_info->neg_y + from_direction) = 0;
+    int connect = 0;
 
-    switch (neighbour_type) {
-    // iron bars, panes
-    case BLOCK_IRON_BARS:
-    case BLOCK_GLASS_PANE:
-    case BLOCK_WHITE_STAINED_GLASS_PANE:
-    case BLOCK_ORANGE_STAINED_GLASS_PANE:
-    case BLOCK_MAGENTA_STAINED_GLASS_PANE:
-    case BLOCK_LIGHT_BLUE_STAINED_GLASS_PANE:
-    case BLOCK_YELLOW_STAINED_GLASS_PANE:
-    case BLOCK_LIME_STAINED_GLASS_PANE:
-    case BLOCK_PINK_STAINED_GLASS_PANE:
-    case BLOCK_GRAY_STAINED_GLASS_PANE:
-    case BLOCK_LIGHT_GRAY_STAINED_GLASS_PANE:
-    case BLOCK_CYAN_STAINED_GLASS_PANE:
-    case BLOCK_PURPLE_STAINED_GLASS_PANE:
-    case BLOCK_BLUE_STAINED_GLASS_PANE:
-    case BLOCK_BROWN_STAINED_GLASS_PANE:
-    case BLOCK_GREEN_STAINED_GLASS_PANE:
-    case BLOCK_RED_STAINED_GLASS_PANE:
-    case BLOCK_BLACK_STAINED_GLASS_PANE:
-    // walls block tag
-    case BLOCK_COBBLESTONE_WALL:
-    case BLOCK_MOSSY_COBBLESTONE_WALL:
-    case BLOCK_BRICK_WALL:
-    case BLOCK_PRISMARINE_WALL:
-    case BLOCK_RED_SANDSTONE_WALL:
-    case BLOCK_MOSSY_STONE_BRICK_WALL:
-    case BLOCK_GRANITE_WALL:
-    case BLOCK_STONE_BRICK_WALL:
-    case BLOCK_NETHER_BRICK_WALL:
-    case BLOCK_ANDESITE_WALL:
-    case BLOCK_RED_NETHER_BRICK_WALL:
-    case BLOCK_SANDSTONE_WALL:
-    case BLOCK_END_STONE_BRICK_WALL:
-    case BLOCK_DIORITE_WALL:
-    case BLOCK_BLACKSTONE_WALL:
-    case BLOCK_POLISHED_BLACKSTONE_BRICK_WALL:
-    case BLOCK_POLISHED_BLACKSTONE_WALL:
-    case BLOCK_COBBLED_DEEPSLATE_WALL:
-    case BLOCK_POLISHED_DEEPSLATE_WALL:
-    case BLOCK_DEEPSLATE_TILE_WALL:
-    case BLOCK_DEEPSLATE_BRICK_WALL:
-        // can attach to these blocks
-        break;
-    // leaves
-    case BLOCK_JUNGLE_LEAVES:
-    case BLOCK_OAK_LEAVES:
-    case BLOCK_SPRUCE_LEAVES:
-    case BLOCK_DARK_OAK_LEAVES:
-    case BLOCK_ACACIA_LEAVES:
-    case BLOCK_BIRCH_LEAVES:
-    case BLOCK_AZALEA_LEAVES:
-    case BLOCK_FLOWERING_AZALEA_LEAVES:
-    // misc
-    case BLOCK_BARRIER:
-    case BLOCK_PUMPKIN:
-    case BLOCK_CARVED_PUMPKIN:
-    case BLOCK_JACK_O_LANTERN:
-    case BLOCK_MELON:
-    // shulker boxes block tag
-    case BLOCK_SHULKER_BOX:
-    case BLOCK_BLACK_SHULKER_BOX:
-    case BLOCK_BLUE_SHULKER_BOX:
-    case BLOCK_BROWN_SHULKER_BOX:
-    case BLOCK_CYAN_SHULKER_BOX:
-    case BLOCK_GRAY_SHULKER_BOX:
-    case BLOCK_GREEN_SHULKER_BOX:
-    case BLOCK_LIGHT_BLUE_SHULKER_BOX:
-    case BLOCK_LIGHT_GRAY_SHULKER_BOX:
-    case BLOCK_LIME_SHULKER_BOX:
-    case BLOCK_MAGENTA_SHULKER_BOX:
-    case BLOCK_ORANGE_SHULKER_BOX:
-    case BLOCK_PINK_SHULKER_BOX:
-    case BLOCK_PURPLE_SHULKER_BOX:
-    case BLOCK_RED_SHULKER_BOX:
-    case BLOCK_WHITE_SHULKER_BOX:
-    case BLOCK_YELLOW_SHULKER_BOX:
-        // can't attach to these blocks
-        return;
-    default: {
-        support_model support = get_support_model(neighbour_state);
-        if (support.full_face_flags & (1 << get_opposite_direction(from_direction))) {
-            // can connect to sturdy faces of remaining blocks
-            break;
-        }
-        return;
-    }
+    if (BlockHasTag(&neighbour_info, BLOCK_TAG_PANE_LIKE)
+            || BlockHasTag(&neighbour_info, BLOCK_TAG_WALL)) {
+        connect = 1;
+    } else if (CanCrossConnectToGeneric(cur_info, &neighbour_info, neighbour_state, from_direction)) {
+        connect = 1;
     }
 
-    *(&cur_info->neg_y + from_direction) = 1;
-}
-
-// @TODO(traks) block tag?
-static int
-is_wooden_fence(i32 block_type) {
-    switch (block_type) {
-    case BLOCK_OAK_FENCE:
-    case BLOCK_ACACIA_FENCE:
-    case BLOCK_DARK_OAK_FENCE:
-    case BLOCK_SPRUCE_FENCE:
-    case BLOCK_BIRCH_FENCE:
-    case BLOCK_JUNGLE_FENCE:
-    case BLOCK_CRIMSON_FENCE:
-    case BLOCK_WARPED_FENCE:
-        return 1;
-    default:
-        return 0;
-    }
-}
-
-// @TODO(traks) block tag?
-int
-is_wall(i32 block_type) {
-    switch (block_type) {
-    case BLOCK_COBBLESTONE_WALL:
-    case BLOCK_MOSSY_COBBLESTONE_WALL:
-    case BLOCK_BRICK_WALL:
-    case BLOCK_PRISMARINE_WALL:
-    case BLOCK_RED_SANDSTONE_WALL:
-    case BLOCK_MOSSY_STONE_BRICK_WALL:
-    case BLOCK_GRANITE_WALL:
-    case BLOCK_STONE_BRICK_WALL:
-    case BLOCK_NETHER_BRICK_WALL:
-    case BLOCK_ANDESITE_WALL:
-    case BLOCK_RED_NETHER_BRICK_WALL:
-    case BLOCK_SANDSTONE_WALL:
-    case BLOCK_END_STONE_BRICK_WALL:
-    case BLOCK_DIORITE_WALL:
-    case BLOCK_BLACKSTONE_WALL:
-    case BLOCK_POLISHED_BLACKSTONE_BRICK_WALL:
-    case BLOCK_POLISHED_BLACKSTONE_WALL:
-    case BLOCK_COBBLED_DEEPSLATE_WALL:
-    case BLOCK_POLISHED_DEEPSLATE_WALL:
-    case BLOCK_DEEPSLATE_TILE_WALL:
-    case BLOCK_DEEPSLATE_BRICK_WALL:
-        return 1;
-    default:
-        return 0;
-    }
+    *(&cur_info->neg_y + from_direction) = connect;
 }
 
 void
@@ -1224,64 +1058,21 @@ update_fence_shape(BlockPos pos,
     BlockPos neighbour_pos = get_relative_block_pos(pos, from_direction);
     u16 neighbour_state = try_get_block_state(neighbour_pos);
     i32 neighbour_type = serv->block_type_by_state[neighbour_state];
+    block_state_info neighbour_info = describe_block_state(neighbour_state);
 
-    *(&cur_info->neg_y + from_direction) = 0;
+    int connect = 0;
 
-    switch (neighbour_type) {
-    // all leaves
-    case BLOCK_JUNGLE_LEAVES:
-    case BLOCK_OAK_LEAVES:
-    case BLOCK_SPRUCE_LEAVES:
-    case BLOCK_DARK_OAK_LEAVES:
-    case BLOCK_ACACIA_LEAVES:
-    case BLOCK_BIRCH_LEAVES:
-    case BLOCK_AZALEA_LEAVES:
-    case BLOCK_FLOWERING_AZALEA_LEAVES:
-    // misc
-    case BLOCK_BARRIER:
-    case BLOCK_PUMPKIN:
-    case BLOCK_CARVED_PUMPKIN:
-    case BLOCK_JACK_O_LANTERN:
-    case BLOCK_MELON:
-    // shulker boxes block tag
-    case BLOCK_SHULKER_BOX:
-    case BLOCK_BLACK_SHULKER_BOX:
-    case BLOCK_BLUE_SHULKER_BOX:
-    case BLOCK_BROWN_SHULKER_BOX:
-    case BLOCK_CYAN_SHULKER_BOX:
-    case BLOCK_GRAY_SHULKER_BOX:
-    case BLOCK_GREEN_SHULKER_BOX:
-    case BLOCK_LIGHT_BLUE_SHULKER_BOX:
-    case BLOCK_LIGHT_GRAY_SHULKER_BOX:
-    case BLOCK_LIME_SHULKER_BOX:
-    case BLOCK_MAGENTA_SHULKER_BOX:
-    case BLOCK_ORANGE_SHULKER_BOX:
-    case BLOCK_PINK_SHULKER_BOX:
-    case BLOCK_PURPLE_SHULKER_BOX:
-    case BLOCK_RED_SHULKER_BOX:
-    case BLOCK_WHITE_SHULKER_BOX:
-    case BLOCK_YELLOW_SHULKER_BOX:
-        // can't attach to these blocks
-        return;
-    default: {
-        if (is_wooden_fence(neighbour_type) && is_wooden_fence(cur_info->block_type)) {
-            break;
-        }
-        if (neighbour_type == cur_info->block_type) {
-            // allow nether brick fences to connect
-            break;
-        }
-
-        support_model support = get_support_model(neighbour_state);
-        if (support.full_face_flags & (1 << get_opposite_direction(from_direction))) {
-            // can connect to sturdy faces of remaining blocks
-            break;
-        }
-        return;
-    }
+    if ((BlockHasTag(&neighbour_info, BLOCK_TAG_WOODEN_FENCE)
+            && BlockHasTag(cur_info, BLOCK_TAG_WOODEN_FENCE))
+            || neighbour_type == cur_info->block_type) {
+        // @NOTE(traks) allow wooden fences to connect with each other and allow
+        // nether brick fences to connect with each other
+        connect = 1;
+    } else if (CanCrossConnectToGeneric(cur_info, &neighbour_info, neighbour_state, from_direction)) {
+        connect = 1;
     }
 
-    *(&cur_info->neg_y + from_direction) = 1;
+    *(&cur_info->neg_y + from_direction) = connect;
 }
 
 void
@@ -1299,96 +1090,17 @@ update_wall_shape(BlockPos pos,
 
     int connect = 0;
 
-    switch (neighbour_type) {
-    // leaves
-    case BLOCK_JUNGLE_LEAVES:
-    case BLOCK_OAK_LEAVES:
-    case BLOCK_SPRUCE_LEAVES:
-    case BLOCK_DARK_OAK_LEAVES:
-    case BLOCK_ACACIA_LEAVES:
-    case BLOCK_BIRCH_LEAVES:
-    case BLOCK_AZALEA_LEAVES:
-    case BLOCK_FLOWERING_AZALEA_LEAVES:
-    // misc
-    case BLOCK_BARRIER:
-    case BLOCK_PUMPKIN:
-    case BLOCK_CARVED_PUMPKIN:
-    case BLOCK_JACK_O_LANTERN:
-    case BLOCK_MELON:
-    // shulker box block tag
-    case BLOCK_SHULKER_BOX:
-    case BLOCK_BLACK_SHULKER_BOX:
-    case BLOCK_BLUE_SHULKER_BOX:
-    case BLOCK_BROWN_SHULKER_BOX:
-    case BLOCK_CYAN_SHULKER_BOX:
-    case BLOCK_GRAY_SHULKER_BOX:
-    case BLOCK_GREEN_SHULKER_BOX:
-    case BLOCK_LIGHT_BLUE_SHULKER_BOX:
-    case BLOCK_LIGHT_GRAY_SHULKER_BOX:
-    case BLOCK_LIME_SHULKER_BOX:
-    case BLOCK_MAGENTA_SHULKER_BOX:
-    case BLOCK_ORANGE_SHULKER_BOX:
-    case BLOCK_PINK_SHULKER_BOX:
-    case BLOCK_PURPLE_SHULKER_BOX:
-    case BLOCK_RED_SHULKER_BOX:
-    case BLOCK_WHITE_SHULKER_BOX:
-    case BLOCK_YELLOW_SHULKER_BOX:
-        // can't attach to these blocks
-        break;
-    // iron bars & panes
-    case BLOCK_IRON_BARS:
-    case BLOCK_GLASS_PANE:
-    case BLOCK_WHITE_STAINED_GLASS_PANE:
-    case BLOCK_ORANGE_STAINED_GLASS_PANE:
-    case BLOCK_MAGENTA_STAINED_GLASS_PANE:
-    case BLOCK_LIGHT_BLUE_STAINED_GLASS_PANE:
-    case BLOCK_YELLOW_STAINED_GLASS_PANE:
-    case BLOCK_LIME_STAINED_GLASS_PANE:
-    case BLOCK_PINK_STAINED_GLASS_PANE:
-    case BLOCK_GRAY_STAINED_GLASS_PANE:
-    case BLOCK_LIGHT_GRAY_STAINED_GLASS_PANE:
-    case BLOCK_CYAN_STAINED_GLASS_PANE:
-    case BLOCK_PURPLE_STAINED_GLASS_PANE:
-    case BLOCK_BLUE_STAINED_GLASS_PANE:
-    case BLOCK_BROWN_STAINED_GLASS_PANE:
-    case BLOCK_GREEN_STAINED_GLASS_PANE:
-    case BLOCK_RED_STAINED_GLASS_PANE:
-    case BLOCK_BLACK_STAINED_GLASS_PANE:
-        // can connect to these
-        connect = 1;
-        break;
-    // fence gates
-    case BLOCK_OAK_FENCE_GATE:
-    case BLOCK_SPRUCE_FENCE_GATE:
-    case BLOCK_BIRCH_FENCE_GATE:
-    case BLOCK_JUNGLE_FENCE_GATE:
-    case BLOCK_ACACIA_FENCE_GATE:
-    case BLOCK_DARK_OAK_FENCE_GATE:
-    case BLOCK_CRIMSON_FENCE_GATE:
-    case BLOCK_WARPED_FENCE_GATE: {
-        // try connect to fence gate in wall
+    if (BlockHasTag(&neighbour_info, BLOCK_TAG_FENCE_GATE)) {
+        // @NOTE(traks) try connect to fence gate in wall if oriented properly
         int facing = neighbour_info.horizontal_facing;
         int rotated = rotate_direction_clockwise(facing);
         if (rotated == from_direction || rotated == get_opposite_direction(from_direction)) {
-            // fence gate pointing in good direction
             connect = 1;
         }
-        break;
-    }
-    default: {
-        if (is_wall(neighbour_type)) {
-            // connect to other walls
-            connect = 1;
-            break;
-        }
-
-        support_model support = get_support_model(neighbour_state);
-        if (support.full_face_flags & (1 << get_opposite_direction(from_direction))) {
-            // can connect to sturdy faces of remaining blocks
-            connect = 1;
-            break;
-        }
-    }
+    } else if (BlockHasTag(&neighbour_info, BLOCK_TAG_WALL)) {
+        connect = 1;
+    } else if (CanCrossConnectToGeneric(cur_info, &neighbour_info, neighbour_state, from_direction)) {
+        connect = 1;
     }
 
     int wall_side = WALL_SIDE_NONE;
@@ -2956,20 +2668,24 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
         if (facing == DIRECTION_POS_X || facing == DIRECTION_NEG_X) {
             int neighbour_state_pos = try_get_block_state(
                     get_relative_block_pos(pos, DIRECTION_POS_Z));
+            block_state_info neighbour_info_pos = describe_block_state(neighbour_state_pos);
             int neighbour_state_neg = try_get_block_state(
                     get_relative_block_pos(pos, DIRECTION_NEG_Z));
-            if (is_wall(serv->block_type_by_state[neighbour_state_pos])
-                    || is_wall(serv->block_type_by_state[neighbour_state_neg])) {
+            block_state_info neighbour_info_neg = describe_block_state(neighbour_state_neg);
+            if (BlockHasTag(&neighbour_info_pos, BLOCK_TAG_WALL)
+                    || BlockHasTag(&neighbour_info_neg, BLOCK_TAG_WALL)) {
                 cur_info.in_wall = 1;
             }
         } else {
             // facing along z axis
             int neighbour_state_pos = try_get_block_state(
                     get_relative_block_pos(pos, DIRECTION_POS_X));
+            block_state_info neighbour_info_pos = describe_block_state(neighbour_state_pos);
             int neighbour_state_neg = try_get_block_state(
                     get_relative_block_pos(pos, DIRECTION_NEG_X));
-            if (is_wall(serv->block_type_by_state[neighbour_state_pos])
-                    || is_wall(serv->block_type_by_state[neighbour_state_neg])) {
+            block_state_info neighbour_info_neg = describe_block_state(neighbour_state_neg);
+            if (BlockHasTag(&neighbour_info_pos, BLOCK_TAG_WALL)
+                    || BlockHasTag(&neighbour_info_neg, BLOCK_TAG_WALL)) {
                 cur_info.in_wall = 1;
             }
         }
@@ -4362,6 +4078,7 @@ static void
 init_leaves(char * resource_loc) {
     i32 block_type = register_block_type(resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
+    props->type_tags |= (u32) 1 << BLOCK_TAG_LEAVES;
     add_block_property(props, BLOCK_PROPERTY_DISTANCE, "7");
     add_block_property(props, BLOCK_PROPERTY_PERSISTENT, "false");
     finalise_block_props(props);
@@ -4439,6 +4156,7 @@ static void
 init_stair_props(char * resource_loc) {
     i32 block_type = register_block_type(resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
+    props->type_tags |= (u32) 1 << BLOCK_TAG_STAIRS;
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_HALF, "bottom");
     add_block_property(props, BLOCK_PROPERTY_STAIRS_SHAPE, "straight");
@@ -4468,6 +4186,7 @@ static void
 init_shulker_box_props(char * resource_loc) {
     i32 block_type = register_block_type(resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
+    props->type_tags |= (u32) 1 << BLOCK_TAG_SHULKER_BOX;
     add_block_property(props, BLOCK_PROPERTY_FACING, "up");
     finalise_block_props(props);
 }
@@ -4476,6 +4195,7 @@ static void
 init_wall_props(char * resource_loc) {
     i32 block_type = register_block_type(resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
+    props->type_tags |= ((u32) 1) << BLOCK_TAG_WALL;
     add_block_property(props, BLOCK_PROPERTY_WALL_POS_X, "none");
     add_block_property(props, BLOCK_PROPERTY_WALL_NEG_Z, "none");
     add_block_property(props, BLOCK_PROPERTY_WALL_POS_Z, "none");
@@ -4498,6 +4218,7 @@ static void
 init_pane(char * resource_loc) {
     i32 block_type = register_block_type(resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
+    props->type_tags |= (u32) 1 << BLOCK_TAG_PANE_LIKE;
     add_block_property(props, BLOCK_PROPERTY_POS_X, "false");
     add_block_property(props, BLOCK_PROPERTY_NEG_Z, "false");
     add_block_property(props, BLOCK_PROPERTY_POS_Z, "false");
@@ -4514,9 +4235,12 @@ init_pane(char * resource_loc) {
 }
 
 static void
-init_fence(char * resource_loc) {
+init_fence(char * resource_loc, int wooden) {
     i32 block_type = register_block_type(resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
+    if (wooden) {
+        props->type_tags |= (u32) 1 << BLOCK_TAG_WOODEN_FENCE;
+    }
     add_block_property(props, BLOCK_PROPERTY_POS_X, "false");
     add_block_property(props, BLOCK_PROPERTY_NEG_Z, "false");
     add_block_property(props, BLOCK_PROPERTY_POS_Z, "false");
@@ -4571,6 +4295,7 @@ static void
 init_fence_gate(char * resource_loc) {
     i32 block_type = register_block_type(resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
+    props->type_tags |= (u32) 1 << BLOCK_TAG_FENCE_GATE;
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_IN_WALL, "false");
     add_block_property(props, BLOCK_PROPERTY_OPEN, "false");
@@ -5548,7 +5273,7 @@ init_block_data(void) {
     finalise_block_props(props);
     set_collision_model_for_all_states(props, BLOCK_MODEL_FULL);
 
-    init_fence("minecraft:oak_fence");
+    init_fence("minecraft:oak_fence", 1);
 
     init_simple_block("minecraft:pumpkin", BLOCK_MODEL_FULL);
     init_simple_block("minecraft:netherrack", BLOCK_MODEL_FULL);
@@ -5707,7 +5432,7 @@ init_block_data(void) {
     init_simple_block("minecraft:lily_pad", BLOCK_MODEL_LILY_PAD);
     init_simple_block("minecraft:nether_bricks", BLOCK_MODEL_FULL);
 
-    init_fence("minecraft:nether_brick_fence");
+    init_fence("minecraft:nether_brick_fence", 0);
 
     init_stair_props("minecraft:nether_brick_stairs");
 
@@ -6103,11 +5828,11 @@ init_block_data(void) {
     init_fence_gate("minecraft:acacia_fence_gate");
     init_fence_gate("minecraft:dark_oak_fence_gate");
 
-    init_fence("minecraft:spruce_fence");
-    init_fence("minecraft:birch_fence");
-    init_fence("minecraft:jungle_fence");
-    init_fence("minecraft:acacia_fence");
-    init_fence("minecraft:dark_oak_fence");
+    init_fence("minecraft:spruce_fence", 1);
+    init_fence("minecraft:birch_fence", 1);
+    init_fence("minecraft:jungle_fence", 1);
+    init_fence("minecraft:acacia_fence", 1);
+    init_fence("minecraft:dark_oak_fence", 1);
 
     init_door_props("minecraft:spruce_door");
     init_door_props("minecraft:birch_door");
@@ -6551,8 +6276,8 @@ init_block_data(void) {
     init_pressure_plate("minecraft:crimson_pressure_plate");
     init_pressure_plate("minecraft:warped_pressure_plate");
 
-    init_fence("minecraft:crimson_fence");
-    init_fence("minecraft:warped_fence");
+    init_fence("minecraft:crimson_fence", 1);
+    init_fence("minecraft:warped_fence", 1);
 
     init_trapdoor_props("minecraft:crimson_trapdoor");
     init_trapdoor_props("minecraft:warped_trapdoor");

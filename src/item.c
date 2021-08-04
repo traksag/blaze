@@ -598,20 +598,24 @@ place_fence_gate(place_context context, i32 place_type) {
     if (player_facing == DIRECTION_POS_X || player_facing == DIRECTION_NEG_X) {
         int neighbour_state_pos = try_get_block_state(
                 get_relative_block_pos(target.pos, DIRECTION_POS_Z));
+        block_state_info neighbour_info_pos = describe_block_state(neighbour_state_pos);
         int neighbour_state_neg = try_get_block_state(
                 get_relative_block_pos(target.pos, DIRECTION_NEG_Z));
-        if (is_wall(serv->block_type_by_state[neighbour_state_pos])
-                || is_wall(serv->block_type_by_state[neighbour_state_neg])) {
+        block_state_info neighbour_info_neg = describe_block_state(neighbour_state_neg);
+        if (BlockHasTag(&neighbour_info_pos, BLOCK_TAG_WALL)
+                || BlockHasTag(&neighbour_info_neg, BLOCK_TAG_WALL)) {
             place_info.in_wall = 1;
         }
     } else {
         // facing along z axis
         int neighbour_state_pos = try_get_block_state(
                 get_relative_block_pos(target.pos, DIRECTION_POS_X));
+        block_state_info neighbour_info_pos = describe_block_state(neighbour_state_pos);
         int neighbour_state_neg = try_get_block_state(
                 get_relative_block_pos(target.pos, DIRECTION_NEG_X));
-        if (is_wall(serv->block_type_by_state[neighbour_state_pos])
-                || is_wall(serv->block_type_by_state[neighbour_state_neg])) {
+        block_state_info neighbour_info_neg = describe_block_state(neighbour_state_neg);
+        if (BlockHasTag(&neighbour_info_pos, BLOCK_TAG_WALL)
+                || BlockHasTag(&neighbour_info_neg, BLOCK_TAG_WALL)) {
             place_info.in_wall = 1;
         }
     }

@@ -1088,6 +1088,7 @@ typedef struct {
 } block_property_spec;
 
 typedef struct {
+    u32 type_tags;
     u16 base_state;
     unsigned char property_count;
     unsigned char property_specs[8];
@@ -1299,6 +1300,16 @@ enum block_property {
     BLOCK_PROPERTY_COUNT,
 };
 
+enum BlockTag {
+    BLOCK_TAG_STAIRS,
+    BLOCK_TAG_WALL,
+    BLOCK_TAG_PANE_LIKE,
+    BLOCK_TAG_LEAVES,
+    BLOCK_TAG_SHULKER_BOX,
+    BLOCK_TAG_WOODEN_FENCE,
+    BLOCK_TAG_FENCE_GATE,
+};
+
 // @NOTE(traks) This struct is used to modify block properties in a more
 // 'natural' way. We don't have to input block property strides and value
 // indices manually whenever we want to create a block state with certain
@@ -1319,6 +1330,7 @@ enum block_property {
 // some fields such as facing & age.
 typedef struct {
     u64 available_properties[2];
+    u32 type_tags;
     u16 block_type;
 
     union {
@@ -1454,5 +1466,9 @@ support_model get_support_model(u16 block_state);
 int get_water_level(u16 state);
 int is_water_source(u16 state);
 int is_full_water(u16 state);
+
+static inline int BlockHasTag(block_state_info * info, int tag) {
+    return info->type_tags & ((u32) 1 << tag);
+}
 
 #endif
