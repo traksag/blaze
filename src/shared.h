@@ -12,6 +12,8 @@
 
 #define MAX_CHUNK_CACHE_DIAM (2 * MAX_CHUNK_CACHE_RADIUS + 1)
 
+// @TODO(traks) More rapid in case client connection gets flooded and tons of
+// TCP packets get buffered/dropped?
 #define KEEP_ALIVE_SPACING (10 * 20)
 
 #define KEEP_ALIVE_TIMEOUT (30 * 20)

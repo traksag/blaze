@@ -2454,6 +2454,9 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         player->flags &= ~PLAYER_GOT_ALIVE_RESPONSE;
     }
 
+    // @TODO(traks) Initial teleport packet makes the client exit the
+    // "Loading world..." screen. Only send initial teleport packet after some
+    // chunks around the player have been sent?
     if ((player->flags & ENTITY_TELEPORTING)
             && !(player->flags & PLAYER_SENT_TELEPORT)) {
         begin_packet(send_cursor, CBP_PLAYER_POSITION);
@@ -2657,6 +2660,12 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
 
     // load and send tracked chunks
     BeginTimedZone("load and send chunks");
+
+    // @TODO(traks) Don't send chunks if there are still chunks being sent to
+    // the client. Don't want to overflow the connection with chunks and lag
+    // everything else. Is there any way to figure out if a chunk has been
+    // received by the client? Or is there no way to tell if a chunk is still
+    // buffered by the OS or TCP?
 
     // We iterate in a spiral around the player, so chunks near the player
     // are processed first. This shortens server join times (since players
