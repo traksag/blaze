@@ -129,7 +129,7 @@ hash_chunk_pos(chunk_pos pos) {
 block_entity_base *
 try_get_block_entity(BlockPos pos) {
     // @TODO(traks) return some special block entity instead of NULL?
-    if (pos.y < 0) {
+    if (pos.y < MIN_WORLD_Y) {
         return NULL;
     }
     if (pos.y > MAX_WORLD_Y) {
@@ -146,7 +146,7 @@ try_get_block_entity(BlockPos pos) {
         return NULL;
     }
 
-    compact_chunk_block_pos chunk_block_pos = {
+    CompactChunkBlockPos chunk_block_pos = {
         .x = pos.x & 0xf,
         .y = pos.y,
         .z = pos.z & 0xf,
@@ -168,7 +168,7 @@ try_get_block_entity(BlockPos pos) {
 
 u16
 try_get_block_state(BlockPos pos) {
-    if (pos.y < 0) {
+    if (pos.y < MIN_WORLD_Y) {
         return get_default_block_state(BLOCK_VOID_AIR);
     }
     if (pos.y > MAX_WORLD_Y) {
@@ -190,7 +190,7 @@ try_get_block_state(BlockPos pos) {
 
 void
 try_set_block_state(BlockPos pos, u16 block_state) {
-    if (pos.y < 0) {
+    if (pos.y < MIN_WORLD_Y) {
         assert(0);
         return;
     }
@@ -220,11 +220,11 @@ try_set_block_state(BlockPos pos, u16 block_state) {
 u16
 chunk_get_block_state(chunk * ch, int x, int y, int z) {
     assert(0 <= x && x < 16);
-    assert(0 <= y && y < 256);
+    assert(MIN_WORLD_Y <= y && y <= MAX_WORLD_Y);
     assert(0 <= z && z < 16);
 
-    int section_y = y >> 4;
-    chunk_section * section = ch->sections[section_y];
+    int sectionIndex = (y - MIN_WORLD_Y) >> 4;
+    chunk_section * section = ch->sections[sectionIndex];
 
     if (section == NULL) {
         // @TODO(traks) would it be possible to have a block type -> default state
@@ -241,9 +241,8 @@ static void
 recalculate_chunk_motion_blocking_height_map(chunk * ch) {
     for (int zx = 0; zx < 16 * 16; zx++) {
         ch->motion_blocking_height_map[zx] = 0;
-        for (int y = 255; y >= 0; y--) {
-            u16 block_state = chunk_get_block_state(ch,
-                    zx & 0xf, y, zx >> 4);
+        for (int y = MAX_WORLD_Y; y >= MIN_WORLD_Y; y--) {
+            u16 block_state = chunk_get_block_state(ch, zx & 0xf, y, zx >> 4);
             // @TODO(traks) other airs
             if (block_state != 0) {
                 ch->motion_blocking_height_map[zx] = y + 1;
@@ -256,7 +255,7 @@ recalculate_chunk_motion_blocking_height_map(chunk * ch) {
 void
 chunk_set_block_state(chunk * ch, int x, int y, int z, u16 block_state) {
     assert(0 <= x && x < 16);
-    assert(0 <= y && y < 256);
+    assert(MIN_WORLD_Y <= y && y <= MAX_WORLD_Y);
     assert(0 <= z && z < 16);
     assert(ch->flags & CHUNK_LOADED);
     // @TODO(traks) somehow ensure this never fails even with tons of players,
@@ -267,7 +266,7 @@ chunk_set_block_state(chunk * ch, int x, int y, int z, u16 block_state) {
     // blocks we changed in the chunk in a single tick. Should be faster.
     int match = 0;
     for (int i = 0; i < ch->changed_block_count; i++) {
-        compact_chunk_block_pos entry = ch->changed_blocks[i];
+        CompactChunkBlockPos entry = ch->changed_blocks[i];
         if (entry.x == x && entry.y == y && entry.z == z) {
             match = 1;
             break;
@@ -277,13 +276,13 @@ chunk_set_block_state(chunk * ch, int x, int y, int z, u16 block_state) {
     if (!match) {
         assert(ch->changed_block_count < ARRAY_SIZE(ch->changed_blocks));
 
-        compact_chunk_block_pos pos = {.x = x, .y = y, .z = z};
+        CompactChunkBlockPos pos = {.x = x, .y = y, .z = z};
         ch->changed_blocks[ch->changed_block_count] = pos;
         ch->changed_block_count++;
     }
 
-    int section_y = y >> 4;
-    chunk_section * section = ch->sections[section_y];
+    int sectionIndex = (y - MIN_WORLD_Y) >> 4;
+    chunk_section * section = ch->sections[sectionIndex];
 
     if (section == NULL) {
         // @TODO(traks) instead of making block setting fallible, perhaps
@@ -293,23 +292,23 @@ chunk_set_block_state(chunk * ch, int x, int y, int z, u16 block_state) {
             LogErrno("Failed to allocate section: %s");
             exit(1);
         }
-        ch->sections[section_y] = section;
+        ch->sections[sectionIndex] = section;
     }
 
     int index = ((y & 0xf) << 8) | (z << 4) | x;
 
     if (section->block_states[index] == 0) {
-        ch->non_air_count[section_y]++;
+        ch->non_air_count[sectionIndex]++;
     }
     if (block_state == 0) {
-        ch->non_air_count[section_y]--;
+        ch->non_air_count[sectionIndex]--;
     }
 
     section->block_states[index] = block_state;
 
     int height_map_index = (z << 4) | x;
 
-    u16 max_height = ch->motion_blocking_height_map[height_map_index];
+    i16 max_height = ch->motion_blocking_height_map[height_map_index];
     if (y + 1 == max_height) {
         if (block_state == 0) {
             // @TODO(traks) handle other airs
@@ -330,39 +329,6 @@ chunk_set_block_state(chunk * ch, int x, int y, int z, u16 block_state) {
             ch->motion_blocking_height_map[height_map_index] = y + 1;
         }
     }
-}
-
-static int
-ceil_log2u(u32 x) {
-    assert(x != 0);
-    // @TODO(traks) use lzcnt if available. Maybe not necessary with -O3.
-    // @NOTE(traks) based on floor log2 from
-    // https://graphics.stanford.edu/~seander/bithacks.html
-    x--;
-
-    int res;
-    int shift;
-
-    res = (x > 0xffff) << 4;
-    x >>= res;
-
-    shift = (x > 0xff) << 3;
-    x >>= shift;
-    res |= shift;
-
-    shift = (x > 0xf) << 2;
-    x >>= shift;
-    res |= shift;
-
-    shift = (x > 0x3) << 1;
-    x >>= shift;
-    res |= shift;
-
-    res |= (x >> 1);
-
-    res++;
-
-    return res;
 }
 
 static void
@@ -569,79 +535,63 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
         .size = zstream.total_out
     };
 
-    // @TODO(traks) more appropriate max level
-    int max_levels = 1024;
-    nbt_tape_entry * chunk_nbt = load_nbt(&cursor, scratch_arena, max_levels);
+    NbtCompound chunkNbt = NbtRead(&cursor, scratch_arena);
 
     if (cursor.error) {
         LogInfo("Failed to load NBT data");
         goto bail;
     }
 
-    // print_nbt(chunk_nbt, &cursor, scratch_arena, max_levels);
+    // NbtPrint(&chunkNbt);
 
-    for (int section_y = 0; section_y < 16; section_y++) {
+    for (int section_y = 0; section_y < SECTIONS_PER_CHUNK; section_y++) {
         assert(ch->sections[section_y] == NULL);
     }
 
-    nbt_move_to_key(STR("DataVersion"), chunk_nbt, &cursor);
-    i32 data_version = CursorGetU32(&cursor);
-    if (data_version != SERVER_WORLD_VERSION) {
-        LogInfo("Data version %jd != %jd", (intmax_t) data_version,
-                (intmax_t) SERVER_WORLD_VERSION);
+    i32 dataVersion = NbtGetU32(&chunkNbt, STR("DataVersion"));
+    if (dataVersion != SERVER_WORLD_VERSION) {
+        LogInfo("Data version %jd != %jd", (intmax_t) dataVersion, (intmax_t) SERVER_WORLD_VERSION);
         goto bail;
     }
 
-    nbt_tape_entry * level_nbt = nbt_get_compound(STR("Level"),
-            chunk_nbt, &cursor);
-
-    String status = nbt_get_string(STR("Status"), level_nbt, &cursor);
-    if (!net_string_equal(status, STR("full"))) {
+    String status = NbtGetString(&chunkNbt, STR("Status"));
+    if (!net_string_equal(status, STR("full")) && !net_string_equal(status, STR("empty"))) {
         // @TODO(traks) this message gets spammed on the edges of pregenerated
         // terrain. Maybe turn it into a debug message.
-        LogInfo("Chunk not fully generated");
+        LogInfo("Chunk not fully generated, status: %.*s", status.size, status.data);
         goto bail;
     }
 
-    nbt_tape_entry * section_start = nbt_move_to_key(STR("Sections"),
-            level_nbt, &cursor);
-
-    u32 section_count;
-    nbt_tape_entry * section_nbt;
-
-    if (section_start->tag != NBT_TAG_LIST) {
-        section_count = 0;
-        section_nbt = NULL;
-    } else {
-        section_count = section_start[2].list_size;
-        section_nbt = section_start + 3;
-    }
+    NbtList sectionList = NbtGetList(&chunkNbt, STR("sections"), NBT_COMPOUND);
+    i32 numSections = sectionList.size;
 
     // maximum amount of memory the palette will ever use
     int max_palette_map_size = 4096;
-    u16 * palette_map = MallocInArena(scratch_arena,
-            max_palette_map_size * sizeof (u16));
+    u16 * palette_map = MallocInArena(scratch_arena, max_palette_map_size * sizeof (u16));
 
-    if (section_count > 18) {
-        LogInfo("Too many chunk sections: %ju", (uintmax_t) section_count);
+    if (numSections > SECTIONS_PER_CHUNK) {
+        LogInfo("Too many chunk sections: %ju", (uintmax_t) numSections);
         goto bail;
     }
 
-    for (u32 sectioni = 0; sectioni < section_count; sectioni++) {
-        nbt_move_to_key(STR("Y"), section_nbt, &cursor);
-        i8 section_y = CursorGetU8(&cursor);
+    for (u32 sectioni = 0; sectioni < numSections; sectioni++) {
+        NbtCompound sectionNbt = NbtNextCompound(&sectionList);
+        i8 sectionY = NbtGetU8(&sectionNbt, STR("Y"));
 
-        nbt_tape_entry * palette_start = nbt_move_to_key(STR("Palette"),
-                section_nbt, &cursor);
+        NbtCompound blockStatesNbt = NbtGetCompound(&sectionNbt, STR("block_states"));
+        NbtList palette = NbtGetList(&blockStatesNbt, STR("palette"), NBT_COMPOUND);
+        NbtList blockData = NbtGetArrayU64(&blockStatesNbt, STR("data"));
 
-        if (palette_start->tag != NBT_TAG_END) {
-            if (section_y < 0 || section_y >= 16) {
-                LogInfo("Section Y %d with palette", (int) section_y);
+        if (palette.size > 0 && blockData.size > 0) {
+            if (sectionY < MIN_SECTION || sectionY > MAX_SECTION) {
+                LogInfo("Section Y %d with palette", (int) sectionY);
                 goto bail;
             }
 
-            if (ch->sections[section_y] != NULL) {
-                LogInfo("Duplicate section Y %d", (int) section_y);
+            i32 sectionIndex = sectionY - MIN_SECTION;
+
+            if (ch->sections[sectionIndex] != NULL) {
+                LogInfo("Duplicate section Y %d", (int) sectionY);
                 goto bail;
             }
 
@@ -652,19 +602,18 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
             }
             // Note that the section allocation will be freed when the chunk
             // gets removed somewhere else in the code base.
-            ch->sections[section_y] = section;
+            ch->sections[sectionIndex] = section;
 
-            u32 palette_size = palette_start[2].list_size;
-            nbt_tape_entry * palette_entry = palette_start + 3;
+            u32 paletteSize = palette.size;
 
-            if (palette_size == 0 || palette_size > max_palette_map_size) {
-                LogInfo("Invalid palette size %ju", (uintmax_t) palette_size);
+            if (paletteSize == 0 || paletteSize > max_palette_map_size) {
+                LogInfo("Invalid palette size %ju", (uintmax_t) paletteSize);
                 goto bail;
             }
 
-            for (uint palettei = 0; palettei < palette_size; palettei++) {
-                String resource_loc = nbt_get_string(STR("Name"),
-                        palette_entry, &cursor);
+            for (uint palettei = 0; palettei < paletteSize; palettei++) {
+                NbtCompound paletteEntryNbt = NbtNextCompound(&palette);
+                String resource_loc = NbtGetString(&paletteEntryNbt, STR("Name"));
                 i16 type_id = resolve_resource_loc_id(resource_loc,
                         &serv->block_resource_table);
                 if (type_id == -1) {
@@ -674,8 +623,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
 
                 u16 stride = 0;
 
-                nbt_tape_entry * props_nbt = nbt_get_compound(
-                        STR("Properties"), palette_entry, &cursor);
+                NbtCompound propsNbt = NbtGetCompound(&paletteEntryNbt, STR("Properties"));
 
                 block_properties * props = serv->block_properties_table + type_id;
                 for (int propi = 0; propi < props->property_count; propi++) {
@@ -686,10 +634,9 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
                         .data = prop_spec->tape + 1
                     };
 
-                    String prop_val = nbt_get_string(prop_name,
-                            props_nbt, &cursor);
+                    String propVal = NbtGetString(&propsNbt, prop_name);
 
-                    int val_index = find_property_value_index(prop_spec, prop_val);
+                    int val_index = find_property_value_index(prop_spec, propVal);
                     if (val_index == -1) {
                         val_index = props->default_value_indices[propi];
                     }
@@ -698,38 +645,30 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
                 }
 
                 palette_map[palettei] = props->base_state + stride;
-
-                // move to end of palette entry compound
-                while (palette_entry->tag != NBT_TAG_END) {
-                    palette_entry++;
-                    palette_entry += palette_entry->next_compound_entry_offset;
-                }
-                palette_entry += 1;
             }
 
-            nbt_move_to_key(STR("BlockStates"), section_nbt, &cursor);
-            u32 entry_count = CursorGetU32(&cursor);
+            u32 entryCount = blockData.size;
 
-            if (entry_count > 4096) {
-                LogInfo("Too many entries: %ju", (uintmax_t) entry_count);
+            if (entryCount > 4096) {
+                LogInfo("Too many entries: %ju", (uintmax_t) entryCount);
                 goto bail;
             }
 
-            int palette_size_ceil_log2 = ceil_log2u(palette_size);
+            int palette_size_ceil_log2 = CeilLog2U32(paletteSize);
             int bits_per_id = MAX(4, palette_size_ceil_log2);
             u32 id_mask = (1 << bits_per_id) - 1;
             int offset = 0;
-            u64 entry = CursorGetU64(&cursor);
+            u64 entry = NbtNextU64(&blockData);
 
             for (int j = 0; j < 4096; j++) {
                 u32 id = (entry >> offset) & id_mask;
                 offset += bits_per_id;
                 if (offset > 64 - bits_per_id) {
-                    entry = CursorGetU64(&cursor);
+                    entry = NbtNextU64(&blockData);
                     offset = 0;
                 }
 
-                if (id >= palette_size) {
+                if (id >= paletteSize) {
                     LogInfo("Out of bounds palette ID");
                     goto bail;
                 }
@@ -738,24 +677,17 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
                 section->block_states[j] = block_state;
 
                 if (block_state != 0) {
-                    ch->non_air_count[section_y]++;
+                    ch->non_air_count[sectionIndex]++;
                 }
             }
         }
-
-        // move to end of section compound
-        while (section_nbt->tag != NBT_TAG_END) {
-            section_nbt++;
-            section_nbt += section_nbt->next_compound_entry_offset;
-        }
-        section_nbt += 1;
     }
 
     recalculate_chunk_motion_blocking_height_map(ch);
 
     if (cursor.error) {
         LogInfo("Failed to decipher NBT data");
-        print_nbt(chunk_nbt, &cursor, scratch_arena, max_levels);
+        // NbtPrint(&chunkNbt);
         goto bail;
     }
 
@@ -839,7 +771,7 @@ clean_up_unused_chunks(void) {
             ch->local_event_count = 0;
 
             if (ch->available_interest == 0) {
-                for (int sectioni = 0; sectioni < 16; sectioni++) {
+                for (int sectioni = 0; sectioni < SECTIONS_PER_CHUNK; sectioni++) {
                     if (ch->sections[sectioni] != NULL) {
                         free_chunk_section(ch->sections[sectioni]);
                     }

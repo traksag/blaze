@@ -5201,6 +5201,7 @@ init_item_data(void) {
     register_item_type(ITEM_MUSIC_DISC_WARD, "minecraft:music_disc_ward");
     register_item_type(ITEM_MUSIC_DISC_11, "minecraft:music_disc_11");
     register_item_type(ITEM_MUSIC_DISC_WAIT, "minecraft:music_disc_wait");
+    register_item_type(ITEM_MUSIC_DISC_OTHERSIDE, "minecraft:music_disc_otherside");
     register_item_type(ITEM_MUSIC_DISC_PIGSTEP, "minecraft:music_disc_pigstep");
     register_item_type(ITEM_TRIDENT, "minecraft:trident");
     register_item_type(ITEM_PHANTOM_MEMBRANE, "minecraft:phantom_membrane");

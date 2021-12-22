@@ -4,9 +4,9 @@
 #include "base.h"
 #include "blockinfo.h"
 
-#define SERVER_PROTOCOL_VERSION (756)
+#define SERVER_PROTOCOL_VERSION (757)
 
-#define SERVER_WORLD_VERSION (2730)
+#define SERVER_WORLD_VERSION (2865)
 
 #define MAX_CHUNK_CACHE_RADIUS (10)
 
@@ -33,7 +33,15 @@
 // whether all play packets should be compressed or not
 #define PACKET_COMPRESSION_ENABLED (1)
 
-#define MAX_WORLD_Y (255)
+// @NOTE(traks) must be multiple of 16
+#define MIN_WORLD_Y (0 - 64)
+// @NOTE(traks) must be 1 less than a multiple of 16
+#define MAX_WORLD_Y (255 + 64)
+#define WORLD_HEIGHT (MAX_WORLD_Y - MIN_WORLD_Y + 1)
+
+#define MIN_SECTION (MIN_WORLD_Y >> 4)
+#define MAX_SECTION (MAX_WORLD_Y >> 4)
+#define SECTIONS_PER_CHUNK (MAX_SECTION - MIN_SECTION + 1)
 
 // in network id order
 enum gamemode {
@@ -122,10 +130,10 @@ struct chunk_section_bucket {
 };
 
 typedef struct {
-    u16 x:4;
-    u16 y:8;
-    u16 z:4;
-} compact_chunk_block_pos;
+    i8 x;
+    i8 z;
+    i16 y;
+} CompactChunkBlockPos;
 
 enum block_entity_type {
     BLOCK_ENTITY_NULL,
@@ -174,7 +182,7 @@ typedef struct {
 typedef struct {
     unsigned char type;
     unsigned char flags;
-    compact_chunk_block_pos pos;
+    CompactChunkBlockPos pos;
 
     union {
         block_entity_bed bed;
@@ -188,13 +196,9 @@ typedef struct {
 } level_event;
 
 typedef struct {
-    // @TODO(traks) allow more than 16 sections. Note that other parts of the
-    // code will have to be updated as well (such as chunk sending and light
-    // update sending).
-    chunk_section * sections[16];
-    u16 non_air_count[16];
-    // need shorts to store 257 different heights
-    u16 motion_blocking_height_map[256];
+    chunk_section * sections[SECTIONS_PER_CHUNK];
+    u16 non_air_count[SECTIONS_PER_CHUNK];
+    i16 motion_blocking_height_map[256];
 
     // increment if you want to keep a chunk available in the map, decrement
     // if you no longer care for the chunk.
@@ -207,7 +211,7 @@ typedef struct {
     // probably grow dynamically. An alternative would be to store a bit array
     // with a 1 if a block changed and a 0 otherwise. However, that has massive
     // memory overhead.
-    compact_chunk_block_pos changed_blocks[200];
+    CompactChunkBlockPos changed_blocks[200];
     u8 changed_block_count;
 
     // @TODO(traks) allow more block entities. Possibly use an internally
@@ -1268,6 +1272,7 @@ enum item_type {
     ITEM_MUSIC_DISC_WARD,
     ITEM_MUSIC_DISC_11,
     ITEM_MUSIC_DISC_WAIT,
+    ITEM_MUSIC_DISC_OTHERSIDE,
     ITEM_MUSIC_DISC_PIGSTEP,
     ITEM_TRIDENT,
     ITEM_PHANTOM_MEMBRANE,
@@ -1802,6 +1807,9 @@ typedef struct {
     u8 model_customisation;
     i32 main_hand;
     u8 text_filtering;
+    // @TODO(traks) respect this setting or just don't display usernames in
+    // status ping responses
+    u8 allowInStatusList;
 
     i64 last_keep_alive_sent_tick;
 
@@ -1921,7 +1929,7 @@ typedef struct {
     unsigned char name[32];
     // number of tags
     int size;
-    tag_spec tags[128];
+    tag_spec tags[140];
 } tag_list;
 
 #define RESOURCE_LOC_MAX_SIZE (256)
@@ -1967,7 +1975,7 @@ typedef struct {
 //  - min_y (int in [-2016, 2047]): min block coordinate in the world
 //  - height (int in [16, 4064]): height above min_y of the world. Restricted
 //    by 12-bit y coordinate in compact block pos.
-//  - logical_height (int in [0, 256]): seems to only affect
+//  - logical_height (int in [16, 4064]): seems to only affect
 //    chorus fruit teleportation and nether portal spawning, not
 //    the actual maximum world height
 //  - infiniburn (resource loc): the resource location of a
@@ -2328,5 +2336,39 @@ get_player_facing(entity_base * player);
 void
 push_direct_neighbour_block_updates(BlockPos pos,
         block_update_context * buc);
+
+// math
+
+static i32 CeilLog2U32(u32 x) {
+    assert(x != 0);
+    // @TODO(traks) use lzcnt if available. Maybe not necessary with -O3.
+    // @NOTE(traks) based on floor log2 from
+    // https://graphics.stanford.edu/~seander/bithacks.html
+    x--;
+
+    i32 res;
+    i32 shift;
+
+    res = (x > 0xffff) << 4;
+    x >>= res;
+
+    shift = (x > 0xff) << 3;
+    x >>= shift;
+    res |= shift;
+
+    shift = (x > 0xf) << 2;
+    x >>= shift;
+    res |= shift;
+
+    shift = (x > 0x3) << 1;
+    x >>= shift;
+    res |= shift;
+
+    res |= (x >> 1);
+
+    res++;
+
+    return res;
+}
 
 #endif

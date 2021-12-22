@@ -55,6 +55,7 @@ value minecraft:music_disc_ward
 value minecraft:music_disc_11
 value minecraft:music_disc_wait
 value minecraft:music_disc_pigstep
+value minecraft:music_disc_otherside
 
 key minecraft:planks
 value minecraft:oak_planks
@@ -556,6 +557,15 @@ key minecraft:redstone_ores
 value minecraft:redstone_ore
 value minecraft:deepslate_redstone_ore
 
+key minecraft:dirt
+value minecraft:dirt
+value minecraft:grass_block
+value minecraft:podzol
+value minecraft:coarse_dirt
+value minecraft:mycelium
+value minecraft:rooted_dirt
+value minecraft:moss_block
+
 key minecraft:leaves
 value minecraft:jungle_leaves
 value minecraft:oak_leaves
@@ -736,6 +746,25 @@ value minecraft:jungle_sign
 value minecraft:dark_oak_sign
 value minecraft:crimson_sign
 value minecraft:warped_sign
+
+key minecraft:terracotta
+value minecraft:terracotta
+value minecraft:white_terracotta
+value minecraft:orange_terracotta
+value minecraft:magenta_terracotta
+value minecraft:light_blue_terracotta
+value minecraft:yellow_terracotta
+value minecraft:lime_terracotta
+value minecraft:pink_terracotta
+value minecraft:gray_terracotta
+value minecraft:light_gray_terracotta
+value minecraft:cyan_terracotta
+value minecraft:purple_terracotta
+value minecraft:blue_terracotta
+value minecraft:brown_terracotta
+value minecraft:green_terracotta
+value minecraft:red_terracotta
+value minecraft:black_terracotta
 
 key minecraft:soul_fire_base_blocks
 value minecraft:soul_sand

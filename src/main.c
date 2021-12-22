@@ -110,8 +110,7 @@ program_nano_time() {
 
 #endif
 
-void
-LogInfo(void * format, ...) {
+void LogInfo(void * format, ...) {
     char msg[256];
     va_list ap;
     va_start(ap, format);
@@ -170,8 +169,7 @@ LogErrno(void * format) {
     LogInfo(format, error_msg);
 }
 
-void *
-MallocInArena(MemoryArena * arena, i32 size) {
+void * MallocInArena(MemoryArena * arena, i32 size) {
     i32 align = alignof (max_align_t);
     // round up to multiple of align
     i32 actual_size = (size + align - 1) / align * align;
@@ -179,6 +177,19 @@ MallocInArena(MemoryArena * arena, i32 size) {
 
     void * res = arena->data + arena->index;
     arena->index += actual_size;
+    return res;
+}
+
+void * CallocInArena(MemoryArena * arena, i32 size) {
+    i32 align = alignof (max_align_t);
+    // round up to multiple of align
+    i32 actual_size = (size + align - 1) / align * align;
+    assert(arena->size - actual_size >= arena->index);
+
+    void * res = arena->data + arena->index;
+    arena->index += actual_size;
+
+    memset(res, 0, actual_size);
     return res;
 }
 
@@ -845,7 +856,7 @@ server_tick(void) {
                     response_size += sprintf((char *) response + response_size,
                             "{\"version\":{\"name\":\"%s\",\"protocol\":%d},"
                             "\"players\":{\"max\":%d,\"online\":%d,\"sample\":[",
-                            "1.17.1", SERVER_PROTOCOL_VERSION,
+                            "1.18.1", SERVER_PROTOCOL_VERSION,
                             (int) MAX_PLAYERS, (int) list_size);
 
                     for (int i = 0; i < sample_size; i++) {
@@ -1172,11 +1183,13 @@ server_tick(void) {
         try_read_chunk_from_storage(pos, ch, &scratch_arena);
 
         if (!(ch->flags & CHUNK_LOADED)) {
-            // @TODO(traks) fall back to stone plateau at y = 0 for now
-            // clean up some of the mess the chunk loader might've left behind
+            // @TODO(traks) fall back to stone plateau at min y level for now
             // @TODO(traks) perhaps this should be in a separate struct so we
             // can easily clear it
-            for (int sectioni = 0; sectioni < 16; sectioni++) {
+
+            // @NOTE(traks) clean up some of the mess the chunk loader might've
+            // left behind
+            for (int sectioni = 0; sectioni < SECTIONS_PER_CHUNK; sectioni++) {
                 if (ch->sections[sectioni] != NULL) {
                     free_chunk_section(ch->sections[sectioni]);
                     ch->sections[sectioni] = NULL;
@@ -1186,6 +1199,10 @@ server_tick(void) {
 
             // @TODO(traks) perhaps should require enough chunk sections to be
             // available for chunk before even trying to load/generate it.
+
+            // @TODO(traks) would be nice if we could just use
+            // chunk_set_block_state. The problem is that the changed block
+            // buffer is too small currently.
             ch->sections[0] = alloc_chunk_section();
             if (ch->sections[0] == NULL) {
                 LogInfo("Failed to allocate chunk section during generation");
@@ -1196,7 +1213,7 @@ server_tick(void) {
                 for (int z = 0; z < 16; z++) {
                     int index = (z << 4) | x;
                     ch->sections[0]->block_states[index] = 2;
-                    ch->motion_blocking_height_map[index] = 1;
+                    ch->motion_blocking_height_map[index] = MIN_WORLD_Y + 1;
                     ch->non_air_count[0]++;
                 }
             }
@@ -1557,9 +1574,9 @@ init_dimension_types(void) {
     *overworld = (dimension_type) {
         .fixed_time = -1,
         .coordinate_scale = 1,
-        .min_y = 0,
-        .height = 256,
-        .logical_height = 256,
+        .min_y = MIN_WORLD_Y,
+        .height = WORLD_HEIGHT,
+        .logical_height = WORLD_HEIGHT,
         .ambient_light = 0
     };
 

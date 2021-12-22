@@ -1,455 +1,843 @@
 #include <string.h>
+#include <assert.h>
 #include <stdio.h>
 #include "nbt.h"
 
-typedef struct {
-    unsigned char is_list;
-    unsigned char element_tag;
-    u16 prev_compound_entry;
-    u32 list_elems_remaining;
-} nbt_level_info;
+// @TODO(traks) earlier we used a tape-based NBT parser, but I switched it over
+// to this one because I had it lying around and the API is much nicer. However,
+// it is slower than the tape-based one at parsing. Perhaps redo the tape-based
+// parser while keeping the current API.
 
-typedef struct {
-    unsigned char is_list;
-    unsigned char element_tag;
-    u32 list_size;
-    u32 list_index;
-    u32 entry_index;
-} printer_level_info;
+// set to 1 to print debug info
+#if 0
+#define DebugPrintf(...) printf(__VA_ARGS__)
+#define DebugPuts(msg) puts(msg)
+#else
+#define DebugPrintf(format, ...)
+#define DebugPuts(msg)
+#endif
 
-nbt_tape_entry *
-nbt_move_to_key(String matcher, nbt_tape_entry * tape,
-        BufCursor * cursor) {
-    while (tape->tag != NBT_TAG_END) {
-        cursor->index = tape->buffer_index;
-        u16 key_size = CursorGetU16(cursor);
-        unsigned char * key = cursor->data + cursor->index;
-        if (key_size == matcher.size
-                && memcmp(key, matcher.data, matcher.size) == 0) {
-            cursor->index += key_size;
-            break;
-        }
-        tape++;
-        tape += tape->next_compound_entry_offset;
-    }
-    return tape;
-}
+enum NbtInternalType {
+    NBT_ITYPE_U8,
+    NBT_ITYPE_U16,
+    NBT_ITYPE_U32,
+    NBT_ITYPE_U64,
+    NBT_ITYPE_FLOAT,
+    NBT_ITYPE_DOUBLE,
+    NBT_ITYPE_ARRAY_U8,
+    NBT_ITYPE_STRING,
 
-String
-nbt_get_string(String matcher, nbt_tape_entry * tape,
-        BufCursor * cursor) {
-    nbt_tape_entry * string_tape = nbt_move_to_key(matcher, tape, cursor);
+    NBT_ITYPE_LIST_EMPTY,
+    NBT_ITYPE_LIST_U8,
+    NBT_ITYPE_LIST_U16,
+    NBT_ITYPE_LIST_U32,
+    NBT_ITYPE_LIST_U64,
+    NBT_ITYPE_LIST_FLOAT,
+    NBT_ITYPE_LIST_DOUBLE,
+    NBT_ITYPE_LIST_ARRAY_U8,
+    NBT_ITYPE_LIST_STRING,
+    NBT_ITYPE_LIST_LIST,
+    NBT_ITYPE_LIST_COMPOUND,
+    NBT_ITYPE_LIST_ARRAY_U32,
+    NBT_ITYPE_LIST_ARRAY_U64,
 
-    if (string_tape->tag != NBT_TAG_STRING) {
-        String res = {0};
-        return res;
-    }
+    NBT_ITYPE_COMPOUND,
+    NBT_ITYPE_ARRAY_U32,
+    NBT_ITYPE_ARRAY_U64,
+};
 
-    // @NOTE(traks) already validated string length during NBT load
-    u16 str_len = CursorGetU16(cursor);
-    String res = {
-        .size = str_len,
-        .data = cursor->data + cursor->index
+typedef struct NbtKey NbtKey;
+
+// @TODO(traks) fit into less bytes
+struct NbtKey {
+    union {
+        unsigned char * key;
+        NbtKey * linkedKey;
     };
+    u16 keySize;
+    u8 isLink;
+};
+
+typedef struct NbtValue NbtValue;
+
+struct NbtValue {
+    i32 valueSize;
+    i8 internalType;
+    i8 elemTag;
+    u8 isLink;
+    union {
+        u64 intValue;
+        float floatValue;
+        double doubleValue;
+        unsigned char * arrayData;
+        unsigned char * stringValue;
+        unsigned char * listData;
+        NbtValue * listElements;
+        struct {
+            NbtKey * compoundKeys;
+            NbtValue * compoundValues;
+        };
+        NbtValue * linkedValue;
+    };
+};
+
+#define NBT_LEVEL_BLOCK_SIZE (64)
+
+typedef struct {
+    u8 curKeyIndex;
+    u8 curValueIndex;
+    u32 curListIndex;
+    NbtValue * parent;
+    NbtKey * keys;
+    NbtValue * values;
+} NbtLevel;
+
+typedef struct {
+    u32 curIndex;
+    u32 indexOffset;
+    NbtKey * keys;
+    NbtValue * values;
+    NbtValue * parent;
+} NbtPrintLevel;
+
+// @NOTE(traks) only used to avoid some branches internally. External code is
+// able to create empty compounds without access to this value.
+static NbtValue emptyValue;
+
+static NbtValue * MakeNbtCompoundEntry(NbtLevel * level, MemoryArena * arena, u16 keySize, unsigned char * key) {
+    NbtKey * linkKey = NULL;
+    NbtValue * linkValue = NULL;
+
+    if (level->curKeyIndex == NBT_LEVEL_BLOCK_SIZE - 1) {
+        level->keys[level->curKeyIndex].isLink = 1;
+        linkKey = level->keys + level->curKeyIndex;
+        level->keys = NULL;
+    }
+    if (level->curValueIndex == NBT_LEVEL_BLOCK_SIZE - 1) {
+        level->values[level->curValueIndex].isLink = 1;
+        linkValue = level->values + level->curValueIndex;
+        level->values = NULL;
+    }
+
+    if (level->keys == NULL) {
+        level->keys = CallocInArena(arena, NBT_LEVEL_BLOCK_SIZE * sizeof (NbtKey));
+        level->curKeyIndex = 0;
+    }
+    if (level->values == NULL) {
+        level->values = CallocInArena(arena, NBT_LEVEL_BLOCK_SIZE * sizeof (NbtValue));
+        level->curValueIndex = 0;
+    }
+
+    if (level->parent->valueSize == 0) {
+        level->parent->compoundKeys = level->keys + level->curKeyIndex;
+        level->parent->compoundValues = level->values + level->curValueIndex;
+    }
+
+    // valueSize = number of entries in the compound
+    level->parent->valueSize++;
+
+    level->keys[level->curKeyIndex].key = key;
+    level->keys[level->curKeyIndex].keySize = keySize;
+    NbtValue * res = level->values + level->curValueIndex;
+
+    if (linkKey != NULL) {
+        linkKey->linkedKey = level->keys + level->curKeyIndex;
+    }
+    if (linkValue != NULL) {
+        linkValue->linkedValue = level->values + level->curValueIndex;
+    }
+
+    level->curKeyIndex++;
+    level->curValueIndex++;
     return res;
 }
 
-nbt_tape_entry *
-nbt_get_compound(String matcher, nbt_tape_entry * tape,
-        BufCursor * cursor) {
-    nbt_tape_entry * found = nbt_move_to_key(matcher, tape, cursor);
+static NbtValue * MakeNbtListEntry(NbtLevel * level, MemoryArena * arena) {
+    NbtValue * linkValue = NULL;
 
-    if (found->tag != NBT_TAG_COMPOUND) {
-        // @NOTE(traks) we could also search all the way to the end of the
-        // compound and return the closing END tag entry, but this is easier
-        static nbt_tape_entry end_tape = {.tag = NBT_TAG_END};
-        return &end_tape;
+    if (level->curValueIndex == NBT_LEVEL_BLOCK_SIZE - 1) {
+        level->values[level->curValueIndex].isLink = 1;
+        linkValue = level->values + level->curValueIndex;
+        level->values = NULL;
     }
 
-    // skip header entries
-    return found + 2;
+    if (level->values == NULL) {
+        level->values = CallocInArena(arena, NBT_LEVEL_BLOCK_SIZE * sizeof (NbtValue));
+        level->curValueIndex = 0;
+    }
+
+    if (level->curListIndex == 0) {
+        level->parent->listElements = level->values + level->curValueIndex;
+    }
+
+    level->curListIndex++;
+
+    NbtValue * res = level->values + level->curValueIndex;
+
+    if (linkValue != NULL) {
+        linkValue->linkedValue = level->values + level->curValueIndex;
+    }
+
+    level->curValueIndex++;
+    return res;
 }
 
-nbt_tape_entry *
-load_nbt(BufCursor * cursor, MemoryArena * arena, int max_levels) {
-    // Currently the tape format is as follows:
-    //
-    //  * An entry inside a compound has an NBT tag indicating the type and a
-    //    buffer index pointing into the buffer starting at the key size, then
-    //    the key, and then the tag's value. If the NBT tag is a list, then the
-    //    element tag is set.
-    //  * Every compounds ends with an end tag (without no buffer index).
-    //  * After non-end tags inside a compound, there's a tape entry with
-    //    next_compound_entry_offset set to the relative index of the next
-    //    compound entry in the tape.
-    //  * After list tags inside a compound, there's of course first a
-    //    next_compound_entry_offset tape entry, but after that there's also a
-    //    tape entry with list_size set.
-    //  * A list containing only 'primitive' (non-compound and non-list)
-    //    elements doesn't have any additional tape entries. The contents can
-    //    simply be read linearly from the buffer.
-    //  * Lists of compounds consist of the above header and after that all the
-    //    tape entries in the various compounds as described above for
-    //    compounds.
-    //  * Lists of lists consist of the above header and an additional header
-    //    consisting of a tape entry for the element tag and a tape entry for
-    //    the list size. In case a sublist contains primitive elements, the
-    //    buffer_index points to the NBT tags inside the buffer.
+NbtCompound NbtRead(BufCursor * buf, MemoryArena * arena) {
+    BeginTimedZone("NbtRead");
+    DebugPuts("-----");
 
-    // @TODO(traks) Here's another idea for NBT parsing. Instead of using a
-    // tape, for each level we could maintain a linked list of blocks of
-    // something similar to tape entries. The benefit being that we need to jump
-    // over subtrees a lot less (depending on the block size) when iterating
-    // through the keys, and that we don't need to track these jumps as is done
-    // when constructing the tape.
-    BeginTimedZone("load nbt");
+    // process first tag
+    uint8_t tag = CursorGetU8(buf);
 
-    // @TODO(traks) more appropriate value
-    int max_entries = 1 << 16;
-    nbt_tape_entry * tape = MallocInArena(arena, max_entries * sizeof *tape);
-    MemoryArena scratch_arena = {
-        .data = arena->data,
-        .index = arena->index,
-        .size = arena->size
-    };
-    nbt_level_info * level_info = MallocInArena(&scratch_arena,
-            (max_levels + 1) * sizeof *level_info);
-    int cur_tape_index = 0;
-    int cur_level = 0;
-    level_info[0] = (nbt_level_info) {0};
-
-    u8 tag = CursorGetU8(cursor);
     int error = 0;
+    NbtValue * root = NULL;
 
     if (tag == NBT_TAG_END) {
-        // no nbt data
-        tape[cur_tape_index] = (nbt_tape_entry) {.tag = NBT_TAG_END};
+        // @TODO(traks) empty compound
         goto bail;
     } else if (tag != NBT_TAG_COMPOUND) {
-        LogInfo("Root tag not a compound");
+        DebugPuts("Root tag is not a compound");
         error = 1;
         goto bail;
     }
 
-    // skip key of root compound
-    u16 key_size = CursorGetU16(cursor);
-    if (key_size > cursor->size - cursor->index) {
-        LogInfo("Key too long: %ju", (uintmax_t) key_size);
-        error = 1;
+    // skip key
+    unsigned char * key = buf->data + buf->index;
+    uint16_t keySize = CursorGetU16(buf);
+    if (buf->size - buf->index < keySize) {
+        DebugPuts("Key too large");
+        buf->error = 1;
         goto bail;
     }
-    cursor->index += key_size;
+    buf->index += keySize;
 
-    for (;;) {
-        if (cur_tape_index >= max_entries - 10) {
-            LogInfo("Max NBT tape index reached");
-            error = 1;
-            goto bail;
-        }
-        if (cur_level == max_levels) {
-            LogInfo("Max NBT level reached");
-            error = 1;
-            goto bail;
-        }
-
-        nbt_tape_entry * base_entry = NULL;
-
-        if (!level_info[cur_level].is_list) {
-            // compound
-            tag = CursorGetU8(cursor);
-            // @NOTE(traks) we need to be a bit careful here in case this is the
-            // first entry of the compound, because then there is no previous
-            // entry yet. Currently the previous entry is just the current entry
-            // for the first one, so we write to the next tape entry. This is of
-            // course not a problem (and circumvents if-statements and such).
-            u32 prev = level_info[cur_level].prev_compound_entry + 1;
-            tape[prev].next_compound_entry_offset = cur_tape_index - prev;
-
-            if (tag == NBT_TAG_END) {
-                tape[cur_tape_index] = (nbt_tape_entry) {.tag = NBT_TAG_END};
-                cur_tape_index++;
-                cur_level--;
-
-                if (cur_level == -1) {
-                    goto bail;
-                } else {
-                    continue;
-                }
-            }
-
-            i32 entry_start = cursor->index;
-            key_size = CursorGetU16(cursor);
-            if (key_size > cursor->size - cursor->index) {
-                LogInfo("Key too long: %ju", (uintmax_t) key_size);
-                error = 1;
-                goto bail;
-            }
-
-            cursor->index += key_size;
-
-            level_info[cur_level].prev_compound_entry = cur_tape_index;
-            base_entry = tape + cur_tape_index;
-            *base_entry = (nbt_tape_entry) {
-                .buffer_index = entry_start,
-                .tag = tag
-            };
-            cur_tape_index++;
-            // increment another time for the next pointer
-            cur_tape_index++;
-        } else {
-            // list
-            if (level_info[cur_level].list_elems_remaining == 0) {
-                cur_level--;
-                continue;
-            }
-
-            level_info[cur_level].list_elems_remaining--;
-            tag = level_info[cur_level].element_tag;
-
-            if (tag == NBT_TAG_LIST) {
-                base_entry = tape + cur_tape_index;
-                *base_entry = (nbt_tape_entry) {
-                    .buffer_index = cursor->index
-                };
-                cur_tape_index++;
-            }
-        }
-
-        static i8 elem_bytes[] = {0, 1, 2, 4, 8, 4, 8};
-        static i8 array_elem_bytes[] = {1, 0, 0, 0, 4, 8};
-        switch (tag) {
-        case NBT_TAG_BYTE:
-        case NBT_TAG_SHORT:
-        case NBT_TAG_INT:
-        case NBT_TAG_LONG:
-        case NBT_TAG_FLOAT:
-        case NBT_TAG_DOUBLE: {
-            int bytes = elem_bytes[tag];
-            if (cursor->index > cursor->size - bytes) {
-                LogInfo("NBT value overflows buffer");
-                error = 1;
-                goto bail;
-            } else {
-                cursor->index += bytes;
-            }
-            break;
-        }
-        case NBT_TAG_BYTE_ARRAY:
-        case NBT_TAG_INT_ARRAY:
-        case NBT_TAG_LONG_ARRAY: {
-            i64 elem_bytes = array_elem_bytes[tag - NBT_TAG_BYTE_ARRAY];
-            i64 array_size = CursorGetU32(cursor);
-            if (cursor->index > (i64) cursor->size
-                    - elem_bytes * array_size) {
-                LogInfo("NBT value overflows buffer");
-                error = 1;
-                goto bail;
-            } else {
-                cursor->index += elem_bytes * array_size;
-            }
-            break;
-        }
-        case NBT_TAG_STRING: {
-            u16 size = CursorGetU16(cursor);
-            if (cursor->index > cursor->size - size) {
-                LogInfo("NBT value overflows buffer");
-                error = 1;
-                goto bail;
-            } else {
-                cursor->index += size;
-            }
-            break;
-        }
-        case NBT_TAG_LIST: {
-            cur_level++;
-            u32 element_tag = CursorGetU8(cursor);
-            i64 list_size = CursorGetU32(cursor);
-            level_info[cur_level] = (nbt_level_info) {
-                .is_list = 1,
-                .element_tag = element_tag,
-                .list_elems_remaining = list_size
-            };
-
-            base_entry->element_tag = element_tag;
-
-            // append size entry
-            nbt_tape_entry new_entry = {.list_size = list_size};
-            tape[cur_tape_index] = new_entry;
-            cur_tape_index++;
-            break;
-        }
-        case NBT_TAG_COMPOUND:
-            cur_level++;
-            level_info[cur_level] = (nbt_level_info) {
-                .is_list = 0,
-                .prev_compound_entry = cur_tape_index
-            };
-            break;
-        default:
-            LogInfo("Unknown tag: %ju", (uintmax_t) tag);
-            error = 1;
-            goto bail;
-        }
+    // @TODO(traks) more appropriate max level
+    int maxLevels = 64;
+    // @NOTE(traks) Reserve one more level to make the code below simpler: we can
+    // assume in each level that there is a next level.
+    NbtLevel * levels = MallocInArena(arena, (sizeof *levels) * (maxLevels + 1));
+    for (int i = 0; i < maxLevels; i++) {
+        levels[i] = (NbtLevel) {0};
     }
 
-bail:
-    if (error) {
-        // in case of errors, return a tape with a single end tag, so users can
-        // ignore errors and use the returned tape without worrying about
-        // incomplete tapes
-        tape[0] = (nbt_tape_entry) {.tag = NBT_TAG_END};
-        cursor->error = error;
-    }
-
-    EndTimedZone();
-    return tape;
-}
-
-void
-print_nbt(nbt_tape_entry * tape, BufCursor * cursor,
-        MemoryArena * arena, int max_levels) {
-    int cur_tape_index = 0;
-    int cur_level = 0;
-
-    printer_level_info * level_info = MallocInArena(arena,
-            (max_levels + 1) * sizeof *level_info);
-    level_info[0] = (printer_level_info) {0};
+    int levelIndex = 0;
+    root = MallocInArena(arena, sizeof *root);
+    *root = (NbtValue) {
+        .internalType = NBT_ITYPE_COMPOUND
+    };
+    levels[0].parent = root;
 
     for (;;) {
-        assert(cur_level < max_levels);
+        if (levelIndex < 0) {
+            break;
+        }
+        if (levelIndex == maxLevels) {
+            DebugPuts("Too many levels");
+            error = 1;
+            goto bail;
+        }
 
-        nbt_tape_entry * base_entry = NULL;
-        u8 tag;
+        NbtLevel * curLevel = levels + levelIndex;
+        NbtValue * entry;
 
-        if (!level_info[cur_level].is_list) {
-            // inside compound
-            base_entry = tape + cur_tape_index;
-            cur_tape_index++;
-            tag = base_entry->tag;
-
-            if (level_info[cur_level].entry_index == 0) {
-                printf("{");
-            }
+        if (curLevel->parent->internalType == NBT_ITYPE_COMPOUND) {
+            tag = CursorGetU8(buf);
 
             if (tag == NBT_TAG_END) {
-                printf("}");
-                cur_level--;
-                if (cur_level == -1) {
-                    break;
-                }
+                levelIndex--;
                 continue;
             }
 
-            if (level_info[cur_level].entry_index > 0) {
-                printf(",");
+            // get key
+            keySize = CursorGetU16(buf);
+
+            if (keySize > buf->size - buf->index) {
+                DebugPuts("Key size invalid");
+                error = 1;
+                goto bail;
             }
 
-            level_info[cur_level].entry_index++;
+            key = buf->data + buf->index;
+            buf->index += keySize;
 
-            cursor->index = base_entry->buffer_index;
-            u16 key_size = CursorGetU16(cursor);
-            unsigned char * key = cursor->data + cursor->index;
-            cursor->index += key_size;
-            printf("\"%.*s\":", (int) key_size, key);
+            entry = MakeNbtCompoundEntry(curLevel, arena, keySize, key);
 
-            // skip the tape entry with next_compound_entry_offset set
-            cur_tape_index++;
+            for (int i = 0; i < levelIndex; i++) {
+                DebugPrintf("  ");
+            }
+
+            DebugPrintf("%.*s: ", (int) keySize, key);
         } else {
-            // inside list
-            if (level_info[cur_level].list_index == 0) {
-                printf("[");
-            }
+            // list level
 
-            if (level_info[cur_level].list_index == level_info[cur_level].list_size) {
-                printf("]");
-                cur_level--;
+            tag = curLevel->parent->elemTag;
+            int curListIndex = curLevel->curListIndex;
+
+            if (curListIndex == curLevel->parent->valueSize) {
+                // end of list
+                levelIndex--;
                 continue;
             }
 
-            if (level_info[cur_level].list_index > 0) {
-                printf(",");
-            }
+            entry = MakeNbtListEntry(curLevel, arena);
 
-            level_info[cur_level].list_index++;
-            tag = level_info[cur_level].element_tag;
-
-            if (tag == NBT_TAG_LIST) {
-                base_entry = tape + cur_tape_index;
-                cur_tape_index++;
-                cursor->index = base_entry->buffer_index;
+            for (int i = 0; i < levelIndex; i++) {
+                DebugPrintf("  ");
             }
         }
 
         switch (tag) {
         case NBT_TAG_BYTE: {
-            u8 val = CursorGetU8(cursor);
-            printf("%ju", (uintmax_t) val);
+            entry->internalType = NBT_ITYPE_U8;
+            entry->intValue = CursorGetU8(buf);
+            DebugPrintf("%jd\n", (intmax_t) (i8) entry->intValue);
             break;
         }
         case NBT_TAG_SHORT: {
-            u16 val = CursorGetU16(cursor);
-            printf("%ju", (uintmax_t) val);
+            entry->internalType = NBT_ITYPE_U16;
+            entry->intValue = CursorGetU16(buf);
+            DebugPrintf("%jd\n", (intmax_t) (i16) entry->intValue);
             break;
         }
         case NBT_TAG_INT: {
-            i32 val = CursorGetU32(cursor);
-            printf("%jd", (intmax_t) val);
+            entry->internalType = NBT_ITYPE_U32;
+            entry->intValue = CursorGetU32(buf);
+            DebugPrintf("%jd\n", (intmax_t) (i32) entry->intValue);
             break;
         }
         case NBT_TAG_LONG: {
-            u64 val = CursorGetU64(cursor);
-            printf("%ju", (uintmax_t) val);
+            entry->internalType = NBT_ITYPE_U64;
+            entry->intValue = CursorGetU64(buf);
+            DebugPrintf("%jd\n", (intmax_t) (i64) entry->intValue);
             break;
         }
         case NBT_TAG_FLOAT: {
-            float val = CursorGetF32(cursor);
-            printf("%f", val);
+            entry->internalType = NBT_ITYPE_FLOAT;
+            entry->floatValue = CursorGetF32(buf);
+            DebugPrintf("%f\n", entry->floatValue);
             break;
         }
         case NBT_TAG_DOUBLE: {
-            double val = CursorGetF64(cursor);
-            printf("%f", val);
+            entry->internalType = NBT_ITYPE_DOUBLE;
+            entry->doubleValue = CursorGetF64(buf);
+            DebugPrintf("%f\n", entry->doubleValue);
             break;
         }
         case NBT_TAG_BYTE_ARRAY: {
-            // too much data to print
-            printf("[bytes]");
-            break;
-        }
-        case NBT_TAG_STRING: {
-            u16 val_size = CursorGetU16(cursor);
-            unsigned char * val = cursor->data + cursor->index;
-            printf("\"%.*s\"", (int) val_size, val);
-            break;
-        }
-        case NBT_TAG_LIST: {
-            u32 list_size = tape[cur_tape_index].list_size;
-            cur_tape_index++;
+            entry->internalType = NBT_ITYPE_ARRAY_U8;
+            entry->valueSize = CursorGetU32(buf);
+            entry->arrayData = buf->data + buf->index;
 
-            cur_level++;
-            level_info[cur_level] = (printer_level_info) {
-                .is_list = 1,
-                .element_tag = base_entry->element_tag,
-                .list_size = list_size
-            };
-            break;
-        }
-        case NBT_TAG_COMPOUND: {
-            cur_level++;
-            level_info[cur_level] = (printer_level_info) {0};
+            DebugPrintf("byte array %ju\n", (uintmax_t) entry->valueSize);
+
+            if (entry->valueSize * 1 > buf->size - buf->index) {
+                DebugPuts("Array size out of bounds");
+                error = 1;
+                goto bail;
+            }
+
+            buf->index += entry->valueSize * 1;
             break;
         }
         case NBT_TAG_INT_ARRAY: {
-            // too much data to print
-            printf("[ints]");
+            entry->internalType = NBT_ITYPE_ARRAY_U32;
+            entry->valueSize = CursorGetU32(buf);
+            entry->arrayData = buf->data + buf->index;
+
+            DebugPrintf("int array %ju\n", (uintmax_t) entry->valueSize);
+
+            if (entry->valueSize * 4 > buf->size - buf->index) {
+                DebugPuts("Array size out of bounds");
+                error = 1;
+                goto bail;
+            }
+
+            buf->index += entry->valueSize * 4;
             break;
         }
-        case NBT_TAG_LONG_ARRAY:
-            // too much data to print
-            printf("[longs]");
+        case NBT_TAG_LONG_ARRAY: {
+            entry->internalType = NBT_ITYPE_ARRAY_U64;
+            entry->valueSize = CursorGetU32(buf);
+            entry->arrayData = buf->data + buf->index;
+
+            DebugPrintf("long array %ju\n", (uintmax_t) entry->valueSize);
+
+            if (entry->valueSize * 8 > buf->size - buf->index) {
+                DebugPuts("Array size out of bounds");
+                error = 1;
+                goto bail;
+            }
+
+            buf->index += entry->valueSize * 8;
             break;
+        }
+        case NBT_TAG_STRING: {
+            entry->internalType = NBT_ITYPE_STRING;
+            entry->valueSize = CursorGetU16(buf);
+            entry->stringValue = buf->data + buf->index;
+
+            if (entry->valueSize > buf->size - buf->index) {
+                DebugPuts("String size out of bounds");
+                error = 1;
+                goto bail;
+            }
+
+            DebugPrintf("\"%.*s\"\n", (int) entry->valueSize, entry->stringValue);
+
+            buf->index += entry->valueSize;
+            break;
+        }
+        case NBT_TAG_LIST: {
+            entry->elemTag = CursorGetU8(buf);
+            entry->valueSize = CursorGetU32(buf);
+
+            switch (entry->elemTag) {
+            case NBT_TAG_END: {
+                // empty list
+                DebugPuts("empty list");
+                entry->internalType = NBT_ITYPE_LIST_EMPTY;
+
+                if (entry->valueSize != 0) {
+                    DebugPuts("Empty list has non-zero size");
+                    error = 1;
+                    goto bail;
+                }
+                break;
+            }
+            case NBT_TAG_BYTE: {
+                DebugPrintf("byte list %ju\n", (uintmax_t) entry->valueSize);
+                entry->internalType = NBT_ITYPE_LIST_U8;
+                entry->listData = buf->data + buf->index;
+
+                if (entry->valueSize * 1 > buf->size - buf->index) {
+                    DebugPuts("Array size out of bounds");
+                    error = 1;
+                    goto bail;
+                }
+
+                buf->index += entry->valueSize * 1;
+                break;
+            }
+            case NBT_TAG_SHORT: {
+                DebugPrintf("short list %ju\n", (uintmax_t) entry->valueSize);
+                entry->internalType = NBT_ITYPE_LIST_U16;
+                entry->listData = buf->data + buf->index;
+
+                if (entry->valueSize * 2 > buf->size - buf->index) {
+                    DebugPuts("Array size out of bounds");
+                    error = 1;
+                    goto bail;
+                }
+
+                buf->index += entry->valueSize * 2;
+                break;
+            }
+            case NBT_TAG_INT: {
+                DebugPrintf("int list %ju\n", (uintmax_t) entry->valueSize);
+                entry->internalType = NBT_ITYPE_LIST_U32;
+                entry->listData = buf->data + buf->index;
+
+                if (entry->valueSize * 4 > buf->size - buf->index) {
+                    DebugPuts("Array size out of bounds");
+                    error = 1;
+                    goto bail;
+                }
+
+                buf->index += entry->valueSize * 4;
+                break;
+            }
+            case NBT_TAG_LONG: {
+                DebugPrintf("long list %ju\n", (uintmax_t) entry->valueSize);
+                entry->internalType = NBT_ITYPE_LIST_U64;
+                entry->listData = buf->data + buf->index;
+
+                if (entry->valueSize * 8 > buf->size - buf->index) {
+                    DebugPuts("Array size out of bounds");
+                    error = 1;
+                    goto bail;
+                }
+
+                buf->index += entry->valueSize * 8;
+                break;
+            }
+            case NBT_TAG_FLOAT: {
+                DebugPrintf("float list %ju\n", (uintmax_t) entry->valueSize);
+                entry->internalType = NBT_ITYPE_LIST_FLOAT;
+                entry->listData = buf->data + buf->index;
+
+                if (entry->valueSize * 4 > buf->size - buf->index) {
+                    DebugPuts("Array size out of bounds");
+                    error = 1;
+                    goto bail;
+                }
+
+                buf->index += entry->valueSize * 4;
+                break;
+            }
+            case NBT_TAG_DOUBLE: {
+                DebugPrintf("double list %ju\n", (uintmax_t) entry->valueSize);
+                entry->internalType = NBT_ITYPE_LIST_DOUBLE;
+                entry->listData = buf->data + buf->index;
+
+                if (entry->valueSize * 8 > buf->size - buf->index) {
+                    DebugPuts("Array size out of bounds");
+                    error = 1;
+                    goto bail;
+                }
+
+                buf->index += entry->valueSize * 8;
+                break;
+            }
+            case NBT_TAG_BYTE_ARRAY: {
+                DebugPrintf("byte array list %ju\n", (uintmax_t) entry->valueSize);
+                entry->internalType = NBT_ITYPE_LIST_ARRAY_U8;
+
+                levelIndex++;
+                levels[levelIndex].parent = entry;
+                levels[levelIndex].curListIndex = 0;
+                break;
+            }
+            case NBT_TAG_INT_ARRAY: {
+                DebugPrintf("int array list %ju\n", (uintmax_t) entry->valueSize);
+                entry->internalType = NBT_ITYPE_LIST_ARRAY_U32;
+
+                levelIndex++;
+                levels[levelIndex].parent = entry;
+                levels[levelIndex].curListIndex = 0;
+                break;
+            }
+            case NBT_TAG_LONG_ARRAY: {
+                DebugPrintf("long array list %ju\n", (uintmax_t) entry->valueSize);
+                entry->internalType = NBT_ITYPE_LIST_ARRAY_U64;
+
+                levelIndex++;
+                levels[levelIndex].parent = entry;
+                levels[levelIndex].curListIndex = 0;
+                break;
+            }
+            case NBT_TAG_STRING: {
+                DebugPrintf("string list %ju\n", (uintmax_t) entry->valueSize);
+                entry->internalType = NBT_ITYPE_LIST_STRING;
+
+                levelIndex++;
+                levels[levelIndex].parent = entry;
+                levels[levelIndex].curListIndex = 0;
+                break;
+            }
+            case NBT_TAG_LIST: {
+                DebugPrintf("list list %ju\n", (uintmax_t) entry->valueSize);
+                entry->internalType = NBT_ITYPE_LIST_LIST;
+
+                levelIndex++;
+                levels[levelIndex].parent = entry;
+                levels[levelIndex].curListIndex = 0;
+                break;
+            }
+            case NBT_TAG_COMPOUND: {
+                DebugPrintf("compound list %ju\n", (uintmax_t) entry->valueSize);
+                entry->internalType = NBT_ITYPE_LIST_COMPOUND;
+
+                levelIndex++;
+                levels[levelIndex].parent = entry;
+                levels[levelIndex].curListIndex = 0;
+                break;
+            }
+            default: {
+                DebugPrintf("Unknown element tag: %d\n", entry->elemTag);
+                error = 1;
+                goto bail;
+            }
+            }
+            break;
+        }
+        case NBT_TAG_COMPOUND: {
+            DebugPuts("compound");
+            entry->internalType = NBT_ITYPE_COMPOUND;
+
+            // move to next level
+            levelIndex++;
+            levels[levelIndex].parent = entry;
+            break;
+        }
+        default: {
+            DebugPrintf("Unknown tag: %d\n", tag);
+            error = 1;
+            goto bail;
+        }
         }
     }
 
-    printf("\n");
+bail:
+    EndTimedZone();
+    if (error) {
+        root = NULL;
+    }
+    return (NbtCompound) {.internal = root};
+}
+
+static NbtValue * NbtSearch(NbtCompound * compound, String key) {
+    NbtValue * internal = compound->internal;
+    if (internal == NULL) {
+        return &emptyValue;
+    }
+    assert(internal->internalType == NBT_ITYPE_COMPOUND);
+
+    NbtKey * keys = internal->compoundKeys;
+    NbtValue * values = internal->compoundValues;
+    int keyOffset = 0;
+    int valueOffset = 0;
+
+    for (int i = 0; i < internal->valueSize; i++) {
+        NbtKey * entryKey = keys + (i - keyOffset);
+        NbtValue * value = values + (i - valueOffset);
+
+        if (entryKey->isLink) {
+            keys = entryKey->linkedKey;
+            keyOffset = i;
+            entryKey = keys + (i - keyOffset);
+        }
+        if (value->isLink) {
+            values = value->linkedValue;
+            valueOffset = i;
+            value = values + (i - valueOffset);
+        }
+
+        if (entryKey->keySize == key.size && memcmp(key.data, entryKey->key, key.size) == 0) {
+            return value;
+        }
+    }
+
+    return &emptyValue;
+}
+
+u8 NbtGetU8(NbtCompound * compound, String key) {
+    NbtValue * found = NbtSearch(compound, key);
+    if (found->internalType != NBT_ITYPE_U8) return 0;
+    return found->intValue;
+}
+
+u16 NbtGetU16(NbtCompound * compound, String key) {
+    NbtValue * found = NbtSearch(compound, key);
+    if (found->internalType != NBT_ITYPE_U16) return 0;
+    return found->intValue;
+}
+
+u32 NbtGetU32(NbtCompound * compound, String key) {
+    NbtValue * found = NbtSearch(compound, key);
+    if (found->internalType != NBT_ITYPE_U32) return 0;
+    return found->intValue;
+}
+
+u64 NbtGetU64(NbtCompound * compound, String key) {
+    NbtValue * found = NbtSearch(compound, key);
+    if (found->internalType != NBT_ITYPE_U64) return 0;
+    return found->intValue;
+}
+
+float NbtGetFloat(NbtCompound * compound, String key) {
+    NbtValue * found = NbtSearch(compound, key);
+    if (found->internalType != NBT_ITYPE_FLOAT) return 0;
+    return found->floatValue;
+}
+
+double NbtGetDouble(NbtCompound * compound, String key) {
+    NbtValue * found = NbtSearch(compound, key);
+    if (found->internalType != NBT_ITYPE_DOUBLE) return 0;
+    return found->doubleValue;
+}
+
+String NbtGetString(NbtCompound * compound, String key) {
+    NbtValue * found = NbtSearch(compound, key);
+    if (found->internalType != NBT_ITYPE_STRING) return (String) {0};
+    String res = {
+        .size = found->valueSize,
+        .data = found->stringValue
+    };
+    return res;
+}
+
+NbtList NbtGetArrayU8(NbtCompound * compound, String key) {
+    NbtValue * found = NbtSearch(compound, key);
+    if (found->internalType != NBT_ITYPE_ARRAY_U8) {
+        NbtList res = {0};
+        return res;
+    };
+    NbtList res = {.listData = found->listData, .size = found->valueSize};
+    return res;
+}
+
+NbtList NbtGetArrayU32(NbtCompound * compound, String key) {
+    NbtValue * found = NbtSearch(compound, key);
+    if (found->internalType != NBT_ITYPE_ARRAY_U32) {
+        NbtList res = {0};
+        return res;
+    };
+    NbtList res = {.listData = found->listData, .size = found->valueSize};
+    return res;
+}
+
+NbtList NbtGetArrayU64(NbtCompound * compound, String key) {
+    NbtValue * found = NbtSearch(compound, key);
+    if (found->internalType != NBT_ITYPE_ARRAY_U64) {
+        NbtList res = {0};
+        return res;
+    };
+    NbtList res = {.listData = found->listData, .size = found->valueSize};
+    return res;
+}
+
+NbtList NbtGetList(NbtCompound * compound, String key, int elemType) {
+    NbtValue * found = NbtSearch(compound, key);
+    if (found->internalType != NBT_ITYPE_LIST_EMPTY + 1 + elemType
+            && found->internalType != NBT_ITYPE_LIST_EMPTY) {
+        NbtList res = {0};
+        return res;
+    };
+    NbtList res = {
+        .listData = found->listData,
+        .size = found->valueSize,
+        .curComplexValue = found->listElements
+    };
+    return res;
+}
+
+NbtCompound NbtGetCompound(NbtCompound * compound, String key) {
+    NbtValue * found = NbtSearch(compound, key);
+    if (found->internalType != NBT_ITYPE_COMPOUND) {
+        NbtCompound res = {0};
+        return res;
+    };
+    NbtCompound res = {.internal = found};
+    return res;
+}
+
+// these first few functions also work for arrays because the arrayData and
+// listData overlap
+
+u8 NbtNextU8(NbtList * list) {
+    u8 res = BufGetU8(list->listData + 1 * list->index);
+    list->index++;
+    return res;
+}
+
+u16 NbtNextU16(NbtList * list) {
+    u16 res = BufGetU16(list->listData + 2 * list->index);
+    list->index++;
+    return res;
+}
+
+u32 NbtNextU32(NbtList * list) {
+    u32 res = BufGetU32(list->listData + 4 * list->index);
+    list->index++;
+    return res;
+}
+
+u64 NbtNextU64(NbtList * list) {
+    u64 res = BufGetU64(list->listData + 8 * list->index);
+    list->index++;
+    return res;
+}
+
+float NbtNextFloat(NbtList * list) {
+    float res = BufGetF32(list->listData + 4 * list->index);
+    list->index++;
+    return res;
+}
+
+double NbtNextDouble(NbtList * list) {
+    double res = BufGetF64(list->listData + 8 * list->index);
+    list->index++;
+    return res;
+}
+
+String NbtNextString(NbtList * list) {
+    NbtValue * value = list->curComplexValue;
+    if (value->isLink) {
+        value = value->linkedValue;
+        list->curComplexValue = value;
+    }
+    list->curComplexValue = ((NbtValue *) list->curComplexValue) + 1;
+    list->index++;
+    String res = {
+        .size = value->valueSize,
+        .data = value->stringValue
+    };
+    return res;
+}
+
+NbtList NbtNextArrayU8(NbtList * list) {
+    NbtValue * value = list->curComplexValue;
+    if (value->isLink) {
+        value = value->linkedValue;
+        list->curComplexValue = value;
+    }
+    list->curComplexValue = ((NbtValue *) list->curComplexValue) + 1;
+    list->index++;
+    NbtList res = {
+        .size = value->valueSize,
+        .listData = value->listData
+    };
+    return res;
+}
+
+NbtList NbtNextArrayU32(NbtList * list) {
+    NbtValue * value = list->curComplexValue;
+    if (value->isLink) {
+        value = value->linkedValue;
+        list->curComplexValue = value;
+    }
+    list->curComplexValue = ((NbtValue *) list->curComplexValue) + 1;
+    list->index++;
+    NbtList res = {
+        .size = value->valueSize,
+        .listData = value->listData
+    };
+    return res;
+}
+
+NbtList NbtNextArrayU64(NbtList * list) {
+    NbtValue * value = list->curComplexValue;
+    if (value->isLink) {
+        value = value->linkedValue;
+        list->curComplexValue = value;
+    }
+    list->curComplexValue = ((NbtValue *) list->curComplexValue) + 1;
+    list->index++;
+    NbtList res = {
+        .size = value->valueSize,
+        .listData = value->listData
+    };
+    return res;
+}
+
+NbtList NbtNextList(NbtList * list, int elemType) {
+    NbtValue * value = list->curComplexValue;
+    if (value->isLink) {
+        value = value->linkedValue;
+        list->curComplexValue = value;
+    }
+    list->curComplexValue = ((NbtValue *) list->curComplexValue) + 1;
+    list->index++;
+    if (value->elemTag != 1 + elemType && value->elemTag != 0) {
+        NbtList res = {0};
+        return res;
+    }
+    NbtList res = {
+        .size = value->valueSize,
+        .listData = value->listData,
+        .curComplexValue = value->listElements,
+    };
+    return res;
+}
+
+NbtCompound NbtNextCompound(NbtList * list) {
+    NbtValue * value = list->curComplexValue;
+    if (value->isLink) {
+        value = value->linkedValue;
+        list->curComplexValue = value;
+    }
+    list->curComplexValue = ((NbtValue *) list->curComplexValue) + 1;
+    list->index++;
+    NbtCompound res = {.internal = value};
+    return res;
 }

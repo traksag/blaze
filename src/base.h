@@ -83,10 +83,13 @@ typedef struct {
 
 #define STR(x) ((String) {.size = strlen(x), .data = (u8 *) (x)})
 
+// @NOTE(traks) make sure you're not logging user input directly, but as e.g.
+// LogInfo("%s", userMessage), otherwise users can crash the server by pasting
+// formatting symbols in chat.
 void LogInfo(void * format, ...);
-
 void LogErrno(void * format);
 
 void * MallocInArena(MemoryArena * arena, i32 size);
+void * CallocInArena(MemoryArena * arena, i32 size);
 
 #endif

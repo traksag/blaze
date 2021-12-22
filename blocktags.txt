@@ -6,6 +6,20 @@ value minecraft:andesite
 value minecraft:tuff
 value minecraft:deepslate
 
+key minecraft:replaceable_plants
+value minecraft:grass
+value minecraft:fern
+value minecraft:dead_bush
+value minecraft:vine
+value minecraft:glow_lichen
+value minecraft:sunflower
+value minecraft:lilac
+value minecraft:rose_bush
+value minecraft:peony
+value minecraft:tall_grass
+value minecraft:large_fern
+value minecraft:hanging_roots
+
 key minecraft:geode_invalid_blocks
 value minecraft:bedrock
 value minecraft:water
@@ -169,52 +183,6 @@ value minecraft:jungle_wood
 value minecraft:stripped_jungle_log
 value minecraft:stripped_jungle_wood
 
-key minecraft:lava_pool_stone_replaceables
-value minecraft:bedrock
-value minecraft:spawner
-value minecraft:chest
-value minecraft:end_portal_frame
-value minecraft:jungle_leaves
-value minecraft:oak_leaves
-value minecraft:spruce_leaves
-value minecraft:dark_oak_leaves
-value minecraft:acacia_leaves
-value minecraft:birch_leaves
-value minecraft:azalea_leaves
-value minecraft:flowering_azalea_leaves
-value minecraft:dark_oak_log
-value minecraft:dark_oak_wood
-value minecraft:stripped_dark_oak_log
-value minecraft:stripped_dark_oak_wood
-value minecraft:oak_log
-value minecraft:oak_wood
-value minecraft:stripped_oak_log
-value minecraft:stripped_oak_wood
-value minecraft:acacia_log
-value minecraft:acacia_wood
-value minecraft:stripped_acacia_log
-value minecraft:stripped_acacia_wood
-value minecraft:birch_log
-value minecraft:birch_wood
-value minecraft:stripped_birch_log
-value minecraft:stripped_birch_wood
-value minecraft:jungle_log
-value minecraft:jungle_wood
-value minecraft:stripped_jungle_log
-value minecraft:stripped_jungle_wood
-value minecraft:spruce_log
-value minecraft:spruce_wood
-value minecraft:stripped_spruce_log
-value minecraft:stripped_spruce_wood
-value minecraft:crimson_stem
-value minecraft:stripped_crimson_stem
-value minecraft:crimson_hyphae
-value minecraft:stripped_crimson_hyphae
-value minecraft:warped_stem
-value minecraft:stripped_warped_stem
-value minecraft:warped_hyphae
-value minecraft:stripped_warped_hyphae
-
 key minecraft:fire
 value minecraft:fire
 value minecraft:soul_fire
@@ -261,6 +229,11 @@ value minecraft:brown_candle
 value minecraft:green_candle
 value minecraft:red_candle
 value minecraft:black_candle
+
+key minecraft:wolves_spawnable_on
+value minecraft:grass_block
+value minecraft:snow
+value minecraft:snow_block
 
 key minecraft:wooden_buttons
 value minecraft:oak_button
@@ -335,6 +308,13 @@ key minecraft:wither_summon_base_blocks
 value minecraft:soul_sand
 value minecraft:soul_soil
 
+key minecraft:foxes_spawnable_on
+value minecraft:grass_block
+value minecraft:snow
+value minecraft:snow_block
+value minecraft:podzol
+value minecraft:coarse_dirt
+
 key minecraft:coal_ores
 value minecraft:coal_ore
 value minecraft:deepslate_coal_ore
@@ -352,6 +332,9 @@ value minecraft:acacia_sapling
 value minecraft:dark_oak_sapling
 value minecraft:azalea
 value minecraft:flowering_azalea
+
+key minecraft:animals_spawnable_on
+value minecraft:grass_block
 
 key minecraft:needs_stone_tool
 value minecraft:iron_block
@@ -575,6 +558,9 @@ value minecraft:waxed_weathered_cut_copper_stairs
 value minecraft:waxed_exposed_cut_copper_stairs
 value minecraft:waxed_cut_copper_stairs
 value minecraft:waxed_oxidized_cut_copper_stairs
+
+key minecraft:mooshrooms_spawnable_on
+value minecraft:mycelium
 
 key minecraft:crimson_stems
 value minecraft:crimson_stem
@@ -825,10 +811,64 @@ key minecraft:stone_pressure_plates
 value minecraft:stone_pressure_plate
 value minecraft:polished_blackstone_pressure_plate
 
+key minecraft:lava_pool_stone_cannot_replace
+value minecraft:bedrock
+value minecraft:spawner
+value minecraft:chest
+value minecraft:end_portal_frame
+value minecraft:jungle_leaves
+value minecraft:oak_leaves
+value minecraft:spruce_leaves
+value minecraft:dark_oak_leaves
+value minecraft:acacia_leaves
+value minecraft:birch_leaves
+value minecraft:azalea_leaves
+value minecraft:flowering_azalea_leaves
+value minecraft:dark_oak_log
+value minecraft:dark_oak_wood
+value minecraft:stripped_dark_oak_log
+value minecraft:stripped_dark_oak_wood
+value minecraft:oak_log
+value minecraft:oak_wood
+value minecraft:stripped_oak_log
+value minecraft:stripped_oak_wood
+value minecraft:acacia_log
+value minecraft:acacia_wood
+value minecraft:stripped_acacia_log
+value minecraft:stripped_acacia_wood
+value minecraft:birch_log
+value minecraft:birch_wood
+value minecraft:stripped_birch_log
+value minecraft:stripped_birch_wood
+value minecraft:jungle_log
+value minecraft:jungle_wood
+value minecraft:stripped_jungle_log
+value minecraft:stripped_jungle_wood
+value minecraft:spruce_log
+value minecraft:spruce_wood
+value minecraft:stripped_spruce_log
+value minecraft:stripped_spruce_wood
+value minecraft:crimson_stem
+value minecraft:stripped_crimson_stem
+value minecraft:crimson_hyphae
+value minecraft:stripped_crimson_hyphae
+value minecraft:warped_stem
+value minecraft:stripped_warped_stem
+value minecraft:warped_hyphae
+value minecraft:stripped_warped_hyphae
+
 key minecraft:portals
 value minecraft:nether_portal
 value minecraft:end_portal
 value minecraft:end_gateway
+
+key minecraft:goats_spawnable_on
+value minecraft:stone
+value minecraft:snow
+value minecraft:powder_snow
+value minecraft:snow_block
+value minecraft:packed_ice
+value minecraft:gravel
 
 key minecraft:features_cannot_replace
 value minecraft:bedrock
@@ -856,6 +896,44 @@ value minecraft:oxeye_daisy
 value minecraft:cornflower
 value minecraft:lily_of_the_valley
 value minecraft:wither_rose
+
+key minecraft:azalea_root_replaceable
+value minecraft:stone
+value minecraft:granite
+value minecraft:diorite
+value minecraft:andesite
+value minecraft:tuff
+value minecraft:deepslate
+value minecraft:cave_vines_plant
+value minecraft:cave_vines
+value minecraft:dirt
+value minecraft:grass_block
+value minecraft:podzol
+value minecraft:coarse_dirt
+value minecraft:mycelium
+value minecraft:rooted_dirt
+value minecraft:moss_block
+value minecraft:clay
+value minecraft:gravel
+value minecraft:sand
+value minecraft:terracotta
+value minecraft:white_terracotta
+value minecraft:orange_terracotta
+value minecraft:magenta_terracotta
+value minecraft:light_blue_terracotta
+value minecraft:yellow_terracotta
+value minecraft:lime_terracotta
+value minecraft:pink_terracotta
+value minecraft:gray_terracotta
+value minecraft:light_gray_terracotta
+value minecraft:cyan_terracotta
+value minecraft:purple_terracotta
+value minecraft:blue_terracotta
+value minecraft:brown_terracotta
+value minecraft:green_terracotta
+value minecraft:red_terracotta
+value minecraft:black_terracotta
+value minecraft:red_sand
 
 key minecraft:dragon_immune
 value minecraft:barrier
@@ -955,6 +1033,9 @@ key minecraft:copper_ores
 value minecraft:copper_ore
 value minecraft:deepslate_copper_ore
 
+key minecraft:axolotls_spawnable_on
+value minecraft:clay
+
 key minecraft:beds
 value minecraft:red_bed
 value minecraft:black_bed
@@ -1003,6 +1084,36 @@ key minecraft:infiniburn_end
 value minecraft:netherrack
 value minecraft:magma_block
 value minecraft:bedrock
+
+key minecraft:azalea_grows_on
+value minecraft:dirt
+value minecraft:grass_block
+value minecraft:podzol
+value minecraft:coarse_dirt
+value minecraft:mycelium
+value minecraft:rooted_dirt
+value minecraft:moss_block
+value minecraft:sand
+value minecraft:red_sand
+value minecraft:terracotta
+value minecraft:white_terracotta
+value minecraft:orange_terracotta
+value minecraft:magenta_terracotta
+value minecraft:light_blue_terracotta
+value minecraft:yellow_terracotta
+value minecraft:lime_terracotta
+value minecraft:pink_terracotta
+value minecraft:gray_terracotta
+value minecraft:light_gray_terracotta
+value minecraft:cyan_terracotta
+value minecraft:purple_terracotta
+value minecraft:blue_terracotta
+value minecraft:brown_terracotta
+value minecraft:green_terracotta
+value minecraft:red_terracotta
+value minecraft:black_terracotta
+value minecraft:snow_block
+value minecraft:powder_snow
 
 key minecraft:soul_speed_blocks
 value minecraft:soul_sand
@@ -1114,6 +1225,9 @@ value minecraft:horn_coral_fan
 key minecraft:infiniburn_overworld
 value minecraft:netherrack
 value minecraft:magma_block
+
+key minecraft:polar_bears_spawnable_on_in_frozen_ocean
+value minecraft:ice
 
 key minecraft:needs_diamond_tool
 value minecraft:obsidian
@@ -1284,6 +1398,50 @@ value minecraft:warped_button
 value minecraft:stone_button
 value minecraft:polished_blackstone_button
 
+key minecraft:parrots_spawnable_on
+value minecraft:grass_block
+value minecraft:air
+value minecraft:jungle_leaves
+value minecraft:oak_leaves
+value minecraft:spruce_leaves
+value minecraft:dark_oak_leaves
+value minecraft:acacia_leaves
+value minecraft:birch_leaves
+value minecraft:azalea_leaves
+value minecraft:flowering_azalea_leaves
+value minecraft:dark_oak_log
+value minecraft:dark_oak_wood
+value minecraft:stripped_dark_oak_log
+value minecraft:stripped_dark_oak_wood
+value minecraft:oak_log
+value minecraft:oak_wood
+value minecraft:stripped_oak_log
+value minecraft:stripped_oak_wood
+value minecraft:acacia_log
+value minecraft:acacia_wood
+value minecraft:stripped_acacia_log
+value minecraft:stripped_acacia_wood
+value minecraft:birch_log
+value minecraft:birch_wood
+value minecraft:stripped_birch_log
+value minecraft:stripped_birch_wood
+value minecraft:jungle_log
+value minecraft:jungle_wood
+value minecraft:stripped_jungle_log
+value minecraft:stripped_jungle_wood
+value minecraft:spruce_log
+value minecraft:spruce_wood
+value minecraft:stripped_spruce_log
+value minecraft:stripped_spruce_wood
+value minecraft:crimson_stem
+value minecraft:stripped_crimson_stem
+value minecraft:crimson_hyphae
+value minecraft:stripped_crimson_hyphae
+value minecraft:warped_stem
+value minecraft:stripped_warped_stem
+value minecraft:warped_hyphae
+value minecraft:stripped_warped_hyphae
+
 key minecraft:wall_signs
 value minecraft:oak_wall_sign
 value minecraft:spruce_wall_sign
@@ -1293,6 +1451,12 @@ value minecraft:jungle_wall_sign
 value minecraft:dark_oak_wall_sign
 value minecraft:crimson_wall_sign
 value minecraft:warped_wall_sign
+
+key minecraft:rabbits_spawnable_on
+value minecraft:grass_block
+value minecraft:snow
+value minecraft:snow_block
+value minecraft:sand
 
 key minecraft:deepslate_ore_replaceables
 value minecraft:deepslate
@@ -1332,6 +1496,25 @@ value minecraft:jungle_wall_sign
 value minecraft:dark_oak_wall_sign
 value minecraft:crimson_wall_sign
 value minecraft:warped_wall_sign
+
+key minecraft:terracotta
+value minecraft:terracotta
+value minecraft:white_terracotta
+value minecraft:orange_terracotta
+value minecraft:magenta_terracotta
+value minecraft:light_blue_terracotta
+value minecraft:yellow_terracotta
+value minecraft:lime_terracotta
+value minecraft:pink_terracotta
+value minecraft:gray_terracotta
+value minecraft:light_gray_terracotta
+value minecraft:cyan_terracotta
+value minecraft:purple_terracotta
+value minecraft:blue_terracotta
+value minecraft:brown_terracotta
+value minecraft:green_terracotta
+value minecraft:red_terracotta
+value minecraft:black_terracotta
 
 key minecraft:soul_fire_base_blocks
 value minecraft:soul_sand
@@ -1374,6 +1557,18 @@ value minecraft:rail
 value minecraft:powered_rail
 value minecraft:detector_rail
 value minecraft:activator_rail
+
+key minecraft:big_dripleaf_placeable
+value minecraft:clay
+value minecraft:moss_block
+value minecraft:dirt
+value minecraft:grass_block
+value minecraft:podzol
+value minecraft:coarse_dirt
+value minecraft:mycelium
+value minecraft:rooted_dirt
+value minecraft:moss_block
+value minecraft:farmland
 
 key minecraft:wooden_stairs
 value minecraft:oak_stairs
@@ -1788,6 +1983,7 @@ value minecraft:rail
 value minecraft:powered_rail
 value minecraft:detector_rail
 value minecraft:activator_rail
+value minecraft:conduit
 
 key minecraft:mineable/hoe
 value minecraft:nether_wart_block
@@ -1917,25 +2113,6 @@ value minecraft:oak_fence_gate
 value minecraft:spruce_fence_gate
 value minecraft:crimson_fence_gate
 value minecraft:warped_fence_gate
-value minecraft:dandelion
-value minecraft:poppy
-value minecraft:blue_orchid
-value minecraft:allium
-value minecraft:azure_bluet
-value minecraft:red_tulip
-value minecraft:orange_tulip
-value minecraft:white_tulip
-value minecraft:pink_tulip
-value minecraft:oxeye_daisy
-value minecraft:cornflower
-value minecraft:lily_of_the_valley
-value minecraft:wither_rose
-value minecraft:sunflower
-value minecraft:lilac
-value minecraft:peony
-value minecraft:rose_bush
-value minecraft:flowering_azalea_leaves
-value minecraft:flowering_azalea
 value minecraft:dark_oak_log
 value minecraft:dark_oak_wood
 value minecraft:stripped_dark_oak_log

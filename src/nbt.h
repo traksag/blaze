@@ -3,7 +3,33 @@
 
 #include "buf.h"
 
-enum nbt_tag {
+typedef struct {
+    void * internal;
+} NbtCompound;
+
+typedef struct {
+    unsigned char * listData;
+    u32 index;
+    u32 size;
+    void * curComplexValue;
+} NbtList;
+
+enum NbtType {
+    NBT_U8,
+    NBT_U16,
+    NBT_U32,
+    NBT_U64,
+    NBT_FLOAT,
+    NBT_DOUBLE,
+    NBT_ARRAY_U8,
+    NBT_STRING,
+    NBT_LIST,
+    NBT_COMPOUND,
+    NBT_ARRAY_U32,
+    NBT_ARRAY_U64,
+};
+
+enum NbtTag {
     NBT_TAG_END,
     NBT_TAG_BYTE,
     NBT_TAG_SHORT,
@@ -17,40 +43,35 @@ enum nbt_tag {
     NBT_TAG_COMPOUND,
     NBT_TAG_INT_ARRAY,
     NBT_TAG_LONG_ARRAY,
-
-    // our own tags for internal use
-    NBT_TAG_LIST_END,
-    NBT_TAG_COMPOUND_IN_LIST,
-    NBT_TAG_LIST_IN_LIST,
 };
 
-typedef union {
-    struct {
-        u32 buffer_index:22;
-        u32 tag:5;
-        u32 element_tag:5;
-    };
-    u32 next_compound_entry_offset;
-    u32 list_size;
-} nbt_tape_entry;
+NbtCompound NbtRead(BufCursor * buf, MemoryArena * arena);
+void NbtPrint(NbtCompound * compound);
 
-nbt_tape_entry *
-nbt_move_to_key(String matcher, nbt_tape_entry * tape,
-        BufCursor * cursor);
+u8 NbtGetU8(NbtCompound * compound, String key);
+u16 NbtGetU16(NbtCompound * compound, String key);
+u32 NbtGetU32(NbtCompound * compound, String key);
+u64 NbtGetU64(NbtCompound * compound, String key);
+float NbtGetFloat(NbtCompound * compound, String key);
+double NbtGetDouble(NbtCompound * compound, String key);
+String NbtGetString(NbtCompound * compound, String key);
+NbtList NbtGetArrayU8(NbtCompound * compound, String key);
+NbtList NbtGetArrayU32(NbtCompound * compound, String key);
+NbtList NbtGetArrayU64(NbtCompound * compound, String key);
+NbtList NbtGetList(NbtCompound * compound, String key, int elemType);
+NbtCompound NbtGetCompound(NbtCompound * compound, String key);
 
-String
-nbt_get_string(String matcher, nbt_tape_entry * tape,
-        BufCursor * cursor);
-
-nbt_tape_entry *
-nbt_get_compound(String matcher, nbt_tape_entry * tape,
-        BufCursor * cursor);
-
-nbt_tape_entry *
-load_nbt(BufCursor * cursor, MemoryArena * arena, int max_level);
-
-void
-print_nbt(nbt_tape_entry * tape, BufCursor * cursor,
-        MemoryArena * arena, int max_levels);
+u8 NbtNextU8(NbtList * list);
+u16 NbtNextU16(NbtList * list);
+u32 NbtNextU32(NbtList * list);
+u64 NbtNextU64(NbtList * list);
+float NbtNextFloat(NbtList * list);
+double NbtNextDouble(NbtList * list);
+String NbtNextString(NbtList * list);
+NbtList NbtNextArrayU8(NbtList * list);
+NbtList NbtNextArrayU32(NbtList * list);
+NbtList NbtNextArrayU64(NbtList * list);
+NbtList NbtNextList(NbtList * list, int elemType);
+NbtCompound NbtNextCompound(NbtList * list);
 
 #endif
