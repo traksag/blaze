@@ -1219,7 +1219,7 @@ send_chunk_fully(BufCursor * send_cursor, chunk_pos pos, chunk * ch,
     int blocks_per_long = 64 / bits_per_block;
 
     for (int i = 0; i < SECTIONS_PER_CHUNK; i++) {
-        chunk_section * section = ch->sections[i];
+        ChunkSection * section = ch->sections[i];
         if (section == NULL) {
             section_data_size += 2 + 1 + 1 + 1;
         } else {
@@ -1241,7 +1241,7 @@ send_chunk_fully(BufCursor * send_cursor, chunk_pos pos, chunk * ch,
     CursorPutVarU32(send_cursor, section_data_size);
 
     for (i32 i = 0; i < SECTIONS_PER_CHUNK; i++) {
-        chunk_section * section = ch->sections[i];
+        ChunkSection * section = ch->sections[i];
         if (section == NULL) {
             CursorPutU16(send_cursor, 0); // # of non-air blocks
             CursorPutU8(send_cursor, 0);
@@ -1262,7 +1262,7 @@ send_chunk_fully(BufCursor * send_cursor, chunk_pos pos, chunk * ch,
             if (CursorSkip(send_cursor, longs * 8)) {
                 for (i32 longIndex = 0; longIndex < longs; longIndex++) {
                     u16 blockStates[4];
-                    memcpy(blockStates, section->block_states + (4 * longIndex), 8);
+                    memcpy(blockStates, section->blockStates + (4 * longIndex), 8);
                     u64 longValue = ((u64) blockStates[0])
                             | ((u64) blockStates[1] << 15)
                             | ((u64) blockStates[2] << 30)
@@ -2615,44 +2615,40 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                 chunk * ch = get_chunk_if_loaded(pos);
                 assert(ch != NULL);
 
-                if (ch->changed_block_count != 0) {
-                    for (int sectionY = MIN_SECTION; sectionY <= MAX_SECTION; sectionY++) {
-                        int changed_blocks_size = ARRAY_SIZE(ch->changed_blocks);
-                        CompactChunkBlockPos sec_changed_blocks[changed_blocks_size];
-                        int sec_changed_block_count = 0;
+                for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
+                    i32 sectionY = sectionIndex + MIN_SECTION;
+                    ChunkSection * section = ch->sections[sectionIndex];
+                    if (section == NULL || section->lastChangeTick != serv->current_tick) {
+                        continue;
+                    }
 
-                        for (int i = 0; i < ch->changed_block_count; i++) {
-                            CompactChunkBlockPos pos = ch->changed_blocks[i];
-                            if ((pos.y >> 4) == sectionY) {
-                                sec_changed_blocks[sec_changed_block_count] = pos;
-                                sec_changed_block_count++;
-                            }
-                        }
+                    assert(section->changedBlockCount > 0);
 
-                        if (sec_changed_block_count == 0) {
-                            continue;
-                        }
+                    // @TODO(traks) in case of tons of block changes in all
+                    // sections combined, we shouldn't spam clients with section
+                    // change packets. We should limit the maximum number of
+                    // packet data for this packet type and if the limit is
+                    // exceeded, reload chunks for clients.
 
-                        begin_packet(send_cursor, CBP_SECTION_BLOCKS_UPDATE);
-                        u64 section_pos =
-                                ((u64) (x & 0x3fffff) << 42)
-                                | ((u64) (z & 0x3fffff) << 20)
-                                | (u64) (sectionY & 0xfffff);
-                        CursorPutU64(send_cursor, section_pos);
-                        // @TODO(traks) appropriate value for this
-                        CursorPutU8(send_cursor, 1); // suppress light updates
-                        CursorPutVarU32(send_cursor, sec_changed_block_count);
+                    begin_packet(send_cursor, CBP_SECTION_BLOCKS_UPDATE);
+                    u64 section_pos = ((u64) (x & 0x3fffff) << 42)
+                            | ((u64) (z & 0x3fffff) << 20)
+                            | (u64) (sectionY & 0xfffff);
+                    CursorPutU64(send_cursor, section_pos);
+                    // @TODO(traks) appropriate value for this
+                    CursorPutU8(send_cursor, 1); // suppress light updates
+                    CursorPutVarU32(send_cursor, section->changedBlockCount);
 
-                        for (int i = 0; i < sec_changed_block_count; i++) {
-                            CompactChunkBlockPos pos = sec_changed_blocks[i];
-                            i64 block_state = chunk_get_block_state(ch,
-                                    pos.x, pos.y, pos.z);
-                            i64 encoded = (block_state << 12)
-                                    | (pos.x << 8) | (pos.z << 4) | (pos.y & 0xf);
+                    for (i32 i = 0; i < section->changedBlockSetMask + 1; i++) {
+                        if (section->changedBlockSet[i] != 0) {
+                            BlockPos pos = SectionIndexToPos(section->changedBlockSet[i] & 0x7fff);
+                            i64 block_state = chunk_get_block_state(ch, pos.x, pos.y + sectionY * 16, pos.z);
+                            i64 encoded = (block_state << 12) | (pos.x << 8) | (pos.z << 4) | (pos.y & 0xf);
                             CursorPutVarU64(send_cursor, encoded);
                         }
-                        finish_packet(send_cursor, player);
                     }
+
+                    finish_packet(send_cursor, player);
                 }
 
                 for (int i = 0; i < ch->local_event_count; i++) {

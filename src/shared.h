@@ -110,16 +110,20 @@ typedef struct {
 #define CHUNK_LOADED (1u << 0)
 
 typedef struct {
-    int index_in_bucket;
-    u16 block_states[4096];
-} chunk_section;
+    i32 indexInBucket;
+    u16 blockStates[4096];
+    u16 * changedBlockSet;
+    i32 changedBlockSetMask;
+    i32 changedBlockCount;
+    i64 lastChangeTick;
+} ChunkSection;
 
 #define CHUNK_SECTIONS_PER_BUCKET (64)
 
 typedef struct chunk_section_bucket chunk_section_bucket;
 
 struct chunk_section_bucket {
-    chunk_section chunk_sections[CHUNK_SECTIONS_PER_BUCKET];
+    ChunkSection chunk_sections[CHUNK_SECTIONS_PER_BUCKET];
     // @TODO(traks) we use 2 * CHUNK_SECTIONS_PER_BUCKET 4096-byte pages for the
     // block states in the chunk sections. How much of the next page do we use?
     chunk_section_bucket * next;
@@ -196,7 +200,7 @@ typedef struct {
 } level_event;
 
 typedef struct {
-    chunk_section * sections[SECTIONS_PER_CHUNK];
+    ChunkSection * sections[SECTIONS_PER_CHUNK];
     u16 non_air_count[SECTIONS_PER_CHUNK];
     i16 motion_blocking_height_map[256];
 
@@ -205,14 +209,6 @@ typedef struct {
     // If = 0 the chunk will be removed from the map at some point.
     u32 available_interest;
     unsigned flags;
-
-    // @TODO(traks) more changed blocks, better compression. Can become very
-    // large due to redstone updates, carpet towers breaking, etc. This should
-    // probably grow dynamically. An alternative would be to store a bit array
-    // with a 1 if a block changed and a 0 otherwise. However, that has massive
-    // memory overhead.
-    CompactChunkBlockPos changed_blocks[200];
-    u8 changed_block_count;
 
     // @TODO(traks) allow more block entities. Possibly use an internally
     // chained hashmap for this. The question is, where do we allocate this
@@ -2189,6 +2185,8 @@ typedef struct {
     // updated 'unexpectedly'. What is the worst thing that could happen?
     scheduled_block_update scheduled_block_updates[100];
     int scheduled_block_update_count;
+
+    MemoryArena * tickArena;
 } server;
 
 extern server * serv;
@@ -2220,6 +2218,19 @@ try_get_block_state(BlockPos pos);
 void
 try_set_block_state(BlockPos pos, u16 block_state);
 
+static inline i16 SectionPosToIndex(BlockPos pos) {
+    return ((pos.y & 0xf) << 8) | (pos.z << 4) | pos.x;
+}
+
+static inline BlockPos SectionIndexToPos(i32 index) {
+    BlockPos res = {
+        index & 0xf,
+        (index >> 8),
+        (index >> 4) & 0xf
+    };
+    return res;
+}
+
 void
 chunk_set_block_state(chunk * ch, int x, int y, int z, u16 block_state);
 
@@ -2230,11 +2241,8 @@ void
 try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
         MemoryArena * scratch_arena);
 
-chunk_section *
-alloc_chunk_section(void);
-
-void
-free_chunk_section(chunk_section * section);
+ChunkSection * AllocChunkSection(void);
+void FreeChunkSection(ChunkSection * section);
 
 void
 clean_up_unused_chunks(void);

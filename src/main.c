@@ -1191,7 +1191,7 @@ server_tick(void) {
             // left behind
             for (int sectioni = 0; sectioni < SECTIONS_PER_CHUNK; sectioni++) {
                 if (ch->sections[sectioni] != NULL) {
-                    free_chunk_section(ch->sections[sectioni]);
+                    FreeChunkSection(ch->sections[sectioni]);
                     ch->sections[sectioni] = NULL;
                 }
                 ch->non_air_count[sectioni] = 0;
@@ -1203,7 +1203,7 @@ server_tick(void) {
             // @TODO(traks) would be nice if we could just use
             // chunk_set_block_state. The problem is that the changed block
             // buffer is too small currently.
-            ch->sections[0] = alloc_chunk_section();
+            ch->sections[0] = AllocChunkSection();
             if (ch->sections[0] == NULL) {
                 LogInfo("Failed to allocate chunk section during generation");
                 exit(1);
@@ -1212,7 +1212,7 @@ server_tick(void) {
             for (int x = 0; x < 16; x++) {
                 for (int z = 0; z < 16; z++) {
                     int index = (z << 4) | x;
-                    ch->sections[0]->block_states[index] = 2;
+                    ch->sections[0]->blockStates[index] = 2;
                     ch->motion_blocking_height_map[index] = MIN_WORLD_Y + 1;
                     ch->non_air_count[0]++;
                 }
@@ -1740,6 +1740,13 @@ main(void) {
         exit(1);
     }
 
+    // @TODO(traks) must be able to grow
+    MemoryArena tickArena = {
+        .size = 1 << 20,
+        .data = calloc(tickArena.size, 1)
+    };
+    serv->tickArena = &tickArena;
+
     // @TODO(traks) better sizes
     alloc_resource_loc_table(&serv->block_resource_table, 1 << 11, 1 << 16, ACTUAL_BLOCK_TYPE_COUNT);
     alloc_resource_loc_table(&serv->item_resource_table, 1 << 11, 1 << 16, ITEM_TYPE_COUNT);
@@ -1770,6 +1777,7 @@ main(void) {
 
         long long start_time = program_nano_time();
 
+        serv->tickArena->index = 0;
         server_tick();
 
         long long end_time = program_nano_time();

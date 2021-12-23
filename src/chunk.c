@@ -22,8 +22,7 @@ static chunk_bucket chunk_map[CHUNK_MAP_SIZE];
 static chunk_section_bucket * full_chunk_section_buckets;
 static chunk_section_bucket * chunk_section_buckets_with_unused;
 
-chunk_section *
-alloc_chunk_section() {
+ChunkSection * AllocChunkSection() {
     chunk_section_bucket * bucket = chunk_section_buckets_with_unused;
     if (bucket == NULL) {
         // initialises all memory to 0
@@ -44,9 +43,9 @@ alloc_chunk_section() {
 
     assert(seci < CHUNK_SECTIONS_PER_BUCKET);
     assert(bucket->used_sections < CHUNK_SECTIONS_PER_BUCKET);
-    chunk_section * res = bucket->chunk_sections + seci;
-    *res = (chunk_section) {0};
-    res->index_in_bucket = seci;
+    ChunkSection * res = bucket->chunk_sections + seci;
+    *res = (ChunkSection) {0};
+    res->indexInBucket = seci;
     bucket->used_map[seci] = 1;
     bucket->used_sections++;
 
@@ -69,13 +68,12 @@ alloc_chunk_section() {
     return res;
 }
 
-void
-free_chunk_section(chunk_section * section) {
-    int index_in_bucket = section->index_in_bucket;
-    chunk_section_bucket * bucket = (void *) (section - index_in_bucket);
-    assert(bucket->used_map[index_in_bucket] == 1);
+void FreeChunkSection(ChunkSection * section) {
+    i32 indexInBucket = section->indexInBucket;
+    chunk_section_bucket * bucket = (void *) (section - indexInBucket);
+    assert(bucket->used_map[indexInBucket] == 1);
     assert(bucket->used_sections > 0);
-    bucket->used_map[index_in_bucket] = 0;
+    bucket->used_map[indexInBucket] = 0;
     bucket->used_sections--;
 
     if (bucket->used_sections == CHUNK_SECTIONS_PER_BUCKET - 1) {
@@ -224,7 +222,7 @@ chunk_get_block_state(chunk * ch, int x, int y, int z) {
     assert(0 <= z && z < 16);
 
     int sectionIndex = (y - MIN_WORLD_Y) >> 4;
-    chunk_section * section = ch->sections[sectionIndex];
+    ChunkSection * section = ch->sections[sectionIndex];
 
     if (section == NULL) {
         // @TODO(traks) would it be possible to have a block type -> default state
@@ -234,7 +232,7 @@ chunk_get_block_state(chunk * ch, int x, int y, int z) {
     }
 
     int index = ((y & 0xf) << 8) | (z << 4) | x;
-    return section->block_states[index];
+    return section->blockStates[index];
 }
 
 static void
@@ -252,6 +250,11 @@ recalculate_chunk_motion_blocking_height_map(chunk * ch) {
     }
 }
 
+static inline i32 HashChangedBlockPos(i32 index, i32 hashMask) {
+    // @TODO(traks) better hash?
+    return index & hashMask;
+}
+
 void
 chunk_set_block_state(chunk * ch, int x, int y, int z, u16 block_state) {
     assert(0 <= x && x < 16);
@@ -262,32 +265,13 @@ chunk_set_block_state(chunk * ch, int x, int y, int z, u16 block_state) {
     // or make sure we appropriate handle cases in which too many changes occur
     // to a chunk per tick.
 
-    // @TODO(traks) This is currently O(N^2) where N is the number of different
-    // blocks we changed in the chunk in a single tick. Should be faster.
-    int match = 0;
-    for (int i = 0; i < ch->changed_block_count; i++) {
-        CompactChunkBlockPos entry = ch->changed_blocks[i];
-        if (entry.x == x && entry.y == y && entry.z == z) {
-            match = 1;
-            break;
-        }
-    }
-
-    if (!match) {
-        assert(ch->changed_block_count < ARRAY_SIZE(ch->changed_blocks));
-
-        CompactChunkBlockPos pos = {.x = x, .y = y, .z = z};
-        ch->changed_blocks[ch->changed_block_count] = pos;
-        ch->changed_block_count++;
-    }
-
     int sectionIndex = (y - MIN_WORLD_Y) >> 4;
-    chunk_section * section = ch->sections[sectionIndex];
+    ChunkSection * section = ch->sections[sectionIndex];
 
     if (section == NULL) {
         // @TODO(traks) instead of making block setting fallible, perhaps
         // getting the chunk should fail if chunk sections cannot be allocated
-        section = alloc_chunk_section();
+        section = AllocChunkSection();
         if (section == NULL) {
             LogErrno("Failed to allocate section: %s");
             exit(1);
@@ -295,16 +279,18 @@ chunk_set_block_state(chunk * ch, int x, int y, int z, u16 block_state) {
         ch->sections[sectionIndex] = section;
     }
 
-    int index = ((y & 0xf) << 8) | (z << 4) | x;
+    int index = SectionPosToIndex((BlockPos) {x, y, z});
 
-    if (section->block_states[index] == 0) {
+    if (section->blockStates[index] == 0) {
         ch->non_air_count[sectionIndex]++;
     }
     if (block_state == 0) {
         ch->non_air_count[sectionIndex]--;
     }
 
-    section->block_states[index] = block_state;
+    section->blockStates[index] = block_state;
+
+    // @NOTE(traks) update height map
 
     int height_map_index = (z << 4) | x;
 
@@ -329,6 +315,59 @@ chunk_set_block_state(chunk * ch, int x, int y, int z, u16 block_state) {
             ch->motion_blocking_height_map[height_map_index] = y + 1;
         }
     }
+
+    // @NOTE(traks) update changed block list
+
+    if (section->lastChangeTick != serv->current_tick) {
+        section->lastChangeTick = serv->current_tick;
+        // @NOTE(traks) must be power of 2
+        i32 initialSize = 128;
+        section->changedBlockSet = CallocInArena(serv->tickArena, 128 * sizeof *section->changedBlockSet);
+        section->changedBlockSetMask = initialSize - 1;
+        section->changedBlockCount = 0;
+    }
+
+    i32 maxProbe = 4;
+
+doHash:;
+    i32 hash = HashChangedBlockPos(index, section->changedBlockSetMask);
+    i32 offset = 0;
+    for (; offset < maxProbe; offset++) {
+        i32 setIndex = (hash + offset) & section->changedBlockSetMask;
+        if (section->changedBlockSet[setIndex] == 0) {
+            section->changedBlockSet[setIndex] = 0x8000 | index;
+            section->changedBlockCount++;
+            break;
+        } else if (section->changedBlockSet[setIndex] == (0x8000 | index)) {
+            break;
+        }
+    }
+    if (offset == maxProbe) {
+        // @NOTE(traks) no free position found, grow hash set, rehash and
+        // then try inserting the new block pos again
+        i32 newSize = 2 * (section->changedBlockSetMask + 1);
+        i32 newMask = newSize - 1;
+        u16 * newSet = CallocInArena(serv->tickArena, newSize * sizeof *newSet);
+        for (i32 i = 0; i < section->changedBlockSetMask + 1; i++) {
+            if (section->changedBlockSet[i] != 0) {
+                i32 reIndex = section->changedBlockSet[i] & 0x7fff;
+                i32 reHash = HashChangedBlockPos(reIndex, newMask);
+                for (i32 reOffset = 0; reOffset < maxProbe; reOffset++) {
+                    i32 setIndex = (reHash + reOffset) & newMask;
+                    if (newSet[setIndex] == 0) {
+                        newSet[setIndex] = 0x8000 | reIndex;
+                        break;
+                    }
+                }
+            }
+        }
+
+        section->changedBlockSet = newSet;
+        section->changedBlockSetMask = newMask;
+
+        goto doHash;
+    }
+    assert(section->changedBlockCount <= 4096);
 }
 
 static void
@@ -595,7 +634,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
                 goto bail;
             }
 
-            chunk_section * section = alloc_chunk_section();
+            ChunkSection * section = AllocChunkSection();
             if (section == NULL) {
                 LogErrno("Failed to allocate section: %s");
                 goto bail;
@@ -674,7 +713,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
                 }
 
                 u16 block_state = palette_map[id];
-                section->block_states[j] = block_state;
+                section->blockStates[j] = block_state;
 
                 if (block_state != 0) {
                     ch->non_air_count[sectionIndex]++;
@@ -767,13 +806,12 @@ clean_up_unused_chunks(void) {
 
         for (int chunki = 0; chunki < bucket->size; chunki++) {
             chunk * ch = bucket->chunks + chunki;
-            ch->changed_block_count = 0;
             ch->local_event_count = 0;
 
             if (ch->available_interest == 0) {
                 for (int sectioni = 0; sectioni < SECTIONS_PER_CHUNK; sectioni++) {
                     if (ch->sections[sectioni] != NULL) {
-                        free_chunk_section(ch->sections[sectioni]);
+                        FreeChunkSection(ch->sections[sectioni]);
                     }
                 }
 
