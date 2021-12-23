@@ -1163,7 +1163,7 @@ finish_packet(BufCursor * send_cursor, entity_base * player) {
     // LogInfo("Packet size: %d", (int) packet_size);
 }
 
-static void
+void
 send_chunk_fully(BufCursor * send_cursor, chunk_pos pos, chunk * ch,
         entity_base * entity, MemoryArena * tick_arena) {
     BeginTimedZone("send chunk fully");
@@ -1171,6 +1171,8 @@ send_chunk_fully(BufCursor * send_cursor, chunk_pos pos, chunk * ch,
     begin_packet(send_cursor, CBP_LEVEL_CHUNK_WITH_LIGHT);
     CursorPutU32(send_cursor, pos.x);
     CursorPutU32(send_cursor, pos.z);
+
+    BeginTimedZone("write height map");
 
     // @NOTE(traks) height map NBT
     {
@@ -1204,7 +1206,11 @@ send_chunk_fully(BufCursor * send_cursor, chunk_pos pos, chunk * ch,
         CursorPutU8(send_cursor, NBT_TAG_END);
     }
 
+    EndTimedZone();
+
     // @NOTE(traks) calculate size of block data
+
+    BeginTimedZone("write blocks");
 
     // calculate total size of chunk section data
     i32 section_data_size = 0;
@@ -1250,21 +1256,19 @@ send_chunk_fully(BufCursor * send_cursor, chunk_pos pos, chunk * ch,
             CursorPutVarU32(send_cursor, longs);
             u64 val = 0;
             int offset = 0;
+            assert(blocks_per_long == 4);
 
-            for (int j = 0; j < 16 * 16 * 16; j++) {
-                u64 block_state = section->block_states[j];
-                val |= block_state << offset;
-                offset += bits_per_block;
-
-                if (offset > 64 - bits_per_block) {
-                    CursorPutU64(send_cursor, val);
-                    val = 0;
-                    offset = 0;
+            u8 * cursorData = send_cursor->data + send_cursor->index;
+            if (CursorSkip(send_cursor, longs * 8)) {
+                for (i32 longIndex = 0; longIndex < longs; longIndex++) {
+                    u16 blockStates[4];
+                    memcpy(blockStates, section->block_states + (4 * longIndex), 8);
+                    u64 longValue = ((u64) blockStates[0])
+                            | ((u64) blockStates[1] << 15)
+                            | ((u64) blockStates[2] << 30)
+                            | ((u64) blockStates[3] << 45);
+                    BufPutU64(cursorData + (8 * longIndex), longValue);
                 }
-            }
-
-            if (offset != 0) {
-                CursorPutU64(send_cursor, val);
             }
         }
 
@@ -1278,7 +1282,11 @@ send_chunk_fully(BufCursor * send_cursor, chunk_pos pos, chunk * ch,
     // number of block entities
     CursorPutVarU32(send_cursor, 0);
 
+    EndTimedZone();
+
     // @NOTE(traks) now write lighting data
+
+    BeginTimedZone("write light");
 
     // light sections present as arrays in this packet
     // @NOTE(traks) add 2 for light below the world and light above the world
@@ -1302,20 +1310,18 @@ send_chunk_fully(BufCursor * send_cursor, chunk_pos pos, chunk * ch,
     CursorPutVarU32(send_cursor, lightSections);
     for (int i = 0; i < lightSections; i++) {
         CursorPutVarU32(send_cursor, 2048);
-        for (int j = 0; j < 4096; j += 2) {
-            u8 light = 0xff;
-            CursorPutU8(send_cursor, light);
-        }
+        memset(send_cursor->data + send_cursor->index, 0xff, 2048);
+        send_cursor->index += 2048;
     }
 
     CursorPutVarU32(send_cursor, lightSections);
     for (int i = 0; i < lightSections; i++) {
         CursorPutVarU32(send_cursor, 2048);
-        for (int j = 0; j < 4096; j += 2) {
-            u8 light = 0;
-            CursorPutU8(send_cursor, light);
-        }
+        memset(send_cursor->data + send_cursor->index, 0xff, 2048);
+        send_cursor->index += 2048;
     }
+
+    EndTimedZone();
 
     finish_packet(send_cursor, entity);
 
