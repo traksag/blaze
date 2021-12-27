@@ -1,5 +1,4 @@
 #include <assert.h>
-#include <sys/mman.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -19,97 +18,16 @@
 // Not sure if that's any good.
 static chunk_bucket chunk_map[CHUNK_MAP_SIZE];
 
-static chunk_section_bucket * full_chunk_section_buckets;
-static chunk_section_bucket * chunk_section_buckets_with_unused;
-
 ChunkSection * AllocChunkSection() {
-    chunk_section_bucket * bucket = chunk_section_buckets_with_unused;
-    if (bucket == NULL) {
-        // initialises all memory to 0
-        bucket = mmap(NULL, sizeof *bucket, PROT_READ | PROT_WRITE,
-                MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-        if (bucket == MAP_FAILED) {
-            return NULL;
-        }
-        chunk_section_buckets_with_unused = bucket;
-    }
-
-    int seci;
-    for (seci = 0; seci < CHUNK_SECTIONS_PER_BUCKET; seci++) {
-        if (bucket->used_map[seci] == 0) {
-            break;
-        }
-    }
-
-    assert(seci < CHUNK_SECTIONS_PER_BUCKET);
-    assert(bucket->used_sections < CHUNK_SECTIONS_PER_BUCKET);
-    ChunkSection * res = bucket->chunk_sections + seci;
-    *res = (ChunkSection) {0};
-    res->indexInBucket = seci;
-    bucket->used_map[seci] = 1;
-    bucket->used_sections++;
-
-    if (bucket->used_sections == CHUNK_SECTIONS_PER_BUCKET) {
-        // bucket is full, so move bucket to linked list of full ones
-        chunk_section_bucket * next = bucket->next;
-        if (next != NULL) {
-            next->prev = NULL;
-        }
-        chunk_section_buckets_with_unused = next;
-
-        bucket->next = full_chunk_section_buckets;
-        bucket->prev = NULL;
-        if (full_chunk_section_buckets != NULL) {
-            assert(full_chunk_section_buckets->prev == NULL);
-            full_chunk_section_buckets->prev = bucket;
-        }
-        full_chunk_section_buckets = bucket;
-    }
+    MemoryPoolAllocation alloc = CallocInPool(serv->sectionPool);
+    ChunkSection * res = alloc.data;
+    res->block = alloc.block;
     return res;
 }
 
 void FreeChunkSection(ChunkSection * section) {
-    i32 indexInBucket = section->indexInBucket;
-    chunk_section_bucket * bucket = (void *) (section - indexInBucket);
-    assert(bucket->used_map[indexInBucket] == 1);
-    assert(bucket->used_sections > 0);
-    bucket->used_map[indexInBucket] = 0;
-    bucket->used_sections--;
-
-    if (bucket->used_sections == CHUNK_SECTIONS_PER_BUCKET - 1) {
-        // bucket went from full to non-full, so move to linked list of buckets
-        // with unused entries
-        if (bucket->prev != NULL) {
-            bucket->prev->next = bucket->next;
-        } else {
-            full_chunk_section_buckets = bucket->next;
-        }
-        if (bucket->next != NULL) {
-            bucket->next->prev = bucket->prev;
-        }
-
-        bucket->prev = NULL;
-        bucket->next = chunk_section_buckets_with_unused;
-        if (bucket->next != NULL) {
-            bucket->next->prev = bucket;
-        }
-        chunk_section_buckets_with_unused = bucket;
-    } else if (bucket->used_sections == 0) {
-        if (bucket->prev != NULL) {
-            bucket->prev->next = bucket->next;
-        } else {
-            chunk_section_buckets_with_unused = bucket->next;
-        }
-        if (bucket->next != NULL) {
-            bucket->next->prev = bucket->prev;
-        }
-
-        // @TODO(traks) figure out whether this actually unmaps all memory used
-        // for the bucket, or if the last page is only partially unmapped or
-        // something.
-        int bad = munmap(bucket, sizeof *bucket);
-        assert(!bad);
-    }
+    MemoryPoolAllocation alloc = {.block = section->block, .data = section};
+    FreeInPool(serv->sectionPool, alloc);
 }
 
 static int

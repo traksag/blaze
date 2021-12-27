@@ -110,28 +110,13 @@ typedef struct {
 #define CHUNK_LOADED (1u << 0)
 
 typedef struct {
-    i32 indexInBucket;
     u16 blockStates[4096];
     u16 * changedBlockSet;
     i32 changedBlockSetMask;
     i32 changedBlockCount;
     i64 lastChangeTick;
+    MemoryPoolBlock * block;
 } ChunkSection;
-
-#define CHUNK_SECTIONS_PER_BUCKET (64)
-
-typedef struct chunk_section_bucket chunk_section_bucket;
-
-struct chunk_section_bucket {
-    ChunkSection chunk_sections[CHUNK_SECTIONS_PER_BUCKET];
-    // @TODO(traks) we use 2 * CHUNK_SECTIONS_PER_BUCKET 4096-byte pages for the
-    // block states in the chunk sections. How much of the next page do we use?
-    chunk_section_bucket * next;
-    chunk_section_bucket * prev;
-    int used_sections;
-    // @TODO(traks) store this in longs?
-    unsigned char used_map[CHUNK_SECTIONS_PER_BUCKET];
-};
 
 typedef struct {
     i8 x;
@@ -2187,6 +2172,9 @@ typedef struct {
     int scheduled_block_update_count;
 
     MemoryArena * tickArena;
+    MemoryArena * permanentArena;
+
+    MemoryPool * sectionPool;
 } server;
 
 extern server * serv;
