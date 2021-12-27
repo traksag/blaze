@@ -2285,6 +2285,10 @@ send_player_abilities(BufCursor * send_cursor, entity_base * player) {
     finish_packet(send_cursor, player);
 }
 
+// @TODO(traks) I wonder if this function should be sending packets to all
+// players at once instead of to only a single player. That would allow us to
+// cache compressed chunk packets, copy packets that get sent to all players,
+// use the CPU cache better, etc.
 void
 send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     BeginTimedZone("send packets");
@@ -2471,7 +2475,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
 
         begin_packet(send_cursor, CBP_CUSTOM_PAYLOAD);
         String brand_str = STR("minecraft:brand");
-        String brand = STR("blaze");
+        String brand = STR("Blaze");
         CursorPutVarString(send_cursor, brand_str);
         CursorPutVarString(send_cursor, brand);
         finish_packet(send_cursor, player);
