@@ -400,7 +400,7 @@ break_block(BlockPos pos) {
             .x = pos.x >> 4,
             .z = pos.z >> 4
         };
-        chunk * ch = get_chunk_if_loaded(ch_pos);
+        Chunk * ch = GetChunkIfLoaded(ch_pos);
         if (ch != NULL) {
             if (ch->local_event_count < ARRAY_SIZE(ch->local_events)) {
                 ch->local_events[ch->local_event_count] = (level_event) {

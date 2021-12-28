@@ -18,18 +18,6 @@
 // Not sure if that's any good.
 static chunk_bucket chunk_map[CHUNK_MAP_SIZE];
 
-ChunkSection * AllocChunkSection() {
-    MemoryPoolAllocation alloc = CallocInPool(serv->sectionPool);
-    ChunkSection * res = alloc.data;
-    res->block = alloc.block;
-    return res;
-}
-
-void FreeChunkSection(ChunkSection * section) {
-    MemoryPoolAllocation alloc = {.block = section->block, .data = section};
-    FreeInPool(serv->sectionPool, alloc);
-}
-
 static int
 chunk_pos_equal(chunk_pos a, chunk_pos b) {
     // @TODO(traks) make sure this compiles to a single compare. If not, should
@@ -57,7 +45,7 @@ try_get_block_entity(BlockPos pos) {
         .z = pos.z >> 4
     };
 
-    chunk * ch = get_chunk_if_loaded(ch_pos);
+    Chunk * ch = GetChunkIfLoaded(ch_pos);
     if (ch == NULL) {
         return NULL;
     }
@@ -96,12 +84,12 @@ try_get_block_state(BlockPos pos) {
         .z = pos.z >> 4
     };
 
-    chunk * ch = get_chunk_if_loaded(ch_pos);
+    Chunk * ch = GetChunkIfLoaded(ch_pos);
     if (ch == NULL) {
         return get_default_block_state(BLOCK_UNKNOWN);
     }
 
-    return chunk_get_block_state(ch, pos.x & 0xf, pos.y, pos.z & 0xf);
+    return ChunkGetBlockState(ch, pos.x & 0xf, pos.y, pos.z & 0xf);
 }
 
 void
@@ -125,24 +113,23 @@ try_set_block_state(BlockPos pos, u16 block_state) {
         .z = pos.z >> 4
     };
 
-    chunk * ch = get_chunk_if_loaded(ch_pos);
+    Chunk * ch = GetChunkIfLoaded(ch_pos);
     if (ch == NULL) {
         return;
     }
 
-    return chunk_set_block_state(ch, pos.x & 0xf, pos.y, pos.z & 0xf, block_state);
+    return ChunkSetBlockState(ch, pos.x & 0xf, pos.y, pos.z & 0xf, block_state);
 }
 
-u16
-chunk_get_block_state(chunk * ch, int x, int y, int z) {
+u16 ChunkGetBlockState(Chunk * ch, int x, int y, int z) {
     assert(0 <= x && x < 16);
     assert(MIN_WORLD_Y <= y && y <= MAX_WORLD_Y);
     assert(0 <= z && z < 16);
 
     int sectionIndex = (y - MIN_WORLD_Y) >> 4;
-    ChunkSection * section = ch->sections[sectionIndex];
+    ChunkSection * section = ch->sections + sectionIndex;
 
-    if (section == NULL) {
+    if (section->nonAirCount == 0) {
         // @TODO(traks) would it be possible to have a block type -> default state
         // lookup here and have it expand to a constant once we pregenerate all
         // the data tables?
@@ -154,11 +141,11 @@ chunk_get_block_state(chunk * ch, int x, int y, int z) {
 }
 
 static void
-recalculate_chunk_motion_blocking_height_map(chunk * ch) {
+recalculate_chunk_motion_blocking_height_map(Chunk * ch) {
     for (int zx = 0; zx < 16 * 16; zx++) {
         ch->motion_blocking_height_map[zx] = 0;
         for (int y = MAX_WORLD_Y; y >= MIN_WORLD_Y; y--) {
-            u16 block_state = chunk_get_block_state(ch, zx & 0xf, y, zx >> 4);
+            u16 block_state = ChunkGetBlockState(ch, zx & 0xf, y, zx >> 4);
             // @TODO(traks) other airs
             if (block_state != 0) {
                 ch->motion_blocking_height_map[zx] = y + 1;
@@ -173,8 +160,7 @@ static inline i32 HashChangedBlockPos(i32 index, i32 hashMask) {
     return index & hashMask;
 }
 
-void
-chunk_set_block_state(chunk * ch, int x, int y, int z, u16 block_state) {
+void ChunkSetBlockState(Chunk * ch, int x, int y, int z, u16 block_state) {
     assert(0 <= x && x < 16);
     assert(MIN_WORLD_Y <= y && y <= MAX_WORLD_Y);
     assert(0 <= z && z < 16);
@@ -184,29 +170,34 @@ chunk_set_block_state(chunk * ch, int x, int y, int z, u16 block_state) {
     // to a chunk per tick.
 
     int sectionIndex = (y - MIN_WORLD_Y) >> 4;
-    ChunkSection * section = ch->sections[sectionIndex];
+    ChunkSection * section = ch->sections + sectionIndex;
 
-    if (section == NULL) {
+    if (section->nonAirCount == 0) {
         // @TODO(traks) instead of making block setting fallible, perhaps
         // getting the chunk should fail if chunk sections cannot be allocated
-        section = AllocChunkSection();
-        if (section == NULL) {
-            LogErrno("Failed to allocate section: %s");
-            exit(1);
-        }
-        ch->sections[sectionIndex] = section;
+        MemoryPoolAllocation alloc = CallocInPool(serv->sectionPool);
+        section->blockStates = alloc.data;
+        section->blockStatesBlock = alloc.block;
     }
 
     int index = SectionPosToIndex((BlockPos) {x, y, z});
 
+    // @TODO(traks) also check for cave air and void air?
     if (section->blockStates[index] == 0) {
-        ch->non_air_count[sectionIndex]++;
+        section->nonAirCount++;
     }
     if (block_state == 0) {
-        ch->non_air_count[sectionIndex]--;
+        section->nonAirCount--;
     }
 
     section->blockStates[index] = block_state;
+
+    if (section->nonAirCount == 0) {
+        MemoryPoolAllocation alloc = {.data = section->blockStates, .block = section->blockStatesBlock};
+        section->blockStates = NULL;
+        section->blockStatesBlock = NULL;
+        FreeInPool(serv->sectionPool, alloc);
+    }
 
     // @NOTE(traks) update height map
 
@@ -219,7 +210,7 @@ chunk_set_block_state(chunk * ch, int x, int y, int z, u16 block_state) {
             max_height = 0;
 
             for (int lower_y = y - 1; lower_y >= 0; lower_y--) {
-                if (chunk_get_block_state(ch, x, lower_y, z) != 0) {
+                if (ChunkGetBlockState(ch, x, lower_y, z) != 0) {
                     // @TODO(traks) handle other airs
                     max_height = lower_y + 1;
                 }
@@ -235,7 +226,6 @@ chunk_set_block_state(chunk * ch, int x, int y, int z, u16 block_state) {
     }
 
     // @NOTE(traks) update changed block list
-
     if (section->lastChangeTick != serv->current_tick) {
         section->lastChangeTick = serv->current_tick;
         // @NOTE(traks) must be power of 2
@@ -315,9 +305,7 @@ fill_buffer_from_file(int fd, BufCursor * cursor) {
     cursor->index = start_index;
 }
 
-void
-try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
-        MemoryArena * scratch_arena) {
+void TryReadChunkFromStorage(chunk_pos pos, Chunk * ch, MemoryArena * scratch_arena) {
     BeginTimedZone("read chunk");
 
     // @TODO(traks) error handling and/or error messages for all failure cases
@@ -502,7 +490,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
     // NbtPrint(&chunkNbt);
 
     for (int section_y = 0; section_y < SECTIONS_PER_CHUNK; section_y++) {
-        assert(ch->sections[section_y] == NULL);
+        assert(ch->sections[section_y].blockStates != NULL);
     }
 
     i32 dataVersion = NbtGetU32(&chunkNbt, STR("DataVersion"));
@@ -546,20 +534,7 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
             }
 
             i32 sectionIndex = sectionY - MIN_SECTION;
-
-            if (ch->sections[sectionIndex] != NULL) {
-                LogInfo("Duplicate section Y %d", (int) sectionY);
-                goto bail;
-            }
-
-            ChunkSection * section = AllocChunkSection();
-            if (section == NULL) {
-                LogErrno("Failed to allocate section: %s");
-                goto bail;
-            }
-            // Note that the section allocation will be freed when the chunk
-            // gets removed somewhere else in the code base.
-            ch->sections[sectionIndex] = section;
+            ChunkSection * section = ch->sections + sectionIndex;
 
             u32 paletteSize = palette.size;
 
@@ -633,8 +608,9 @@ try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
                 u16 block_state = palette_map[id];
                 section->blockStates[j] = block_state;
 
+                // @TODO(traks) handle cave air and void air
                 if (block_state != 0) {
-                    ch->non_air_count[sectionIndex]++;
+                    section->nonAirCount++;
                 }
             }
         }
@@ -658,8 +634,7 @@ bail:
     }
 }
 
-chunk *
-get_or_create_chunk(chunk_pos pos) {
+Chunk * GetOrCreateChunk(chunk_pos pos) {
     int hash = hash_chunk_pos(pos);
     chunk_bucket * bucket = chunk_map + hash;
     int bucket_size = bucket->size;
@@ -675,21 +650,20 @@ get_or_create_chunk(chunk_pos pos) {
 
     bucket->positions[i] = pos;
     bucket->size++;
-    chunk * ch = bucket->chunks + i;
-    *ch = (chunk) {0};
+    Chunk * ch = bucket->chunks + i;
+    *ch = (Chunk) {0};
     return ch;
 }
 
-chunk *
-get_chunk_if_loaded(chunk_pos pos) {
+Chunk * GetChunkIfLoaded(chunk_pos pos) {
     int hash = hash_chunk_pos(pos);
     chunk_bucket * bucket = chunk_map + hash;
     int bucket_size = bucket->size;
-    chunk * res = NULL;
+    Chunk * res = NULL;
 
     for (int i = 0; i < bucket_size; i++) {
         if (chunk_pos_equal(bucket->positions[i], pos)) {
-            chunk * ch = bucket->chunks + i;
+            Chunk * ch = bucket->chunks + i;
             if (ch->flags & CHUNK_LOADED) {
                 res = ch;
             }
@@ -700,12 +674,11 @@ get_chunk_if_loaded(chunk_pos pos) {
     return res;
 }
 
-chunk *
-get_chunk_if_available(chunk_pos pos) {
+Chunk * GetChunkIfAvailable(chunk_pos pos) {
     int hash = hash_chunk_pos(pos);
     chunk_bucket * bucket = chunk_map + hash;
     int bucket_size = bucket->size;
-    chunk * res = NULL;
+    Chunk * res = NULL;
 
     for (int i = 0; i < bucket_size; i++) {
         if (chunk_pos_equal(bucket->positions[i], pos)) {
@@ -723,13 +696,15 @@ clean_up_unused_chunks(void) {
         chunk_bucket * bucket = chunk_map + bucketi;
 
         for (int chunki = 0; chunki < bucket->size; chunki++) {
-            chunk * ch = bucket->chunks + chunki;
+            Chunk * ch = bucket->chunks + chunki;
             ch->local_event_count = 0;
 
             if (ch->available_interest == 0) {
-                for (int sectioni = 0; sectioni < SECTIONS_PER_CHUNK; sectioni++) {
-                    if (ch->sections[sectioni] != NULL) {
-                        FreeChunkSection(ch->sections[sectioni]);
+                for (int sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
+                    ChunkSection * section = ch->sections + sectionIndex;
+                    if (section->nonAirCount != 0) {
+                        MemoryPoolAllocation alloc = {.data = section->blockStates, .block = section->blockStatesBlock};
+                        FreeInPool(serv->sectionPool, alloc);
                     }
                 }
 

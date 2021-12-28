@@ -724,7 +724,7 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
                     .x = block_pos.x >> 4,
                     .z = block_pos.z >> 4
                 };
-                chunk * ch = get_chunk_if_loaded(pos);
+                Chunk * ch = GetChunkIfLoaded(pos);
                 if (ch == NULL) {
                     // @TODO(traks) client will still see block as
                     // broken. Does that really matter? A forget
@@ -746,8 +746,7 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
                 };
 
                 u16 new_state = 0;
-                chunk_set_block_state(ch, block_pos.x & 0xf, block_pos.y,
-                        block_pos.z & 0xf, new_state);
+                ChunkSetBlockState(ch, block_pos.x & 0xf, block_pos.y, block_pos.z & 0xf, new_state);
                 push_direct_neighbour_block_updates(block_pos, &buc);
                 propagate_block_updates(&buc);
 
@@ -1164,7 +1163,7 @@ finish_packet(BufCursor * send_cursor, entity_base * player) {
 }
 
 void
-send_chunk_fully(BufCursor * send_cursor, chunk_pos pos, chunk * ch,
+send_chunk_fully(BufCursor * send_cursor, chunk_pos pos, Chunk * ch,
         entity_base * entity, MemoryArena * tick_arena) {
     BeginTimedZone("send chunk fully");
 
@@ -1219,8 +1218,8 @@ send_chunk_fully(BufCursor * send_cursor, chunk_pos pos, chunk * ch,
     int blocks_per_long = 64 / bits_per_block;
 
     for (int i = 0; i < SECTIONS_PER_CHUNK; i++) {
-        ChunkSection * section = ch->sections[i];
-        if (section == NULL) {
+        ChunkSection * section = ch->sections + i;
+        if (section->nonAirCount == 0) {
             section_data_size += 2 + 1 + 1 + 1;
         } else {
             // size of non-air count + bits per block
@@ -1241,14 +1240,13 @@ send_chunk_fully(BufCursor * send_cursor, chunk_pos pos, chunk * ch,
     CursorPutVarU32(send_cursor, section_data_size);
 
     for (i32 i = 0; i < SECTIONS_PER_CHUNK; i++) {
-        ChunkSection * section = ch->sections[i];
-        if (section == NULL) {
-            CursorPutU16(send_cursor, 0); // # of non-air blocks
+        ChunkSection * section = ch->sections + i;
+        CursorPutU16(send_cursor, section->nonAirCount); // # of non-air blocks
+        if (section->nonAirCount == 0) {
             CursorPutU8(send_cursor, 0);
             CursorPutVarU32(send_cursor, 0);
             CursorPutVarU32(send_cursor, 0);
         } else {
-            CursorPutU16(send_cursor, ch->non_air_count[i]);
             CursorPutU8(send_cursor, bits_per_block);
 
             // number of longs used for the block states
@@ -1329,7 +1327,7 @@ send_chunk_fully(BufCursor * send_cursor, chunk_pos pos, chunk * ch,
 }
 
 static void
-send_light_update(BufCursor * send_cursor, chunk_pos pos, chunk * ch,
+send_light_update(BufCursor * send_cursor, chunk_pos pos, Chunk * ch,
         entity_base * entity, MemoryArena * tick_arena) {
     BeginTimedZone("send light update");
 
@@ -1394,7 +1392,7 @@ disconnect_player_now(entity_base * entity) {
     for (i16 x = chunk_cache_min_x; x <= chunk_cache_max_x; x++) {
         for (i16 z = chunk_cache_min_z; z <= chunk_cache_max_z; z++) {
             chunk_pos pos = {.x = x, .z = z};
-            chunk * ch = get_chunk_if_available(pos);
+            Chunk * ch = GetChunkIfAvailable(pos);
             assert(ch != NULL);
             ch->available_interest--;
         }
@@ -2616,13 +2614,13 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                     continue;
                 }
 
-                chunk * ch = get_chunk_if_loaded(pos);
+                Chunk * ch = GetChunkIfLoaded(pos);
                 assert(ch != NULL);
 
                 for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
                     i32 sectionY = sectionIndex + MIN_SECTION;
-                    ChunkSection * section = ch->sections[sectionIndex];
-                    if (section == NULL || section->lastChangeTick != serv->current_tick) {
+                    ChunkSection * section = ch->sections + sectionIndex;
+                    if (section->lastChangeTick != serv->current_tick) {
                         continue;
                     }
 
@@ -2646,7 +2644,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                     for (i32 i = 0; i < section->changedBlockSetMask + 1; i++) {
                         if (section->changedBlockSet[i] != 0) {
                             BlockPos pos = SectionIndexToPos(section->changedBlockSet[i] & 0x7fff);
-                            i64 block_state = chunk_get_block_state(ch, pos.x, pos.y + sectionY * 16, pos.z);
+                            i64 block_state = ChunkGetBlockState(ch, pos.x, pos.y + sectionY * 16, pos.z);
                             i64 encoded = (block_state << 12) | (pos.x << 8) | (pos.z << 4) | (pos.y & 0xf);
                             CursorPutVarU64(send_cursor, encoded);
                         }
@@ -2669,7 +2667,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             }
 
             // old chunk is not in the new region
-            chunk * ch = get_chunk_if_available(pos);
+            Chunk * ch = GetChunkIfAvailable(pos);
             assert(ch != NULL);
             ch->available_interest--;
 
@@ -2695,7 +2693,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
 
             // chunk not in old region
             chunk_pos pos = {.x = x, .z = z};
-            chunk * ch = get_or_create_chunk(pos);
+            Chunk * ch = GetOrCreateChunk(pos);
             ch->available_interest++;
         }
     }
@@ -2737,7 +2735,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         if (newly_loaded_chunks < MAX_CHUNK_LOADS_PER_TICK
                 && serv->chunk_load_request_count
                 < ARRAY_SIZE(serv->chunk_load_requests)) {
-            chunk * ch = get_chunk_if_available(pos);
+            Chunk * ch = GetChunkIfAvailable(pos);
             assert(ch != NULL);
             assert(ch->available_interest > 0);
             if (!(ch->flags & CHUNK_LOADED)) {
@@ -2748,7 +2746,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         }
 
         if (newly_sent_chunks < MAX_CHUNK_SENDS_PER_TICK && !entry->sent) {
-            chunk * ch = get_chunk_if_loaded(pos);
+            Chunk * ch = GetChunkIfLoaded(pos);
             if (ch != NULL) {
                 // send chunk blocks and lighting
                 send_chunk_fully(send_cursor, pos, ch, player, tick_arena);

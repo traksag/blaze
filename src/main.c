@@ -281,6 +281,10 @@ MemoryPoolAllocation CallocInPool(MemoryPool * pool) {
 }
 
 void FreeInPool(MemoryPool * pool, MemoryPoolAllocation alloc) {
+    if (alloc.block == NULL) {
+        return;
+    }
+
     i32 itemIndex = (alloc.data - (void *) alloc.block) / pool->itemSize;
     i32 longIndex = itemIndex / 64;
     i32 bitIndex = itemIndex % 64;
@@ -1270,7 +1274,7 @@ server_tick(void) {
 
     for (int i = 0; i < serv->chunk_load_request_count; i++) {
         chunk_pos pos = serv->chunk_load_requests[i];
-        chunk * ch = get_chunk_if_available(pos);
+        Chunk * ch = GetChunkIfAvailable(pos);
         if (ch == NULL) {
             continue;
         }
@@ -1287,41 +1291,51 @@ server_tick(void) {
             .data = serv->short_lived_scratch,
             .size = serv->short_lived_scratch_size
         };
-        try_read_chunk_from_storage(pos, ch, &scratch_arena);
+
+        for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
+            ChunkSection * section = ch->sections + sectionIndex;
+            MemoryPoolAllocation alloc = CallocInPool(serv->sectionPool);
+            section->blockStates = alloc.data;
+            section->blockStatesBlock = alloc.block;
+        }
+
+        TryReadChunkFromStorage(pos, ch, &scratch_arena);
+
+        for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
+            ChunkSection * section = ch->sections + sectionIndex;
+            if (section->nonAirCount == 0) {
+                MemoryPoolAllocation alloc = {.data = section->blockStates, .block = section->blockStatesBlock};
+                section->blockStates = NULL;
+                section->blockStatesBlock = NULL;
+                FreeInPool(serv->sectionPool, alloc);
+            }
+        }
 
         if (!(ch->flags & CHUNK_LOADED)) {
             // @TODO(traks) fall back to stone plateau at min y level for now
-            // @TODO(traks) perhaps this should be in a separate struct so we
-            // can easily clear it
 
             // @NOTE(traks) clean up some of the mess the chunk loader might've
             // left behind
-            for (int sectioni = 0; sectioni < SECTIONS_PER_CHUNK; sectioni++) {
-                if (ch->sections[sectioni] != NULL) {
-                    FreeChunkSection(ch->sections[sectioni]);
-                    ch->sections[sectioni] = NULL;
-                }
-                ch->non_air_count[sectioni] = 0;
+            for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
+                ChunkSection * section = ch->sections + sectionIndex;
+                MemoryPoolAllocation alloc = {.data = section->blockStates, .block = section->blockStatesBlock};
+                section->blockStates = NULL;
+                section->blockStatesBlock = NULL;
+                FreeInPool(serv->sectionPool, alloc);
             }
 
             // @TODO(traks) perhaps should require enough chunk sections to be
             // available for chunk before even trying to load/generate it.
 
-            // @TODO(traks) would be nice if we could just use
-            // chunk_set_block_state. The problem is that the changed block
-            // buffer is too small currently.
-            ch->sections[0] = AllocChunkSection();
-            if (ch->sections[0] == NULL) {
-                LogInfo("Failed to allocate chunk section during generation");
-                exit(1);
-            }
-
+            MemoryPoolAllocation alloc = CallocInPool(serv->sectionPool);
+            ch->sections[0].blockStates = alloc.data;
+            ch->sections[0].blockStatesBlock = alloc.block;
             for (int x = 0; x < 16; x++) {
                 for (int z = 0; z < 16; z++) {
                     int index = (z << 4) | x;
-                    ch->sections[0]->blockStates[index] = 2;
+                    ch->sections[0].blockStates[index] = 2;
                     ch->motion_blocking_height_map[index] = MIN_WORLD_Y + 1;
-                    ch->non_air_count[0]++;
+                    ch->sections[0].nonAirCount++;
                 }
             }
 
@@ -1862,7 +1876,7 @@ main(void) {
     serv->permanentArena = &permanentArena;
 
     serv->sectionPool = MallocInArena(serv->permanentArena, sizeof *serv->sectionPool);
-    InitPool(serv->sectionPool, sizeof (ChunkSection), 256);
+    InitPool(serv->sectionPool, sizeof (u16) * 16 * 16 * 16, 256);
 
     // @TODO(traks) better sizes
     alloc_resource_loc_table(&serv->block_resource_table, 1 << 11, 1 << 16, ACTUAL_BLOCK_TYPE_COUNT);

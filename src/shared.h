@@ -110,12 +110,13 @@ typedef struct {
 #define CHUNK_LOADED (1u << 0)
 
 typedef struct {
-    u16 blockStates[4096];
+    u16 * blockStates;
+    MemoryPoolBlock * blockStatesBlock;
     u16 * changedBlockSet;
     i32 changedBlockSetMask;
     i32 changedBlockCount;
     i64 lastChangeTick;
-    MemoryPoolBlock * block;
+    u16 nonAirCount;
 } ChunkSection;
 
 typedef struct {
@@ -185,8 +186,7 @@ typedef struct {
 } level_event;
 
 typedef struct {
-    ChunkSection * sections[SECTIONS_PER_CHUNK];
-    u16 non_air_count[SECTIONS_PER_CHUNK];
+    ChunkSection sections[SECTIONS_PER_CHUNK];
     i16 motion_blocking_height_map[256];
 
     // increment if you want to keep a chunk available in the map, decrement
@@ -210,7 +210,7 @@ typedef struct {
 
     level_event local_events[64];
     u8 local_event_count;
-} chunk;
+} Chunk;
 
 #define CHUNKS_PER_BUCKET (32)
 
@@ -222,7 +222,7 @@ struct chunk_bucket {
     chunk_bucket * next_bucket;
     int size;
     chunk_pos positions[CHUNKS_PER_BUCKET];
-    chunk chunks[CHUNKS_PER_BUCKET];
+    Chunk chunks[CHUNKS_PER_BUCKET];
 };
 
 enum item_type {
@@ -2188,14 +2188,9 @@ enum player_hand {
 int
 find_property_value_index(block_property_spec * prop_spec, String val);
 
-chunk *
-get_or_create_chunk(chunk_pos pos);
-
-chunk *
-get_chunk_if_loaded(chunk_pos pos);
-
-chunk *
-get_chunk_if_available(chunk_pos pos);
+Chunk * GetOrCreateChunk(chunk_pos pos);
+Chunk * GetChunkIfLoaded(chunk_pos pos);
+Chunk * GetChunkIfAvailable(chunk_pos pos);
 
 block_entity_base *
 try_get_block_entity(BlockPos pos);
@@ -2219,15 +2214,10 @@ static inline BlockPos SectionIndexToPos(i32 index) {
     return res;
 }
 
-void
-chunk_set_block_state(chunk * ch, int x, int y, int z, u16 block_state);
+void ChunkSetBlockState(Chunk * ch, int x, int y, int z, u16 block_state);
+u16 ChunkGetBlockState(Chunk * ch, int x, int y, int z);
 
-u16
-chunk_get_block_state(chunk * ch, int x, int y, int z);
-
-void
-try_read_chunk_from_storage(chunk_pos pos, chunk * ch,
-        MemoryArena * scratch_arena);
+void TryReadChunkFromStorage(chunk_pos pos, Chunk * ch, MemoryArena * scratch_arena);
 
 ChunkSection * AllocChunkSection(void);
 void FreeChunkSection(ChunkSection * section);
