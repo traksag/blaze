@@ -507,6 +507,8 @@ void TryReadChunkFromStorage(chunk_pos pos, Chunk * ch, MemoryArena * scratch_ar
         goto bail;
     }
 
+    i32 lightIsStored = NbtGetU8(&chunkNbt, STR("isLightOn"));
+
     NbtList sectionList = NbtGetList(&chunkNbt, STR("sections"), NBT_COMPOUND);
     i32 numSections = sectionList.size;
 
@@ -514,7 +516,7 @@ void TryReadChunkFromStorage(chunk_pos pos, Chunk * ch, MemoryArena * scratch_ar
     int max_palette_map_size = 4096;
     u16 * palette_map = MallocInArena(scratch_arena, max_palette_map_size * sizeof (u16));
 
-    if (numSections > SECTIONS_PER_CHUNK) {
+    if (numSections > LIGHT_SECTIONS_PER_CHUNK) {
         LogInfo("Too many chunk sections: %ju", (uintmax_t) numSections);
         goto bail;
     }
@@ -614,6 +616,26 @@ void TryReadChunkFromStorage(chunk_pos pos, Chunk * ch, MemoryArena * scratch_ar
                 }
             }
         }
+
+        if (lightIsStored) {
+            if (sectionY < MIN_SECTION - 1 || sectionY > MAX_SECTION + 1) {
+                LogInfo("Section Y %d with light", (int) sectionY);
+                goto bail;
+            }
+
+            i32 lightSectionIndex = sectionY - MIN_SECTION + 1;
+            LightSection * lightSection = ch->lightSections + lightSectionIndex;
+
+            NbtList skyLight = NbtGetArrayU8(&sectionNbt, STR("SkyLight"));
+            NbtList blockLight = NbtGetArrayU8(&sectionNbt, STR("BlockLight"));
+
+            if (skyLight.size == 2048) {
+                memcpy(lightSection->skyLight, skyLight.listData, 2048);
+            }
+            if (blockLight.size == 2048) {
+                memcpy(lightSection->blockLight, blockLight.listData, 2048);
+            }
+        }
     }
 
     recalculate_chunk_motion_blocking_height_map(ch);
@@ -706,6 +728,13 @@ clean_up_unused_chunks(void) {
                         MemoryPoolAllocation alloc = {.data = section->blockStates, .block = section->blockStatesBlock};
                         FreeInPool(serv->sectionPool, alloc);
                     }
+                }
+                for (int sectionIndex = 0; sectionIndex < LIGHT_SECTIONS_PER_CHUNK; sectionIndex++) {
+                    LightSection * section = ch->lightSections + sectionIndex;
+                    MemoryPoolAllocation skyAlloc = {.data = section->skyLight, .block = section->skyLightBlock};
+                    FreeInPool(serv->lightingPool, skyAlloc);
+                    MemoryPoolAllocation blockAlloc = {.data = section->blockLight, .block = section->blockLightBlock};
+                    FreeInPool(serv->lightingPool, blockAlloc);
                 }
 
                 int last = bucket->size - 1;

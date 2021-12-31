@@ -1299,6 +1299,16 @@ server_tick(void) {
             section->blockStatesBlock = alloc.block;
         }
 
+        for (i32 sectionIndex = 0; sectionIndex < LIGHT_SECTIONS_PER_CHUNK; sectionIndex++) {
+            LightSection * section = ch->lightSections + sectionIndex;
+            MemoryPoolAllocation alloc = CallocInPool(serv->lightingPool);
+            section->skyLight = alloc.data;
+            section->skyLightBlock = alloc.block;
+            alloc = CallocInPool(serv->lightingPool);
+            section->blockLight = alloc.data;
+            section->blockLightBlock = alloc.block;
+        }
+
         TryReadChunkFromStorage(pos, ch, &scratch_arena);
 
         for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
@@ -1877,6 +1887,8 @@ main(void) {
 
     serv->sectionPool = MallocInArena(serv->permanentArena, sizeof *serv->sectionPool);
     InitPool(serv->sectionPool, sizeof (u16) * 16 * 16 * 16, 256);
+    serv->lightingPool = MallocInArena(serv->permanentArena, sizeof *serv->lightingPool);
+    InitPool(serv->lightingPool, 2048, 256);
 
     // @TODO(traks) better sizes
     alloc_resource_loc_table(&serv->block_resource_table, 1 << 11, 1 << 16, ACTUAL_BLOCK_TYPE_COUNT);

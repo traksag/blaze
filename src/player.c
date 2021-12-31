@@ -1286,15 +1286,15 @@ send_chunk_fully(BufCursor * send_cursor, chunk_pos pos, Chunk * ch,
 
     BeginTimedZone("write light");
 
-    // light sections present as arrays in this packet
-    // @NOTE(traks) add 2 for light below the world and light above the world
-    i32 lightSections = SECTIONS_PER_CHUNK + 2;
+    i32 lightSections = LIGHT_SECTIONS_PER_CHUNK;
+    // @NOTE(traks) light sections present as arrays in this packet
     u64 sky_light_mask = (0x1 << lightSections) - 1;
     u64 block_light_mask = (0x1 << lightSections) - 1;
-    // sections with all light values equal to 0
+    // @NOTE(traks) sections with all light values equal to 0
     u64 zero_sky_light_mask = 0;
     u64 zero_block_light_mask = 0;
 
+    // @TODO(traks) figure out what trust edges actually does
     CursorPutU8(send_cursor, 1); // trust edges
     CursorPutVarU32(send_cursor, 1);
     CursorPutU64(send_cursor, sky_light_mask);
@@ -1306,17 +1306,17 @@ send_chunk_fully(BufCursor * send_cursor, chunk_pos pos, Chunk * ch,
     CursorPutU64(send_cursor, zero_block_light_mask);
 
     CursorPutVarU32(send_cursor, lightSections);
-    for (int i = 0; i < lightSections; i++) {
+    for (int sectionIndex = 0; sectionIndex < lightSections; sectionIndex++) {
+        LightSection * section = ch->lightSections + sectionIndex;
         CursorPutVarU32(send_cursor, 2048);
-        memset(send_cursor->data + send_cursor->index, 0xff, 2048);
-        send_cursor->index += 2048;
+        CursorPutData(send_cursor, section->skyLight, 2048);
     }
 
     CursorPutVarU32(send_cursor, lightSections);
-    for (int i = 0; i < lightSections; i++) {
+    for (int sectionIndex = 0; sectionIndex < lightSections; sectionIndex++) {
+        LightSection * section = ch->lightSections + sectionIndex;
         CursorPutVarU32(send_cursor, 2048);
-        memset(send_cursor->data + send_cursor->index, 0xff, 2048);
-        send_cursor->index += 2048;
+        CursorPutData(send_cursor, section->blockLight, 2048);
     }
 
     EndTimedZone();

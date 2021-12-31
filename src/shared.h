@@ -42,6 +42,8 @@
 #define MIN_SECTION (MIN_WORLD_Y >> 4)
 #define MAX_SECTION (MAX_WORLD_Y >> 4)
 #define SECTIONS_PER_CHUNK (MAX_SECTION - MIN_SECTION + 1)
+// @NOTE(traks) add 2 for extra section above and below the world
+#define LIGHT_SECTIONS_PER_CHUNK (SECTIONS_PER_CHUNK + 2)
 
 // in network id order
 enum gamemode {
@@ -106,18 +108,6 @@ typedef struct {
     i16 x;
     i16 z;
 } chunk_pos;
-
-#define CHUNK_LOADED (1u << 0)
-
-typedef struct {
-    u16 * blockStates;
-    MemoryPoolBlock * blockStatesBlock;
-    u16 * changedBlockSet;
-    i32 changedBlockSetMask;
-    i32 changedBlockCount;
-    i64 lastChangeTick;
-    u16 nonAirCount;
-} ChunkSection;
 
 typedef struct {
     i8 x;
@@ -185,8 +175,31 @@ typedef struct {
     i32 data;
 } level_event;
 
+#define CHUNK_LOADED (1u << 0)
+
+typedef struct {
+    // @NOTE(traks) NULL if section is air
+    u16 * blockStates;
+    MemoryPoolBlock * blockStatesBlock;
+    u16 * changedBlockSet;
+    i32 changedBlockSetMask;
+    i32 changedBlockCount;
+    i64 lastChangeTick;
+    u16 nonAirCount;
+} ChunkSection;
+
+typedef struct {
+    // @NOTE(traks) sky light and block light are 4 bits per entry. Currently
+    // never NULL, even if all light is 0.
+    u8 * skyLight;
+    MemoryPoolBlock * skyLightBlock;
+    u8 * blockLight;
+    MemoryPoolBlock * blockLightBlock;
+} LightSection;
+
 typedef struct {
     ChunkSection sections[SECTIONS_PER_CHUNK];
+    LightSection lightSections[LIGHT_SECTIONS_PER_CHUNK];
     i16 motion_blocking_height_map[256];
 
     // increment if you want to keep a chunk available in the map, decrement
@@ -2175,6 +2188,7 @@ typedef struct {
     MemoryArena * permanentArena;
 
     MemoryPool * sectionPool;
+    MemoryPool * lightingPool;
 } server;
 
 extern server * serv;
