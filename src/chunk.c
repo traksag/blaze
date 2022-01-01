@@ -812,9 +812,7 @@ static inline LightQueueEntry LightQueuePop(LightQueue * queue) {
 }
 
 static inline i32 CalculatePropagatedSkyLightValue(Chunk * ch, i32 fromX, i32 fromY, i32 fromZ, i32 dx, i32 dy, i32 dz, i32 fromValue, i32 spreadValue) {
-    i32 actualFromY = fromY - 16 + MIN_WORLD_Y;
-    u16 fromState = ChunkGetBlockState(ch, fromX, actualFromY, fromZ);
-    u16 toState = ChunkGetBlockState(ch, fromX + dx, actualFromY + dy, fromZ + dz);
+    u16 toState = ChunkGetBlockState(ch, fromX + dx, fromY + dy, fromZ + dz);
     // @TODO(traks) opacity and stuff
     if (toState == 0 || toState == get_default_block_state(BLOCK_VOID_AIR) || toState == get_default_block_state(BLOCK_CAVE_AIR)) {
         return spreadValue;
@@ -824,6 +822,11 @@ static inline i32 CalculatePropagatedSkyLightValue(Chunk * ch, i32 fromX, i32 fr
 }
 
 void LightChunk(Chunk * ch) {
+    // @TODO(traks) remove debug data
+    static i64 totalPushCount;
+    static i64 totalCallCount;
+    static i64 totalElapsedTime;
+
     BeginTimedZone("LightChunk");
     // for (i32 zx = 0; zx < 16 * 16; zx++) {
     //     i32 maxHeight = ch->motion_blocking_height_map[zx];
@@ -839,9 +842,24 @@ void LightChunk(Chunk * ch) {
 
     LightQueue skyLightQueue = {0};
 
+    i32 chunkMaxY = MIN_WORLD_Y;
     for (i32 x = 0; x < 16; x++) {
         for (i32 z = 0; z < 16; z++) {
-            i32 y = LIGHT_SECTIONS_PER_CHUNK * 16 - 1;
+            i32 maxY = ch->motion_blocking_height_map[(z << 4) | x];
+            chunkMaxY = MAX(maxY, chunkMaxY);
+        }
+    }
+
+    i32 lowestSectionFullLight = ((chunkMaxY - MIN_WORLD_Y + 16) >> 4) + 1;
+    assert(lowestSectionFullLight >= 0);
+    assert(lowestSectionFullLight <= LIGHT_SECTIONS_PER_CHUNK);
+    for (i32 sectionIndex = LIGHT_SECTIONS_PER_CHUNK - 1; sectionIndex >= lowestSectionFullLight; sectionIndex--) {
+        memset(ch->lightSections[sectionIndex].skyLight, 0xff, 2048);
+    }
+
+    for (i32 x = 0; x < 16; x++) {
+        for (i32 z = 0; z < 16; z++) {
+            i32 y = lowestSectionFullLight * 16 - 1;
             LightQueuePush(&skyLightQueue, (LightQueueEntry) {x, y, z, 15});
         }
     }
@@ -870,28 +888,30 @@ void LightChunk(Chunk * ch) {
         }
         SetSectionLight(ch->lightSections[sectionIndex].skyLight, posIndex, value);
 
+        i32 worldY = y - 16 + MIN_WORLD_Y;
+
         if (x > 0) {
-            i32 nextValue = CalculatePropagatedSkyLightValue(ch, x, y, z, -1, 0, 0, value, value - 1);
+            i32 nextValue = CalculatePropagatedSkyLightValue(ch, x, worldY, z, -1, 0, 0, value, value - 1);
             LightQueuePush(&skyLightQueue, (LightQueueEntry) {x - 1, y, z, nextValue});
         }
         if (x < 15) {
-            i32 nextValue = CalculatePropagatedSkyLightValue(ch, x, y, z, 1, 0, 0, value, value - 1);
+            i32 nextValue = CalculatePropagatedSkyLightValue(ch, x, worldY, z, 1, 0, 0, value, value - 1);
             LightQueuePush(&skyLightQueue, (LightQueueEntry) {x + 1, y, z, nextValue});
         }
         if (z > 0) {
-            i32 nextValue = CalculatePropagatedSkyLightValue(ch, x, y, z, 0, 0, -1, value, value - 1);
+            i32 nextValue = CalculatePropagatedSkyLightValue(ch, x, worldY, z, 0, 0, -1, value, value - 1);
             LightQueuePush(&skyLightQueue, (LightQueueEntry) {x, y, z - 1, nextValue});
         }
         if (z < 15) {
-            i32 nextValue = CalculatePropagatedSkyLightValue(ch, x, y, z, 0, 0, 1, value, value - 1);
+            i32 nextValue = CalculatePropagatedSkyLightValue(ch, x, worldY, z, 0, 0, 1, value, value - 1);
             LightQueuePush(&skyLightQueue, (LightQueueEntry) {x, y, z + 1, nextValue});
         }
         if (y > 0) {
-            i32 nextValue = CalculatePropagatedSkyLightValue(ch, x, y, z, 0, -1, 0, value, value == 15 ? 15 : (value - 1));
+            i32 nextValue = CalculatePropagatedSkyLightValue(ch, x, worldY, z, 0, -1, 0, value, value == 15 ? 15 : (value - 1));
             LightQueuePush(&skyLightQueue, (LightQueueEntry) {x, y - 1, z, nextValue});
         }
         if (y < LIGHT_SECTIONS_PER_CHUNK * 16 - 1) {
-            i32 nextValue = CalculatePropagatedSkyLightValue(ch, x, y, z, 0, 1, 0, value, value - 1);
+            i32 nextValue = CalculatePropagatedSkyLightValue(ch, x, worldY, z, 0, 1, 0, value, value - 1);
             LightQueuePush(&skyLightQueue, (LightQueueEntry) {x, y + 1, z, nextValue});
         }
     }
@@ -900,5 +920,12 @@ void LightChunk(Chunk * ch) {
 
     EndTimedZone();
 
-    LogInfo("pushes: %d, elapsed: %d", skyLightQueue.pushCount, (endTime - startTime) / 1000);
+    totalPushCount += skyLightQueue.pushCount;
+    totalCallCount++;
+    totalElapsedTime += (endTime - startTime) / 1000;
+
+    LogInfo("pushes: %d, elapsed: %d, calls: %d",
+            totalPushCount / totalCallCount,
+            totalElapsedTime / totalCallCount,
+            totalCallCount);
 }
