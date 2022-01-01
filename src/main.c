@@ -85,7 +85,7 @@ init_program_nano_time() {
     program_start_time = mach_absolute_time();
 }
 
-static long long
+long long
 program_nano_time() {
     long long diff = mach_absolute_time() - program_start_time;
     return diff * timebase_info.numer / timebase_info.denom;
@@ -100,7 +100,7 @@ init_program_nano_time() {
     clock_gettime(CLOCK_MONOTONIC, &program_start_time);
 }
 
-static long long
+long long
 program_nano_time() {
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
@@ -1351,6 +1351,10 @@ server_tick(void) {
 
             ch->flags |= CHUNK_LOADED;
         }
+
+        if (!(ch->flags & CHUNK_LIT)) {
+            LightChunk(ch);
+        }
     }
 
     serv->chunk_load_request_count = 0;
@@ -1912,6 +1916,10 @@ main(void) {
     init_biomes();
 
     int profiler_sock = -1;
+
+    // @NOTE(traks) chunk sections assume that no changes happen in tick 0, so
+    // initialise tick number to something larger than 0 to be safe
+    serv->current_tick = 10;
 
     for (;;) {
 #ifdef PROFILE

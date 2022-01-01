@@ -1471,6 +1471,32 @@ void
 tick_player(entity_base * player, MemoryArena * tick_arena) {
     BeginTimedZone("tick player");
 
+    // @TODO(traks) remove
+    if (0) {
+        i32 x = floor(player->x);
+        i32 y = floor(player->y);
+        i32 z = floor(player->z);
+        chunk_pos chunkPos = {x >> 4, z >> 4};
+        Chunk * ch = GetChunkIfLoaded(chunkPos);
+        if (ch != NULL) {
+            i32 basedY = y - MIN_WORLD_Y + 16;
+            i32 sectionIndex = basedY >> 4;
+            i32 posIndex = ((basedY & 0xf) << 8) | ((z & 0xf) << 4) | (x & 0xf);
+            i32 skyLight = GetSectionLight(ch->lightSections[basedY >> 4].skyLight, posIndex);
+            i32 blockLight = GetSectionLight(ch->lightSections[basedY >> 4].blockLight, posIndex);
+            i32 maxHeight = ch->motion_blocking_height_map[((z & 0xf) << 4) | (x & 0xf)];
+
+            if (serv->global_msg_count < ARRAY_SIZE(serv->global_msgs)) {
+                global_msg * msg = serv->global_msgs + serv->global_msg_count;
+                serv->global_msg_count++;
+                int text_size = sprintf(
+                        (void *) msg->text, "sky light %d, block light %d, max height: %d",
+                        skyLight, blockLight, maxHeight);
+                msg->size = text_size;
+            }
+        }
+    }
+
     assert(player->type == ENTITY_PLAYER);
     int sock = player->player.sock;
     ssize_t rec_size = recv(sock, player->player.rec_buf + player->player.rec_cursor,

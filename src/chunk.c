@@ -123,8 +123,12 @@ try_set_block_state(BlockPos pos, u16 block_state) {
 
 u16 ChunkGetBlockState(Chunk * ch, int x, int y, int z) {
     assert(0 <= x && x < 16);
-    assert(MIN_WORLD_Y <= y && y <= MAX_WORLD_Y);
+    // assert(MIN_WORLD_Y <= y && y <= MAX_WORLD_Y);
     assert(0 <= z && z < 16);
+
+    if (y < MIN_WORLD_Y || y > MAX_WORLD_Y) {
+        return get_default_block_state(BLOCK_VOID_AIR);
+    }
 
     int sectionIndex = (y - MIN_WORLD_Y) >> 4;
     ChunkSection * section = ch->sections + sectionIndex;
@@ -209,10 +213,11 @@ void ChunkSetBlockState(Chunk * ch, int x, int y, int z, u16 block_state) {
             // @TODO(traks) handle other airs
             max_height = 0;
 
-            for (int lower_y = y - 1; lower_y >= 0; lower_y--) {
+            for (int lower_y = y - 1; lower_y >= MIN_WORLD_Y; lower_y--) {
                 if (ChunkGetBlockState(ch, x, lower_y, z) != 0) {
                     // @TODO(traks) handle other airs
                     max_height = lower_y + 1;
+                    break;
                 }
             }
 
@@ -508,6 +513,8 @@ void TryReadChunkFromStorage(chunk_pos pos, Chunk * ch, MemoryArena * scratch_ar
     }
 
     i32 lightIsStored = NbtGetU8(&chunkNbt, STR("isLightOn"));
+    // @TODO(traks) remove; just used for testing lighting engine
+    lightIsStored = 0;
 
     NbtList sectionList = NbtGetList(&chunkNbt, STR("sections"), NBT_COMPOUND);
     i32 numSections = sectionList.size;
@@ -647,6 +654,9 @@ void TryReadChunkFromStorage(chunk_pos pos, Chunk * ch, MemoryArena * scratch_ar
     }
 
     ch->flags |= CHUNK_LOADED;
+    if (lightIsStored) {
+        ch->flags |= CHUNK_LIT;
+    }
 
 bail:
     EndTimedZone();
@@ -746,4 +756,149 @@ clean_up_unused_chunks(void) {
             }
         }
     }
+}
+
+void UpdateLighting() {
+    // @TODO(traks) further implementation
+    for (i32 bucketIndex = 0; bucketIndex < ARRAY_SIZE(chunk_map); bucketIndex++) {
+        chunk_bucket * bucket = chunk_map + bucketIndex;
+        for (i32 chunkIndex = 0; chunkIndex < bucket->size; chunkIndex++) {
+            Chunk * ch = bucket->chunks + chunkIndex;
+            for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
+                ChunkSection * section = ch->sections + sectionIndex;
+                if (section->lastChangeTick == serv->current_tick) {
+                    // @NOTE(traks) chunk section has changed blocks
+                }
+            }
+        }
+    }
+}
+
+#define LIGHT_QUEUE_SIZE (1 << 20)
+
+typedef struct {
+    i8 x;
+    i16 y;
+    i8 z;
+    i8 value;
+} LightQueueEntry;
+
+typedef struct {
+    // @NOTE(traks) pop at head, push at tail
+    i32 head;
+    i32 tail;
+    LightQueueEntry entries[LIGHT_QUEUE_SIZE];
+
+    // @TODO(traks) remove debug data
+    i32 pushCount;
+} LightQueue;
+
+static inline void LightQueuePush(LightQueue * queue, LightQueueEntry entry) {
+    i32 tail = queue->tail;
+    queue->entries[tail] = entry;
+    tail = (tail + 1) % LIGHT_QUEUE_SIZE;
+    assert(tail != queue->head);
+    queue->tail = tail;
+    queue->pushCount++;
+}
+
+static inline LightQueueEntry LightQueuePop(LightQueue * queue) {
+    i32 head = queue->head;
+    assert(head != queue->tail);
+    LightQueueEntry res = queue->entries[head];
+    head = (head + 1) % LIGHT_QUEUE_SIZE;
+    queue->head = head;
+    return res;
+}
+
+static inline i32 CalculatePropagatedSkyLightValue(Chunk * ch, i32 fromX, i32 fromY, i32 fromZ, i32 dx, i32 dy, i32 dz, i32 fromValue, i32 spreadValue) {
+    i32 actualFromY = fromY - 16 + MIN_WORLD_Y;
+    u16 fromState = ChunkGetBlockState(ch, fromX, actualFromY, fromZ);
+    u16 toState = ChunkGetBlockState(ch, fromX + dx, actualFromY + dy, fromZ + dz);
+    // @TODO(traks) opacity and stuff
+    if (toState == 0 || toState == get_default_block_state(BLOCK_VOID_AIR) || toState == get_default_block_state(BLOCK_CAVE_AIR)) {
+        return spreadValue;
+    } else {
+        return 0;
+    }
+}
+
+void LightChunk(Chunk * ch) {
+    BeginTimedZone("LightChunk");
+    // for (i32 zx = 0; zx < 16 * 16; zx++) {
+    //     i32 maxHeight = ch->motion_blocking_height_map[zx];
+    //     i32 basedMaxHeight = maxHeight - MIN_WORLD_Y + 16;
+    //     for (i32 y = LIGHT_SECTIONS_PER_CHUNK * 16 - 1; y >= basedMaxHeight; y--) {
+    //         i32 sectionIndex = y >> 4;
+    //         i32 posIndex = ((y & 0xf) << 8) | zx;
+    //         SetSectionLight(ch->lightSections[sectionIndex].skyLight, posIndex, 15);
+    //     }
+    // }
+
+    i64 startTime = program_nano_time();
+
+    LightQueue skyLightQueue = {0};
+
+    for (i32 x = 0; x < 16; x++) {
+        for (i32 z = 0; z < 16; z++) {
+            i32 y = LIGHT_SECTIONS_PER_CHUNK * 16 - 1;
+            LightQueuePush(&skyLightQueue, (LightQueueEntry) {x, y, z, 15});
+        }
+    }
+
+    for (;;) {
+        if (skyLightQueue.head == skyLightQueue.tail) {
+            break;
+        }
+
+        LightQueueEntry entry = LightQueuePop(&skyLightQueue);
+        i32 x = entry.x;
+        i32 y = entry.y;
+        i32 z = entry.z;
+        i32 value = entry.value;
+        if (value <= 0) {
+            continue;
+        }
+        // if (x < 0 || x > 16 || z < 0 || z > 16 || y < 0 || y >= LIGHT_SECTIONS_PER_CHUNK * 16) {
+        //     continue;
+        // }
+        i32 sectionIndex = y >> 4;
+        i32 posIndex = ((y & 0xf) << 8) | (z << 4) | x;
+        i32 storedValue = GetSectionLight(ch->lightSections[sectionIndex].skyLight, posIndex);
+        if (storedValue >= value) {
+            continue;
+        }
+        SetSectionLight(ch->lightSections[sectionIndex].skyLight, posIndex, value);
+
+        if (x > 0) {
+            i32 nextValue = CalculatePropagatedSkyLightValue(ch, x, y, z, -1, 0, 0, value, value - 1);
+            LightQueuePush(&skyLightQueue, (LightQueueEntry) {x - 1, y, z, nextValue});
+        }
+        if (x < 15) {
+            i32 nextValue = CalculatePropagatedSkyLightValue(ch, x, y, z, 1, 0, 0, value, value - 1);
+            LightQueuePush(&skyLightQueue, (LightQueueEntry) {x + 1, y, z, nextValue});
+        }
+        if (z > 0) {
+            i32 nextValue = CalculatePropagatedSkyLightValue(ch, x, y, z, 0, 0, -1, value, value - 1);
+            LightQueuePush(&skyLightQueue, (LightQueueEntry) {x, y, z - 1, nextValue});
+        }
+        if (z < 15) {
+            i32 nextValue = CalculatePropagatedSkyLightValue(ch, x, y, z, 0, 0, 1, value, value - 1);
+            LightQueuePush(&skyLightQueue, (LightQueueEntry) {x, y, z + 1, nextValue});
+        }
+        if (y > 0) {
+            i32 nextValue = CalculatePropagatedSkyLightValue(ch, x, y, z, 0, -1, 0, value, value == 15 ? 15 : (value - 1));
+            LightQueuePush(&skyLightQueue, (LightQueueEntry) {x, y - 1, z, nextValue});
+        }
+        if (y < LIGHT_SECTIONS_PER_CHUNK * 16 - 1) {
+            i32 nextValue = CalculatePropagatedSkyLightValue(ch, x, y, z, 0, 1, 0, value, value - 1);
+            LightQueuePush(&skyLightQueue, (LightQueueEntry) {x, y + 1, z, nextValue});
+        }
+    }
+
+    i64 endTime = program_nano_time();
+
+    EndTimedZone();
+
+    LogInfo("pushes: %d, elapsed: %d", skyLightQueue.pushCount, (endTime - startTime) / 1000);
 }

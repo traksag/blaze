@@ -176,8 +176,10 @@ typedef struct {
 } level_event;
 
 #define CHUNK_LOADED (1u << 0)
+#define CHUNK_LIT (1u << 1)
 
 typedef struct {
+    // @NOTE(traks) index as yzx
     // @NOTE(traks) NULL if section is air
     u16 * blockStates;
     MemoryPoolBlock * blockStatesBlock;
@@ -191,6 +193,7 @@ typedef struct {
 typedef struct {
     // @NOTE(traks) sky light and block light are 4 bits per entry. Currently
     // never NULL, even if all light is 0.
+    // @NOTE(traks) index as yzx
     u8 * skyLight;
     MemoryPoolBlock * skyLightBlock;
     u8 * blockLight;
@@ -200,6 +203,7 @@ typedef struct {
 typedef struct {
     ChunkSection sections[SECTIONS_PER_CHUNK];
     LightSection lightSections[LIGHT_SECTIONS_PER_CHUNK];
+    // @NOTE(traks) index as zx
     i16 motion_blocking_height_map[256];
 
     // increment if you want to keep a chunk available in the map, decrement
@@ -2235,6 +2239,23 @@ void TryReadChunkFromStorage(chunk_pos pos, Chunk * ch, MemoryArena * scratch_ar
 
 ChunkSection * AllocChunkSection(void);
 void FreeChunkSection(ChunkSection * section);
+
+static inline u8 GetSectionLight(u8 * lightArray, i32 posIndex) {
+    i32 byteIndex = posIndex / 2;
+    i32 shift = (posIndex & 0x1) * 4;
+    return (lightArray[byteIndex] >> shift) & 0xf;
+}
+
+static inline void SetSectionLight(u8 * lightArray, i32 posIndex, u8 light) {
+    i32 byteIndex = posIndex / 2;
+    i32 shift = (posIndex & 0x1) * 4;
+    i32 mask = 0xf0 >> shift;
+    lightArray[byteIndex] = (lightArray[byteIndex] & mask) | (light << shift);
+}
+
+// @NOTE(traks) assumes all light sections are present in the chunk and assumes
+// all light values are equal to 0
+void LightChunk(Chunk * ch);
 
 void
 clean_up_unused_chunks(void);
