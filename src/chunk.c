@@ -774,7 +774,14 @@ void UpdateLighting() {
     }
 }
 
-#define LIGHT_QUEUE_SIZE (1 << 20)
+#define LIGHT_QUEUE_MAP_SIZE (16 * 16 * 16 * LIGHT_SECTIONS_PER_CHUNK)
+
+// @NOTE(traks) we track which blocks are enqueued and don't queue the same
+// block twice. Therefore the queue size is limited by the size of the queue
+// map. We don't need to worry about ever overflowing the queue. Add a couple of
+// extra entries because we may need 1 (or so) more entry to ensure the tail and
+// head aren't at the same position if the queue is full.
+#define LIGHT_QUEUE_SIZE (LIGHT_QUEUE_MAP_SIZE + 8)
 
 typedef struct {
     i8 x;
@@ -787,7 +794,7 @@ typedef struct {
     i32 head;
     i32 tail;
     LightQueueEntry * entries;
-    u64 queuedMap[16 * 16 * 16 * LIGHT_SECTIONS_PER_CHUNK / 64];
+    u64 queuedMap[LIGHT_QUEUE_MAP_SIZE / 64];
     // @NOTE(traks) index as yzx
     u8 * lightSections[4 * 32];
     u16 * blockSections[4 * 32];
