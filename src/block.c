@@ -552,13 +552,7 @@ BlockModel BlockDetermineSupportModel(i32 blockState) {
         res = serv->staticBlockModels[serv->supportModelByState[blockState]];
         break;
     }
-    case BLOCK_SCAFFOLDING: {
-        // @TODO(traks) what should we return here?
-        res = serv->staticBlockModels[serv->supportModelByState[blockState]];
-        break;
-    }
     default:
-        // default to using the collision model as support model
         res = serv->staticBlockModels[serv->supportModelByState[blockState]];
     }
     return res;

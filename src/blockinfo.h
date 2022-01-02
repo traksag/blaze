@@ -1440,14 +1440,16 @@ enum BlockModelType {
     BLOCK_MODEL_LECTERN,
     BLOCK_MODEL_TOP_SLAB,
     BLOCK_MODEL_LILY_PAD,
+    BLOCK_MODEL_SCAFFOLDING,
 };
 
 typedef struct {
-    u8 size;
     // @NOTE(traks) index by direction
     u8 fullFaces;
     u8 poleFaces;
     u8 nonEmptyFaces;
+
+    u8 size;
     BoundingBox boxes[8];
 } BlockModel;
 

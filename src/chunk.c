@@ -854,7 +854,7 @@ static inline void PropagateSkyLight(LightQueue * queue, i32 fromX, i32 fromY, i
 
     u16 toState = queue->blockSections[sectionIndex][posIndex];
     i32 finalValue;
-    // @TODO(traks) opacity and stuff, other types of air?
+    // @TODO(traks) opacity and stuff, other types of air!!
     if (toState == 0) {
         finalValue = spreadValue;
     } else {

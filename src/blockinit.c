@@ -901,6 +901,14 @@ init_block_data(void) {
     register_block_model(BLOCK_MODEL_TOP_SLAB, 1, &slab_top_box);
     BoundingBox lily_pad_box = {1, 0, 1, 15, 1.5f, 15};
     register_block_model(BLOCK_MODEL_LILY_PAD, 1, &lily_pad_box);
+    BoundingBox scaffoldingBoxes[] = {
+        0, 14, 0, 16, 16, 16, // top part
+        0, 0, 0, 2, 16, 2, // leg 1
+        14, 0, 0, 16, 16, 2, // leg 2
+        0, 0, 14, 2, 16, 16, // leg 3
+        14, 0, 14, 16, 16, 16, // leg 4
+    }
+    register_block_model(BLOCK_MODEL_SCAFFOLDING, 5, scaffoldingBoxes);
 
     register_bool_property(BLOCK_PROPERTY_ATTACHED, "attached");
     register_bool_property(BLOCK_PROPERTY_BOTTOM, "bottom");
@@ -2253,7 +2261,7 @@ init_block_data(void) {
     init_wall_props("minecraft:end_stone_brick_wall");
     init_wall_props("minecraft:diorite_wall");
 
-    // @TODO(traks) collision models
+    // @TODO(traks) collision models & support model (THE scaffolding model)
     block_type = register_block_type("minecraft:scaffolding");
     props = serv->block_properties_table + block_type;
     add_block_property(props, BLOCK_PROPERTY_BOTTOM, "false");
