@@ -597,17 +597,17 @@ move_entity(entity_base * entity) {
                 for (int block_z = iter_min_z; block_z <= iter_max_z; block_z++) {
                     BlockPos block_pos = {.x = block_x, .y = block_y, .z = block_z};
                     u16 cur_state = try_get_block_state(block_pos);
-                    block_model model = get_collision_model(cur_state, block_pos);
+                    BlockModel model = BlockDetermineCollisionModel(cur_state, block_pos);
 
-                    for (int boxi = 0; boxi < model.box_count; boxi++) {
-                        block_box * box = model.boxes + boxi;
+                    for (int boxi = 0; boxi < model.size; boxi++) {
+                        BoundingBox * box = model.boxes + boxi;
 
-                        double test_min_x = block_x + box->min_x - width / 2;
-                        double test_max_x = block_x + box->max_x + width / 2;
-                        double test_min_y = block_y + box->min_y - height;
-                        double test_max_y = block_y + box->max_y;
-                        double test_min_z = block_z + box->min_z - width / 2;
-                        double test_max_z = block_z + box->max_z + width / 2;
+                        double test_min_x = block_x + box->minX - width / 2;
+                        double test_max_x = block_x + box->maxX + width / 2;
+                        double test_min_y = block_y + box->minY - height;
+                        double test_max_y = block_y + box->maxY;
+                        double test_min_z = block_z + box->minZ - width / 2;
+                        double test_max_z = block_z + box->maxZ + width / 2;
 
                         typedef struct {
                             double wall_a;

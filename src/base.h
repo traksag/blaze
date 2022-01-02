@@ -65,6 +65,15 @@ typedef float f32;
 typedef double f64;
 
 typedef struct {
+    f32 minX;
+    f32 minY;
+    f32 minZ;
+    f32 maxX;
+    f32 maxY;
+    f32 maxZ;
+} BoundingBox;
+
+typedef struct {
     i32 x;
     i32 y;
     i32 z;

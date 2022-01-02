@@ -475,8 +475,8 @@ conducts_redstone(u16 block_state, BlockPos pos) {
     case BLOCK_SOUL_SAND:
         return 1;
     default: {
-        block_model model = get_collision_model(block_state, pos);
-        if (model.flags & BLOCK_MODEL_IS_FULL) {
+        BlockModel model = BlockDetermineCollisionModel(block_state, pos);
+        if (model.fullFaces == 0x3f) {
             return 1;
         }
         return 0;
@@ -485,28 +485,27 @@ conducts_redstone(u16 block_state, BlockPos pos) {
 }
 
 static void
-translate_model(block_model * model, float dx, float dy, float dz) {
-    for (int i = 0; i < model->box_count; i++) {
-        model->boxes[i].min_x += dx;
-        model->boxes[i].min_y += dy;
-        model->boxes[i].min_z += dz;
-        model->boxes[i].max_x += dx;
-        model->boxes[i].max_y += dy;
-        model->boxes[i].max_z += dz;
+translate_model(BlockModel * model, float dx, float dy, float dz) {
+    for (int i = 0; i < model->size; i++) {
+        model->boxes[i].minX += dx;
+        model->boxes[i].minY += dy;
+        model->boxes[i].minZ += dz;
+        model->boxes[i].maxX += dx;
+        model->boxes[i].maxY += dy;
+        model->boxes[i].maxZ += dz;
     }
 }
 
-block_model
-get_collision_model(u16 block_state, BlockPos pos) {
-    i32 block_type = serv->block_type_by_state[block_state];
-    block_model res;
+BlockModel BlockDetermineCollisionModel(i32 blockState, BlockPos pos) {
+    i32 block_type = serv->block_type_by_state[blockState];
+    BlockModel res;
 
     switch (block_type) {
     case BLOCK_BAMBOO: {
         u64 seed = ((u64) pos.x * 3129871) ^ ((u64) pos.z * 116129781);
         seed = seed * seed * 42317861 + seed * 11;
         seed >>= 16;
-        res = serv->block_models[serv->collision_model_by_state[block_state]];
+        res = serv->staticBlockModels[serv->collisionModelByState[blockState]];
         translate_model(&res, ((seed & 0xf) / 15.0f - 0.5f) * 0.5f, 0,
                 (((seed >> 8) & 0xf) / 15.0f - 0.5f) * 0.5f);
         break;
@@ -514,80 +513,53 @@ get_collision_model(u16 block_state, BlockPos pos) {
     case BLOCK_WATER:
     case BLOCK_LAVA: {
         // @TODO(traks) let striders walk on water/lava source blocks
-        res = serv->block_models[serv->collision_model_by_state[block_state]];
+        res = serv->staticBlockModels[serv->collisionModelByState[blockState]];
         break;
     }
     case BLOCK_MOVING_PISTON: {
         // @TODO(traks) use block entity to determine collision model
-        res = serv->block_models[serv->collision_model_by_state[block_state]];
+        res = serv->staticBlockModels[serv->collisionModelByState[blockState]];
         break;
     }
     case BLOCK_SCAFFOLDING: {
         // @TODO(traks) collision model should depend on whether entity is
         // shifting
-        res = serv->block_models[serv->collision_model_by_state[block_state]];
+        res = serv->staticBlockModels[serv->collisionModelByState[blockState]];
         break;
     }
     case BLOCK_POWDER_SNOW: {
         // @TODO(traks) collision model depends on what the entity is wearing
         // and some other stuff that depends on the entity and the surroundings
         // in the world
-        res = serv->block_models[serv->collision_model_by_state[block_state]];
+        res = serv->staticBlockModels[serv->collisionModelByState[blockState]];
         break;
     }
     default:
-        res = serv->block_models[serv->collision_model_by_state[block_state]];
+        res = serv->staticBlockModels[serv->collisionModelByState[blockState]];
     }
     return res;
 }
 
-support_model
-get_support_model(u16 block_state) {
-    i32 block_type = serv->block_type_by_state[block_state];
-    support_model res;
+BlockModel BlockDetermineSupportModel(i32 blockState) {
+    i32 block_type = serv->block_type_by_state[blockState];
+    BlockModel res;
 
     switch (block_type) {
-    // block types with special support models
-    case BLOCK_JUNGLE_LEAVES:
-    case BLOCK_OAK_LEAVES:
-    case BLOCK_SPRUCE_LEAVES:
-    case BLOCK_DARK_OAK_LEAVES:
-    case BLOCK_ACACIA_LEAVES:
-    case BLOCK_BIRCH_LEAVES:
-    case BLOCK_AZALEA_LEAVES:
-    case BLOCK_FLOWERING_AZALEA_LEAVES:
-        res = serv->support_models[BLOCK_MODEL_EMPTY];
-        break;
-    case BLOCK_SNOW:
-        // @TODO(traks)
-        break;
-    case BLOCK_SOUL_SAND:
-        res = serv->support_models[BLOCK_MODEL_FULL];
-        break;
     // some block types have special collision models and therefore also have
     // special support models
-    case BLOCK_BAMBOO:
-        // @TODO(traks) I don't think bamboo can ever support a block, but
-        // should make sure this is the case
-        res = serv->support_models[BLOCK_MODEL_EMPTY];
-        break;
     case BLOCK_MOVING_PISTON: {
         // @TODO(traks) use block entity to determine support model
-        res = serv->support_models[serv->collision_model_by_state[block_state]];
+        res = serv->staticBlockModels[serv->supportModelByState[blockState]];
         break;
     }
     case BLOCK_SCAFFOLDING: {
         // @TODO(traks) what should we return here?
-        res = serv->support_models[serv->collision_model_by_state[block_state]];
-        break;
-    }
-    case BLOCK_POWDER_SNOW: {
-        res = serv->support_models[BLOCK_MODEL_EMPTY];
+        res = serv->staticBlockModels[serv->supportModelByState[blockState]];
         break;
     }
     default:
         // default to using the collision model as support model
-        res = serv->support_models[serv->collision_model_by_state[block_state]];
+        res = serv->staticBlockModels[serv->supportModelByState[blockState]];
     }
     return res;
 }
@@ -743,8 +715,8 @@ can_big_dripleaf_survive_on(u16 state_below) {
     case BLOCK_BIG_DRIPLEAF:
         return 1;
     default: {
-        support_model support = get_support_model(state_below);
-        if (support.full_face_flags & (1 << DIRECTION_POS_Y)) {
+        BlockModel support = BlockDetermineSupportModel(state_below);
+        if (support.fullFaces & (1 << DIRECTION_POS_Y)) {
             return 1;
         }
         return 0;
@@ -757,12 +729,12 @@ can_big_dripleaf_stem_survive_at(BlockPos cur_pos) {
     u16 state_below = try_get_block_state(
             get_relative_block_pos(cur_pos, DIRECTION_NEG_Y));
     i32 type_below = serv->block_type_by_state[state_below];
-    support_model support_below = get_support_model(state_below);
+    BlockModel support_below = BlockDetermineSupportModel(state_below);
     u16 state_above = try_get_block_state(
             get_relative_block_pos(cur_pos, DIRECTION_POS_Y));
     i32 type_above = serv->block_type_by_state[state_above];
 
-    if ((type_below == BLOCK_BIG_DRIPLEAF_STEM || support_below.full_face_flags & (1 << DIRECTION_POS_Y))
+    if ((type_below == BLOCK_BIG_DRIPLEAF_STEM || support_below.fullFaces & (1 << DIRECTION_POS_Y))
             && (type_above == BLOCK_BIG_DRIPLEAF_STEM || type_above == BLOCK_BIG_DRIPLEAF)) {
         return 1;
     }
@@ -820,10 +792,10 @@ is_bamboo_plantable_on(i32 type_below) {
 }
 
 int
-can_sea_pickle_survive_on(u16 state_below) {
-    // @TODO(traks) is this correct?
-    support_model support = get_support_model(state_below);
-    if (support.non_empty_face_flags & (1 << DIRECTION_POS_Y)) {
+can_sea_pickle_survive_on(u16 state_below, BlockPos posBelow) {
+    BlockModel collision = BlockDetermineCollisionModel(state_below, posBelow);
+    BlockModel support = BlockDetermineSupportModel(state_below);
+    if ((collision.nonEmptyFaces & (1 << DIRECTION_POS_Y)) || (support.fullFaces & (1 << DIRECTION_POS_Y))) {
         return 1;
     }
     return 0;
@@ -842,8 +814,8 @@ can_snow_survive_on(u16 state_below) {
         return 1;
     default: {
         // @TODO(traks) is this the correct model to use?
-        support_model support = get_support_model(state_below);
-        if (support.full_face_flags & (1 << DIRECTION_POS_Y)) {
+        BlockModel support = BlockDetermineSupportModel(state_below);
+        if (support.fullFaces & (1 << DIRECTION_POS_Y)) {
             return 1;
         }
         return 0;
@@ -854,8 +826,8 @@ can_snow_survive_on(u16 state_below) {
 int
 can_pressure_plate_survive_on(u16 state_below) {
     // @TODO(traks) can survive if top face is circle too (e.g. cauldron)
-    support_model support = get_support_model(state_below);
-    if (support.pole_face_flags & (1 << DIRECTION_POS_Y)) {
+    BlockModel support = BlockDetermineSupportModel(state_below);
+    if (support.poleFaces & (1 << DIRECTION_POS_Y)) {
         return 1;
     }
     return 0;
@@ -863,9 +835,9 @@ can_pressure_plate_survive_on(u16 state_below) {
 
 int
 can_redstone_wire_survive_on(u16 state_below) {
-    support_model support = get_support_model(state_below);
+    BlockModel support = BlockDetermineSupportModel(state_below);
     i32 type_below = serv->block_type_by_state[state_below];
-    if (support.full_face_flags & (1 << DIRECTION_POS_Y)) {
+    if (support.fullFaces & (1 << DIRECTION_POS_Y)) {
         return 1;
     } else if (type_below == BLOCK_HOPPER) {
         return 1;
@@ -1015,9 +987,9 @@ int CanCrossConnectToGeneric(block_state_info * curInfo,
         block_state_info * neighbourInfo, u16 neighbourState,
         int fromDir) {
     // @NOTE(traks) can connect to sturdy faces with some exceptions
-    support_model support = get_support_model(neighbourState);
+    BlockModel support = BlockDetermineSupportModel(neighbourState);
     u32 neighbourType = neighbourInfo->block_type;
-    if (support.full_face_flags & (1 << get_opposite_direction(fromDir))) {
+    if (support.fullFaces & (1 << get_opposite_direction(fromDir))) {
         if (BlockHasTag(neighbourInfo, BLOCK_TAG_LEAVES)
                 || BlockHasTag(neighbourInfo, BLOCK_TAG_SHULKER_BOX)
                 || neighbourType == BLOCK_BARRIER
@@ -1532,8 +1504,8 @@ update_redstone_wire(BlockPos pos, u16 in_world_state,
             // can only connect diagonally to redstone wire
             if (dest_type == BLOCK_REDSTONE_WIRE) {
                 env.connected[i][0] = 1;
-                support_model model = get_support_model(state_side);
-                if (model.full_face_flags & (1 << opp_dir)) {
+                BlockModel model = BlockDetermineSupportModel(state_side);
+                if (model.fullFaces & (1 << opp_dir)) {
                     new_side = REDSTONE_SIDE_UP;
                 } else {
                     new_side = REDSTONE_SIDE_SIDE;
@@ -1680,8 +1652,8 @@ calculate_redstone_wire_env(BlockPos pos, u16 block_state,
             if (dest_type == BLOCK_REDSTONE_WIRE) {
                 block_state_info dest_info = describe_block_state(dest_state);
                 env.connected[i][0] = 1;
-                support_model model = get_support_model(state_side);
-                if (model.full_face_flags & (1 << opp_dir)) {
+                BlockModel model = BlockDetermineSupportModel(state_side);
+                if (model.fullFaces & (1 << opp_dir)) {
                     new_side = REDSTONE_SIDE_UP;
                 } else {
                     new_side = REDSTONE_SIDE_SIDE;
@@ -2201,8 +2173,8 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
             return 0;
         }
 
-        support_model support = get_support_model(from_state);
-        if (support.pole_face_flags & (1 << DIRECTION_POS_Y)) {
+        BlockModel support = BlockDetermineSupportModel(from_state);
+        if (support.poleFaces & (1 << DIRECTION_POS_Y)) {
             return 0;
         }
 
@@ -2218,8 +2190,8 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
             return 0;
         }
 
-        support_model support = get_support_model(from_state);
-        if (support.full_face_flags & (1 << cur_info.horizontal_facing)) {
+        BlockModel support = BlockDetermineSupportModel(from_state);
+        if (support.fullFaces & (1 << cur_info.horizontal_facing)) {
             return 0;
         }
 
@@ -2397,8 +2369,8 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
                 push_direct_neighbour_block_updates(pos, buc);
                 return 1;
             } else {
-                support_model support = get_support_model(from_state);
-                if (support.full_face_flags & (1 << DIRECTION_POS_Y)) {
+                BlockModel support = BlockDetermineSupportModel(from_state);
+                if (support.fullFaces & (1 << DIRECTION_POS_Y)) {
                     return 0;
                 }
 
@@ -2476,8 +2448,8 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
             return 0;
         }
 
-        support_model support = get_support_model(from_state);
-        if (support.full_face_flags & (1 << from_direction)) {
+        BlockModel support = BlockDetermineSupportModel(from_state);
+        if (support.fullFaces & (1 << from_direction)) {
             return 0;
         }
 
@@ -3131,7 +3103,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
     case BLOCK_SEA_PICKLE: {
         // @TODO(traks) water scheduled tick
         if (from_direction == DIRECTION_NEG_Y) {
-            if (!can_sea_pickle_survive_on(from_state)) {
+            if (!can_sea_pickle_survive_on(from_state, from_pos)) {
                 break_block(pos);
                 push_direct_neighbour_block_updates(pos, buc);
                 return 1;
@@ -3244,8 +3216,8 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
             return 0;
         }
 
-        support_model support = get_support_model(from_state);
-        if (support.full_face_flags & (1 << cur_info.facing)) {
+        BlockModel support = BlockDetermineSupportModel(from_state);
+        if (support.fullFaces & (1 << cur_info.facing)) {
             return 0;
         }
 
@@ -3270,8 +3242,8 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
             return 0;
         }
 
-        support_model support = get_support_model(from_state);
-        if (support.pole_face_flags & (1 << DIRECTION_NEG_Y)) {
+        BlockModel support = BlockDetermineSupportModel(from_state);
+        if (support.poleFaces & (1 << DIRECTION_NEG_Y)) {
             return 0;
         }
 

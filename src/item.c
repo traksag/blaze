@@ -431,10 +431,10 @@ place_sea_pickle(place_context context, i32 place_type) {
         }
     }
 
-    u16 state_below = try_get_block_state(
-            get_relative_block_pos(target_pos, DIRECTION_NEG_Y));
+    BlockPos posBelow = get_relative_block_pos(target_pos, DIRECTION_NEG_Y);
+    u16 state_below = try_get_block_state(posBelow);
     i32 type_below = serv->block_type_by_state[state_below];
-    if (!can_sea_pickle_survive_on(state_below)) {
+    if (!can_sea_pickle_survive_on(state_below, posBelow)) {
         return;
     }
 
@@ -785,8 +785,8 @@ place_dead_coral(place_context context, i32 place_type) {
 
     u16 state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
-    support_model support = get_support_model(state_below);
-    if (!(support.full_face_flags & (1 << DIRECTION_POS_Y))) {
+    BlockModel support = BlockDetermineSupportModel(state_below);
+    if (!(support.fullFaces & (1 << DIRECTION_POS_Y))) {
         // face below is not sturdy
         return;
     }
@@ -930,11 +930,11 @@ place_dead_coral_fan(place_context context, i32 base_place_type,
         BlockPos attach_pos = get_relative_block_pos(target.pos, dir);
         u16 wall_state = try_get_block_state(attach_pos);
         int wall_face = get_opposite_direction(dir);
-        support_model support = get_support_model(wall_state);
+        BlockModel support = BlockDetermineSupportModel(wall_state);
 
         if (dir == DIRECTION_NEG_Y) {
             seen_neg_y = 1;
-            if (support.full_face_flags & (1 << wall_face)) {
+            if (support.fullFaces & (1 << wall_face)) {
                 // wall face is sturdy
                 selected_dir = dir;
                 if (!try_horizontal_dirs) {
@@ -945,7 +945,7 @@ place_dead_coral_fan(place_context context, i32 base_place_type,
             if (!seen_neg_y) {
                 try_horizontal_dirs = 1;
             }
-            if (support.full_face_flags & (1 << wall_face)) {
+            if (support.fullFaces & (1 << wall_face)) {
                 // wall face is sturdy
                 selected_dir = dir;
                 break;
@@ -992,11 +992,11 @@ place_torch(place_context context, i32 base_place_type,
         BlockPos attach_pos = get_relative_block_pos(target.pos, dir);
         u16 wall_state = try_get_block_state(attach_pos);
         int wall_face = get_opposite_direction(dir);
-        support_model support = get_support_model(wall_state);
+        BlockModel support = BlockDetermineSupportModel(wall_state);
 
         if (dir == DIRECTION_NEG_Y) {
             seen_neg_y = 1;
-            if (support.pole_face_flags & (1 << wall_face)) {
+            if (support.poleFaces & (1 << wall_face)) {
                 // block has full centre for supporting blocks
                 selected_dir = dir;
                 if (!try_horizontal_dirs) {
@@ -1007,7 +1007,7 @@ place_torch(place_context context, i32 base_place_type,
             if (!seen_neg_y) {
                 try_horizontal_dirs = 1;
             }
-            if (support.full_face_flags & (1 << wall_face)) {
+            if (support.fullFaces & (1 << wall_face)) {
                 // wall face is sturdy
                 selected_dir = dir;
                 break;
@@ -1047,10 +1047,10 @@ place_ladder(place_context context, i32 place_type) {
 
         BlockPos attach_pos = get_relative_block_pos(target.pos, dir);
         u16 wall_state = try_get_block_state(attach_pos);
-        support_model support = get_support_model(wall_state);
+        BlockModel support = BlockDetermineSupportModel(wall_state);
         int wall_face = get_opposite_direction(dir);
 
-        if (support.full_face_flags & (1 << wall_face)) {
+        if (support.fullFaces & (1 << wall_face)) {
             // wall face is sturdy
             selected_dir = dir;
             break;
@@ -1082,8 +1082,8 @@ place_door(place_context context, i32 place_type) {
 
     u16 state_below = try_get_block_state(
             get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
-    support_model support = get_support_model(state_below);
-    if (!(support.full_face_flags & (1 << DIRECTION_POS_Y))) {
+    BlockModel support = BlockDetermineSupportModel(state_below);
+    if (!(support.fullFaces & (1 << DIRECTION_POS_Y))) {
         // face below is not sturdy
         return;
     }
@@ -1330,9 +1330,9 @@ place_lever_or_button(place_context context, i32 place_type) {
         BlockPos attach_pos = get_relative_block_pos(target.pos, dir);
         u16 wall_state = try_get_block_state(attach_pos);
         int wall_face = get_opposite_direction(dir);
-        support_model support = get_support_model(wall_state);
+        BlockModel support = BlockDetermineSupportModel(wall_state);
 
-        if (support.full_face_flags & (1 << wall_face)) {
+        if (support.fullFaces & (1 << wall_face)) {
             // wall face is sturdy
             selected_dir = dir;
             break;
@@ -1432,8 +1432,8 @@ place_amethyst_cluster(place_context context, i32 place_type) {
     BlockPos opposite_pos = get_relative_block_pos(target.pos, opposite_face);
     u16 opposite_state = try_get_block_state(opposite_pos);
 
-    support_model support = get_support_model(opposite_state);
-    if (!(support.full_face_flags & (1 << context.clicked_face))) {
+    BlockModel support = BlockDetermineSupportModel(opposite_state);
+    if (!(support.fullFaces & (1 << context.clicked_face))) {
         return;
     }
 

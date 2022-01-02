@@ -8,6 +8,8 @@
 
 #define SERVER_WORLD_VERSION (2865)
 
+#define MAX_BLOCK_STATES (21000)
+
 #define MAX_CHUNK_CACHE_RADIUS (10)
 
 #define MAX_CHUNK_CACHE_DIAM (2 * MAX_CHUNK_CACHE_RADIUS + 1)
@@ -2165,9 +2167,9 @@ typedef struct {
     int vanilla_block_state_count;
     int actual_block_state_count;
     block_property_spec block_property_specs[BLOCK_PROPERTY_COUNT];
-    block_model block_models[128];
-    support_model support_models[128];
-    u8 collision_model_by_state[18000];
+    BlockModel staticBlockModels[128];
+    u8 collisionModelByState[MAX_BLOCK_STATES];
+    u8 supportModelByState[MAX_BLOCK_STATES];
 
     dimension_type dimension_types[32];
     int dimension_type_count;
@@ -2176,7 +2178,7 @@ typedef struct {
     int biome_count;
 
     // block state -> block type
-    u16 block_type_by_state[21000];
+    u16 block_type_by_state[MAX_BLOCK_STATES];
 
     // @TODO(traks) this is the simplest but dumbest thing. Should really store
     // this per chunk, since we need to save it when chunk is unloaded. Limit

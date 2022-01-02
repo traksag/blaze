@@ -1095,104 +1095,6 @@ typedef struct {
     unsigned char default_value_indices[8];
 } block_properties;
 
-typedef struct {
-    float min_x;
-    float min_y;
-    float min_z;
-    float max_x;
-    float max_y;
-    float max_z;
-} block_box;
-
-typedef struct {
-    unsigned char box_count;
-    unsigned char flags;
-    block_box boxes[8];
-} block_model;
-
-// @NOTE(traks) some functions don't return a block model index, but a block
-// model that isn't associated to an index. We need to test these against
-// full-ness.
-#define BLOCK_MODEL_IS_FULL ((unsigned char) (0x1 << 0))
-
-enum block_model {
-    BLOCK_MODEL_EMPTY,
-    BLOCK_MODEL_Y_1,
-    BLOCK_MODEL_Y_2,
-    BLOCK_MODEL_Y_3,
-    BLOCK_MODEL_Y_4,
-    BLOCK_MODEL_Y_5,
-    BLOCK_MODEL_Y_6,
-    BLOCK_MODEL_Y_7,
-    BLOCK_MODEL_Y_8,
-    BLOCK_MODEL_Y_9,
-    BLOCK_MODEL_Y_10,
-    BLOCK_MODEL_Y_11,
-    BLOCK_MODEL_Y_12,
-    BLOCK_MODEL_Y_13,
-    BLOCK_MODEL_Y_14,
-    BLOCK_MODEL_Y_15,
-    BLOCK_MODEL_FULL,
-    BLOCK_MODEL_FLOWER_POT,
-    BLOCK_MODEL_CACTUS,
-    BLOCK_MODEL_COMPOSTER,
-    BLOCK_MODEL_HONEY_BLOCK,
-    BLOCK_MODEL_FENCE_GATE_FACING_X,
-    BLOCK_MODEL_FENCE_GATE_FACING_Z,
-    BLOCK_MODEL_CENTRED_BAMBOO,
-    // 16 possible options, bit order: pos x, neg x, pos z, neg z
-    BLOCK_MODEL_PANE_CENTRE,
-    BLOCK_MODEL_PANE_NEG_Z,
-    BLOCK_MODEL_PANE_POS_Z,
-    BLOCK_MODEL_PANE_Z,
-    BLOCK_MODEL_PANE_NEG_X,
-    BLOCK_MODEL_PANE_NEG_X_NEG_Z,
-    BLOCK_MODEL_PANE_NEG_X_POS_Z,
-    BLOCK_MODEL_PANE_NEG_X_Z,
-    BLOCK_MODEL_PANE_POS_X,
-    BLOCK_MODEL_PANE_POS_X_NEG_Z,
-    BLOCK_MODEL_PANE_POS_X_POS_Z,
-    BLOCK_MODEL_PANE_POS_X_Z,
-    BLOCK_MODEL_PANE_X,
-    BLOCK_MODEL_PANE_X_NEG_Z,
-    BLOCK_MODEL_PANE_X_POS_Z,
-    BLOCK_MODEL_PANE_X_Z,
-    // 16 possible options, bit order: pos x, neg x, pos z, neg z
-    BLOCK_MODEL_FENCE_CENTRE,
-    BLOCK_MODEL_FENCE_NEG_Z,
-    BLOCK_MODEL_FENCE_POS_Z,
-    BLOCK_MODEL_FENCE_Z,
-    BLOCK_MODEL_FENCE_NEG_X,
-    BLOCK_MODEL_FENCE_NEG_X_NEG_Z,
-    BLOCK_MODEL_FENCE_NEG_X_POS_Z,
-    BLOCK_MODEL_FENCE_NEG_X_Z,
-    BLOCK_MODEL_FENCE_POS_X,
-    BLOCK_MODEL_FENCE_POS_X_NEG_Z,
-    BLOCK_MODEL_FENCE_POS_X_POS_Z,
-    BLOCK_MODEL_FENCE_POS_X_Z,
-    BLOCK_MODEL_FENCE_X,
-    BLOCK_MODEL_FENCE_X_NEG_Z,
-    BLOCK_MODEL_FENCE_X_POS_Z,
-    BLOCK_MODEL_FENCE_X_Z,
-    // 4 options
-    BLOCK_MODEL_BED_FOOT_POS_X,
-    BLOCK_MODEL_BED_FOOT_POS_Z,
-    BLOCK_MODEL_BED_FOOT_NEG_X,
-    BLOCK_MODEL_BED_FOOT_NEG_Z,
-    BLOCK_MODEL_LECTERN,
-    BLOCK_MODEL_TOP_SLAB,
-    BLOCK_MODEL_LILY_PAD,
-};
-
-typedef struct {
-    // bit flags indexed by direction of full faces
-    unsigned char full_face_flags;
-    // bit flags for pole supporting faces
-    unsigned char pole_face_flags;
-    // bit flags for faces that are non-empty as 1x1x1 cube
-    unsigned char non_empty_face_flags;
-} support_model;
-
 enum block_property {
     BLOCK_PROPERTY_ATTACHED,
     BLOCK_PROPERTY_BOTTOM,
@@ -1446,7 +1348,7 @@ int can_wither_rose_survive_on(i32 type_below);
 int can_azalea_survive_on(i32 type_below);
 int can_nether_plant_survive_on(i32 type_below);
 int is_bamboo_plantable_on(i32 type_below);
-int can_sea_pickle_survive_on(u16 state_below);
+int can_sea_pickle_survive_on(u16 state_below, BlockPos posBelow);
 int can_snow_survive_on(u16 state_below);
 int can_pressure_plate_survive_on(u16 state_below);
 int can_redstone_wire_survive_on(u16 state_below);
@@ -1461,8 +1363,6 @@ block_state_info describe_default_block_state(i32 block_type);
 u16 make_block_state(block_state_info * info);
 
 int is_wall(i32 block_type);
-block_model get_collision_model(u16 block_state, BlockPos pos);
-support_model get_support_model(u16 block_state);
 int get_water_level(u16 state);
 int is_water_source(u16 state);
 int is_full_water(u16 state);
@@ -1470,5 +1370,88 @@ int is_full_water(u16 state);
 static inline int BlockHasTag(block_state_info * info, int tag) {
     return info->type_tags & ((u32) 1 << tag);
 }
+
+// @NOTE(traks) block models n stuff
+
+enum BlockModelType {
+    BLOCK_MODEL_EMPTY,
+    BLOCK_MODEL_Y_1,
+    BLOCK_MODEL_Y_2,
+    BLOCK_MODEL_Y_3,
+    BLOCK_MODEL_Y_4,
+    BLOCK_MODEL_Y_5,
+    BLOCK_MODEL_Y_6,
+    BLOCK_MODEL_Y_7,
+    BLOCK_MODEL_Y_8,
+    BLOCK_MODEL_Y_9,
+    BLOCK_MODEL_Y_10,
+    BLOCK_MODEL_Y_11,
+    BLOCK_MODEL_Y_12,
+    BLOCK_MODEL_Y_13,
+    BLOCK_MODEL_Y_14,
+    BLOCK_MODEL_Y_15,
+    BLOCK_MODEL_FULL,
+    BLOCK_MODEL_FLOWER_POT,
+    BLOCK_MODEL_CACTUS,
+    BLOCK_MODEL_COMPOSTER,
+    BLOCK_MODEL_HONEY_BLOCK,
+    BLOCK_MODEL_FENCE_GATE_FACING_X,
+    BLOCK_MODEL_FENCE_GATE_FACING_Z,
+    BLOCK_MODEL_CENTRED_BAMBOO,
+    // 16 possible options, bit order: pos x, neg x, pos z, neg z
+    BLOCK_MODEL_PANE_CENTRE,
+    BLOCK_MODEL_PANE_NEG_Z,
+    BLOCK_MODEL_PANE_POS_Z,
+    BLOCK_MODEL_PANE_Z,
+    BLOCK_MODEL_PANE_NEG_X,
+    BLOCK_MODEL_PANE_NEG_X_NEG_Z,
+    BLOCK_MODEL_PANE_NEG_X_POS_Z,
+    BLOCK_MODEL_PANE_NEG_X_Z,
+    BLOCK_MODEL_PANE_POS_X,
+    BLOCK_MODEL_PANE_POS_X_NEG_Z,
+    BLOCK_MODEL_PANE_POS_X_POS_Z,
+    BLOCK_MODEL_PANE_POS_X_Z,
+    BLOCK_MODEL_PANE_X,
+    BLOCK_MODEL_PANE_X_NEG_Z,
+    BLOCK_MODEL_PANE_X_POS_Z,
+    BLOCK_MODEL_PANE_X_Z,
+    // 16 possible options, bit order: pos x, neg x, pos z, neg z
+    BLOCK_MODEL_FENCE_CENTRE,
+    BLOCK_MODEL_FENCE_NEG_Z,
+    BLOCK_MODEL_FENCE_POS_Z,
+    BLOCK_MODEL_FENCE_Z,
+    BLOCK_MODEL_FENCE_NEG_X,
+    BLOCK_MODEL_FENCE_NEG_X_NEG_Z,
+    BLOCK_MODEL_FENCE_NEG_X_POS_Z,
+    BLOCK_MODEL_FENCE_NEG_X_Z,
+    BLOCK_MODEL_FENCE_POS_X,
+    BLOCK_MODEL_FENCE_POS_X_NEG_Z,
+    BLOCK_MODEL_FENCE_POS_X_POS_Z,
+    BLOCK_MODEL_FENCE_POS_X_Z,
+    BLOCK_MODEL_FENCE_X,
+    BLOCK_MODEL_FENCE_X_NEG_Z,
+    BLOCK_MODEL_FENCE_X_POS_Z,
+    BLOCK_MODEL_FENCE_X_Z,
+    // 4 options
+    BLOCK_MODEL_BED_FOOT_POS_X,
+    BLOCK_MODEL_BED_FOOT_POS_Z,
+    BLOCK_MODEL_BED_FOOT_NEG_X,
+    BLOCK_MODEL_BED_FOOT_NEG_Z,
+    BLOCK_MODEL_LECTERN,
+    BLOCK_MODEL_TOP_SLAB,
+    BLOCK_MODEL_LILY_PAD,
+};
+
+typedef struct {
+    u8 size;
+    // @NOTE(traks) index by direction
+    u8 fullFaces;
+    u8 poleFaces;
+    u8 nonEmptyFaces;
+    BoundingBox boxes[8];
+} BlockModel;
+
+BlockModel BlockDetermineCollisionModel(i32 blockState, BlockPos pos);
+BlockModel BlockDetermineSupportModel(i32 blockState);
 
 #endif
