@@ -907,7 +907,7 @@ init_block_data(void) {
         14, 0, 0, 16, 16, 2, // leg 2
         0, 0, 14, 2, 16, 16, // leg 3
         14, 0, 14, 16, 16, 16, // leg 4
-    }
+    };
     register_block_model(BLOCK_MODEL_SCAFFOLDING, 5, scaffoldingBoxes);
 
     register_bool_property(BLOCK_PROPERTY_ATTACHED, "attached");

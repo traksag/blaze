@@ -967,7 +967,7 @@ server_tick(void) {
                     response_size += sprintf((char *) response + response_size,
                             "{\"version\":{\"name\":\"%s\",\"protocol\":%d},"
                             "\"players\":{\"max\":%d,\"online\":%d,\"sample\":[",
-                            "1.18.1", SERVER_PROTOCOL_VERSION,
+                            SERVER_GAME_VERSION, SERVER_PROTOCOL_VERSION,
                             (int) MAX_PLAYERS, (int) list_size);
 
                     for (int i = 0; i < sample_size; i++) {
@@ -1719,7 +1719,7 @@ init_dimension_types(void) {
     memcpy(overworld->name, overworld_name.data, overworld_name.size);
     overworld->name_size = overworld_name.size;
 
-    String overworld_infiniburn = STR("minecraft:infiniburn_overworld");
+    String overworld_infiniburn = STR("#minecraft:infiniburn_overworld");
     memcpy(overworld->infiniburn, overworld_infiniburn.data, overworld_infiniburn.size);
     overworld->infiniburn_size = overworld_infiniburn.size;
 

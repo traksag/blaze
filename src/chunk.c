@@ -758,22 +758,6 @@ clean_up_unused_chunks(void) {
     }
 }
 
-void UpdateLighting() {
-    // @TODO(traks) further implementation
-    for (i32 bucketIndex = 0; bucketIndex < ARRAY_SIZE(chunk_map); bucketIndex++) {
-        chunk_bucket * bucket = chunk_map + bucketIndex;
-        for (i32 chunkIndex = 0; chunkIndex < bucket->size; chunkIndex++) {
-            Chunk * ch = bucket->chunks + chunkIndex;
-            for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
-                ChunkSection * section = ch->sections + sectionIndex;
-                if (section->lastChangeTick == serv->current_tick) {
-                    // @NOTE(traks) chunk section has changed blocks
-                }
-            }
-        }
-    }
-}
-
 #define LIGHT_QUEUE_MAP_SIZE (16 * 16 * 16 * LIGHT_SECTIONS_PER_CHUNK)
 
 // @NOTE(traks) we track which blocks are enqueued and don't queue the same
@@ -1028,4 +1012,20 @@ void LightChunk(Chunk * ch) {
             totalPushCount / totalCallCount,
             totalElapsedTime / totalCallCount,
             totalCallCount);
+}
+
+void UpdateLighting() {
+    // @TODO(traks) further implementation
+    for (i32 bucketIndex = 0; bucketIndex < ARRAY_SIZE(chunk_map); bucketIndex++) {
+        chunk_bucket * bucket = chunk_map + bucketIndex;
+        for (i32 chunkIndex = 0; chunkIndex < bucket->size; chunkIndex++) {
+            Chunk * ch = bucket->chunks + chunkIndex;
+            for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
+                ChunkSection * section = ch->sections + sectionIndex;
+                if (section->lastChangeTick == serv->current_tick) {
+                    // @NOTE(traks) chunk section has changed blocks
+                }
+            }
+        }
+    }
 }

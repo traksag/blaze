@@ -4,9 +4,11 @@
 #include "base.h"
 #include "blockinfo.h"
 
-#define SERVER_PROTOCOL_VERSION (757)
+#define SERVER_PROTOCOL_VERSION (758)
 
-#define SERVER_WORLD_VERSION (2865)
+#define SERVER_WORLD_VERSION (2975)
+
+#define SERVER_GAME_VERSION "1.18.2"
 
 #define MAX_BLOCK_STATES (21000)
 

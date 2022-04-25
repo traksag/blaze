@@ -252,7 +252,6 @@ value minecraft:diorite
 value minecraft:andesite
 value minecraft:tuff
 value minecraft:deepslate
-value minecraft:dirt
 
 key minecraft:standing_signs
 value minecraft:oak_sign
@@ -458,6 +457,19 @@ value minecraft:magma_block
 key minecraft:small_dripleaf_placeable
 value minecraft:clay
 value minecraft:moss_block
+
+key minecraft:fall_damage_resetting
+value minecraft:ladder
+value minecraft:vine
+value minecraft:scaffolding
+value minecraft:weeping_vines
+value minecraft:weeping_vines_plant
+value minecraft:twisting_vines
+value minecraft:twisting_vines_plant
+value minecraft:cave_vines
+value minecraft:cave_vines_plant
+value minecraft:sweet_berry_bush
+value minecraft:cobweb
 
 key minecraft:mushroom_grow_block
 value minecraft:mycelium
@@ -865,7 +877,6 @@ value minecraft:end_gateway
 key minecraft:goats_spawnable_on
 value minecraft:stone
 value minecraft:snow
-value minecraft:powder_snow
 value minecraft:snow_block
 value minecraft:packed_ice
 value minecraft:gravel
@@ -904,8 +915,6 @@ value minecraft:diorite
 value minecraft:andesite
 value minecraft:tuff
 value minecraft:deepslate
-value minecraft:cave_vines_plant
-value minecraft:cave_vines
 value minecraft:dirt
 value minecraft:grass_block
 value minecraft:podzol
@@ -913,9 +922,6 @@ value minecraft:coarse_dirt
 value minecraft:mycelium
 value minecraft:rooted_dirt
 value minecraft:moss_block
-value minecraft:clay
-value minecraft:gravel
-value minecraft:sand
 value minecraft:terracotta
 value minecraft:white_terracotta
 value minecraft:orange_terracotta
@@ -934,6 +940,11 @@ value minecraft:green_terracotta
 value minecraft:red_terracotta
 value minecraft:black_terracotta
 value minecraft:red_sand
+value minecraft:clay
+value minecraft:gravel
+value minecraft:sand
+value minecraft:snow_block
+value minecraft:powder_snow
 
 key minecraft:dragon_immune
 value minecraft:barrier
