@@ -421,7 +421,7 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
                     player->username,
                     (int) chat.size, chat.data);
             msg->size = text_size;
-            LogInfo("%.*s", msg->size, msg->text);
+            // LogInfo("%.*s", msg->size, msg->text);
         }
         break;
     }
@@ -2485,6 +2485,83 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         CursorPutU8(send_cursor, NBT_TAG_END);
         // end of biomes
 
+        // write chat types
+
+        // TODO(traks): make this whole chat type business neater...
+        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("minecraft:chat_type"));
+
+        nbt_write_key(send_cursor, NBT_TAG_STRING, STR("type"));
+        nbt_write_string(send_cursor, STR("minecraft:chat_type"));
+
+        nbt_write_key(send_cursor, NBT_TAG_LIST, STR("value"));
+        CursorPutU8(send_cursor, NBT_TAG_COMPOUND);
+        CursorPutU32(send_cursor, 3);
+
+        // chat
+        nbt_write_key(send_cursor, NBT_TAG_STRING, STR("name"));
+        nbt_write_string(send_cursor, STR("minecraft:chat"));
+        nbt_write_key(send_cursor, NBT_TAG_INT, STR("id"));
+        CursorPutU32(send_cursor, 0);
+        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("element"));
+        {
+            // no chat formatting
+            nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("chat"));
+            CursorPutU8(send_cursor, NBT_TAG_END);
+            nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("narration"));
+            {
+                nbt_write_key(send_cursor, NBT_TAG_STRING, STR("priority"));
+                nbt_write_string(send_cursor, STR("chat"));
+                nbt_write_key(send_cursor, NBT_TAG_STRING, STR("translation_key"));
+                nbt_write_string(send_cursor, STR("chat.type.text.narrate"));
+                CursorPutU8(send_cursor, NBT_TAG_END);
+            }
+            CursorPutU8(send_cursor, NBT_TAG_END);
+        }
+        CursorPutU8(send_cursor, NBT_TAG_END);
+
+        // system
+        nbt_write_key(send_cursor, NBT_TAG_STRING, STR("name"));
+        nbt_write_string(send_cursor, STR("minecraft:system"));
+        nbt_write_key(send_cursor, NBT_TAG_INT, STR("id"));
+        CursorPutU32(send_cursor, 1);
+        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("element"));
+        {
+            // no chat formatting
+            nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("chat"));
+            {
+                CursorPutU8(send_cursor, NBT_TAG_END);
+            }
+            nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("narration"));
+            {
+                nbt_write_key(send_cursor, NBT_TAG_STRING, STR("priority"));
+                nbt_write_string(send_cursor, STR("system"));
+                CursorPutU8(send_cursor, NBT_TAG_END);
+            }
+            CursorPutU8(send_cursor, NBT_TAG_END);
+        }
+        CursorPutU8(send_cursor, NBT_TAG_END);
+
+        // game info (action bar)
+        nbt_write_key(send_cursor, NBT_TAG_STRING, STR("name"));
+        nbt_write_string(send_cursor, STR("minecraft:game_info"));
+        nbt_write_key(send_cursor, NBT_TAG_INT, STR("id"));
+        CursorPutU32(send_cursor, 2);
+        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("element"));
+        {
+            // no action bar formatting
+            nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("overlay"));
+            {
+                CursorPutU8(send_cursor, NBT_TAG_END);
+            }
+            // no narration
+            CursorPutU8(send_cursor, NBT_TAG_END);
+        }
+        CursorPutU8(send_cursor, NBT_TAG_END);
+
+        CursorPutU8(send_cursor, NBT_TAG_END);
+
+        // end of chat types
+
         CursorPutU8(send_cursor, NBT_TAG_END);
 
         // dimension type of level player is joining
@@ -3091,7 +3168,9 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             .data = buf,
         };
 
-        // @TODO(traks) use player chat packet for this with annoying signing
+        // TODO(traks): use player chat packet for this with annoying signing.
+        // Also will make chat narration work properly as "sender says message"
+        // (see the chat types we define in the login packet).
         begin_packet(send_cursor, CBP_SYSTEM_CHAT);
         CursorPutVarString(send_cursor, jsonMessage);
         CursorPutVarU32(send_cursor, 0); // chat box position
