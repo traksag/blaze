@@ -1,3 +1,52 @@
+key minecraft:completes_find_tree_tutorial
+value minecraft:dark_oak_log
+value minecraft:dark_oak_wood
+value minecraft:stripped_dark_oak_log
+value minecraft:stripped_dark_oak_wood
+value minecraft:oak_log
+value minecraft:oak_wood
+value minecraft:stripped_oak_log
+value minecraft:stripped_oak_wood
+value minecraft:acacia_log
+value minecraft:acacia_wood
+value minecraft:stripped_acacia_log
+value minecraft:stripped_acacia_wood
+value minecraft:birch_log
+value minecraft:birch_wood
+value minecraft:stripped_birch_log
+value minecraft:stripped_birch_wood
+value minecraft:jungle_log
+value minecraft:jungle_wood
+value minecraft:stripped_jungle_log
+value minecraft:stripped_jungle_wood
+value minecraft:spruce_log
+value minecraft:spruce_wood
+value minecraft:stripped_spruce_log
+value minecraft:stripped_spruce_wood
+value minecraft:mangrove_log
+value minecraft:mangrove_wood
+value minecraft:stripped_mangrove_log
+value minecraft:stripped_mangrove_wood
+value minecraft:crimson_stem
+value minecraft:stripped_crimson_stem
+value minecraft:crimson_hyphae
+value minecraft:stripped_crimson_hyphae
+value minecraft:warped_stem
+value minecraft:stripped_warped_stem
+value minecraft:warped_hyphae
+value minecraft:stripped_warped_hyphae
+value minecraft:jungle_leaves
+value minecraft:oak_leaves
+value minecraft:spruce_leaves
+value minecraft:dark_oak_leaves
+value minecraft:acacia_leaves
+value minecraft:birch_leaves
+value minecraft:azalea_leaves
+value minecraft:flowering_azalea_leaves
+value minecraft:mangrove_leaves
+value minecraft:nether_wart_block
+value minecraft:warped_wart_block
+
 key minecraft:fox_food
 value minecraft:sweet_berries
 value minecraft:glow_berries
@@ -19,6 +68,7 @@ value minecraft:birch_fence
 value minecraft:jungle_fence
 value minecraft:crimson_fence
 value minecraft:warped_fence
+value minecraft:mangrove_fence
 
 key minecraft:sand
 value minecraft:sand
@@ -39,6 +89,7 @@ value minecraft:oak_trapdoor
 value minecraft:spruce_trapdoor
 value minecraft:crimson_trapdoor
 value minecraft:warped_trapdoor
+value minecraft:mangrove_trapdoor
 value minecraft:iron_trapdoor
 
 key minecraft:music_discs
@@ -56,6 +107,7 @@ value minecraft:music_disc_11
 value minecraft:music_disc_wait
 value minecraft:music_disc_pigstep
 value minecraft:music_disc_otherside
+value minecraft:music_disc_5
 
 key minecraft:planks
 value minecraft:oak_planks
@@ -66,6 +118,7 @@ value minecraft:acacia_planks
 value minecraft:dark_oak_planks
 value minecraft:crimson_planks
 value minecraft:warped_planks
+value minecraft:mangrove_planks
 
 key minecraft:emerald_ores
 value minecraft:emerald_ore
@@ -105,6 +158,10 @@ value minecraft:spruce_log
 value minecraft:spruce_wood
 value minecraft:stripped_spruce_log
 value minecraft:stripped_spruce_wood
+value minecraft:mangrove_log
+value minecraft:mangrove_wood
+value minecraft:stripped_mangrove_log
+value minecraft:stripped_mangrove_wood
 value minecraft:crimson_stem
 value minecraft:stripped_crimson_stem
 value minecraft:crimson_hyphae
@@ -177,6 +234,7 @@ value minecraft:acacia_button
 value minecraft:dark_oak_button
 value minecraft:crimson_button
 value minecraft:warped_button
+value minecraft:mangrove_button
 
 key minecraft:coal_ores
 value minecraft:coal_ore
@@ -191,6 +249,7 @@ value minecraft:acacia_sapling
 value minecraft:dark_oak_sapling
 value minecraft:azalea
 value minecraft:flowering_azalea
+value minecraft:mangrove_propagule
 
 key minecraft:logs_that_burn
 value minecraft:dark_oak_log
@@ -217,6 +276,10 @@ value minecraft:spruce_log
 value minecraft:spruce_wood
 value minecraft:stripped_spruce_log
 value minecraft:stripped_spruce_wood
+value minecraft:mangrove_log
+value minecraft:mangrove_wood
+value minecraft:stripped_mangrove_log
+value minecraft:stripped_mangrove_wood
 
 key minecraft:spruce_logs
 value minecraft:spruce_log
@@ -273,6 +336,7 @@ value minecraft:acacia_stairs
 value minecraft:dark_oak_stairs
 value minecraft:crimson_stairs
 value minecraft:warped_stairs
+value minecraft:mangrove_stairs
 value minecraft:cobblestone_stairs
 value minecraft:sandstone_stairs
 value minecraft:nether_brick_stairs
@@ -313,12 +377,26 @@ value minecraft:waxed_weathered_cut_copper_stairs
 value minecraft:waxed_exposed_cut_copper_stairs
 value minecraft:waxed_cut_copper_stairs
 value minecraft:waxed_oxidized_cut_copper_stairs
+value minecraft:mud_brick_stairs
 
 key minecraft:crimson_stems
 value minecraft:crimson_stem
 value minecraft:stripped_crimson_stem
 value minecraft:crimson_hyphae
 value minecraft:stripped_crimson_hyphae
+
+key minecraft:wart_blocks
+value minecraft:nether_wart_block
+value minecraft:warped_wart_block
+
+key minecraft:overworld_natural_logs
+value minecraft:acacia_log
+value minecraft:birch_log
+value minecraft:oak_log
+value minecraft:jungle_log
+value minecraft:spruce_log
+value minecraft:dark_oak_log
+value minecraft:mangrove_log
 
 key minecraft:fences
 value minecraft:oak_fence
@@ -329,25 +407,8 @@ value minecraft:birch_fence
 value minecraft:jungle_fence
 value minecraft:crimson_fence
 value minecraft:warped_fence
+value minecraft:mangrove_fence
 value minecraft:nether_brick_fence
-
-key minecraft:occludes_vibration_signals
-value minecraft:white_wool
-value minecraft:orange_wool
-value minecraft:magenta_wool
-value minecraft:light_blue_wool
-value minecraft:yellow_wool
-value minecraft:lime_wool
-value minecraft:pink_wool
-value minecraft:gray_wool
-value minecraft:light_gray_wool
-value minecraft:cyan_wool
-value minecraft:purple_wool
-value minecraft:blue_wool
-value minecraft:brown_wool
-value minecraft:green_wool
-value minecraft:red_wool
-value minecraft:black_wool
 
 key minecraft:oak_logs
 value minecraft:oak_log
@@ -358,6 +419,24 @@ value minecraft:stripped_oak_wood
 key minecraft:iron_ores
 value minecraft:iron_ore
 value minecraft:deepslate_iron_ore
+
+key minecraft:wool_carpets
+value minecraft:white_carpet
+value minecraft:orange_carpet
+value minecraft:magenta_carpet
+value minecraft:light_blue_carpet
+value minecraft:yellow_carpet
+value minecraft:lime_carpet
+value minecraft:pink_carpet
+value minecraft:gray_carpet
+value minecraft:light_gray_carpet
+value minecraft:cyan_carpet
+value minecraft:purple_carpet
+value minecraft:blue_carpet
+value minecraft:brown_carpet
+value minecraft:green_carpet
+value minecraft:red_carpet
+value minecraft:black_carpet
 
 key minecraft:small_flowers
 value minecraft:dandelion
@@ -378,24 +457,6 @@ key minecraft:piglin_food
 value minecraft:porkchop
 value minecraft:cooked_porkchop
 
-key minecraft:carpets
-value minecraft:white_carpet
-value minecraft:orange_carpet
-value minecraft:magenta_carpet
-value minecraft:light_blue_carpet
-value minecraft:yellow_carpet
-value minecraft:lime_carpet
-value minecraft:pink_carpet
-value minecraft:gray_carpet
-value minecraft:light_gray_carpet
-value minecraft:cyan_carpet
-value minecraft:purple_carpet
-value minecraft:blue_carpet
-value minecraft:brown_carpet
-value minecraft:green_carpet
-value minecraft:red_carpet
-value minecraft:black_carpet
-
 key minecraft:diamond_ores
 value minecraft:diamond_ore
 value minecraft:deepslate_diamond_ore
@@ -409,6 +470,7 @@ value minecraft:acacia_slab
 value minecraft:dark_oak_slab
 value minecraft:crimson_slab
 value minecraft:warped_slab
+value minecraft:mangrove_slab
 value minecraft:stone_slab
 value minecraft:smooth_stone_slab
 value minecraft:stone_brick_slab
@@ -453,6 +515,7 @@ value minecraft:weathered_cut_copper_slab
 value minecraft:exposed_cut_copper_slab
 value minecraft:cut_copper_slab
 value minecraft:waxed_oxidized_cut_copper_slab
+value minecraft:mud_brick_slab
 
 key minecraft:copper_ores
 value minecraft:copper_ore
@@ -472,6 +535,14 @@ value minecraft:birch_boat
 value minecraft:jungle_boat
 value minecraft:acacia_boat
 value minecraft:dark_oak_boat
+value minecraft:mangrove_boat
+value minecraft:oak_chest_boat
+value minecraft:spruce_chest_boat
+value minecraft:birch_chest_boat
+value minecraft:jungle_chest_boat
+value minecraft:acacia_chest_boat
+value minecraft:dark_oak_chest_boat
+value minecraft:mangrove_chest_boat
 
 key minecraft:beds
 value minecraft:red_bed
@@ -500,6 +571,7 @@ value minecraft:acacia_slab
 value minecraft:dark_oak_slab
 value minecraft:crimson_slab
 value minecraft:warped_slab
+value minecraft:mangrove_slab
 
 key minecraft:dark_oak_logs
 value minecraft:dark_oak_log
@@ -541,6 +613,11 @@ value minecraft:peony
 value minecraft:rose_bush
 value minecraft:flowering_azalea_leaves
 value minecraft:flowering_azalea
+value minecraft:mangrove_propagule
+
+key minecraft:compasses
+value minecraft:compass
+value minecraft:recovery_compass
 
 key minecraft:ignored_by_piglin_babies
 value minecraft:leather
@@ -565,6 +642,17 @@ value minecraft:coarse_dirt
 value minecraft:mycelium
 value minecraft:rooted_dirt
 value minecraft:moss_block
+value minecraft:mud
+value minecraft:muddy_mangrove_roots
+
+key minecraft:chest_boats
+value minecraft:oak_chest_boat
+value minecraft:spruce_chest_boat
+value minecraft:birch_chest_boat
+value minecraft:jungle_chest_boat
+value minecraft:acacia_chest_boat
+value minecraft:dark_oak_chest_boat
+value minecraft:mangrove_chest_boat
 
 key minecraft:leaves
 value minecraft:jungle_leaves
@@ -575,6 +663,7 @@ value minecraft:acacia_leaves
 value minecraft:birch_leaves
 value minecraft:azalea_leaves
 value minecraft:flowering_azalea_leaves
+value minecraft:mangrove_leaves
 
 key minecraft:walls
 value minecraft:cobblestone_wall
@@ -598,6 +687,7 @@ value minecraft:cobbled_deepslate_wall
 value minecraft:polished_deepslate_wall
 value minecraft:deepslate_tile_wall
 value minecraft:deepslate_brick_wall
+value minecraft:mud_brick_wall
 
 key minecraft:wooden_doors
 value minecraft:oak_door
@@ -608,6 +698,7 @@ value minecraft:acacia_door
 value minecraft:dark_oak_door
 value minecraft:crimson_door
 value minecraft:warped_door
+value minecraft:mangrove_door
 
 key minecraft:stone_crafting_materials
 value minecraft:cobblestone
@@ -684,6 +775,7 @@ value minecraft:acacia_door
 value minecraft:dark_oak_door
 value minecraft:crimson_door
 value minecraft:warped_door
+value minecraft:mangrove_door
 value minecraft:iron_door
 
 key minecraft:piglin_repellents
@@ -704,6 +796,7 @@ value minecraft:oak_trapdoor
 value minecraft:spruce_trapdoor
 value minecraft:crimson_trapdoor
 value minecraft:warped_trapdoor
+value minecraft:mangrove_trapdoor
 
 key minecraft:anvil
 value minecraft:anvil
@@ -719,6 +812,7 @@ value minecraft:acacia_button
 value minecraft:dark_oak_button
 value minecraft:crimson_button
 value minecraft:warped_button
+value minecraft:mangrove_button
 value minecraft:stone_button
 value minecraft:polished_blackstone_button
 
@@ -731,6 +825,7 @@ value minecraft:acacia_pressure_plate
 value minecraft:dark_oak_pressure_plate
 value minecraft:crimson_pressure_plate
 value minecraft:warped_pressure_plate
+value minecraft:mangrove_pressure_plate
 
 key minecraft:arrows
 value minecraft:arrow
@@ -746,6 +841,7 @@ value minecraft:jungle_sign
 value minecraft:dark_oak_sign
 value minecraft:crimson_sign
 value minecraft:warped_sign
+value minecraft:mangrove_sign
 
 key minecraft:terracotta
 value minecraft:terracotta
@@ -766,9 +862,49 @@ value minecraft:green_terracotta
 value minecraft:red_terracotta
 value minecraft:black_terracotta
 
+key minecraft:mangrove_logs
+value minecraft:mangrove_log
+value minecraft:mangrove_wood
+value minecraft:stripped_mangrove_log
+value minecraft:stripped_mangrove_wood
+
 key minecraft:soul_fire_base_blocks
 value minecraft:soul_sand
 value minecraft:soul_soil
+
+key minecraft:dampens_vibrations
+value minecraft:white_wool
+value minecraft:orange_wool
+value minecraft:magenta_wool
+value minecraft:light_blue_wool
+value minecraft:yellow_wool
+value minecraft:lime_wool
+value minecraft:pink_wool
+value minecraft:gray_wool
+value minecraft:light_gray_wool
+value minecraft:cyan_wool
+value minecraft:purple_wool
+value minecraft:blue_wool
+value minecraft:brown_wool
+value minecraft:green_wool
+value minecraft:red_wool
+value minecraft:black_wool
+value minecraft:white_carpet
+value minecraft:orange_carpet
+value minecraft:magenta_carpet
+value minecraft:light_blue_carpet
+value minecraft:yellow_carpet
+value minecraft:lime_carpet
+value minecraft:pink_carpet
+value minecraft:gray_carpet
+value minecraft:light_gray_carpet
+value minecraft:cyan_carpet
+value minecraft:purple_carpet
+value minecraft:blue_carpet
+value minecraft:brown_carpet
+value minecraft:green_carpet
+value minecraft:red_carpet
+value minecraft:black_carpet
 
 key minecraft:birch_logs
 value minecraft:birch_log
@@ -791,3 +927,4 @@ value minecraft:acacia_stairs
 value minecraft:dark_oak_stairs
 value minecraft:crimson_stairs
 value minecraft:warped_stairs
+value minecraft:mangrove_stairs

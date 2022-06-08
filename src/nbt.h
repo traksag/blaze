@@ -60,6 +60,7 @@ NbtList NbtGetArrayU32(NbtCompound * compound, String key);
 NbtList NbtGetArrayU64(NbtCompound * compound, String key);
 NbtList NbtGetList(NbtCompound * compound, String key, int elemType);
 NbtCompound NbtGetCompound(NbtCompound * compound, String key);
+i32 NbtIsEmpty(NbtCompound * compound);
 
 u8 NbtNextU8(NbtList * list);
 u16 NbtNextU16(NbtList * list);

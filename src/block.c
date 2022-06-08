@@ -145,6 +145,9 @@ describe_block_state(u16 block_state) {
         case BLOCK_PROPERTY_WATERLOGGED:
         case BLOCK_PROPERTY_VINE_END:
         case BLOCK_PROPERTY_BERRIES:
+        case BLOCK_PROPERTY_BLOOM:
+        case BLOCK_PROPERTY_SHRIEKING:
+        case BLOCK_PROPERTY_CAN_SUMMON:
         case BLOCK_PROPERTY_NEG_Y:
         case BLOCK_PROPERTY_POS_Y:
         case BLOCK_PROPERTY_NEG_Z:
@@ -300,6 +303,9 @@ make_block_state(block_state_info * info) {
         case BLOCK_PROPERTY_WATERLOGGED:
         case BLOCK_PROPERTY_VINE_END:
         case BLOCK_PROPERTY_BERRIES:
+        case BLOCK_PROPERTY_BLOOM:
+        case BLOCK_PROPERTY_SHRIEKING:
+        case BLOCK_PROPERTY_CAN_SUMMON:
         case BLOCK_PROPERTY_NEG_Y:
         case BLOCK_PROPERTY_POS_Y:
         case BLOCK_PROPERTY_NEG_Z:
@@ -436,6 +442,7 @@ conducts_redstone(u16 block_state, BlockPos pos) {
     case BLOCK_DARK_OAK_LEAVES:
     case BLOCK_ACACIA_LEAVES:
     case BLOCK_BIRCH_LEAVES:
+    case BLOCK_MANGROVE_LEAVES:
     // glass
     case BLOCK_GLASS:
     case BLOCK_GLOWSTONE:
@@ -609,6 +616,10 @@ can_plant_survive_on(i32 type_below) {
     default:
         return 0;
     }
+}
+
+int can_propagule_survive_on(i32 type_below) {
+    return can_plant_survive_on(type_below) || type_below == BLOCK_CLAY;
 }
 
 int
@@ -1118,6 +1129,7 @@ can_redstone_wire_connect_horizontally(u16 block_state, int to_dir) {
     case BLOCK_JUNGLE_PRESSURE_PLATE:
     case BLOCK_ACACIA_PRESSURE_PLATE:
     case BLOCK_DARK_OAK_PRESSURE_PLATE:
+    case BLOCK_MANGROVE_PRESSURE_PLATE:
     case BLOCK_LIGHT_WEIGHTED_PRESSURE_PLATE:
     case BLOCK_HEAVY_WEIGHTED_PRESSURE_PLATE:
     case BLOCK_CRIMSON_PRESSURE_PLATE:
@@ -1130,6 +1142,7 @@ can_redstone_wire_connect_horizontally(u16 block_state, int to_dir) {
     case BLOCK_JUNGLE_BUTTON:
     case BLOCK_ACACIA_BUTTON:
     case BLOCK_DARK_OAK_BUTTON:
+    case BLOCK_MANGROVE_BUTTON:
     case BLOCK_CRIMSON_BUTTON:
     case BLOCK_WARPED_BUTTON:
     case BLOCK_POLISHED_BLACKSTONE_BUTTON:
@@ -1164,6 +1177,7 @@ get_emitted_redstone_power(u16 block_state, int dir,
     case BLOCK_JUNGLE_PRESSURE_PLATE:
     case BLOCK_ACACIA_PRESSURE_PLATE:
     case BLOCK_DARK_OAK_PRESSURE_PLATE:
+    case BLOCK_MANGROVE_PRESSURE_PLATE:
     case BLOCK_CRIMSON_PRESSURE_PLATE:
     case BLOCK_WARPED_PRESSURE_PLATE:
     case BLOCK_POLISHED_BLACKSTONE_PRESSURE_PLATE:
@@ -1174,6 +1188,7 @@ get_emitted_redstone_power(u16 block_state, int dir,
     case BLOCK_JUNGLE_BUTTON:
     case BLOCK_ACACIA_BUTTON:
     case BLOCK_DARK_OAK_BUTTON:
+    case BLOCK_MANGROVE_BUTTON:
     case BLOCK_CRIMSON_BUTTON:
     case BLOCK_WARPED_BUTTON:
     case BLOCK_POLISHED_BLACKSTONE_BUTTON:
@@ -1268,6 +1283,7 @@ get_conducted_redstone_power(u16 block_state, int dir,
     case BLOCK_JUNGLE_PRESSURE_PLATE:
     case BLOCK_ACACIA_PRESSURE_PLATE:
     case BLOCK_DARK_OAK_PRESSURE_PLATE:
+    case BLOCK_MANGROVE_PRESSURE_PLATE:
     case BLOCK_CRIMSON_PRESSURE_PLATE:
     case BLOCK_WARPED_PRESSURE_PLATE:
     case BLOCK_POLISHED_BLACKSTONE_PRESSURE_PLATE:
@@ -1285,6 +1301,7 @@ get_conducted_redstone_power(u16 block_state, int dir,
     case BLOCK_JUNGLE_BUTTON:
     case BLOCK_ACACIA_BUTTON:
     case BLOCK_DARK_OAK_BUTTON:
+    case BLOCK_MANGROVE_BUTTON:
     case BLOCK_CRIMSON_BUTTON:
     case BLOCK_WARPED_BUTTON:
     case BLOCK_POLISHED_BLACKSTONE_BUTTON:
@@ -2015,6 +2032,27 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
+    case BLOCK_MANGROVE_PROPAGULE: {
+        if (from_direction == DIRECTION_NEG_Y) {
+            i32 typeBelow = from_type;
+            if (!can_propagule_survive_on(typeBelow)) {
+                break_block(pos);
+                push_direct_neighbour_block_updates(pos, buc);
+                return 1;
+            }
+        } else if (from_direction == DIRECTION_POS_Y) {
+            i32 typeAbove = from_type;
+            if (typeAbove != BLOCK_MANGROVE_LEAVES) {
+                break_block(pos);
+                push_direct_neighbour_block_updates(pos, buc);
+                return 1;
+            }
+        }
+        return 0;
+    }
+    case BLOCK_MANGROVE_ROOTS:
+        // @TODO(traks) fluid update
+        break;
     case BLOCK_WATER:
         break;
     case BLOCK_LAVA:
@@ -2031,8 +2069,10 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
     case BLOCK_JUNGLE_LEAVES:
     case BLOCK_ACACIA_LEAVES:
     case BLOCK_DARK_OAK_LEAVES:
+    case BLOCK_MANGROVE_LEAVES:
     case BLOCK_AZALEA_LEAVES:
     case BLOCK_FLOWERING_AZALEA_LEAVES:
+        // @TODO(traks) fluid update
         break;
     case BLOCK_SPONGE:
         break;
@@ -2204,6 +2244,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
     case BLOCK_COBBLESTONE_STAIRS:
     case BLOCK_BRICK_STAIRS:
     case BLOCK_STONE_BRICK_STAIRS:
+    case BLOCK_MUD_BRICK_STAIRS:
     case BLOCK_NETHER_BRICK_STAIRS:
     case BLOCK_SANDSTONE_STAIRS:
     case BLOCK_SPRUCE_STAIRS:
@@ -2212,6 +2253,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
     case BLOCK_QUARTZ_STAIRS:
     case BLOCK_ACACIA_STAIRS:
     case BLOCK_DARK_OAK_STAIRS:
+    case BLOCK_MANGROVE_STAIRS:
     case BLOCK_PRISMARINE_STAIRS:
     case BLOCK_PRISMARINE_BRICK_STAIRS:
     case BLOCK_DARK_PRISMARINE_STAIRS:
@@ -2314,6 +2356,8 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
         break;
     case BLOCK_DARK_OAK_SIGN:
         break;
+    case BLOCK_MANGROVE_SIGN:
+        break;
     case BLOCK_OAK_DOOR:
     case BLOCK_IRON_DOOR:
     case BLOCK_SPRUCE_DOOR:
@@ -2321,6 +2365,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
     case BLOCK_JUNGLE_DOOR:
     case BLOCK_ACACIA_DOOR:
     case BLOCK_DARK_OAK_DOOR:
+    case BLOCK_MANGROVE_DOOR:
     case BLOCK_CRIMSON_DOOR:
     case BLOCK_WARPED_DOOR: {
         if (from_direction == DIRECTION_POS_Y) {
@@ -2389,6 +2434,8 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
         break;
     case BLOCK_DARK_OAK_WALL_SIGN:
         break;
+    case BLOCK_MANGROVE_WALL_SIGN:
+        break;
     case BLOCK_STONE_PRESSURE_PLATE:
     case BLOCK_OAK_PRESSURE_PLATE:
     case BLOCK_SPRUCE_PRESSURE_PLATE:
@@ -2396,6 +2443,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
     case BLOCK_JUNGLE_PRESSURE_PLATE:
     case BLOCK_ACACIA_PRESSURE_PLATE:
     case BLOCK_DARK_OAK_PRESSURE_PLATE:
+    case BLOCK_MANGROVE_PRESSURE_PLATE:
     case BLOCK_LIGHT_WEIGHTED_PRESSURE_PLATE:
     case BLOCK_HEAVY_WEIGHTED_PRESSURE_PLATE:
     case BLOCK_CRIMSON_PRESSURE_PLATE:
@@ -2422,6 +2470,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
     case BLOCK_JUNGLE_BUTTON:
     case BLOCK_ACACIA_BUTTON:
     case BLOCK_DARK_OAK_BUTTON:
+    case BLOCK_MANGROVE_BUTTON:
     case BLOCK_CRIMSON_BUTTON:
     case BLOCK_WARPED_BUTTON:
     case BLOCK_POLISHED_BLACKSTONE_BUTTON:
@@ -2487,6 +2536,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
     case BLOCK_JUNGLE_FENCE:
     case BLOCK_ACACIA_FENCE:
     case BLOCK_DARK_OAK_FENCE:
+    case BLOCK_MANGROVE_FENCE:
     case BLOCK_CRIMSON_FENCE:
     case BLOCK_WARPED_FENCE: {
         // @TODO(traks) update water
@@ -2540,6 +2590,8 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
     case BLOCK_ACACIA_TRAPDOOR:
         break;
     case BLOCK_DARK_OAK_TRAPDOOR:
+        break;
+    case BLOCK_MANGROVE_TRAPDOOR:
         break;
     case BLOCK_BROWN_MUSHROOM_BLOCK:
     case BLOCK_RED_MUSHROOM_BLOCK:
@@ -2622,6 +2674,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
     case BLOCK_JUNGLE_FENCE_GATE:
     case BLOCK_ACACIA_FENCE_GATE:
     case BLOCK_DARK_OAK_FENCE_GATE:
+    case BLOCK_MANGROVE_FENCE_GATE:
     case BLOCK_CRIMSON_FENCE_GATE:
     case BLOCK_WARPED_FENCE_GATE: {
         int facing = cur_info.horizontal_facing;
@@ -2715,6 +2768,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
     case BLOCK_MOSSY_STONE_BRICK_WALL:
     case BLOCK_GRANITE_WALL:
     case BLOCK_STONE_BRICK_WALL:
+    case BLOCK_MUD_BRICK_WALL:
     case BLOCK_NETHER_BRICK_WALL:
     case BLOCK_ANDESITE_WALL:
     case BLOCK_RED_NETHER_BRICK_WALL:
@@ -2769,6 +2823,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
     case BLOCK_JUNGLE_SLAB:
     case BLOCK_ACACIA_SLAB:
     case BLOCK_DARK_OAK_SLAB:
+    case BLOCK_MANGROVE_SLAB:
     case BLOCK_STONE_SLAB:
     case BLOCK_SMOOTH_STONE_SLAB:
     case BLOCK_SANDSTONE_SLAB:
@@ -2777,6 +2832,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
     case BLOCK_COBBLESTONE_SLAB:
     case BLOCK_BRICK_SLAB:
     case BLOCK_STONE_BRICK_SLAB:
+    case BLOCK_MUD_BRICK_SLAB:
     case BLOCK_NETHER_BRICK_SLAB:
     case BLOCK_QUARTZ_SLAB:
     case BLOCK_RED_SANDSTONE_SLAB:
@@ -3222,6 +3278,13 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
     }
     case BLOCK_SCULK_SENSOR:
         break;
+    case BLOCK_SCULK_VEIN:
+        // @TODO(traks) fluid update
+        break;
+    case BLOCK_SCULK_CATALYST:
+        break;
+    case BLOCK_SCULK_SHRIEKER:
+        break;
     case BLOCK_LIGHTNING_ROD:
         // @TODO(traks) fluid update
         break;
@@ -3451,16 +3514,18 @@ use_block(entity_base * player,
     case BLOCK_ACACIA_SIGN:
     case BLOCK_JUNGLE_SIGN:
     case BLOCK_DARK_OAK_SIGN:
-    case BLOCK_OAK_WALL_SIGN:
+    case BLOCK_MANGROVE_SIGN:
     case BLOCK_CRIMSON_SIGN:
     case BLOCK_WARPED_SIGN:
         // @TODO
         return 0;
+    case BLOCK_OAK_WALL_SIGN:
     case BLOCK_SPRUCE_WALL_SIGN:
     case BLOCK_BIRCH_WALL_SIGN:
     case BLOCK_ACACIA_WALL_SIGN:
     case BLOCK_JUNGLE_WALL_SIGN:
     case BLOCK_DARK_OAK_WALL_SIGN:
+    case BLOCK_MANGROVE_WALL_SIGN:
     case BLOCK_CRIMSON_WALL_SIGN:
     case BLOCK_WARPED_WALL_SIGN:
         // @TODO
@@ -3479,6 +3544,7 @@ use_block(entity_base * player,
     case BLOCK_JUNGLE_DOOR:
     case BLOCK_ACACIA_DOOR:
     case BLOCK_DARK_OAK_DOOR:
+    case BLOCK_MANGROVE_DOOR:
     case BLOCK_CRIMSON_DOOR:
     case BLOCK_WARPED_DOOR: {
         // @TODO(traks) play opening/closing sound
@@ -3502,6 +3568,7 @@ use_block(entity_base * player,
     case BLOCK_JUNGLE_BUTTON:
     case BLOCK_ACACIA_BUTTON:
     case BLOCK_DARK_OAK_BUTTON:
+    case BLOCK_MANGROVE_BUTTON:
     case BLOCK_CRIMSON_BUTTON:
     case BLOCK_WARPED_BUTTON:
     case BLOCK_POLISHED_BLACKSTONE_BUTTON:
@@ -3517,6 +3584,7 @@ use_block(entity_base * player,
     case BLOCK_JUNGLE_FENCE:
     case BLOCK_ACACIA_FENCE:
     case BLOCK_DARK_OAK_FENCE:
+    case BLOCK_MANGROVE_FENCE:
     case BLOCK_CRIMSON_FENCE:
     case BLOCK_WARPED_FENCE:
         // @TODO
@@ -3542,6 +3610,7 @@ use_block(entity_base * player,
     case BLOCK_JUNGLE_TRAPDOOR:
     case BLOCK_ACACIA_TRAPDOOR:
     case BLOCK_DARK_OAK_TRAPDOOR:
+    case BLOCK_MANGROVE_TRAPDOOR:
     case BLOCK_CRIMSON_TRAPDOOR:
     case BLOCK_WARPED_TRAPDOOR: {
         // @TODO(traks) play opening/closing sound
@@ -3557,6 +3626,7 @@ use_block(entity_base * player,
     case BLOCK_JUNGLE_FENCE_GATE:
     case BLOCK_ACACIA_FENCE_GATE:
     case BLOCK_DARK_OAK_FENCE_GATE:
+    case BLOCK_MANGROVE_FENCE_GATE:
     case BLOCK_CRIMSON_FENCE_GATE:
     case BLOCK_WARPED_FENCE_GATE: {
         if (cur_info.open) {
@@ -3626,6 +3696,9 @@ use_block(entity_base * player,
         // @TODO
         return 0;
     case BLOCK_POTTED_DARK_OAK_SAPLING:
+        // @TODO
+        return 0;
+    case BLOCK_POTTED_MANGROVE_PROPAGULE:
         // @TODO
         return 0;
     case BLOCK_POTTED_FERN:
@@ -3866,6 +3939,10 @@ use_block(entity_base * player,
     }
     case BLOCK_CAVE_VINES:
     case BLOCK_CAVE_VINES_PLANT: {
+        // @TODO
+        return 0;
+    }
+    case BLOCK_FROGSPAWN: {
         // @TODO
         return 0;
     }

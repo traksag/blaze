@@ -896,11 +896,6 @@ void LightChunk(Chunk * ch) {
     // 1,106
     // 0.032 ms optimised
 
-    // @TODO(traks) remove debug data
-    static i64 totalPushCount;
-    static i64 totalCallCount;
-    static i64 totalElapsedTime;
-
     BeginTimedZone("LightChunk");
 
     BeginTimedZone("InitLightChunk");
@@ -1004,14 +999,20 @@ void LightChunk(Chunk * ch) {
 
     EndTimedZone();
 
-    totalPushCount += skyLightQueue.pushCount;
-    totalCallCount++;
-    totalElapsedTime += (endTime - startTime) / 1000;
+    if (DEBUG_LIGHTING_ENGINE) {
+        static i64 totalPushCount;
+        static i64 totalCallCount;
+        static i64 totalElapsedTime;
 
-    LogInfo("pushes: %d, elapsed: %d, calls: %d",
-            totalPushCount / totalCallCount,
-            totalElapsedTime / totalCallCount,
-            totalCallCount);
+        totalPushCount += skyLightQueue.pushCount;
+        totalCallCount++;
+        totalElapsedTime += (endTime - startTime) / 1000;
+
+        LogInfo("pushes: %d, elapsed: %d, calls: %d",
+                totalPushCount / totalCallCount,
+                totalElapsedTime / totalCallCount,
+                totalCallCount);
+    }
 }
 
 void UpdateLighting() {

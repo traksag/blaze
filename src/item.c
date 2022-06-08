@@ -167,6 +167,26 @@ place_plant(place_context context, i32 place_type) {
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
+static void place_propagule(place_context context, i32 place_type) {
+    place_target target = determine_place_target(
+            context.clicked_pos, context.clicked_face, place_type);
+    if (!(target.flags & PLACE_CAN_PLACE)) {
+        return;
+    }
+
+    u16 state_below = try_get_block_state(
+            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
+    i32 type_below = serv->block_type_by_state[state_below];
+
+    if (!can_propagule_survive_on(type_below)) {
+        return;
+    }
+
+    u16 place_state = get_default_block_state(place_type);
+    try_set_block_state(target.pos, place_state);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
+}
+
 static void
 place_azalea(place_context context, i32 place_type) {
     place_target target = determine_place_target(
@@ -508,9 +528,33 @@ place_leaves(place_context context, i32 place_type) {
 
     // @TODO(traks) calculate distance to nearest log block and modify block
     // state with that information
-    u16 place_state = serv->block_properties_table[place_type].base_state;
-    place_state += 0; // persistent = true
+    block_state_info place_info = describe_default_block_state(place_type);
+    place_info.persistent = 1;
 
+    BlockPos target_pos = target.pos;
+    u16 cur_state = try_get_block_state(target_pos);
+    place_info.waterlogged = is_water_source(cur_state);
+
+    u16 place_state = make_block_state(&place_info);
+    try_set_block_state(target.pos, place_state);
+    push_direct_neighbour_block_updates(target.pos, context.buc);
+}
+
+static void
+place_mangrove_roots(place_context context, i32 place_type) {
+    place_target target = determine_place_target(
+            context.clicked_pos, context.clicked_face, place_type);
+    if (!(target.flags & PLACE_CAN_PLACE)) {
+        return;
+    }
+
+    block_state_info place_info = describe_default_block_state(place_type);
+
+    BlockPos target_pos = target.pos;
+    u16 cur_state = try_get_block_state(target_pos);
+    place_info.waterlogged = is_water_source(cur_state);
+
+    u16 place_state = make_block_state(&place_info);
     try_set_block_state(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
@@ -1596,6 +1640,9 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_ROOTED_DIRT:
         place_simple_block(context, BLOCK_ROOTED_DIRT);
         break;
+    case ITEM_MUD:
+        place_simple_block(context, BLOCK_MUD);
+        break;
     case ITEM_CRIMSON_NYLIUM:
         place_simple_block(context, BLOCK_CRIMSON_NYLIUM);
         break;
@@ -1623,6 +1670,9 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_DARK_OAK_PLANKS:
         place_simple_block(context, BLOCK_DARK_OAK_PLANKS);
         break;
+    case ITEM_MANGROVE_PLANKS:
+        place_simple_block(context, BLOCK_MANGROVE_PLANKS);
+        break;
     case ITEM_CRIMSON_PLANKS:
         place_simple_block(context, BLOCK_CRIMSON_PLANKS);
         break;
@@ -1646,6 +1696,9 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_DARK_OAK_SAPLING:
         place_plant(context, BLOCK_DARK_OAK_SAPLING);
+        break;
+    case ITEM_MANGROVE_PROPAGULE:
+        place_propagule(context, BLOCK_MANGROVE_PROPAGULE);
         break;
     case ITEM_BEDROCK:
         place_simple_block(context, BLOCK_BEDROCK);
@@ -1857,6 +1910,15 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_DARK_OAK_LOG:
         place_simple_pillar(context, BLOCK_DARK_OAK_LOG);
         break;
+    case ITEM_MANGROVE_LOG:
+        place_simple_pillar(context, BLOCK_MANGROVE_LOG);
+        break;
+    case ITEM_MANGROVE_ROOTS:
+        place_mangrove_roots(context, BLOCK_MANGROVE_ROOTS);
+        break;
+    case ITEM_MUDDY_MANGROVE_ROOTS:
+        place_simple_pillar(context, BLOCK_MUDDY_MANGROVE_ROOTS);
+        break;
     case ITEM_CRIMSON_STEM:
         place_simple_pillar(context, BLOCK_CRIMSON_STEM);
         break;
@@ -1880,6 +1942,9 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_STRIPPED_DARK_OAK_LOG:
         place_simple_pillar(context, BLOCK_STRIPPED_DARK_OAK_LOG);
+        break;
+    case ITEM_STRIPPED_MANGROVE_LOG:
+        place_simple_pillar(context, BLOCK_STRIPPED_MANGROVE_LOG);
         break;
     case ITEM_STRIPPED_CRIMSON_STEM:
         place_simple_pillar(context, BLOCK_STRIPPED_CRIMSON_STEM);
@@ -1905,6 +1970,9 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_STRIPPED_DARK_OAK_WOOD:
         place_simple_pillar(context, BLOCK_STRIPPED_DARK_OAK_WOOD);
         break;
+    case ITEM_STRIPPED_MANGROVE_WOOD:
+        place_simple_pillar(context, BLOCK_STRIPPED_MANGROVE_WOOD);
+        break;
     case ITEM_STRIPPED_CRIMSON_HYPHAE:
         place_simple_pillar(context, BLOCK_STRIPPED_CRIMSON_HYPHAE);
         break;
@@ -1929,6 +1997,9 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_DARK_OAK_WOOD:
         place_simple_pillar(context, BLOCK_DARK_OAK_WOOD);
         break;
+    case ITEM_MANGROVE_WOOD:
+        place_simple_pillar(context, BLOCK_MANGROVE_WOOD);
+        break;
     case ITEM_CRIMSON_HYPHAE:
         place_simple_pillar(context, BLOCK_CRIMSON_HYPHAE);
         break;
@@ -1952,6 +2023,9 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_DARK_OAK_LEAVES:
         place_leaves(context, BLOCK_DARK_OAK_LEAVES);
+        break;
+    case ITEM_MANGROVE_LEAVES:
+        place_leaves(context, BLOCK_MANGROVE_LEAVES);
         break;
     case ITEM_AZALEA_LEAVES:
         place_leaves(context, BLOCK_AZALEA_LEAVES);
@@ -2154,6 +2228,9 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_DARK_OAK_SLAB:
         place_slab(context, BLOCK_DARK_OAK_SLAB);
         break;
+    case ITEM_MANGROVE_SLAB:
+        place_slab(context, BLOCK_MANGROVE_SLAB);
+        break;
     case ITEM_CRIMSON_SLAB:
         place_slab(context, BLOCK_CRIMSON_SLAB);
         break;
@@ -2183,6 +2260,9 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_STONE_BRICK_SLAB:
         place_slab(context, BLOCK_STONE_BRICK_SLAB);
+        break;
+    case ITEM_MUD_BRICK_SLAB:
+        place_slab(context, BLOCK_MUD_BRICK_SLAB);
         break;
     case ITEM_NETHER_BRICK_SLAB:
         place_slab(context, BLOCK_NETHER_BRICK_SLAB);
@@ -2253,9 +2333,6 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_SPAWNER:
         break;
-    case ITEM_OAK_STAIRS:
-        place_stairs(context, BLOCK_OAK_STAIRS);
-        break;
     case ITEM_CHEST:
         break;
     case ITEM_CRAFTING_TABLE:
@@ -2307,6 +2384,9 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_DARK_OAK_FENCE:
         place_fence(context, BLOCK_DARK_OAK_FENCE);
+        break;
+    case ITEM_MANGROVE_FENCE:
+        place_fence(context, BLOCK_MANGROVE_FENCE);
         break;
     case ITEM_CRIMSON_FENCE:
         place_fence(context, BLOCK_CRIMSON_FENCE);
@@ -2382,6 +2462,12 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_CHISELED_STONE_BRICKS:
         place_simple_block(context, BLOCK_CHISELED_STONE_BRICKS);
         break;
+    case ITEM_PACKED_MUD:
+        place_simple_block(context, BLOCK_PACKED_MUD);
+        break;
+    case ITEM_MUD_BRICKS:
+        place_simple_block(context, BLOCK_MUD_BRICKS);
+        break;
     case ITEM_DEEPSLATE_BRICKS:
         place_simple_block(context, BLOCK_DEEPSLATE_BRICKS);
         break;
@@ -2396,6 +2482,9 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_CHISELED_DEEPSLATE:
         place_simple_block(context, BLOCK_CHISELED_DEEPSLATE);
+        break;
+    case ITEM_REINFORCED_DEEPSLATE:
+        place_simple_block(context, BLOCK_REINFORCED_DEEPSLATE);
         break;
     case ITEM_BROWN_MUSHROOM_BLOCK:
         place_mushroom_block(context, BLOCK_BROWN_MUSHROOM_BLOCK);
@@ -2428,6 +2517,9 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_STONE_BRICK_STAIRS:
         place_stairs(context, BLOCK_STONE_BRICK_STAIRS);
         break;
+    case ITEM_MUD_BRICK_STAIRS:
+        place_stairs(context, BLOCK_MUD_BRICK_STAIRS);
+        break;
     case ITEM_MYCELIUM:
         place_snowy_grassy_block(context, BLOCK_MYCELIUM);
         break;
@@ -2448,6 +2540,14 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_NETHER_BRICK_STAIRS:
         place_stairs(context, BLOCK_NETHER_BRICK_STAIRS);
+        break;
+    case ITEM_SCULK:
+        break;
+    case ITEM_SCULK_VEIN:
+        break;
+    case ITEM_SCULK_CATALYST:
+        break;
+    case ITEM_SCULK_SHRIEKER:
         break;
     case ITEM_ENCHANTING_TABLE:
         break;
@@ -2470,6 +2570,9 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_EMERALD_BLOCK:
         place_simple_block(context, BLOCK_EMERALD_BLOCK);
         break;
+    case ITEM_OAK_STAIRS:
+        place_stairs(context, BLOCK_OAK_STAIRS);
+        break;
     case ITEM_SPRUCE_STAIRS:
         place_stairs(context, BLOCK_SPRUCE_STAIRS);
         break;
@@ -2478,6 +2581,15 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_JUNGLE_STAIRS:
         place_stairs(context, BLOCK_JUNGLE_STAIRS);
+        break;
+    case ITEM_ACACIA_STAIRS:
+        place_stairs(context, BLOCK_ACACIA_STAIRS);
+        break;
+    case ITEM_DARK_OAK_STAIRS:
+        place_stairs(context, BLOCK_DARK_OAK_STAIRS);
+        break;
+    case ITEM_MANGROVE_STAIRS:
+        place_stairs(context, BLOCK_MANGROVE_STAIRS);
         break;
     case ITEM_CRIMSON_STAIRS:
         place_stairs(context, BLOCK_CRIMSON_STAIRS);
@@ -2512,6 +2624,9 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_STONE_BRICK_WALL:
         place_wall(context, BLOCK_STONE_BRICK_WALL);
+        break;
+    case ITEM_MUD_BRICK_WALL:
+        place_wall(context, BLOCK_MUD_BRICK_WALL);
         break;
     case ITEM_NETHER_BRICK_WALL:
         place_wall(context, BLOCK_NETHER_BRICK_WALL);
@@ -2682,12 +2797,6 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_PACKED_ICE:
         place_simple_block(context, BLOCK_PACKED_ICE);
-        break;
-    case ITEM_ACACIA_STAIRS:
-        place_stairs(context, BLOCK_ACACIA_STAIRS);
-        break;
-    case ITEM_DARK_OAK_STAIRS:
-        place_stairs(context, BLOCK_DARK_OAK_STAIRS);
         break;
     case ITEM_DIRT_PATH:
         break;
@@ -3289,6 +3398,9 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_DARK_OAK_BUTTON:
         place_lever_or_button(context, BLOCK_DARK_OAK_BUTTON);
         break;
+    case ITEM_MANGROVE_BUTTON:
+        place_lever_or_button(context, BLOCK_MANGROVE_BUTTON);
+        break;
     case ITEM_CRIMSON_BUTTON:
         place_lever_or_button(context, BLOCK_CRIMSON_BUTTON);
         break;
@@ -3325,6 +3437,9 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_DARK_OAK_PRESSURE_PLATE:
         place_pressure_plate(context, BLOCK_DARK_OAK_PRESSURE_PLATE);
         break;
+    case ITEM_MANGROVE_PRESSURE_PLATE:
+        place_pressure_plate(context, BLOCK_MANGROVE_PRESSURE_PLATE);
+        break;
     case ITEM_CRIMSON_PRESSURE_PLATE:
         place_pressure_plate(context, BLOCK_CRIMSON_PRESSURE_PLATE);
         break;
@@ -3351,6 +3466,9 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_DARK_OAK_DOOR:
         place_door(context, BLOCK_DARK_OAK_DOOR);
+        break;
+    case ITEM_MANGROVE_DOOR:
+        place_door(context, BLOCK_MANGROVE_DOOR);
         break;
     case ITEM_CRIMSON_DOOR:
         place_door(context, BLOCK_CRIMSON_DOOR);
@@ -3379,6 +3497,9 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_DARK_OAK_TRAPDOOR:
         place_trapdoor(context, BLOCK_DARK_OAK_TRAPDOOR);
         break;
+    case ITEM_MANGROVE_TRAPDOOR:
+        place_trapdoor(context, BLOCK_MANGROVE_TRAPDOOR);
+        break;
     case ITEM_CRIMSON_TRAPDOOR:
         place_trapdoor(context, BLOCK_CRIMSON_TRAPDOOR);
         break;
@@ -3402,6 +3523,9 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_DARK_OAK_FENCE_GATE:
         place_fence_gate(context, BLOCK_DARK_OAK_FENCE_GATE);
+        break;
+    case ITEM_MANGROVE_FENCE_GATE:
+        place_fence_gate(context, BLOCK_MANGROVE_FENCE_GATE);
         break;
     case ITEM_CRIMSON_FENCE_GATE:
         place_fence_gate(context, BLOCK_CRIMSON_FENCE_GATE);
@@ -3489,6 +3613,8 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_DARK_OAK_SIGN:
         break;
+    case ITEM_MANGROVE_SIGN:
+        break;
     case ITEM_CRIMSON_SIGN:
         break;
     case ITEM_WARPED_SIGN:
@@ -3572,6 +3698,8 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_ENDER_EYE:
         break;
+    case ITEM_ALLAY_SPAWN_EGG:
+        break;
     case ITEM_AXOLOTL_SPAWN_EGG:
         break;
     case ITEM_BAT_SPAWN_EGG:
@@ -3607,6 +3735,8 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_EVOKER_SPAWN_EGG:
         break;
     case ITEM_FOX_SPAWN_EGG:
+        break;
+    case ITEM_FROG_SPAWN_EGG:
         break;
     case ITEM_GHAST_SPAWN_EGG:
         break;
@@ -3676,6 +3806,8 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_STRIDER_SPAWN_EGG:
         break;
+    case ITEM_TADPOLE_SPAWN_EGG:
+        break;
     case ITEM_TRADER_LLAMA_SPAWN_EGG:
         break;
     case ITEM_TROPICAL_FISH_SPAWN_EGG:
@@ -3689,6 +3821,8 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_VINDICATOR_SPAWN_EGG:
         break;
     case ITEM_WANDERING_TRADER_SPAWN_EGG:
+        break;
+    case ITEM_WARDEN_SPAWN_EGG:
         break;
     case ITEM_WITCH_SPAWN_EGG:
         break;
@@ -3808,10 +3942,16 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_MUSIC_DISC_WAIT:
         break;
+    case ITEM_MUSIC_DISC_OTHERSIDE:
+        break;
+    case ITEM_MUSIC_DISC_5:
+        break;
     case ITEM_MUSIC_DISC_PIGSTEP:
         break;
     case ITEM_LOOM:
         place_horizontal_facing(context, BLOCK_LOOM);
+        break;
+    case ITEM_GOAT_HORN:
         break;
     case ITEM_COMPOSTER:
         place_simple_block(context, BLOCK_COMPOSTER);
@@ -3954,6 +4094,17 @@ process_use_item_on_packet(entity_base * player,
         break;
     case ITEM_POINTED_DRIPSTONE:
         break;
+    case ITEM_OCHRE_FROGLIGHT:
+        place_simple_pillar(context, BLOCK_OCHRE_FROGLIGHT);
+        break;
+    case ITEM_VERDANT_FROGLIGHT:
+        place_simple_pillar(context, BLOCK_VERDANT_FROGLIGHT);
+        break;
+    case ITEM_PEARLESCENT_FROGLIGHT:
+        place_simple_pillar(context, BLOCK_PEARLESCENT_FROGLIGHT);
+        break;
+    case ITEM_FROGSPAWN:
+        break;
     default:
         // no use-on action for the remaining item types
         break;
@@ -4045,7 +4196,6 @@ get_max_stack_size(i32 item_type) {
     case ITEM_LAVA_BUCKET:
     case ITEM_MINECART:
     case ITEM_SADDLE:
-    case ITEM_OAK_BOAT:
     case ITEM_POWDER_SNOW_BUCKET:
     case ITEM_MILK_BUCKET:
     case ITEM_PUFFERFISH_BUCKET:
@@ -4053,6 +4203,7 @@ get_max_stack_size(i32 item_type) {
     case ITEM_COD_BUCKET:
     case ITEM_TROPICAL_FISH_BUCKET:
     case ITEM_AXOLOTL_BUCKET:
+    case ITEM_TADPOLE_BUCKET:
     case ITEM_CHEST_MINECART:
     case ITEM_FURNACE_MINECART:
     case ITEM_FISHING_ROD:
@@ -4092,11 +4243,20 @@ get_max_stack_size(i32 item_type) {
     case ITEM_LINGERING_POTION:
     case ITEM_SHIELD:
     case ITEM_ELYTRA:
+    case ITEM_OAK_BOAT:
+    case ITEM_OAK_CHEST_BOAT:
     case ITEM_SPRUCE_BOAT:
+    case ITEM_SPRUCE_CHEST_BOAT:
     case ITEM_BIRCH_BOAT:
+    case ITEM_BIRCH_CHEST_BOAT:
     case ITEM_JUNGLE_BOAT:
+    case ITEM_JUNGLE_CHEST_BOAT:
     case ITEM_ACACIA_BOAT:
+    case ITEM_ACACIA_CHEST_BOAT:
     case ITEM_DARK_OAK_BOAT:
+    case ITEM_DARK_OAK_CHEST_BOAT:
+    case ITEM_MANGROVE_BOAT:
+    case ITEM_MANGROVE_CHEST_BOAT:
     case ITEM_TOTEM_OF_UNDYING:
     case ITEM_KNOWLEDGE_BOOK:
     case ITEM_DEBUG_STICK:
@@ -4132,6 +4292,7 @@ get_max_stack_size(i32 item_type) {
     case ITEM_JUNGLE_SIGN:
     case ITEM_ACACIA_SIGN:
     case ITEM_DARK_OAK_SIGN:
+    case ITEM_MANGROVE_SIGN:
     case ITEM_CRIMSON_SIGN:
     case ITEM_WARPED_SIGN:
     case ITEM_BUCKET:
@@ -4193,6 +4354,7 @@ init_item_data(void) {
     register_item_type(ITEM_COARSE_DIRT, "minecraft:coarse_dirt");
     register_item_type(ITEM_PODZOL, "minecraft:podzol");
     register_item_type(ITEM_ROOTED_DIRT, "minecraft:rooted_dirt");
+    register_item_type(ITEM_MUD, "minecraft:mud");
     register_item_type(ITEM_CRIMSON_NYLIUM, "minecraft:crimson_nylium");
     register_item_type(ITEM_WARPED_NYLIUM, "minecraft:warped_nylium");
     register_item_type(ITEM_COBBLESTONE, "minecraft:cobblestone");
@@ -4202,6 +4364,7 @@ init_item_data(void) {
     register_item_type(ITEM_JUNGLE_PLANKS, "minecraft:jungle_planks");
     register_item_type(ITEM_ACACIA_PLANKS, "minecraft:acacia_planks");
     register_item_type(ITEM_DARK_OAK_PLANKS, "minecraft:dark_oak_planks");
+    register_item_type(ITEM_MANGROVE_PLANKS, "minecraft:mangrove_planks");
     register_item_type(ITEM_CRIMSON_PLANKS, "minecraft:crimson_planks");
     register_item_type(ITEM_WARPED_PLANKS, "minecraft:warped_planks");
     register_item_type(ITEM_OAK_SAPLING, "minecraft:oak_sapling");
@@ -4210,6 +4373,7 @@ init_item_data(void) {
     register_item_type(ITEM_JUNGLE_SAPLING, "minecraft:jungle_sapling");
     register_item_type(ITEM_ACACIA_SAPLING, "minecraft:acacia_sapling");
     register_item_type(ITEM_DARK_OAK_SAPLING, "minecraft:dark_oak_sapling");
+    register_item_type(ITEM_MANGROVE_PROPAGULE, "minecraft:mangrove_propagule");
     register_item_type(ITEM_BEDROCK, "minecraft:bedrock");
     register_item_type(ITEM_SAND, "minecraft:sand");
     register_item_type(ITEM_RED_SAND, "minecraft:red_sand");
@@ -4281,6 +4445,9 @@ init_item_data(void) {
     register_item_type(ITEM_JUNGLE_LOG, "minecraft:jungle_log");
     register_item_type(ITEM_ACACIA_LOG, "minecraft:acacia_log");
     register_item_type(ITEM_DARK_OAK_LOG, "minecraft:dark_oak_log");
+    register_item_type(ITEM_MANGROVE_LOG, "minecraft:mangrove_log");
+    register_item_type(ITEM_MANGROVE_ROOTS, "minecraft:mangrove_roots");
+    register_item_type(ITEM_MUDDY_MANGROVE_ROOTS, "minecraft:muddy_mangrove_roots");
     register_item_type(ITEM_CRIMSON_STEM, "minecraft:crimson_stem");
     register_item_type(ITEM_WARPED_STEM, "minecraft:warped_stem");
     register_item_type(ITEM_STRIPPED_OAK_LOG, "minecraft:stripped_oak_log");
@@ -4289,6 +4456,7 @@ init_item_data(void) {
     register_item_type(ITEM_STRIPPED_JUNGLE_LOG, "minecraft:stripped_jungle_log");
     register_item_type(ITEM_STRIPPED_ACACIA_LOG, "minecraft:stripped_acacia_log");
     register_item_type(ITEM_STRIPPED_DARK_OAK_LOG, "minecraft:stripped_dark_oak_log");
+    register_item_type(ITEM_STRIPPED_MANGROVE_LOG, "minecraft:stripped_mangrove_log");
     register_item_type(ITEM_STRIPPED_CRIMSON_STEM, "minecraft:stripped_crimson_stem");
     register_item_type(ITEM_STRIPPED_WARPED_STEM, "minecraft:stripped_warped_stem");
     register_item_type(ITEM_STRIPPED_OAK_WOOD, "minecraft:stripped_oak_wood");
@@ -4297,6 +4465,7 @@ init_item_data(void) {
     register_item_type(ITEM_STRIPPED_JUNGLE_WOOD, "minecraft:stripped_jungle_wood");
     register_item_type(ITEM_STRIPPED_ACACIA_WOOD, "minecraft:stripped_acacia_wood");
     register_item_type(ITEM_STRIPPED_DARK_OAK_WOOD, "minecraft:stripped_dark_oak_wood");
+    register_item_type(ITEM_STRIPPED_MANGROVE_WOOD, "minecraft:stripped_mangrove_wood");
     register_item_type(ITEM_STRIPPED_CRIMSON_HYPHAE, "minecraft:stripped_crimson_hyphae");
     register_item_type(ITEM_STRIPPED_WARPED_HYPHAE, "minecraft:stripped_warped_hyphae");
     register_item_type(ITEM_OAK_WOOD, "minecraft:oak_wood");
@@ -4305,6 +4474,7 @@ init_item_data(void) {
     register_item_type(ITEM_JUNGLE_WOOD, "minecraft:jungle_wood");
     register_item_type(ITEM_ACACIA_WOOD, "minecraft:acacia_wood");
     register_item_type(ITEM_DARK_OAK_WOOD, "minecraft:dark_oak_wood");
+    register_item_type(ITEM_MANGROVE_WOOD, "minecraft:mangrove_wood");
     register_item_type(ITEM_CRIMSON_HYPHAE, "minecraft:crimson_hyphae");
     register_item_type(ITEM_WARPED_HYPHAE, "minecraft:warped_hyphae");
     register_item_type(ITEM_OAK_LEAVES, "minecraft:oak_leaves");
@@ -4313,6 +4483,7 @@ init_item_data(void) {
     register_item_type(ITEM_JUNGLE_LEAVES, "minecraft:jungle_leaves");
     register_item_type(ITEM_ACACIA_LEAVES, "minecraft:acacia_leaves");
     register_item_type(ITEM_DARK_OAK_LEAVES, "minecraft:dark_oak_leaves");
+    register_item_type(ITEM_MANGROVE_LEAVES, "minecraft:mangrove_leaves");
     register_item_type(ITEM_AZALEA_LEAVES, "minecraft:azalea_leaves");
     register_item_type(ITEM_FLOWERING_AZALEA_LEAVES, "minecraft:flowering_azalea_leaves");
     register_item_type(ITEM_SPONGE, "minecraft:sponge");
@@ -4384,6 +4555,7 @@ init_item_data(void) {
     register_item_type(ITEM_JUNGLE_SLAB, "minecraft:jungle_slab");
     register_item_type(ITEM_ACACIA_SLAB, "minecraft:acacia_slab");
     register_item_type(ITEM_DARK_OAK_SLAB, "minecraft:dark_oak_slab");
+    register_item_type(ITEM_MANGROVE_SLAB, "minecraft:mangrove_slab");
     register_item_type(ITEM_CRIMSON_SLAB, "minecraft:crimson_slab");
     register_item_type(ITEM_WARPED_SLAB, "minecraft:warped_slab");
     register_item_type(ITEM_STONE_SLAB, "minecraft:stone_slab");
@@ -4394,6 +4566,7 @@ init_item_data(void) {
     register_item_type(ITEM_COBBLESTONE_SLAB, "minecraft:cobblestone_slab");
     register_item_type(ITEM_BRICK_SLAB, "minecraft:brick_slab");
     register_item_type(ITEM_STONE_BRICK_SLAB, "minecraft:stone_brick_slab");
+    register_item_type(ITEM_MUD_BRICK_SLAB, "minecraft:mud_brick_slab");
     register_item_type(ITEM_NETHER_BRICK_SLAB, "minecraft:nether_brick_slab");
     register_item_type(ITEM_QUARTZ_SLAB, "minecraft:quartz_slab");
     register_item_type(ITEM_RED_SANDSTONE_SLAB, "minecraft:red_sandstone_slab");
@@ -4418,7 +4591,6 @@ init_item_data(void) {
     register_item_type(ITEM_PURPUR_PILLAR, "minecraft:purpur_pillar");
     register_item_type(ITEM_PURPUR_STAIRS, "minecraft:purpur_stairs");
     register_item_type(ITEM_SPAWNER, "minecraft:spawner");
-    register_item_type(ITEM_OAK_STAIRS, "minecraft:oak_stairs");
     register_item_type(ITEM_CHEST, "minecraft:chest");
     register_item_type(ITEM_CRAFTING_TABLE, "minecraft:crafting_table");
     register_item_type(ITEM_FARMLAND, "minecraft:farmland");
@@ -4437,6 +4609,7 @@ init_item_data(void) {
     register_item_type(ITEM_JUNGLE_FENCE, "minecraft:jungle_fence");
     register_item_type(ITEM_ACACIA_FENCE, "minecraft:acacia_fence");
     register_item_type(ITEM_DARK_OAK_FENCE, "minecraft:dark_oak_fence");
+    register_item_type(ITEM_MANGROVE_FENCE, "minecraft:mangrove_fence");
     register_item_type(ITEM_CRIMSON_FENCE, "minecraft:crimson_fence");
     register_item_type(ITEM_WARPED_FENCE, "minecraft:warped_fence");
     register_item_type(ITEM_PUMPKIN, "minecraft:pumpkin");
@@ -4461,11 +4634,14 @@ init_item_data(void) {
     register_item_type(ITEM_MOSSY_STONE_BRICKS, "minecraft:mossy_stone_bricks");
     register_item_type(ITEM_CRACKED_STONE_BRICKS, "minecraft:cracked_stone_bricks");
     register_item_type(ITEM_CHISELED_STONE_BRICKS, "minecraft:chiseled_stone_bricks");
+    register_item_type(ITEM_PACKED_MUD, "minecraft:packed_mud");
+    register_item_type(ITEM_MUD_BRICKS, "minecraft:mud_bricks");
     register_item_type(ITEM_DEEPSLATE_BRICKS, "minecraft:deepslate_bricks");
     register_item_type(ITEM_CRACKED_DEEPSLATE_BRICKS, "minecraft:cracked_deepslate_bricks");
     register_item_type(ITEM_DEEPSLATE_TILES, "minecraft:deepslate_tiles");
     register_item_type(ITEM_CRACKED_DEEPSLATE_TILES, "minecraft:cracked_deepslate_tiles");
     register_item_type(ITEM_CHISELED_DEEPSLATE, "minecraft:chiseled_deepslate");
+    register_item_type(ITEM_REINFORCED_DEEPSLATE, "minecraft:reinforced_deepslate");
     register_item_type(ITEM_BROWN_MUSHROOM_BLOCK, "minecraft:brown_mushroom_block");
     register_item_type(ITEM_RED_MUSHROOM_BLOCK, "minecraft:red_mushroom_block");
     register_item_type(ITEM_MUSHROOM_STEM, "minecraft:mushroom_stem");
@@ -4477,6 +4653,7 @@ init_item_data(void) {
     register_item_type(ITEM_GLOW_LICHEN, "minecraft:glow_lichen");
     register_item_type(ITEM_BRICK_STAIRS, "minecraft:brick_stairs");
     register_item_type(ITEM_STONE_BRICK_STAIRS, "minecraft:stone_brick_stairs");
+    register_item_type(ITEM_MUD_BRICK_STAIRS, "minecraft:mud_brick_stairs");
     register_item_type(ITEM_MYCELIUM, "minecraft:mycelium");
     register_item_type(ITEM_LILY_PAD, "minecraft:lily_pad");
     register_item_type(ITEM_NETHER_BRICKS, "minecraft:nether_bricks");
@@ -4484,6 +4661,10 @@ init_item_data(void) {
     register_item_type(ITEM_CHISELED_NETHER_BRICKS, "minecraft:chiseled_nether_bricks");
     register_item_type(ITEM_NETHER_BRICK_FENCE, "minecraft:nether_brick_fence");
     register_item_type(ITEM_NETHER_BRICK_STAIRS, "minecraft:nether_brick_stairs");
+    register_item_type(ITEM_SCULK, "minecraft:sculk");
+    register_item_type(ITEM_SCULK_VEIN, "minecraft:sculk_vein");
+    register_item_type(ITEM_SCULK_CATALYST, "minecraft:sculk_catalyst");
+    register_item_type(ITEM_SCULK_SHRIEKER, "minecraft:sculk_shrieker");
     register_item_type(ITEM_ENCHANTING_TABLE, "minecraft:enchanting_table");
     register_item_type(ITEM_END_PORTAL_FRAME, "minecraft:end_portal_frame");
     register_item_type(ITEM_END_STONE, "minecraft:end_stone");
@@ -4492,9 +4673,13 @@ init_item_data(void) {
     register_item_type(ITEM_SANDSTONE_STAIRS, "minecraft:sandstone_stairs");
     register_item_type(ITEM_ENDER_CHEST, "minecraft:ender_chest");
     register_item_type(ITEM_EMERALD_BLOCK, "minecraft:emerald_block");
+    register_item_type(ITEM_OAK_STAIRS, "minecraft:oak_stairs");
     register_item_type(ITEM_SPRUCE_STAIRS, "minecraft:spruce_stairs");
     register_item_type(ITEM_BIRCH_STAIRS, "minecraft:birch_stairs");
     register_item_type(ITEM_JUNGLE_STAIRS, "minecraft:jungle_stairs");
+    register_item_type(ITEM_ACACIA_STAIRS, "minecraft:acacia_stairs");
+    register_item_type(ITEM_DARK_OAK_STAIRS, "minecraft:dark_oak_stairs");
+    register_item_type(ITEM_MANGROVE_STAIRS, "minecraft:mangrove_stairs");
     register_item_type(ITEM_CRIMSON_STAIRS, "minecraft:crimson_stairs");
     register_item_type(ITEM_WARPED_STAIRS, "minecraft:warped_stairs");
     register_item_type(ITEM_COMMAND_BLOCK, "minecraft:command_block");
@@ -4507,6 +4692,7 @@ init_item_data(void) {
     register_item_type(ITEM_MOSSY_STONE_BRICK_WALL, "minecraft:mossy_stone_brick_wall");
     register_item_type(ITEM_GRANITE_WALL, "minecraft:granite_wall");
     register_item_type(ITEM_STONE_BRICK_WALL, "minecraft:stone_brick_wall");
+    register_item_type(ITEM_MUD_BRICK_WALL, "minecraft:mud_brick_wall");
     register_item_type(ITEM_NETHER_BRICK_WALL, "minecraft:nether_brick_wall");
     register_item_type(ITEM_ANDESITE_WALL, "minecraft:andesite_wall");
     register_item_type(ITEM_RED_NETHER_BRICK_WALL, "minecraft:red_nether_brick_wall");
@@ -4565,8 +4751,6 @@ init_item_data(void) {
     register_item_type(ITEM_BLACK_CARPET, "minecraft:black_carpet");
     register_item_type(ITEM_TERRACOTTA, "minecraft:terracotta");
     register_item_type(ITEM_PACKED_ICE, "minecraft:packed_ice");
-    register_item_type(ITEM_ACACIA_STAIRS, "minecraft:acacia_stairs");
-    register_item_type(ITEM_DARK_OAK_STAIRS, "minecraft:dark_oak_stairs");
     register_item_type(ITEM_DIRT_PATH, "minecraft:dirt_path");
     register_item_type(ITEM_SUNFLOWER, "minecraft:sunflower");
     register_item_type(ITEM_LILAC, "minecraft:lilac");
@@ -4791,6 +4975,7 @@ init_item_data(void) {
     register_item_type(ITEM_JUNGLE_BUTTON, "minecraft:jungle_button");
     register_item_type(ITEM_ACACIA_BUTTON, "minecraft:acacia_button");
     register_item_type(ITEM_DARK_OAK_BUTTON, "minecraft:dark_oak_button");
+    register_item_type(ITEM_MANGROVE_BUTTON, "minecraft:mangrove_button");
     register_item_type(ITEM_CRIMSON_BUTTON, "minecraft:crimson_button");
     register_item_type(ITEM_WARPED_BUTTON, "minecraft:warped_button");
     register_item_type(ITEM_STONE_PRESSURE_PLATE, "minecraft:stone_pressure_plate");
@@ -4803,6 +4988,7 @@ init_item_data(void) {
     register_item_type(ITEM_JUNGLE_PRESSURE_PLATE, "minecraft:jungle_pressure_plate");
     register_item_type(ITEM_ACACIA_PRESSURE_PLATE, "minecraft:acacia_pressure_plate");
     register_item_type(ITEM_DARK_OAK_PRESSURE_PLATE, "minecraft:dark_oak_pressure_plate");
+    register_item_type(ITEM_MANGROVE_PRESSURE_PLATE, "minecraft:mangrove_pressure_plate");
     register_item_type(ITEM_CRIMSON_PRESSURE_PLATE, "minecraft:crimson_pressure_plate");
     register_item_type(ITEM_WARPED_PRESSURE_PLATE, "minecraft:warped_pressure_plate");
     register_item_type(ITEM_IRON_DOOR, "minecraft:iron_door");
@@ -4812,6 +4998,7 @@ init_item_data(void) {
     register_item_type(ITEM_JUNGLE_DOOR, "minecraft:jungle_door");
     register_item_type(ITEM_ACACIA_DOOR, "minecraft:acacia_door");
     register_item_type(ITEM_DARK_OAK_DOOR, "minecraft:dark_oak_door");
+    register_item_type(ITEM_MANGROVE_DOOR, "minecraft:mangrove_door");
     register_item_type(ITEM_CRIMSON_DOOR, "minecraft:crimson_door");
     register_item_type(ITEM_WARPED_DOOR, "minecraft:warped_door");
     register_item_type(ITEM_IRON_TRAPDOOR, "minecraft:iron_trapdoor");
@@ -4821,6 +5008,7 @@ init_item_data(void) {
     register_item_type(ITEM_JUNGLE_TRAPDOOR, "minecraft:jungle_trapdoor");
     register_item_type(ITEM_ACACIA_TRAPDOOR, "minecraft:acacia_trapdoor");
     register_item_type(ITEM_DARK_OAK_TRAPDOOR, "minecraft:dark_oak_trapdoor");
+    register_item_type(ITEM_MANGROVE_TRAPDOOR, "minecraft:mangrove_trapdoor");
     register_item_type(ITEM_CRIMSON_TRAPDOOR, "minecraft:crimson_trapdoor");
     register_item_type(ITEM_WARPED_TRAPDOOR, "minecraft:warped_trapdoor");
     register_item_type(ITEM_OAK_FENCE_GATE, "minecraft:oak_fence_gate");
@@ -4829,6 +5017,7 @@ init_item_data(void) {
     register_item_type(ITEM_JUNGLE_FENCE_GATE, "minecraft:jungle_fence_gate");
     register_item_type(ITEM_ACACIA_FENCE_GATE, "minecraft:acacia_fence_gate");
     register_item_type(ITEM_DARK_OAK_FENCE_GATE, "minecraft:dark_oak_fence_gate");
+    register_item_type(ITEM_MANGROVE_FENCE_GATE, "minecraft:mangrove_fence_gate");
     register_item_type(ITEM_CRIMSON_FENCE_GATE, "minecraft:crimson_fence_gate");
     register_item_type(ITEM_WARPED_FENCE_GATE, "minecraft:warped_fence_gate");
     register_item_type(ITEM_POWERED_RAIL, "minecraft:powered_rail");
@@ -4845,11 +5034,19 @@ init_item_data(void) {
     register_item_type(ITEM_WARPED_FUNGUS_ON_A_STICK, "minecraft:warped_fungus_on_a_stick");
     register_item_type(ITEM_ELYTRA, "minecraft:elytra");
     register_item_type(ITEM_OAK_BOAT, "minecraft:oak_boat");
+    register_item_type(ITEM_OAK_CHEST_BOAT, "minecraft:oak_chest_boat");
     register_item_type(ITEM_SPRUCE_BOAT, "minecraft:spruce_boat");
+    register_item_type(ITEM_SPRUCE_CHEST_BOAT, "minecraft:spruce_chest_boat");
     register_item_type(ITEM_BIRCH_BOAT, "minecraft:birch_boat");
+    register_item_type(ITEM_BIRCH_CHEST_BOAT, "minecraft:birch_chest_boat");
     register_item_type(ITEM_JUNGLE_BOAT, "minecraft:jungle_boat");
+    register_item_type(ITEM_JUNGLE_CHEST_BOAT, "minecraft:jungle_chest_boat");
     register_item_type(ITEM_ACACIA_BOAT, "minecraft:acacia_boat");
+    register_item_type(ITEM_ACACIA_CHEST_BOAT, "minecraft:acacia_chest_boat");
     register_item_type(ITEM_DARK_OAK_BOAT, "minecraft:dark_oak_boat");
+    register_item_type(ITEM_DARK_OAK_CHEST_BOAT, "minecraft:dark_oak_chest_boat");
+    register_item_type(ITEM_MANGROVE_BOAT, "minecraft:mangrove_boat");
+    register_item_type(ITEM_MANGROVE_CHEST_BOAT, "minecraft:mangrove_chest_boat");
     register_item_type(ITEM_STRUCTURE_BLOCK, "minecraft:structure_block");
     register_item_type(ITEM_JIGSAW, "minecraft:jigsaw");
     register_item_type(ITEM_TURTLE_HELMET, "minecraft:turtle_helmet");
@@ -4948,6 +5145,7 @@ init_item_data(void) {
     register_item_type(ITEM_JUNGLE_SIGN, "minecraft:jungle_sign");
     register_item_type(ITEM_ACACIA_SIGN, "minecraft:acacia_sign");
     register_item_type(ITEM_DARK_OAK_SIGN, "minecraft:dark_oak_sign");
+    register_item_type(ITEM_MANGROVE_SIGN, "minecraft:mangrove_sign");
     register_item_type(ITEM_CRIMSON_SIGN, "minecraft:crimson_sign");
     register_item_type(ITEM_WARPED_SIGN, "minecraft:warped_sign");
     register_item_type(ITEM_BUCKET, "minecraft:bucket");
@@ -4962,6 +5160,7 @@ init_item_data(void) {
     register_item_type(ITEM_COD_BUCKET, "minecraft:cod_bucket");
     register_item_type(ITEM_TROPICAL_FISH_BUCKET, "minecraft:tropical_fish_bucket");
     register_item_type(ITEM_AXOLOTL_BUCKET, "minecraft:axolotl_bucket");
+    register_item_type(ITEM_TADPOLE_BUCKET, "minecraft:tadpole_bucket");
     register_item_type(ITEM_BRICK, "minecraft:brick");
     register_item_type(ITEM_CLAY_BALL, "minecraft:clay_ball");
     register_item_type(ITEM_DRIED_KELP_BLOCK, "minecraft:dried_kelp_block");
@@ -4970,6 +5169,7 @@ init_item_data(void) {
     register_item_type(ITEM_SLIME_BALL, "minecraft:slime_ball");
     register_item_type(ITEM_EGG, "minecraft:egg");
     register_item_type(ITEM_COMPASS, "minecraft:compass");
+    register_item_type(ITEM_RECOVERY_COMPASS, "minecraft:recovery_compass");
     register_item_type(ITEM_BUNDLE, "minecraft:bundle");
     register_item_type(ITEM_FISHING_ROD, "minecraft:fishing_rod");
     register_item_type(ITEM_CLOCK, "minecraft:clock");
@@ -5047,6 +5247,7 @@ init_item_data(void) {
     register_item_type(ITEM_CAULDRON, "minecraft:cauldron");
     register_item_type(ITEM_ENDER_EYE, "minecraft:ender_eye");
     register_item_type(ITEM_GLISTERING_MELON_SLICE, "minecraft:glistering_melon_slice");
+    register_item_type(ITEM_ALLAY_SPAWN_EGG, "minecraft:allay_spawn_egg");
     register_item_type(ITEM_AXOLOTL_SPAWN_EGG, "minecraft:axolotl_spawn_egg");
     register_item_type(ITEM_BAT_SPAWN_EGG, "minecraft:bat_spawn_egg");
     register_item_type(ITEM_BEE_SPAWN_EGG, "minecraft:bee_spawn_egg");
@@ -5065,6 +5266,7 @@ init_item_data(void) {
     register_item_type(ITEM_ENDERMITE_SPAWN_EGG, "minecraft:endermite_spawn_egg");
     register_item_type(ITEM_EVOKER_SPAWN_EGG, "minecraft:evoker_spawn_egg");
     register_item_type(ITEM_FOX_SPAWN_EGG, "minecraft:fox_spawn_egg");
+    register_item_type(ITEM_FROG_SPAWN_EGG, "minecraft:frog_spawn_egg");
     register_item_type(ITEM_GHAST_SPAWN_EGG, "minecraft:ghast_spawn_egg");
     register_item_type(ITEM_GLOW_SQUID_SPAWN_EGG, "minecraft:glow_squid_spawn_egg");
     register_item_type(ITEM_GOAT_SPAWN_EGG, "minecraft:goat_spawn_egg");
@@ -5099,6 +5301,7 @@ init_item_data(void) {
     register_item_type(ITEM_SQUID_SPAWN_EGG, "minecraft:squid_spawn_egg");
     register_item_type(ITEM_STRAY_SPAWN_EGG, "minecraft:stray_spawn_egg");
     register_item_type(ITEM_STRIDER_SPAWN_EGG, "minecraft:strider_spawn_egg");
+    register_item_type(ITEM_TADPOLE_SPAWN_EGG, "minecraft:tadpole_spawn_egg");
     register_item_type(ITEM_TRADER_LLAMA_SPAWN_EGG, "minecraft:trader_llama_spawn_egg");
     register_item_type(ITEM_TROPICAL_FISH_SPAWN_EGG, "minecraft:tropical_fish_spawn_egg");
     register_item_type(ITEM_TURTLE_SPAWN_EGG, "minecraft:turtle_spawn_egg");
@@ -5106,6 +5309,7 @@ init_item_data(void) {
     register_item_type(ITEM_VILLAGER_SPAWN_EGG, "minecraft:villager_spawn_egg");
     register_item_type(ITEM_VINDICATOR_SPAWN_EGG, "minecraft:vindicator_spawn_egg");
     register_item_type(ITEM_WANDERING_TRADER_SPAWN_EGG, "minecraft:wandering_trader_spawn_egg");
+    register_item_type(ITEM_WARDEN_SPAWN_EGG, "minecraft:warden_spawn_egg");
     register_item_type(ITEM_WITCH_SPAWN_EGG, "minecraft:witch_spawn_egg");
     register_item_type(ITEM_WITHER_SKELETON_SPAWN_EGG, "minecraft:wither_skeleton_spawn_egg");
     register_item_type(ITEM_WOLF_SPAWN_EGG, "minecraft:wolf_spawn_egg");
@@ -5202,7 +5406,9 @@ init_item_data(void) {
     register_item_type(ITEM_MUSIC_DISC_11, "minecraft:music_disc_11");
     register_item_type(ITEM_MUSIC_DISC_WAIT, "minecraft:music_disc_wait");
     register_item_type(ITEM_MUSIC_DISC_OTHERSIDE, "minecraft:music_disc_otherside");
+    register_item_type(ITEM_MUSIC_DISC_5, "minecraft:music_disc_5");
     register_item_type(ITEM_MUSIC_DISC_PIGSTEP, "minecraft:music_disc_pigstep");
+    register_item_type(ITEM_DISC_FRAGMENT_5, "minecraft:disc_fragment_5");
     register_item_type(ITEM_TRIDENT, "minecraft:trident");
     register_item_type(ITEM_PHANTOM_MEMBRANE, "minecraft:phantom_membrane");
     register_item_type(ITEM_NAUTILUS_SHELL, "minecraft:nautilus_shell");
@@ -5216,6 +5422,7 @@ init_item_data(void) {
     register_item_type(ITEM_MOJANG_BANNER_PATTERN, "minecraft:mojang_banner_pattern");
     register_item_type(ITEM_GLOBE_BANNER_PATTERN, "minecraft:globe_banner_pattern");
     register_item_type(ITEM_PIGLIN_BANNER_PATTERN, "minecraft:piglin_banner_pattern");
+    register_item_type(ITEM_GOAT_HORN, "minecraft:goat_horn");
     register_item_type(ITEM_COMPOSTER, "minecraft:composter");
     register_item_type(ITEM_BARREL, "minecraft:barrel");
     register_item_type(ITEM_SMOKER, "minecraft:smoker");
@@ -5275,4 +5482,9 @@ init_item_data(void) {
     register_item_type(ITEM_LARGE_AMETHYST_BUD, "minecraft:large_amethyst_bud");
     register_item_type(ITEM_AMETHYST_CLUSTER, "minecraft:amethyst_cluster");
     register_item_type(ITEM_POINTED_DRIPSTONE, "minecraft:pointed_dripstone");
+    register_item_type(ITEM_OCHRE_FROGLIGHT, "minecraft:ochre_froglight");
+    register_item_type(ITEM_VERDANT_FROGLIGHT, "minecraft:verdant_froglight");
+    register_item_type(ITEM_PEARLESCENT_FROGLIGHT, "minecraft:pearlescent_froglight");
+    register_item_type(ITEM_FROGSPAWN, "minecraft:frogspawn");
+    register_item_type(ITEM_ECHO_SHARD, "minecraft:echo_shard");
 }

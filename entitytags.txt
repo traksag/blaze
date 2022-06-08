@@ -17,6 +17,10 @@ value minecraft:polar_bear
 value minecraft:snow_golem
 value minecraft:wither
 
+key minecraft:frog_food
+value minecraft:slime
+value minecraft:magma_cube
+
 key minecraft:powder_snow_walkable_mobs
 value minecraft:rabbit
 value minecraft:endermite
@@ -35,6 +39,7 @@ value minecraft:salmon
 value minecraft:cod
 value minecraft:squid
 value minecraft:glow_squid
+value minecraft:tadpole
 
 key minecraft:impact_projectiles
 value minecraft:arrow

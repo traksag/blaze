@@ -177,6 +177,18 @@ init_sapling(char * resource_loc) {
 }
 
 static void
+init_propagule(char * resource_loc) {
+    i32 block_type = register_block_type(resource_loc);
+    block_properties * props = serv->block_properties_table + block_type;
+    add_block_property(props, BLOCK_PROPERTY_STAGE, "0");
+    add_block_property(props, BLOCK_PROPERTY_AGE_4, "0");
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
+    add_block_property(props, BLOCK_PROPERTY_HANGING, "false");
+    finalise_block_props(props);
+    SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
+}
+
+static void
 init_pillar(char * resource_loc) {
     i32 block_type = register_block_type(resource_loc);
     block_properties * props = serv->block_properties_table + block_type;
@@ -192,6 +204,7 @@ init_leaves(char * resource_loc) {
     props->type_tags |= (u32) 1 << BLOCK_TAG_LEAVES;
     add_block_property(props, BLOCK_PROPERTY_DISTANCE, "7");
     add_block_property(props, BLOCK_PROPERTY_PERSISTENT, "false");
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
     finalise_block_props(props);
     SetCollisionModelForAllStates(props, BLOCK_MODEL_FULL);
     SetSupportModelForAllStates(props, BLOCK_MODEL_EMPTY);
@@ -576,6 +589,20 @@ init_amethyst_cluster(char * resource_loc) {
     finalise_block_props(props);
 }
 
+static void initMultiFaceBlock(char * resourceLoc) {
+    i32 blockType = register_block_type(resourceLoc);
+    block_properties * props = serv->block_properties_table + blockType;
+    add_block_property(props, BLOCK_PROPERTY_NEG_Y, "false");
+    add_block_property(props, BLOCK_PROPERTY_POS_Y, "false");
+    add_block_property(props, BLOCK_PROPERTY_NEG_Z, "false");
+    add_block_property(props, BLOCK_PROPERTY_POS_Z, "false");
+    add_block_property(props, BLOCK_PROPERTY_NEG_X, "false");
+    add_block_property(props, BLOCK_PROPERTY_POS_X, "false");
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
+    finalise_block_props(props);
+    SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
+}
+
 typedef struct {
     float min_a;
     float min_b;
@@ -901,6 +928,8 @@ init_block_data(void) {
     register_block_model(BLOCK_MODEL_TOP_SLAB, 1, &slab_top_box);
     BoundingBox lily_pad_box = {1, 0, 1, 15, 1.5f, 15};
     register_block_model(BLOCK_MODEL_LILY_PAD, 1, &lily_pad_box);
+    BoundingBox frogspawnBox = {0, 0, 0, 16, 1.5f, 16};
+    register_block_model(BLOCK_MODEL_FROGSPAWN, 1, &frogspawnBox);
     BoundingBox scaffoldingBoxes[] = {
         0, 14, 0, 16, 16, 16, // top part
         0, 0, 0, 2, 16, 2, // leg 1
@@ -941,6 +970,9 @@ init_block_data(void) {
     register_bool_property(BLOCK_PROPERTY_WATERLOGGED, "waterlogged");
     register_bool_property(BLOCK_PROPERTY_VINE_END, "vine_end");
     register_bool_property(BLOCK_PROPERTY_BERRIES, "berries");
+    register_bool_property(BLOCK_PROPERTY_BLOOM, "bloom");
+    register_bool_property(BLOCK_PROPERTY_SHRIEKING, "shrieking");
+    register_bool_property(BLOCK_PROPERTY_CAN_SUMMON, "can_summon");
     register_property_v(BLOCK_PROPERTY_HORIZONTAL_AXIS, "axis", 2, "x", "z");
     register_property_v(BLOCK_PROPERTY_AXIS, "axis", 3, "x", "y", "z");
     register_bool_property(BLOCK_PROPERTY_POS_Y, "up");
@@ -970,6 +1002,7 @@ init_block_data(void) {
     register_range_property(BLOCK_PROPERTY_AGE_1, "age", 0, 1);
     register_range_property(BLOCK_PROPERTY_AGE_2, "age", 0, 2);
     register_range_property(BLOCK_PROPERTY_AGE_3, "age", 0, 3);
+    register_range_property(BLOCK_PROPERTY_AGE_4, "age", 0, 4);
     register_range_property(BLOCK_PROPERTY_AGE_5, "age", 0, 5);
     register_range_property(BLOCK_PROPERTY_AGE_7, "age", 0, 7);
     register_range_property(BLOCK_PROPERTY_AGE_15, "age", 0, 15);
@@ -1031,12 +1064,14 @@ init_block_data(void) {
     init_simple_block("minecraft:jungle_planks", BLOCK_MODEL_FULL);
     init_simple_block("minecraft:acacia_planks", BLOCK_MODEL_FULL);
     init_simple_block("minecraft:dark_oak_planks", BLOCK_MODEL_FULL);
+    init_simple_block("minecraft:mangrove_planks", BLOCK_MODEL_FULL);
     init_sapling("minecraft:oak_sapling");
     init_sapling("minecraft:spruce_sapling");
     init_sapling("minecraft:birch_sapling");
     init_sapling("minecraft:jungle_sapling");
     init_sapling("minecraft:acacia_sapling");
     init_sapling("minecraft:dark_oak_sapling");
+    init_propagule("minecraft:mangrove_propagule");
     init_simple_block("minecraft:bedrock", BLOCK_MODEL_FULL);
 
     // @TODO(traks) slower movement in fluids
@@ -1069,30 +1104,43 @@ init_block_data(void) {
     init_pillar("minecraft:jungle_log");
     init_pillar("minecraft:acacia_log");
     init_pillar("minecraft:dark_oak_log");
+    init_pillar("minecraft:mangrove_log");
+
+    block_type = register_block_type("minecraft:mangrove_roots");
+    props = serv->block_properties_table + block_type;
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
+    finalise_block_props(props);
+    SetAllModelsForAllStates(props, BLOCK_MODEL_FULL);
+
+    init_pillar("minecraft:muddy_mangrove_roots");
     init_pillar("minecraft:stripped_spruce_log");
     init_pillar("minecraft:stripped_birch_log");
     init_pillar("minecraft:stripped_jungle_log");
     init_pillar("minecraft:stripped_acacia_log");
     init_pillar("minecraft:stripped_dark_oak_log");
     init_pillar("minecraft:stripped_oak_log");
+    init_pillar("minecraft:stripped_mangrove_log");
     init_pillar("minecraft:oak_wood");
     init_pillar("minecraft:spruce_wood");
     init_pillar("minecraft:birch_wood");
     init_pillar("minecraft:jungle_wood");
     init_pillar("minecraft:acacia_wood");
     init_pillar("minecraft:dark_oak_wood");
+    init_pillar("minecraft:mangrove_wood");
     init_pillar("minecraft:stripped_oak_wood");
     init_pillar("minecraft:stripped_spruce_wood");
     init_pillar("minecraft:stripped_birch_wood");
     init_pillar("minecraft:stripped_jungle_wood");
     init_pillar("minecraft:stripped_acacia_wood");
     init_pillar("minecraft:stripped_dark_oak_wood");
+    init_pillar("minecraft:stripped_mangrove_wood");
     init_leaves("minecraft:oak_leaves");
     init_leaves("minecraft:spruce_leaves");
     init_leaves("minecraft:birch_leaves");
     init_leaves("minecraft:jungle_leaves");
     init_leaves("minecraft:acacia_leaves");
     init_leaves("minecraft:dark_oak_leaves");
+    init_leaves("minecraft:mangrove_leaves");
     init_leaves("minecraft:azalea_leaves");
     init_leaves("minecraft:flowering_azalea_leaves");
     init_simple_block("minecraft:sponge", BLOCK_MODEL_FULL);
@@ -1311,6 +1359,7 @@ init_block_data(void) {
     init_sign("minecraft:acacia_sign");
     init_sign("minecraft:jungle_sign");
     init_sign("minecraft:dark_oak_sign");
+    init_sign("minecraft:mangrove_sign");
 
     // @TODO(traks) collision model
     init_door_props("minecraft:oak_door");
@@ -1337,6 +1386,7 @@ init_block_data(void) {
     init_wall_sign("minecraft:acacia_wall_sign");
     init_wall_sign("minecraft:jungle_wall_sign");
     init_wall_sign("minecraft:dark_oak_wall_sign");
+    init_wall_sign("minecraft:mangrove_wall_sign");
 
     block_type = register_block_type("minecraft:lever");
     props = serv->block_properties_table + block_type;
@@ -1356,6 +1406,7 @@ init_block_data(void) {
     init_pressure_plate("minecraft:jungle_pressure_plate");
     init_pressure_plate("minecraft:acacia_pressure_plate");
     init_pressure_plate("minecraft:dark_oak_pressure_plate");
+    init_pressure_plate("minecraft:mangrove_pressure_plate");
 
     init_redstone_ore("minecraft:redstone_ore");
     init_redstone_ore("minecraft:deepslate_redstone_ore");
@@ -1486,11 +1537,16 @@ init_block_data(void) {
     init_trapdoor_props("minecraft:jungle_trapdoor");
     init_trapdoor_props("minecraft:acacia_trapdoor");
     init_trapdoor_props("minecraft:dark_oak_trapdoor");
+    init_trapdoor_props("minecraft:mangrove_trapdoor");
 
     init_simple_block("minecraft:stone_bricks", BLOCK_MODEL_FULL);
     init_simple_block("minecraft:mossy_stone_bricks", BLOCK_MODEL_FULL);
     init_simple_block("minecraft:cracked_stone_bricks", BLOCK_MODEL_FULL);
     init_simple_block("minecraft:chiseled_stone_bricks", BLOCK_MODEL_FULL);
+
+    init_simple_block("minecraft:packed_mud", BLOCK_MODEL_FULL);
+    init_simple_block("minecraft:mud_bricks", BLOCK_MODEL_FULL);
+
     init_simple_block("minecraft:infested_stone", BLOCK_MODEL_FULL);
     init_simple_block("minecraft:infested_cobblestone", BLOCK_MODEL_FULL);
     init_simple_block("minecraft:infested_stone_bricks", BLOCK_MODEL_FULL);
@@ -1548,22 +1604,13 @@ init_block_data(void) {
     finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
 
-    block_type = register_block_type("minecraft:glow_lichen");
-    props = serv->block_properties_table + block_type;
-    add_block_property(props, BLOCK_PROPERTY_NEG_Y, "false");
-    add_block_property(props, BLOCK_PROPERTY_POS_Y, "false");
-    add_block_property(props, BLOCK_PROPERTY_NEG_Z, "false");
-    add_block_property(props, BLOCK_PROPERTY_POS_Z, "false");
-    add_block_property(props, BLOCK_PROPERTY_NEG_X, "false");
-    add_block_property(props, BLOCK_PROPERTY_POS_X, "false");
-    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
-    SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
+    initMultiFaceBlock("minecraft:glow_lichen");
 
     init_fence_gate("minecraft:oak_fence_gate");
 
     init_stair_props("minecraft:brick_stairs");
     init_stair_props("minecraft:stone_brick_stairs");
+    init_stair_props("minecraft:mud_brick_stairs");
 
     init_snowy_grassy_block("minecraft:mycelium");
 
@@ -1679,6 +1726,7 @@ init_block_data(void) {
     init_simple_block("minecraft:potted_jungle_sapling", BLOCK_MODEL_FLOWER_POT);
     init_simple_block("minecraft:potted_acacia_sapling", BLOCK_MODEL_FLOWER_POT);
     init_simple_block("minecraft:potted_dark_oak_sapling", BLOCK_MODEL_FLOWER_POT);
+    init_simple_block("minecraft:potted_mangrove_propagule", BLOCK_MODEL_FLOWER_POT);
     init_simple_block("minecraft:potted_fern", BLOCK_MODEL_FLOWER_POT);
     init_simple_block("minecraft:potted_dandelion", BLOCK_MODEL_FLOWER_POT);
     init_simple_block("minecraft:potted_poppy", BLOCK_MODEL_FLOWER_POT);
@@ -1716,6 +1764,7 @@ init_block_data(void) {
     init_button("minecraft:jungle_button");
     init_button("minecraft:acacia_button");
     init_button("minecraft:dark_oak_button");
+    init_button("minecraft:mangrove_button");
 
     // @TODO(traks) collision models
     init_skull_props("minecraft:skeleton_skull");
@@ -1839,6 +1888,7 @@ init_block_data(void) {
 
     init_stair_props("minecraft:acacia_stairs");
     init_stair_props("minecraft:dark_oak_stairs");
+    init_stair_props("minecraft:mangrove_stairs");
 
     init_simple_block("minecraft:slime_block", BLOCK_MODEL_FULL);
     init_simple_block("minecraft:barrier", BLOCK_MODEL_FULL);
@@ -1941,6 +1991,7 @@ init_block_data(void) {
     init_slab("minecraft:jungle_slab");
     init_slab("minecraft:acacia_slab");
     init_slab("minecraft:dark_oak_slab");
+    init_slab("minecraft:mangrove_slab");
     init_slab("minecraft:stone_slab");
     init_slab("minecraft:smooth_stone_slab");
     init_slab("minecraft:sandstone_slab");
@@ -1949,6 +2000,7 @@ init_block_data(void) {
     init_slab("minecraft:cobblestone_slab");
     init_slab("minecraft:brick_slab");
     init_slab("minecraft:stone_brick_slab");
+    init_slab("minecraft:mud_brick_slab");
     init_slab("minecraft:nether_brick_slab");
     init_slab("minecraft:quartz_slab");
     init_slab("minecraft:red_sandstone_slab");
@@ -1965,18 +2017,21 @@ init_block_data(void) {
     init_fence_gate("minecraft:jungle_fence_gate");
     init_fence_gate("minecraft:acacia_fence_gate");
     init_fence_gate("minecraft:dark_oak_fence_gate");
+    init_fence_gate("minecraft:mangrove_fence_gate");
 
     init_fence("minecraft:spruce_fence", 1);
     init_fence("minecraft:birch_fence", 1);
     init_fence("minecraft:jungle_fence", 1);
     init_fence("minecraft:acacia_fence", 1);
     init_fence("minecraft:dark_oak_fence", 1);
+    init_fence("minecraft:mangrove_fence", 1);
 
     init_door_props("minecraft:spruce_door");
     init_door_props("minecraft:birch_door");
     init_door_props("minecraft:jungle_door");
     init_door_props("minecraft:acacia_door");
     init_door_props("minecraft:dark_oak_door");
+    init_door_props("minecraft:mangrove_door");
 
     // @TODO(traks) collision models
     block_type = register_block_type("minecraft:end_rod");
@@ -2254,6 +2309,7 @@ init_block_data(void) {
     init_wall_props("minecraft:mossy_stone_brick_wall");
     init_wall_props("minecraft:granite_wall");
     init_wall_props("minecraft:stone_brick_wall");
+    init_wall_props("minecraft:mud_brick_wall");
     init_wall_props("minecraft:nether_brick_wall");
     init_wall_props("minecraft:andesite_wall");
     init_wall_props("minecraft:red_nether_brick_wall");
@@ -2589,6 +2645,23 @@ init_block_data(void) {
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
     finalise_block_props(props);
 
+    init_simple_block("minecraft:sculk", BLOCK_MODEL_FULL);
+    initMultiFaceBlock("minecraft:sculk_vein");
+
+    block_type = register_block_type("minecraft:sculk_catalyst");
+    props = serv->block_properties_table + block_type;
+    add_block_property(props, BLOCK_PROPERTY_BLOOM, "false");
+    finalise_block_props(props);
+    SetAllModelsForAllStates(props, BLOCK_MODEL_FULL);
+
+    block_type = register_block_type("minecraft:sculk_shrieker");
+    props = serv->block_properties_table + block_type;
+    add_block_property(props, BLOCK_PROPERTY_SHRIEKING, "false");
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
+    add_block_property(props, BLOCK_PROPERTY_CAN_SUMMON, "false");
+    finalise_block_props(props);
+    SetAllModelsForAllStates(props, BLOCK_MODEL_Y_8);
+
     init_simple_block("minecraft:oxidized_copper", BLOCK_MODEL_FULL);
     init_simple_block("minecraft:weathered_copper", BLOCK_MODEL_FULL);
     init_simple_block("minecraft:exposed_copper", BLOCK_MODEL_FULL);
@@ -2700,6 +2773,7 @@ init_block_data(void) {
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
 
     init_simple_block("minecraft:rooted_dirt", BLOCK_MODEL_FULL);
+    init_simple_block("minecraft:mud", BLOCK_MODEL_FULL);
 
     init_pillar("minecraft:deepslate");
 
@@ -2736,6 +2810,12 @@ init_block_data(void) {
 
     init_simple_block("minecraft:potted_azalea_bush", BLOCK_MODEL_FLOWER_POT);
     init_simple_block("minecraft:potted_flowering_azalea_bush", BLOCK_MODEL_FLOWER_POT);
+
+    init_pillar("minecraft:ochre_froglight");
+    init_pillar("minecraft:verdant_froglight");
+    init_pillar("minecraft:pearlescent_froglight");
+    init_simple_block("minecraft:frogspawn", BLOCK_MODEL_FROGSPAWN);
+    init_simple_block("minecraft:reinforced_deepslate", BLOCK_MODEL_FULL);
 
     serv->vanilla_block_state_count = serv->actual_block_state_count;
 

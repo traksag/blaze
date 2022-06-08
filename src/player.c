@@ -16,7 +16,9 @@ enum serverbound_packet_type {
     SBP_ACCEPT_TELEPORT,
     SBP_BLOCK_ENTITY_TAG_QUERY,
     SBP_CHANGE_DIFFICULTY,
+    SBP_CHAT_COMMAND,
     SBP_CHAT,
+    SBP_CHAT_PREVIEW,
     SBP_CLIENT_COMMAND,
     SBP_CLIENT_INFORMATION,
     SBP_COMMAND_SUGGESTION,
@@ -61,26 +63,24 @@ enum serverbound_packet_type {
     SBP_TELEPORT_TO_ENTITY,
     SBP_USE_ITEM_ON,
     SBP_USE_ITEM,
+    SBP_VEC_DELTA_CODEC,
     SERVERBOUND_PACKET_COUNT,
 };
 
 enum clientbound_packet_type {
     CBP_ADD_ENTITY,
     CBP_ADD_EXPERIENCE_ORB,
-    CBP_ADD_MOB,
-    CBP_ADD_PAINTING,
     CBP_ADD_PLAYER,
-    CBP_ADD_VIBRATION_SIGNAL,
     CBP_ANIMATE,
     CBP_AWARD_STATS,
-    CBP_BLOCK_BREAK_ACK,
+    CBP_BLOCK_CHANGED_ACK,
     CBP_BLOCK_DESTRUCTION,
     CBP_BLOCK_ENTITY_DATA,
     CBP_BLOCK_EVENT,
     CBP_BLOCK_UPDATE,
     CBP_BOSS_EVENT,
     CBP_CHANGE_DIFFICULTY,
-    CBP_CHAT,
+    CBP_CHAT_PREVIEW,
     CBP_CLEAR_TITLES,
     CBP_COMMANDS,
     CBP_COMMAND_SUGGESTIONS,
@@ -116,6 +116,7 @@ enum clientbound_packet_type {
     CBP_PING,
     CBP_PLACE_GHOST_RECIPE,
     CBP_PLAYER_ABILITIES,
+    CBP_PLAYER_CHAT,
     CBP_PLAYER_COMBAT_END,
     CBP_PLAYER_COMBAT_ENTER,
     CBP_PLAYER_COMBAT_KILL,
@@ -130,6 +131,7 @@ enum clientbound_packet_type {
     CBP_ROTATE_HEAD,
     CBP_SECTION_BLOCKS_UPDATE,
     CBP_SELECT_ADVANCEMENTS_TAB,
+    CBP_SERVER_DATA,
     CBP_SET_ACTION_BAR_TEXT,
     CBP_SET_BORDER_CENTRE,
     CBP_SET_BORDER_LERP_SIZE,
@@ -141,6 +143,7 @@ enum clientbound_packet_type {
     CBP_SET_CHUNK_CACHE_CENTRE,
     CBP_SET_CHUNK_CACHE_RADIUS,
     CBP_SET_DEFAULT_SPAWN_POSITION,
+    CBP_SET_DISPLAY_CHAT_PREVIEW,
     CBP_SET_DISPLAY_OBJECTIVE,
     CBP_SET_ENTITY_DATA,
     CBP_SET_ENTITY_LINK,
@@ -160,6 +163,7 @@ enum clientbound_packet_type {
     CBP_SOUND_ENTITY,
     CBP_SOUND,
     CBP_STOP_SOUND,
+    CBP_SYSTEM_CHAT,
     CBP_TAB_LIST,
     CBP_TAG_QUERY,
     CBP_TAKE_ITEM_ENTITY,
@@ -332,6 +336,13 @@ drop_item(entity_base * player, item_stack * is, unsigned char drop_size) {
 }
 
 static void
+AckBlockChange(entity_player * player, u32 sequenceNumber) {
+    // TODO(traks): disconnect player if sequence number negative?
+    i32 signedNumber = sequenceNumber;
+    player->lastAckedBlockChange = MAX(player->lastAckedBlockChange, signedNumber);
+}
+
+static void
 process_packet(entity_base * entity, BufCursor * rec_cursor,
         MemoryArena * process_arena) {
     // @NOTE(traks) we need to handle packets in the order in which they arive,
@@ -370,8 +381,36 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         // @TODO(traks) handle packet
         break;
     }
+    case SBP_CHAT_COMMAND: {
+        LogInfo("Packet chat command");
+        String command = CursorGetVarString(rec_cursor, 256);
+        u64 timestamp = CursorGetU64(rec_cursor);
+        // @NOTE(traks) signatures for command arguments or something. Not sure
+        // if anything is being done with them in 1.19.
+        u64 salt = CursorGetU64(rec_cursor);
+        u32 argumentCount = CursorGetVarU32(rec_cursor);
+        argumentCount = MIN(argumentCount, 8);
+        for (u32 argIndex = 0; argIndex < argumentCount; argIndex++) {
+            String key = CursorGetVarString(rec_cursor, 16);
+            u32 valueSize = CursorGetVarU32(rec_cursor);
+            valueSize = MIN(valueSize, rec_cursor->size);
+            u8 * value = rec_cursor->data + rec_cursor->index;
+        }
+        u8 signedPreview = CursorGetU8(rec_cursor);
+        break;
+    }
     case SBP_CHAT: {
         String chat = CursorGetVarString(rec_cursor, 256);
+        u64 timestamp = CursorGetU64(rec_cursor);
+        // @TODO(traks) validate signature?
+        u64 salt = CursorGetU64(rec_cursor);
+        u32 signatureSize = CursorGetVarU32(rec_cursor);
+        signatureSize = MIN(signatureSize, rec_cursor->size);
+        u8 * signature = rec_cursor->data + rec_cursor->index;
+        rec_cursor->index += signatureSize;
+        u8 signedPreview = CursorGetU8(rec_cursor);
+
+        // TODO(traks): filter out bad characters from the message
 
         if (serv->global_msg_count < ARRAY_SIZE(serv->global_msgs)) {
             global_msg * msg = serv->global_msgs + serv->global_msg_count;
@@ -382,7 +421,14 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
                     player->username,
                     (int) chat.size, chat.data);
             msg->size = text_size;
+            LogInfo("%.*s", msg->size, msg->text);
         }
+        break;
+    }
+    case SBP_CHAT_PREVIEW: {
+        u32 queryId = CursorGetU32(rec_cursor);
+        String query = CursorGetVarString(rec_cursor, 256);
+        // @TODO(traks) format query and send back
         break;
     }
     case SBP_CLIENT_COMMAND: {
@@ -695,6 +741,7 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         // @TODO(traks) validate block pos inside world
         BlockPos block_pos = CursorGetBlockPos(rec_cursor);
         u8 direction = CursorGetU8(rec_cursor);
+        u32 sequenceNumber = CursorGetVarU32(rec_cursor);
 
         // @NOTE(traks) destroying blocks in survival works as follows:
         //
@@ -749,27 +796,20 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
                 ChunkSetBlockState(ch, block_pos.x & 0xf, block_pos.y, block_pos.z & 0xf, new_state);
                 push_direct_neighbour_block_updates(block_pos, &buc);
                 propagate_block_updates(&buc);
-
-                // @TODO(traks) rewrite so we don't need an assert
-                assert(player->block_break_ack_count
-                        < ARRAY_SIZE(player->block_break_acks));
-                player->block_break_acks[player->block_break_ack_count] = (block_break_ack) {
-                    .pos = block_pos,
-                    .new_state = new_state,
-                    .action = action,
-                    .success = 1,
-                };
+                AckBlockChange(player, sequenceNumber);
             }
             break;
         }
         case 1: { // abort destroy block
             // The player stopped mining the block before it breaks.
             // @TODO(traks)
+            AckBlockChange(player, sequenceNumber);
             break;
         }
         case 2: { // stop destroy block
             // The player stopped mining the block because it broke.
             // @TODO(traks)
+            AckBlockChange(player, sequenceNumber);
             break;
         }
         case 3: { // drop all items
@@ -1059,6 +1099,7 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         float click_offset_z = CursorGetF32(rec_cursor);
         // @TODO(traks) figure out what this is used for
         u8 is_inside = CursorGetU8(rec_cursor);
+        u32 sequenceNumber = CursorGetVarU32(rec_cursor);
 
         // @TODO(traks) if we cancel at any point and don't kick the
         // client, send some packets to the client to make the
@@ -1086,11 +1127,15 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         process_use_item_on_packet(entity, hand, clicked_pos,
                 clicked_face, click_offset_x, click_offset_y, click_offset_z,
                 is_inside, process_arena);
+        AckBlockChange(player, sequenceNumber);
         break;
     }
     case SBP_USE_ITEM: {
         LogInfo("Packet use item");
         i32 hand = CursorGetVarU32(rec_cursor);
+        u32 sequenceNumber = CursorGetVarU32(rec_cursor);
+
+        AckBlockChange(player, sequenceNumber);
         break;
     }
     default: {
@@ -1138,7 +1183,8 @@ finish_packet(BufCursor * send_cursor, entity_base * player) {
     // because Mojang decided to encode packet sizes with a variable-size
     // encoding.
 
-    if (send_cursor->error != 0) {
+    if (send_cursor->error != 0 || send_cursor->index == send_cursor->size) {
+        LogInfo("Finished invalid packet");
         // @NOTE(traks) the cursor mark may be invalid
         return;
     }
@@ -1715,6 +1761,14 @@ nbt_write_dimension_type(BufCursor * send_cursor,
     nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("has_raids"));
     CursorPutU8(send_cursor, !!(dim_type->flags & DIMENSION_HAS_RAIDS));
 
+    // TODO(traks): this actually defines a sampler, e.g. an int range.
+    // Currently we just do constant 0 for simplicity.
+    nbt_write_key(send_cursor, NBT_TAG_INT, STR("monster_spawn_light_level"));
+    CursorPutU32(send_cursor, 0);
+
+    nbt_write_key(send_cursor, NBT_TAG_INT, STR("monster_spawn_block_light_limit"));
+    CursorPutU32(send_cursor, dim_type->monsterSpawnMaxBlockLight);
+
     nbt_write_key(send_cursor, NBT_TAG_INT, STR("min_y"));
     CursorPutU32(send_cursor, dim_type->min_y);
 
@@ -2262,8 +2316,9 @@ start_tracking_entity(entity_base * player,
         // rotation of items is ignored
         CursorPutU8(send_cursor, 0); // x rot
         CursorPutU8(send_cursor, 0); // y rot
+        CursorPutU8(send_cursor, 0); // y head rot
         // this kind of entity data not used for items
-        CursorPutU32(send_cursor, 0);
+        CursorPutVarU32(send_cursor, 0);
         // @NOTE(traks) for some reason Minecraft ignores the initial velocity
         // and initialises it to random values. To solve this, we send the
         // velocity in a separate packet below.
@@ -2346,6 +2401,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             .data = player->player.username
         };
         CursorPutVarString(send_cursor, username);
+        CursorPutVarU32(send_cursor, 0); // no properties for now
         finish_packet(send_cursor, player);
 
         String level_name = STR("blaze:main");
@@ -2431,10 +2487,12 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
 
         CursorPutU8(send_cursor, NBT_TAG_END);
 
-        // dimension type NBT data of level player is joining
-        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR(""));
-        nbt_write_dimension_type(send_cursor, serv->dimension_types);
-        CursorPutU8(send_cursor, NBT_TAG_END);
+        // dimension type of level player is joining
+        String dimTypeName = {
+            .data = serv->dimension_types[0].name,
+            .size = serv->dimension_types[0].name_size
+        };
+        CursorPutVarString(send_cursor, dimTypeName);
 
         // level name the player is joining
         CursorPutVarString(send_cursor, level_name);
@@ -2449,6 +2507,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         CursorPutU8(send_cursor, 1); // show death screen on death
         CursorPutU8(send_cursor, 0); // is debug
         CursorPutU8(send_cursor, 0); // is flat
+        CursorPutU8(send_cursor, 0); // has death location, world + block pos after if true
         finish_packet(send_cursor, player);
 
         begin_packet(send_cursor, CBP_SET_CARRIED_ITEM);
@@ -2516,6 +2575,8 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         // reset changed data, because all data is sent already and we don't
         // want to send the same data twice
         player->changed_data = 0;
+
+        player->player.lastAckedBlockChange = -1;
     }
 
     // send keep alive packet every so often
@@ -2567,18 +2628,13 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                 player->player.picked_up_item_size);
     }
 
-    // send block break acks
-    for (int i = 0; i < player->player.block_break_ack_count; i++) {
-        block_break_ack * ack = player->player.block_break_acks + i;
-
-        begin_packet(send_cursor, CBP_BLOCK_BREAK_ACK);
-        CursorPutBlockPos(send_cursor, ack->pos);
-        CursorPutVarU32(send_cursor, ack->new_state);
-        CursorPutVarU32(send_cursor, ack->action);
-        CursorPutU8(send_cursor, ack->success);
+    // NOTE(traks): send block change ack
+    if (player->player.lastAckedBlockChange >= 0) {
+        begin_packet(send_cursor, CBP_BLOCK_CHANGED_ACK);
+        CursorPutVarU32(send_cursor, player->player.lastAckedBlockChange);
         finish_packet(send_cursor, player);
+        player->player.lastAckedBlockChange = -1;
     }
-    player->player.block_break_ack_count = 0;
 
     // send block changes for this player only
     for (int i = 0; i < player->player.changed_block_count; i++) {
@@ -2864,6 +2920,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                 CursorPutVarU32(send_cursor, player->player.gamemode);
                 CursorPutVarU32(send_cursor, 0); // latency
                 CursorPutU8(send_cursor, 0); // has display name
+                CursorPutU8(send_cursor, 0); // has message signing key
             }
             finish_packet(send_cursor, player);
         }
@@ -3029,14 +3086,19 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         memcpy(buf + buf_index, suffix.data, suffix.size);
         buf_index += suffix.size;
 
-        begin_packet(send_cursor, CBP_CHAT);
-        CursorPutVarU32(send_cursor, buf_index);
-        CursorPutData(send_cursor, buf, buf_index);
-        CursorPutU8(send_cursor, 0); // chat box position
+        String jsonMessage = {
+            .size = buf_index,
+            .data = buf,
+        };
+
+        // @TODO(traks) use player chat packet for this with annoying signing
+        begin_packet(send_cursor, CBP_SYSTEM_CHAT);
+        CursorPutVarString(send_cursor, jsonMessage);
+        CursorPutVarU32(send_cursor, 0); // chat box position
         // @TODO(traks) write sender UUID. If UUID equals 0, client displays it
         // regardless of client settings
-        CursorPutU64(send_cursor, 0);
-        CursorPutU64(send_cursor, 0);
+        // CursorPutU64(send_cursor, 0);
+        // CursorPutU64(send_cursor, 0);
         finish_packet(send_cursor, player);
     }
 

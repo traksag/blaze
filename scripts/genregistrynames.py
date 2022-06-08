@@ -19,5 +19,10 @@ registries = json.load(f, object_pairs_hook=collections.OrderedDict)
 registry = registries["minecraft:" + sys.argv[2]]
 prefix = sys.argv[3]
 
+ordered = [None] * len(registry["entries"].keys())
+
 for key in registry["entries"].keys():
+    ordered[registry["entries"][key]["protocol_id"]] = key
+
+for key in ordered:
     print(prefix + key[10:].upper() + ",")

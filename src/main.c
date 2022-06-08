@@ -51,8 +51,7 @@ typedef struct {
     //
     //  2. Receive a client intention packet and hello packet and store them
     //     together inside the receive buffer.
-    // @TODO(traks) can maybe be a bit smaller
-    unsigned char rec_buf[300];
+    unsigned char rec_buf[1024];
     int rec_cursor;
 
     // @TODO(traks) figure out appropriate size
@@ -900,6 +899,7 @@ server_tick(void) {
                     break;
                 }
                 if (packet_size <= 0 || packet_size > sizeof init_con->rec_buf) {
+                    LogInfo("Packet size error: %d", packet_size);
                     close(sock);
                     init_con->flags &= ~INITIAL_CONNECTION_IN_USE;
                     initial_connection_count--;
@@ -995,8 +995,10 @@ server_tick(void) {
                         *sampled = list[i];
                     }
 
+                    // TODO(traks): implement chat previewing
                     response_size += sprintf((char *) response + response_size,
-                            "]},\"description\":{\"text\":\"Running Blaze\"}}");
+                            "]},\"description\":{\"text\":\"Running Blaze\"},"
+                            "\"previewsChat\":false}");
 
                     int out_size = VarU32Size(0)
                             + VarU32Size(response_size)
@@ -1038,6 +1040,9 @@ server_tick(void) {
                     }
                     memcpy(init_con->username, username.data, username.size);
                     init_con->username_size = username.size;
+
+                    // @TODO(traks) read player public key for chat signing
+                    rec_cursor.index = packet_start + packet_size;
 
                     // @TODO(traks) online mode
                     // @TODO(traks) enable compression
@@ -1455,6 +1460,7 @@ register_entity_type(i32 entity_type, char * resource_loc) {
 
 static void
 init_entity_data(void) {
+    register_entity_type(ENTITY_ALLAY, "minecraft:allay");
     register_entity_type(ENTITY_AREA_EFFECT_CLOUD, "minecraft:area_effect_cloud");
     register_entity_type(ENTITY_ARMOR_STAND, "minecraft:armor_stand");
     register_entity_type(ENTITY_ARROW, "minecraft:arrow");
@@ -1463,6 +1469,7 @@ init_entity_data(void) {
     register_entity_type(ENTITY_BEE, "minecraft:bee");
     register_entity_type(ENTITY_BLAZE, "minecraft:blaze");
     register_entity_type(ENTITY_BOAT, "minecraft:boat");
+    register_entity_type(ENTITY_CHEST_BOAT, "minecraft:chest_boat");
     register_entity_type(ENTITY_CAT, "minecraft:cat");
     register_entity_type(ENTITY_CAVE_SPIDER, "minecraft:cave_spider");
     register_entity_type(ENTITY_CHICKEN, "minecraft:chicken");
@@ -1485,6 +1492,7 @@ init_entity_data(void) {
     register_entity_type(ENTITY_FALLING_BLOCK, "minecraft:falling_block");
     register_entity_type(ENTITY_FIREWORK_ROCKET, "minecraft:firework_rocket");
     register_entity_type(ENTITY_FOX, "minecraft:fox");
+    register_entity_type(ENTITY_FROG, "minecraft:frog");
     register_entity_type(ENTITY_GHAST, "minecraft:ghast");
     register_entity_type(ENTITY_GIANT, "minecraft:giant");
     register_entity_type(ENTITY_GLOW_ITEM_FRAME, "minecraft:glow_item_frame");
@@ -1544,6 +1552,7 @@ init_entity_data(void) {
     register_entity_type(ENTITY_SQUID, "minecraft:squid");
     register_entity_type(ENTITY_STRAY, "minecraft:stray");
     register_entity_type(ENTITY_STRIDER, "minecraft:strider");
+    register_entity_type(ENTITY_TADPOLE, "minecraft:tadpole");
     register_entity_type(ENTITY_EGG, "minecraft:egg");
     register_entity_type(ENTITY_ENDER_PEARL, "minecraft:ender_pearl");
     register_entity_type(ENTITY_EXPERIENCE_BOTTLE, "minecraft:experience_bottle");
@@ -1556,6 +1565,7 @@ init_entity_data(void) {
     register_entity_type(ENTITY_VILLAGER, "minecraft:villager");
     register_entity_type(ENTITY_VINDICATOR, "minecraft:vindicator");
     register_entity_type(ENTITY_WANDERING_TRADER, "minecraft:wandering_trader");
+    register_entity_type(ENTITY_WARDEN, "minecraft:warden");
     register_entity_type(ENTITY_WITCH, "minecraft:witch");
     register_entity_type(ENTITY_WITHER, "minecraft:wither");
     register_entity_type(ENTITY_WITHER_SKELETON, "minecraft:wither_skeleton");
@@ -1568,6 +1578,7 @@ init_entity_data(void) {
     register_entity_type(ENTITY_ZOMBIFIED_PIGLIN, "minecraft:zombified_piglin");
     register_entity_type(ENTITY_PLAYER, "minecraft:player");
     register_entity_type(ENTITY_FISHING_BOBBER, "minecraft:fishing_bobber");
+    register_entity_type(ENTITY_NULL, "minecraft:null");
 }
 
 static void
@@ -1599,51 +1610,50 @@ register_game_event_type(i32 game_event_type, char * resource_loc) {
 
 static void
 init_game_event_data(void) {
+    register_game_event_type(GAME_EVENT_BLOCK_ACTIVATE, "minecraft:block_activate");
     register_game_event_type(GAME_EVENT_BLOCK_ATTACH, "minecraft:block_attach");
     register_game_event_type(GAME_EVENT_BLOCK_CHANGE, "minecraft:block_change");
     register_game_event_type(GAME_EVENT_BLOCK_CLOSE, "minecraft:block_close");
+    register_game_event_type(GAME_EVENT_BLOCK_DEACTIVATE, "minecraft:block_deactivate");
     register_game_event_type(GAME_EVENT_BLOCK_DESTROY, "minecraft:block_destroy");
     register_game_event_type(GAME_EVENT_BLOCK_DETACH, "minecraft:block_detach");
     register_game_event_type(GAME_EVENT_BLOCK_OPEN, "minecraft:block_open");
     register_game_event_type(GAME_EVENT_BLOCK_PLACE, "minecraft:block_place");
-    register_game_event_type(GAME_EVENT_BLOCK_PRESS, "minecraft:block_press");
-    register_game_event_type(GAME_EVENT_BLOCK_SWITCH, "minecraft:block_switch");
-    register_game_event_type(GAME_EVENT_BLOCK_UNPRESS, "minecraft:block_unpress");
-    register_game_event_type(GAME_EVENT_BLOCK_UNSWITCH, "minecraft:block_unswitch");
     register_game_event_type(GAME_EVENT_CONTAINER_CLOSE, "minecraft:container_close");
     register_game_event_type(GAME_EVENT_CONTAINER_OPEN, "minecraft:container_open");
     register_game_event_type(GAME_EVENT_DISPENSE_FAIL, "minecraft:dispense_fail");
-    register_game_event_type(GAME_EVENT_DRINKING_FINISH, "minecraft:drinking_finish");
+    register_game_event_type(GAME_EVENT_DRINK, "minecraft:drink");
     register_game_event_type(GAME_EVENT_EAT, "minecraft:eat");
-    register_game_event_type(GAME_EVENT_ELYTRA_FREE_FALL, "minecraft:elytra_free_fall");
-    register_game_event_type(GAME_EVENT_ENTITY_DAMAGED, "minecraft:entity_damaged");
-    register_game_event_type(GAME_EVENT_ENTITY_KILLED, "minecraft:entity_killed");
+    register_game_event_type(GAME_EVENT_ELYTRA_GLIDE, "minecraft:elytra_glide");
+    register_game_event_type(GAME_EVENT_ENTITY_DAMAGE, "minecraft:entity_damage");
+    register_game_event_type(GAME_EVENT_ENTITY_DIE, "minecraft:entity_die");
+    register_game_event_type(GAME_EVENT_ENTITY_INTERACT, "minecraft:entity_interact");
     register_game_event_type(GAME_EVENT_ENTITY_PLACE, "minecraft:entity_place");
+    register_game_event_type(GAME_EVENT_ENTITY_ROAR, "minecraft:entity_roar");
+    register_game_event_type(GAME_EVENT_ENTITY_SHAKE, "minecraft:entity_shake");
     register_game_event_type(GAME_EVENT_EQUIP, "minecraft:equip");
     register_game_event_type(GAME_EVENT_EXPLODE, "minecraft:explode");
-    register_game_event_type(GAME_EVENT_FISHING_ROD_CAST, "minecraft:fishing_rod_cast");
-    register_game_event_type(GAME_EVENT_FISHING_ROD_REEL_IN, "minecraft:fishing_rod_reel_in");
     register_game_event_type(GAME_EVENT_FLAP, "minecraft:flap");
     register_game_event_type(GAME_EVENT_FLUID_PICKUP, "minecraft:fluid_pickup");
     register_game_event_type(GAME_EVENT_FLUID_PLACE, "minecraft:fluid_place");
     register_game_event_type(GAME_EVENT_HIT_GROUND, "minecraft:hit_ground");
-    register_game_event_type(GAME_EVENT_MOB_INTERACT, "minecraft:mob_interact");
+    register_game_event_type(GAME_EVENT_INSTRUMENT_PLAY, "minecraft:instrument_play");
+    register_game_event_type(GAME_EVENT_ITEM_INTERACT_FINISH, "minecraft:item_interact_finish");
+    register_game_event_type(GAME_EVENT_ITEM_INTERACT_START, "minecraft:item_interact_start");
     register_game_event_type(GAME_EVENT_LIGHTNING_STRIKE, "minecraft:lightning_strike");
-    register_game_event_type(GAME_EVENT_MINECART_MOVING, "minecraft:minecart_moving");
+    register_game_event_type(GAME_EVENT_NOTE_BLOCK_PLAY, "minecraft:note_block_play");
     register_game_event_type(GAME_EVENT_PISTON_CONTRACT, "minecraft:piston_contract");
     register_game_event_type(GAME_EVENT_PISTON_EXTEND, "minecraft:piston_extend");
     register_game_event_type(GAME_EVENT_PRIME_FUSE, "minecraft:prime_fuse");
     register_game_event_type(GAME_EVENT_PROJECTILE_LAND, "minecraft:projectile_land");
     register_game_event_type(GAME_EVENT_PROJECTILE_SHOOT, "minecraft:projectile_shoot");
-    register_game_event_type(GAME_EVENT_RAVAGER_ROAR, "minecraft:ravager_roar");
-    register_game_event_type(GAME_EVENT_RING_BELL, "minecraft:ring_bell");
+    register_game_event_type(GAME_EVENT_SCULK_SENSOR_TENDRILS_CLICKING, "minecraft:sculk_sensor_tendrils_clicking");
     register_game_event_type(GAME_EVENT_SHEAR, "minecraft:shear");
-    register_game_event_type(GAME_EVENT_SHULKER_CLOSE, "minecraft:shulker_close");
-    register_game_event_type(GAME_EVENT_SHULKER_OPEN, "minecraft:shulker_open");
+    register_game_event_type(GAME_EVENT_SHRIEK, "minecraft:shriek");
     register_game_event_type(GAME_EVENT_SPLASH, "minecraft:splash");
     register_game_event_type(GAME_EVENT_STEP, "minecraft:step");
     register_game_event_type(GAME_EVENT_SWIM, "minecraft:swim");
-    register_game_event_type(GAME_EVENT_WOLF_SHAKING, "minecraft:wolf_shaking");
+    register_game_event_type(GAME_EVENT_TELEPORT, "minecraft:teleport");
 }
 
 static void
@@ -1914,8 +1924,6 @@ main(void) {
 
     init_dimension_types();
     init_biomes();
-
-    int profiler_sock = -1;
 
     // @NOTE(traks) chunk sections assume that no changes happen in tick 0, so
     // initialise tick number to something larger than 0 to be safe

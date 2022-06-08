@@ -92,14 +92,6 @@ typedef struct {
     NbtValue * values;
 } NbtLevel;
 
-typedef struct {
-    u32 curIndex;
-    u32 indexOffset;
-    NbtKey * keys;
-    NbtValue * values;
-    NbtValue * parent;
-} NbtPrintLevel;
-
 // @NOTE(traks) only used to avoid some branches internally. External code is
 // able to create empty compounds without access to this value.
 static NbtValue emptyValue;
@@ -575,6 +567,258 @@ bail:
     return (NbtCompound) {.internal = root};
 }
 
+typedef struct {
+    i32 curIndex;
+
+    // @NOTE(traks) compound stuff
+    NbtKey * keys;
+    NbtValue * values;
+    i32 keyOffset;
+    i32 valueOffset;
+
+    // @NOTE(traks) list stuff
+    NbtValue * curElem;
+
+    // @NOTE(traks) compound/list that this level represents
+    NbtValue * value;
+} NbtPrintLevel;
+
+static void PrintIndent(i32 indent) {
+    for (i32 i = 0; i <= indent; i++) {
+        printf("  ");
+    }
+}
+
+void NbtPrint(NbtCompound * compound) {
+    NbtValue * first = compound->internal;
+    if (first == NULL) {
+        puts("{}");
+        return;
+    }
+    assert(first->internalType == NBT_ITYPE_COMPOUND);
+
+    NbtPrintLevel levels[512] = {0};
+    levels[0] = (NbtPrintLevel) {
+        .value = first,
+    };
+    i32 levelIndex = 0;
+
+    printf("{");
+
+    for (;;) {
+        if (levelIndex < 0) {
+            break;
+        }
+        if (levelIndex >= ARRAY_SIZE(levels) - 1) {
+            // @NOTE(traks) might overflow this round, bail!
+            return;
+        }
+
+        NbtPrintLevel * curLevel = levels + levelIndex;
+
+        NbtValue * value;
+        i32 endWithNewLine = 0;
+        i32 endWithComma = 0;
+
+        if (curLevel->value->internalType == NBT_ITYPE_COMPOUND) {
+            printf("\n");
+
+            if (curLevel->curIndex >= curLevel->value->valueSize) {
+                levelIndex--;
+                PrintIndent(levelIndex);
+                printf("}");
+                continue;
+            }
+
+            if (curLevel->curIndex == 0) {
+                curLevel->keys = curLevel->value->compoundKeys;
+                curLevel->values = curLevel->value->compoundValues;
+                curLevel->keyOffset = 0;
+                curLevel->valueOffset = 0;
+            }
+
+            NbtKey * entryKey = curLevel->keys + (curLevel->curIndex - curLevel->keyOffset);
+            value = curLevel->values + (curLevel->curIndex - curLevel->valueOffset);
+
+            if (entryKey->isLink) {
+                curLevel->keys = entryKey->linkedKey;
+                curLevel->keyOffset = curLevel->curIndex;
+                entryKey = curLevel->keys + (curLevel->curIndex - curLevel->keyOffset);
+            }
+            if (value->isLink) {
+                curLevel->values = value->linkedValue;
+                curLevel->valueOffset = curLevel->curIndex;
+                value = curLevel->values + (curLevel->curIndex - curLevel->valueOffset);
+            }
+
+            curLevel->curIndex++;
+
+            PrintIndent(levelIndex);
+            printf("%.*s: ", entryKey->keySize, entryKey->key);
+            endWithNewLine = 1;
+        } else {
+            // @NOTE(traks) list of lists or list of compounds
+
+            if (curLevel->curIndex >= curLevel->value->valueSize) {
+                levelIndex--;
+                printf("\n");
+                PrintIndent(levelIndex);
+                printf("]");
+                continue;
+            }
+
+            if (curLevel->curIndex == 0) {
+                printf("\n");
+            } else {
+                printf(",\n");
+            }
+
+            if (curLevel->curIndex == 0) {
+                curLevel->curElem = curLevel->value->listElements;
+            }
+
+            NbtValue * elem = curLevel->curElem;
+            if (elem->isLink) {
+                elem = elem->linkedValue;
+                curLevel->curElem = elem;
+            }
+
+            value = elem;
+
+            curLevel->curElem++;
+            curLevel->curIndex++;
+
+            PrintIndent(levelIndex);
+            endWithNewLine = 1;
+        }
+
+        switch (value->internalType) {
+        case NBT_ITYPE_U8: {
+            // @NOTE(traks) print signed values for section indices
+            printf("(i8) %zd", (intmax_t) (i8) value->intValue);
+            break;
+        }
+        case NBT_ITYPE_U16: {
+            printf("(i16) %zd", (intmax_t) (i16) value->intValue);
+            break;
+        }
+        case NBT_ITYPE_U32: {
+            printf("(i32) %zd", (intmax_t) (i32) value->intValue);
+            break;
+        }
+        case NBT_ITYPE_U64: {
+            printf("(i64) %zd", (intmax_t) value->intValue);
+            break;
+        }
+        case NBT_ITYPE_FLOAT: {
+            printf("(f32) %f", value->floatValue);
+            break;
+        }
+        case NBT_ITYPE_DOUBLE: {
+            printf("(f64) %f", value->doubleValue);
+            break;
+        }
+        case NBT_ITYPE_STRING: {
+            printf("\"%.*s\"", value->valueSize, value->stringValue);
+            break;
+        }
+        case NBT_ITYPE_ARRAY_U8: {
+            printf("i8[]");
+            break;
+        }
+        case NBT_ITYPE_ARRAY_U32: {
+            printf("i32[]");
+            break;
+        }
+        case NBT_ITYPE_ARRAY_U64: {
+            printf("i64[]");
+            break;
+        }
+        case NBT_ITYPE_LIST_EMPTY: {
+            printf("[]");
+            break;
+        }
+        case NBT_ITYPE_LIST_U8: {
+            printf("[i8]");
+            break;
+        }
+        case NBT_ITYPE_LIST_U16: {
+            printf("[i16]");
+            break;
+        }
+        case NBT_ITYPE_LIST_U32: {
+            printf("[i32]");
+            break;
+        }
+        case NBT_ITYPE_LIST_U64: {
+            printf("[i64]");
+            break;
+        }
+        case NBT_ITYPE_LIST_FLOAT: {
+            printf("[f32]");
+            break;
+        }
+        case NBT_ITYPE_LIST_DOUBLE: {
+            printf("[f64]");
+            break;
+        }
+        case NBT_ITYPE_LIST_ARRAY_U8: {
+            printf("[u8[]]");
+            break;
+        }
+        case NBT_ITYPE_LIST_ARRAY_U32: {
+            printf("[u32[]]");
+            break;
+        }
+        case NBT_ITYPE_LIST_ARRAY_U64: {
+            printf("[u64[]]");
+            break;
+        }
+        case NBT_ITYPE_LIST_STRING: {
+            NbtValue * elem = value->listElements;
+            printf("[");
+            for (i32 i = 0; i < value->valueSize; i++) {
+                if (i) {
+                    printf(", ");
+                }
+                if (elem->isLink) {
+                    elem = elem->linkedValue;
+                }
+                printf("\"%.*s\"", elem->valueSize, elem->stringValue);
+            }
+            printf("]");
+            break;
+        }
+        case NBT_ITYPE_LIST_LIST:
+        case NBT_ITYPE_LIST_COMPOUND: {
+            if (value->valueSize == 0) {
+                printf("[]");
+            } else {
+                levelIndex++;
+                levels[levelIndex] = (NbtPrintLevel) {
+                    .value = value
+                };
+                printf("[");
+            }
+            break;
+        }
+        case NBT_ITYPE_COMPOUND: {
+            if (value->valueSize == 0) {
+                printf("{}");
+            } else {
+                levelIndex++;
+                levels[levelIndex] = (NbtPrintLevel) {
+                    .value = value
+                };
+                printf("{");
+            }
+            break;
+        }
+        }
+    }
+    printf("\n");
+}
+
 static NbtValue * NbtSearch(NbtCompound * compound, String key) {
     NbtValue * internal = compound->internal;
     if (internal == NULL) {
@@ -709,6 +953,15 @@ NbtCompound NbtGetCompound(NbtCompound * compound, String key) {
     };
     NbtCompound res = {.internal = found};
     return res;
+}
+
+i32 NbtIsEmpty(NbtCompound * compound) {
+    NbtValue * internal = compound->internal;
+    if (internal == NULL) {
+        return 1;
+    }
+    assert(internal->internalType == NBT_ITYPE_COMPOUND);
+    return (internal->valueSize == 0);
 }
 
 // these first few functions also work for arrays because the arrayData and
