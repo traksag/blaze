@@ -104,6 +104,11 @@ BlockPos CursorGetBlockPos(BufCursor * cursor) {
     return res;
 }
 
+i32 CursorGetBool(BufCursor * cursor) {
+    u8 res = CursorGetU8(cursor);
+    return !!res;
+}
+
 void CursorPutVarU32(BufCursor * cursor, u32 value) {
     for (;;) {
         if (cursor->index == cursor->size) {

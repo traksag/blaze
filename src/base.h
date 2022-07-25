@@ -3,7 +3,9 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdalign.h>
 #include <assert.h>
+#include <string.h>
 
 // @NOTE(traks) apparently tracy includes headers that define MIN/MAX, so define
 // them here in advance to prevent warnings
@@ -65,6 +67,12 @@ typedef float f32;
 typedef double f64;
 
 typedef struct {
+    f32 x;
+    f32 y;
+    f32 z;
+} fvec3;
+
+typedef struct {
     f32 minX;
     f32 minY;
     f32 minZ;
@@ -100,8 +108,66 @@ typedef struct {
     i32 index;
 } MemoryArena;
 
-void * MallocInArena(MemoryArena * arena, i32 size);
-void * CallocInArena(MemoryArena * arena, i32 size);
+typedef struct {
+    MemoryArena * arena;
+    i32 startIndex;
+} TempMemoryArena;
+
+static void * MallocInArena(MemoryArena * arena, i32 size) {
+    i32 align = alignof (max_align_t);
+    // round up to multiple of align
+    i32 actual_size = (size + align - 1) / align * align;
+
+    if (arena->size - actual_size < arena->index) {
+        // TODO(traks): in some cases asserting might be preferable. Maybe add
+        // field to MemoryArena to enable assertings. Don't want assertions in
+        // net code though or code where there is a chance the arena could be
+        // overrun.
+        return NULL;
+    }
+
+    void * res = arena->data + arena->index;
+    arena->index += actual_size;
+    return res;
+}
+
+static void * CallocInArena(MemoryArena * arena, i32 size) {
+    i32 align = alignof (max_align_t);
+    // round up to multiple of align
+    i32 actual_size = (size + align - 1) / align * align;
+
+    if (arena->size - actual_size < arena->index) {
+        // TODO(traks): in some cases asserting might be preferable. Maybe add
+        // field to MemoryArena to enable assertings. Don't want assertions in
+        // net code though or code where there is a chance the arena could be
+        // overrun.
+        return NULL;
+    }
+
+    void * res = arena->data + arena->index;
+    arena->index += actual_size;
+
+    memset(res, 0, actual_size);
+    return res;
+}
+
+static MemoryArena SubArena(MemoryArena * arena, i32 size) {
+    MemoryArena res = {0};
+    res.data = MallocInArena(arena, size);
+    res.size = res.data == NULL ? 0 : size;
+    return res;
+}
+
+static TempMemoryArena BeginTempArena(MemoryArena * arena) {
+    TempMemoryArena res = {0};
+    res.arena = arena;
+    res.startIndex = arena->index;
+    return res;
+}
+
+static void EndTempArena(TempMemoryArena * temp) {
+    temp->arena->index = temp->startIndex;
+}
 
 typedef struct MemoryPoolBlock MemoryPoolBlock;
 struct MemoryPoolBlock {

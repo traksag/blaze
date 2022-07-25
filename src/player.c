@@ -1545,6 +1545,21 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
 
     assert(player->type == ENTITY_PLAYER);
     int sock = player->player.sock;
+
+    // TODO(traks): We might want to move this to an event-based system (such as
+    // epoll/kqueue/etc.). Not sure if offloading some of the work to a
+    // different thread is really worth it (haven't tested). However, it seems
+    // like TCP ACKs aren't sent back to the client until our program actually
+    // reads from the OS buffers (at least on macOS). I'm thinking this might
+    // give the client's TCP stack a wrong impression about the server latency.
+    //
+    // In the future we might also want to respond to certain packets
+    // immediately (such as tab completes, statistics requests and chat
+    // previewing), instead of waiting for the next tick. Since waiting could
+    // delay the handling of the packet upward of 50ms.
+    //
+    // We also should actually also respond to server list pings as soon as
+    // possible, so the client's ping counter is accurate.
     ssize_t rec_size = recv(sock, player->player.rec_buf + player->player.rec_cursor,
             player->player.rec_buf_size - player->player.rec_cursor, 0);
 

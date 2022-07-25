@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <unistd.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -167,30 +168,6 @@ LogErrno(void * format) {
     char error_msg[64] = {0};
     strerror_r(errno, error_msg, sizeof error_msg);
     LogInfo(format, error_msg);
-}
-
-void * MallocInArena(MemoryArena * arena, i32 size) {
-    i32 align = alignof (max_align_t);
-    // round up to multiple of align
-    i32 actual_size = (size + align - 1) / align * align;
-    assert(arena->size - actual_size >= arena->index);
-
-    void * res = arena->data + arena->index;
-    arena->index += actual_size;
-    return res;
-}
-
-void * CallocInArena(MemoryArena * arena, i32 size) {
-    i32 align = alignof (max_align_t);
-    // round up to multiple of align
-    i32 actual_size = (size + align - 1) / align * align;
-    assert(arena->size - actual_size >= arena->index);
-
-    void * res = arena->data + arena->index;
-    arena->index += actual_size;
-
-    memset(res, 0, actual_size);
-    return res;
 }
 
 static inline void UnlinkPoolBlock(MemoryPoolBlock * target) {
@@ -828,6 +805,18 @@ server_tick(void) {
         }
 
         if (fcntl(accepted, F_SETFL, flags | O_NONBLOCK) == -1) {
+            close(accepted);
+            continue;
+        }
+
+        // NOTE(traks): we write all packet data in one go, so this setting
+        // shouldn't affect things too much, except for sending the last couple
+        // of packets earlier if they're small.
+        //
+        // I think this will also send TCP ACKs faster. Might give the client's
+        // TCP stack a better approximation for server latency? Not sure.
+        int yes = 1;
+        if (setsockopt(accepted, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof yes) == -1) {
             close(accepted);
             continue;
         }
@@ -1817,6 +1806,7 @@ main(void) {
         .sin_port = htons(25565),
         .sin_addr = {
             .s_addr = htonl(0x7f000001)
+            // .s_addr = htonl(0)
         }
     };
 

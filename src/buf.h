@@ -124,7 +124,12 @@ typedef struct {
     i32 mark;
 } BufCursor;
 
-static inline int CursorSkip(BufCursor * cursor, i64 skip) {
+static inline i32 CursorRemaining(BufCursor * cursor) {
+    i32 res = cursor->size - cursor->index;
+    return res;
+}
+
+static inline i32 CursorSkip(BufCursor * cursor, i64 skip) {
     assert(skip >= 0);
     if (cursor->index <= cursor->size - skip) {
         cursor->index += skip;
@@ -140,9 +145,9 @@ static inline int CursorSkip(BufCursor * cursor, i64 skip) {
     }
 }
 
-static inline int VarU32Size(u32 val) {
-    int leadingZeroBits = __builtin_clz(val | 1);
-    int highestOneBit = (31 - leadingZeroBits);
+static inline i32 VarU32Size(u32 val) {
+    i32 leadingZeroBits = __builtin_clz(val | 1);
+    i32 highestOneBit = (31 - leadingZeroBits);
     return highestOneBit / 7 + 1;
 }
 
@@ -156,6 +161,7 @@ f32 CursorGetF32(BufCursor * cursor);
 f64 CursorGetF64(BufCursor * cursor);
 String CursorGetVarString(BufCursor * cursor, i32 maxSize);
 BlockPos CursorGetBlockPos(BufCursor * cursor);
+i32 CursorGetBool(BufCursor * cursor);
 
 void CursorPutVarU32(BufCursor * cursor, u32 value);
 void CursorPutVarU64(BufCursor * cursor, u64 value);
