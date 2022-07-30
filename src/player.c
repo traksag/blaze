@@ -8,6 +8,7 @@
 #include <zlib.h>
 #include "shared.h"
 #include "nbt.h"
+#include "chunk.h"
 
 // Implicit packet IDs for ease of updating. Updating packet IDs manually is a
 // pain because packet types are ordered alphabetically and Mojang doesn't

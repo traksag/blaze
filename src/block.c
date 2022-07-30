@@ -2,6 +2,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include "shared.h"
+#include "chunk.h"
 
 // @TODO(traks) An issue with having a fixed update order, is that redstone
 // contraptions can break if they're rotated. Perhaps making the update order

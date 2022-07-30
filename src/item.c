@@ -1,6 +1,7 @@
 #include <math.h>
 #include <string.h>
 #include "shared.h"
+#include "chunk.h"
 
 #define PLACE_REPLACING ((unsigned) (1 << 0))
 #define PLACE_CAN_PLACE ((unsigned) (1 << 1))
