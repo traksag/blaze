@@ -63,15 +63,7 @@ try_get_block_entity(BlockPos pos) {
     return NULL;
 }
 
-u16
-try_get_block_state(BlockPos pos) {
-    if (pos.y < MIN_WORLD_Y) {
-        return get_default_block_state(BLOCK_VOID_AIR);
-    }
-    if (pos.y > MAX_WORLD_Y) {
-        return get_default_block_state(BLOCK_AIR);
-    }
-
+i32 WorldGetBlockState(WorldBlockPos pos) {
     chunk_pos ch_pos = {
         .x = pos.x >> 4,
         .z = pos.z >> 4
@@ -82,25 +74,11 @@ try_get_block_state(BlockPos pos) {
         return get_default_block_state(BLOCK_UNKNOWN);
     }
 
-    return ChunkGetBlockState(ch, pos.x & 0xf, pos.y, pos.z & 0xf);
+    return ChunkGetBlockState(ch, pos.xyz);
 }
 
-void
-try_set_block_state(BlockPos pos, u16 block_state) {
-    if (pos.y < MIN_WORLD_Y) {
-        assert(0);
-        return;
-    }
-    if (pos.y > MAX_WORLD_Y) {
-        assert(0);
-        return;
-    }
-    if (block_state >= serv->vanilla_block_state_count) {
-        // catches unknown blocks
-        assert(0);
-        return;
-    }
-
+SetBlockResult WorldSetBlockState(WorldBlockPos pos, i32 blockState) {
+    SetBlockResult res = {0};
     chunk_pos ch_pos = {
         .x = pos.x >> 4,
         .z = pos.z >> 4
@@ -108,40 +86,43 @@ try_set_block_state(BlockPos pos, u16 block_state) {
 
     Chunk * ch = GetChunkIfLoaded(ch_pos);
     if (ch == NULL) {
-        return;
+        res.oldState = get_default_block_state(BLOCK_UNKNOWN);
+        res.newState = res.oldState;
+        res.failed = 1;
+        return res;
     }
 
-    return ChunkSetBlockState(ch, pos.x & 0xf, pos.y, pos.z & 0xf, block_state);
+    res = ChunkSetBlockState(ch, pos.xyz, blockState);
+    return res;
 }
 
-u16 ChunkGetBlockState(Chunk * ch, int x, int y, int z) {
-    assert(0 <= x && x < 16);
-    // assert(MIN_WORLD_Y <= y && y <= MAX_WORLD_Y);
-    assert(0 <= z && z < 16);
-
-    if (y < MIN_WORLD_Y || y > MAX_WORLD_Y) {
+i32 ChunkGetBlockState(Chunk * ch, BlockPos pos) {
+    if (pos.y < MIN_WORLD_Y) {
         return get_default_block_state(BLOCK_VOID_AIR);
     }
+    if (pos.y > MAX_WORLD_Y) {
+        return get_default_block_state(BLOCK_AIR);
+    }
 
-    int sectionIndex = (y - MIN_WORLD_Y) >> 4;
+    int sectionIndex = (pos.y - MIN_WORLD_Y) >> 4;
     ChunkSection * section = ch->sections + sectionIndex;
 
     if (section->nonAirCount == 0) {
-        // @TODO(traks) would it be possible to have a block type -> default state
-        // lookup here and have it expand to a constant once we pregenerate all
-        // the data tables?
-        return 0;
+        // @TODO(traks) Any way to expand this to a constant at compile time?
+        // (Similar for other uses across the entire project.)
+        return get_default_block_state(BLOCK_AIR);
     }
 
-    int index = ((y & 0xf) << 8) | (z << 4) | x;
+    i32 index = SectionPosToIndex((BlockPos) {pos.x & 0xf, pos.y & 0xf, pos.z & 0xf});
     return section->blockStates[index];
 }
 
 void ChunkRecalculateMotionBlockingHeightMap(Chunk * ch) {
+    // TODO(traks): optimise
     for (int zx = 0; zx < 16 * 16; zx++) {
         ch->motion_blocking_height_map[zx] = 0;
         for (int y = MAX_WORLD_Y; y >= MIN_WORLD_Y; y--) {
-            u16 block_state = ChunkGetBlockState(ch, zx & 0xf, y, zx >> 4);
+            u16 block_state = ChunkGetBlockState(ch, (BlockPos) {zx & 0xf, y, zx >> 4});
             // @TODO(traks) other airs
             if (block_state != 0) {
                 ch->motion_blocking_height_map[zx] = y + 1;
@@ -156,37 +137,50 @@ static inline i32 HashChangedBlockPos(i32 index, i32 hashMask) {
     return index & hashMask;
 }
 
-void ChunkSetBlockState(Chunk * ch, int x, int y, int z, u16 block_state) {
-    assert(0 <= x && x < 16);
-    assert(MIN_WORLD_Y <= y && y <= MAX_WORLD_Y);
-    assert(0 <= z && z < 16);
+SetBlockResult ChunkSetBlockState(Chunk * ch, BlockPos pos, i32 blockState) {
+    SetBlockResult res = {0};
+    if (pos.y < MIN_WORLD_Y || pos.y > MAX_WORLD_Y
+            || blockState >= serv->vanilla_block_state_count || blockState < 0) {
+        assert(0);
+        res.oldState = ChunkGetBlockState(ch, pos);
+        res.newState = res.oldState;
+        res.failed = 1;
+        return res;
+    }
+
+    // TODO(traks): should we really be checking this? If so, might want to move
+    // this to the if-check above
     assert(ch->flags & CHUNK_LOADED);
+
     // @TODO(traks) somehow ensure this never fails even with tons of players,
     // or make sure we appropriate handle cases in which too many changes occur
     // to a chunk per tick.
 
-    int sectionIndex = (y - MIN_WORLD_Y) >> 4;
+    i32 sectionIndex = (pos.y - MIN_WORLD_Y) >> 4;
     ChunkSection * section = ch->sections + sectionIndex;
 
     if (section->nonAirCount == 0) {
-        // @TODO(traks) instead of making block setting fallible, perhaps
-        // getting the chunk should fail if chunk sections cannot be allocated
+        // TODO(traks): return error if can't allocate chunk
         MemoryPoolAllocation alloc = CallocInPool(serv->sectionPool);
         section->blockStates = alloc.data;
         section->blockStatesBlock = alloc.block;
     }
 
-    int index = SectionPosToIndex((BlockPos) {x, y, z});
+    i32 index = SectionPosToIndex((BlockPos) {pos.x & 0xf, pos.y & 0xf, pos.z & 0xf});
 
-    // @TODO(traks) also check for cave air and void air?
+    // @TODO(traks) also check for cave air and void air? Should probably avoid
+    // the == 0 check either way and use block type lookup or property check
     if (section->blockStates[index] == 0) {
         section->nonAirCount++;
     }
-    if (block_state == 0) {
+    if (blockState == 0) {
         section->nonAirCount--;
     }
 
-    section->blockStates[index] = block_state;
+    res.oldState = section->blockStates[index];
+    res.newState = blockState;
+
+    section->blockStates[index] = blockState;
 
     if (section->nonAirCount == 0) {
         MemoryPoolAllocation alloc = {.data = section->blockStates, .block = section->blockStatesBlock};
@@ -197,16 +191,16 @@ void ChunkSetBlockState(Chunk * ch, int x, int y, int z, u16 block_state) {
 
     // @NOTE(traks) update height map
 
-    int height_map_index = (z << 4) | x;
+    i32 height_map_index = ((pos.z & 0xf) << 4) | (pos.x & 0xf);
 
     i16 max_height = ch->motion_blocking_height_map[height_map_index];
-    if (y + 1 == max_height) {
-        if (block_state == 0) {
+    if (pos.y + 1 == max_height) {
+        if (blockState == 0) {
             // @TODO(traks) handle other airs
             max_height = 0;
 
-            for (int lower_y = y - 1; lower_y >= MIN_WORLD_Y; lower_y--) {
-                if (ChunkGetBlockState(ch, x, lower_y, z) != 0) {
+            for (int lower_y = pos.y - 1; lower_y >= MIN_WORLD_Y; lower_y--) {
+                if (ChunkGetBlockState(ch, (BlockPos) {pos.x, lower_y, pos.z}) != 0) {
                     // @TODO(traks) handle other airs
                     max_height = lower_y + 1;
                     break;
@@ -215,14 +209,15 @@ void ChunkSetBlockState(Chunk * ch, int x, int y, int z, u16 block_state) {
 
             ch->motion_blocking_height_map[height_map_index] = max_height;
         }
-    } else if (y >= max_height) {
-        if (block_state != 0) {
+    } else if (pos.y >= max_height) {
+        if (blockState != 0) {
             // @TODO(traks) handle other airs
-            ch->motion_blocking_height_map[height_map_index] = y + 1;
+            ch->motion_blocking_height_map[height_map_index] = pos.y + 1;
         }
     }
 
     // @NOTE(traks) update changed block list
+
     if (section->lastChangeTick != serv->current_tick) {
         section->lastChangeTick = serv->current_tick;
         // @NOTE(traks) must be power of 2
@@ -273,6 +268,8 @@ doHash:;
         goto doHash;
     }
     assert(section->changedBlockCount <= 4096);
+
+    return res;
 }
 
 Chunk * GetOrCreateChunk(chunk_pos pos) {

@@ -1392,11 +1392,11 @@ int can_wither_rose_survive_on(i32 type_below);
 int can_azalea_survive_on(i32 type_below);
 int can_nether_plant_survive_on(i32 type_below);
 int is_bamboo_plantable_on(i32 type_below);
-int can_sea_pickle_survive_on(u16 state_below, BlockPos posBelow);
+int can_sea_pickle_survive_on(u16 state_below, WorldBlockPos posBelow);
 int can_snow_survive_on(u16 state_below);
 int can_pressure_plate_survive_on(u16 state_below);
 int can_redstone_wire_survive_on(u16 state_below);
-int can_sugar_cane_survive_at(BlockPos cur_pos);
+int can_sugar_cane_survive_at(WorldBlockPos cur_pos);
 
 void init_block_data(void);
 
@@ -1498,7 +1498,7 @@ typedef struct {
     BoundingBox boxes[8];
 } BlockModel;
 
-BlockModel BlockDetermineCollisionModel(i32 blockState, BlockPos pos);
+BlockModel BlockDetermineCollisionModel(i32 blockState, WorldBlockPos pos);
 BlockModel BlockDetermineSupportModel(i32 blockState);
 
 #endif

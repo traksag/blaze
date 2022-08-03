@@ -88,6 +88,18 @@ typedef struct {
 } BlockPos;
 
 typedef struct {
+    i32 worldId;
+    union {
+        BlockPos xyz;
+        struct {
+            i32 x;
+            i32 y;
+            i32 z;
+        };
+    };
+} WorldBlockPos;
+
+typedef struct {
     u8 * data;
     i32 size;
 } String;

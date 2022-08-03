@@ -1803,7 +1803,7 @@ typedef struct {
     // @TODO(traks) this feels a bit silly, but very simple
     tracked_entity tracked_entities[MAX_ENTITIES];
 
-    BlockPos changed_blocks[8];
+    WorldBlockPos changed_blocks[8];
     u8 changed_block_count;
 
     // @NOTE(traks) -1 if nothing to acknowledge
@@ -1854,6 +1854,7 @@ typedef struct {
 typedef struct {
     entity_id eid;
     unsigned type;
+    i32 worldId;
 
     // centre of bottom of entity's bounding box
     double x;
@@ -2084,13 +2085,13 @@ typedef struct {
 } biome;
 
 typedef struct {
-    BlockPos pos;
+    WorldBlockPos pos;
     int from_direction;
     i64 for_tick;
 } scheduled_block_update;
 
 typedef struct {
-    BlockPos pos;
+    WorldBlockPos pos;
     unsigned char from_direction;
 } block_update;
 
@@ -2196,25 +2197,6 @@ find_property_value_index(block_property_spec * prop_spec, String val);
 block_entity_base *
 try_get_block_entity(BlockPos pos);
 
-u16
-try_get_block_state(BlockPos pos);
-
-void
-try_set_block_state(BlockPos pos, u16 block_state);
-
-static inline i16 SectionPosToIndex(BlockPos pos) {
-    return ((pos.y & 0xf) << 8) | (pos.z << 4) | pos.x;
-}
-
-static inline BlockPos SectionIndexToPos(i32 index) {
-    BlockPos res = {
-        index & 0xf,
-        (index >> 8),
-        (index >> 4) & 0xf
-    };
-    return res;
-}
-
 void
 clean_up_unused_chunks(void);
 
@@ -2259,13 +2241,13 @@ net_string_equal(String a, String b);
 
 void
 process_use_item_on_packet(entity_base * player,
-        i32 hand, BlockPos clicked_pos, i32 clicked_face,
+        i32 hand, BlockPos packetClickedPos, i32 clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
         u8 is_inside, MemoryArena * scratch_arena);
 
 int
 use_block(entity_base * player,
-        i32 hand, BlockPos clicked_pos, i32 clicked_face,
+        i32 hand, WorldBlockPos clicked_pos, i32 clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
         u8 is_inside, block_update_context * buc);
 
@@ -2281,8 +2263,13 @@ propagate_block_updates(block_update_context * buc);
 BlockPos
 get_relative_block_pos(BlockPos pos, int face);
 
+static inline WorldBlockPos WorldBlockPosRel(WorldBlockPos pos, i32 face) {
+    WorldBlockPos res = {.worldId = pos.worldId, .xyz = get_relative_block_pos(pos.xyz, face)};
+    return res;
+}
+
 int
-update_redstone_wire(BlockPos pos, u16 in_world_state,
+update_redstone_wire(WorldBlockPos pos, u16 in_world_state,
         block_state_info * base_info, block_update_context * buc);
 
 int
@@ -2295,25 +2282,25 @@ void
 init_item_data(void);
 
 void
-update_stairs_shape(BlockPos pos, block_state_info * cur_info);
+update_stairs_shape(WorldBlockPos pos, block_state_info * cur_info);
 
 void
-update_pane_shape(BlockPos pos,
+update_pane_shape(WorldBlockPos pos,
         block_state_info * cur_info, int from_direction);
 
 void
-update_fence_shape(BlockPos pos,
+update_fence_shape(WorldBlockPos pos,
         block_state_info * cur_info, int from_direction);
 
 void
-update_wall_shape(BlockPos pos,
+update_wall_shape(WorldBlockPos pos,
         block_state_info * cur_info, int from_direction);
 
 int
 get_player_facing(entity_base * player);
 
 void
-push_direct_neighbour_block_updates(BlockPos pos,
+push_direct_neighbour_block_updates(WorldBlockPos pos,
         block_update_context * buc);
 
 // math

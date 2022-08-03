@@ -70,12 +70,36 @@ struct chunk_bucket {
     Chunk chunks[CHUNKS_PER_BUCKET];
 };
 
+static inline i32 SectionPosToIndex(BlockPos pos) {
+    return (pos.y << 8) | (pos.z << 4) | pos.x;
+}
+
+static inline BlockPos SectionIndexToPos(i32 index) {
+    BlockPos res = {
+        index & 0xf,
+        (index >> 8),
+        (index >> 4) & 0xf
+    };
+    return res;
+}
+
 Chunk * GetOrCreateChunk(chunk_pos pos);
 Chunk * GetChunkIfLoaded(chunk_pos pos);
 Chunk * GetChunkIfAvailable(chunk_pos pos);
 
-void ChunkSetBlockState(Chunk * ch, int x, int y, int z, u16 block_state);
-u16 ChunkGetBlockState(Chunk * ch, int x, int y, int z);
+typedef struct {
+    i32 oldState;
+    i32 newState;
+    i32 failed;
+} SetBlockResult;
+
+// NOTE(traks): pos can be in world coordinates instead of chunk coordinates.
+// Makes this more convenient to use. Less error conditions = good!
+SetBlockResult ChunkSetBlockState(Chunk * ch, BlockPos pos, i32 blockState);
+i32 ChunkGetBlockState(Chunk * ch, BlockPos pos);
+
+SetBlockResult WorldSetBlockState(WorldBlockPos pos, i32 blockState);
+i32 WorldGetBlockState(WorldBlockPos pos);
 
 void TryReadChunkFromStorage(chunk_pos pos, Chunk * ch, MemoryArena * scratch_arena);
 

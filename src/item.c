@@ -7,7 +7,7 @@
 #define PLACE_CAN_PLACE ((unsigned) (1 << 1))
 
 typedef struct {
-    BlockPos pos;
+    WorldBlockPos pos;
     u16 cur_state;
     unsigned char flags;
     i32 cur_type;
@@ -15,7 +15,7 @@ typedef struct {
 
 typedef struct {
     entity_base * player;
-    BlockPos clicked_pos;
+    WorldBlockPos clicked_pos;
     i32 clicked_face;
     float click_offset_x;
     float click_offset_y;
@@ -82,17 +82,17 @@ can_replace(i32 place_type, i32 cur_type) {
 }
 
 static place_target
-determine_place_target(BlockPos clicked_pos,
+determine_place_target(WorldBlockPos clicked_pos,
         i32 clicked_face, i32 place_type) {
     place_target res = {0};
-    BlockPos target_pos = clicked_pos;
-    u16 cur_state = try_get_block_state(target_pos);
+    WorldBlockPos target_pos = clicked_pos;
+    u16 cur_state = WorldGetBlockState(target_pos);
     i32 cur_type = serv->block_type_by_state[cur_state];
     int replacing = PLACE_REPLACING;
 
     if (!can_replace(place_type, cur_type)) {
-        target_pos = get_relative_block_pos(target_pos, clicked_face);
-        cur_state = try_get_block_state(target_pos);
+        target_pos = WorldBlockPosRel(target_pos, clicked_face);
+        cur_state = WorldGetBlockState(target_pos);
         cur_type = serv->block_type_by_state[cur_state];
         replacing = 0;
 
@@ -119,7 +119,7 @@ place_simple_block(place_context context, i32 place_type) {
     }
 
     u16 place_state = get_default_block_state(place_type);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -132,8 +132,7 @@ place_snowy_grassy_block(place_context context, i32 place_type) {
     }
 
     block_state_info place_info = describe_default_block_state(place_type);
-    u16 state_above = try_get_block_state(
-            get_relative_block_pos(target.pos, DIRECTION_POS_Y));
+    u16 state_above = WorldGetBlockState(WorldBlockPosRel(target.pos, DIRECTION_POS_Y));
     i32 type_above = serv->block_type_by_state[state_above];
 
     if (type_above == BLOCK_SNOW_BLOCK || type_above == BLOCK_SNOW) {
@@ -143,7 +142,7 @@ place_snowy_grassy_block(place_context context, i32 place_type) {
     }
 
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -155,8 +154,7 @@ place_plant(place_context context, i32 place_type) {
         return;
     }
 
-    u16 state_below = try_get_block_state(
-            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
+    u16 state_below = WorldGetBlockState(WorldBlockPosRel(target.pos, DIRECTION_NEG_Y));
     i32 type_below = serv->block_type_by_state[state_below];
 
     if (!can_plant_survive_on(type_below)) {
@@ -164,7 +162,7 @@ place_plant(place_context context, i32 place_type) {
     }
 
     u16 place_state = get_default_block_state(place_type);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -175,8 +173,7 @@ static void place_propagule(place_context context, i32 place_type) {
         return;
     }
 
-    u16 state_below = try_get_block_state(
-            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
+    u16 state_below = WorldGetBlockState(WorldBlockPosRel(target.pos, DIRECTION_NEG_Y));
     i32 type_below = serv->block_type_by_state[state_below];
 
     if (!can_propagule_survive_on(type_below)) {
@@ -184,7 +181,7 @@ static void place_propagule(place_context context, i32 place_type) {
     }
 
     u16 place_state = get_default_block_state(place_type);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -196,8 +193,7 @@ place_azalea(place_context context, i32 place_type) {
         return;
     }
 
-    u16 state_below = try_get_block_state(
-            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
+    u16 state_below = WorldGetBlockState(WorldBlockPosRel(target.pos, DIRECTION_NEG_Y));
     i32 type_below = serv->block_type_by_state[state_below];
 
     if (!can_azalea_survive_on(type_below)) {
@@ -205,7 +201,7 @@ place_azalea(place_context context, i32 place_type) {
     }
 
     u16 place_state = get_default_block_state(place_type);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -222,14 +218,13 @@ place_lily_pad(place_context context, i32 place_type) {
         return;
     }
 
-    u16 state_below = try_get_block_state(
-            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
+    u16 state_below = WorldGetBlockState(WorldBlockPosRel(target.pos, DIRECTION_NEG_Y));
     if (!can_lily_pad_survive_on(state_below)) {
         return;
     }
 
     u16 place_state = get_default_block_state(place_type);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -241,8 +236,7 @@ place_dead_bush(place_context context, i32 place_type) {
         return;
     }
 
-    u16 state_below = try_get_block_state(
-            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
+    u16 state_below = WorldGetBlockState(WorldBlockPosRel(target.pos, DIRECTION_NEG_Y));
     i32 type_below = serv->block_type_by_state[state_below];
 
     if (!can_dead_bush_survive_on(type_below)) {
@@ -250,7 +244,7 @@ place_dead_bush(place_context context, i32 place_type) {
     }
 
     u16 place_state = get_default_block_state(place_type);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -262,8 +256,7 @@ place_wither_rose(place_context context, i32 place_type) {
         return;
     }
 
-    u16 state_below = try_get_block_state(
-            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
+    u16 state_below = WorldGetBlockState(WorldBlockPosRel(target.pos, DIRECTION_NEG_Y));
     i32 type_below = serv->block_type_by_state[state_below];
 
     if (!can_wither_rose_survive_on(type_below)) {
@@ -271,7 +264,7 @@ place_wither_rose(place_context context, i32 place_type) {
     }
 
     u16 place_state = get_default_block_state(place_type);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -283,8 +276,7 @@ place_nether_plant(place_context context, i32 place_type) {
         return;
     }
 
-    u16 state_below = try_get_block_state(
-            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
+    u16 state_below = WorldGetBlockState(WorldBlockPosRel(target.pos, DIRECTION_NEG_Y));
     i32 type_below = serv->block_type_by_state[state_below];
 
     if (!can_nether_plant_survive_on(type_below)) {
@@ -292,7 +284,7 @@ place_nether_plant(place_context context, i32 place_type) {
     }
 
     u16 place_state = get_default_block_state(place_type);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -304,14 +296,13 @@ place_pressure_plate(place_context context, i32 place_type) {
         return;
     }
 
-    u16 state_below = try_get_block_state(
-            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
+    u16 state_below = WorldGetBlockState(WorldBlockPosRel(target.pos, DIRECTION_NEG_Y));
     if (!can_pressure_plate_survive_on(state_below)) {
         return;
     }
 
     u16 place_state = get_default_block_state(place_type);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -345,7 +336,7 @@ place_simple_pillar(place_context context, i32 place_type) {
     set_axis_by_clicked_face(&place_info, context.clicked_face);
 
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -362,14 +353,14 @@ place_chain(place_context context, i32 place_type) {
     place_info.waterlogged = is_water_source(target.cur_state);
 
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 static void
 place_slab(place_context context, i32 place_type) {
-    BlockPos target_pos = context.clicked_pos;
-    u16 cur_state = try_get_block_state(target_pos);
+    WorldBlockPos target_pos = context.clicked_pos;
+    u16 cur_state = WorldGetBlockState(target_pos);
     block_state_info cur_info = describe_block_state(cur_state);
     i32 cur_type = cur_info.block_type;
 
@@ -387,8 +378,8 @@ place_slab(place_context context, i32 place_type) {
     }
 
     if (!replace_cur) {
-        target_pos = get_relative_block_pos(target_pos, context.clicked_face);
-        cur_state = try_get_block_state(target_pos);
+        target_pos = WorldBlockPosRel(target_pos, context.clicked_face);
+        cur_state = WorldGetBlockState(target_pos);
         cur_info = describe_block_state(cur_state);
         cur_type = cur_info.block_type;
 
@@ -417,14 +408,14 @@ place_slab(place_context context, i32 place_type) {
     }
 
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target_pos, place_state);
+    WorldSetBlockState(target_pos, place_state);
     push_direct_neighbour_block_updates(target_pos, context.buc);
 }
 
 static void
 place_sea_pickle(place_context context, i32 place_type) {
-    BlockPos target_pos = context.clicked_pos;
-    u16 cur_state = try_get_block_state(target_pos);
+    WorldBlockPos target_pos = context.clicked_pos;
+    u16 cur_state = WorldGetBlockState(target_pos);
     block_state_info cur_info = describe_block_state(cur_state);
     i32 cur_type = cur_info.block_type;
 
@@ -438,8 +429,8 @@ place_sea_pickle(place_context context, i32 place_type) {
     }
 
     if (!replace_cur) {
-        target_pos = get_relative_block_pos(target_pos, context.clicked_face);
-        cur_state = try_get_block_state(target_pos);
+        target_pos = WorldBlockPosRel(target_pos, context.clicked_face);
+        cur_state = WorldGetBlockState(target_pos);
         cur_info = describe_block_state(cur_state);
         cur_type = cur_info.block_type;
 
@@ -452,8 +443,8 @@ place_sea_pickle(place_context context, i32 place_type) {
         }
     }
 
-    BlockPos posBelow = get_relative_block_pos(target_pos, DIRECTION_NEG_Y);
-    u16 state_below = try_get_block_state(posBelow);
+    WorldBlockPos posBelow = WorldBlockPosRel(target_pos, DIRECTION_NEG_Y);
+    u16 state_below = WorldGetBlockState(posBelow);
     i32 type_below = serv->block_type_by_state[state_below];
     if (!can_sea_pickle_survive_on(state_below, posBelow)) {
         return;
@@ -467,14 +458,14 @@ place_sea_pickle(place_context context, i32 place_type) {
     place_info.waterlogged = is_water_source(cur_state);
 
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target_pos, place_state);
+    WorldSetBlockState(target_pos, place_state);
     push_direct_neighbour_block_updates(target_pos, context.buc);
 }
 
 static void
 place_snow(place_context context, i32 place_type) {
-    BlockPos target_pos = context.clicked_pos;
-    u16 cur_state = try_get_block_state(target_pos);
+    WorldBlockPos target_pos = context.clicked_pos;
+    u16 cur_state = WorldGetBlockState(target_pos);
     block_state_info cur_info = describe_block_state(cur_state);
     i32 cur_type = cur_info.block_type;
 
@@ -488,8 +479,8 @@ place_snow(place_context context, i32 place_type) {
     }
 
     if (!replace_cur) {
-        target_pos = get_relative_block_pos(target_pos, context.clicked_face);
-        cur_state = try_get_block_state(target_pos);
+        target_pos = WorldBlockPosRel(target_pos, context.clicked_face);
+        cur_state = WorldGetBlockState(target_pos);
         cur_info = describe_block_state(cur_state);
         cur_type = cur_info.block_type;
 
@@ -502,8 +493,7 @@ place_snow(place_context context, i32 place_type) {
         }
     }
 
-    u16 state_below = try_get_block_state(
-            get_relative_block_pos(target_pos, DIRECTION_NEG_Y));
+    u16 state_below = WorldGetBlockState(WorldBlockPosRel(target_pos, DIRECTION_NEG_Y));
     i32 type_below = serv->block_type_by_state[state_below];
     if (!can_snow_survive_on(state_below)) {
         return;
@@ -515,7 +505,7 @@ place_snow(place_context context, i32 place_type) {
     }
 
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target_pos, place_state);
+    WorldSetBlockState(target_pos, place_state);
     push_direct_neighbour_block_updates(target_pos, context.buc);
 }
 
@@ -532,12 +522,12 @@ place_leaves(place_context context, i32 place_type) {
     block_state_info place_info = describe_default_block_state(place_type);
     place_info.persistent = 1;
 
-    BlockPos target_pos = target.pos;
-    u16 cur_state = try_get_block_state(target_pos);
+    WorldBlockPos target_pos = target.pos;
+    u16 cur_state = WorldGetBlockState(target_pos);
     place_info.waterlogged = is_water_source(cur_state);
 
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -551,12 +541,12 @@ place_mangrove_roots(place_context context, i32 place_type) {
 
     block_state_info place_info = describe_default_block_state(place_type);
 
-    BlockPos target_pos = target.pos;
-    u16 cur_state = try_get_block_state(target_pos);
+    WorldBlockPos target_pos = target.pos;
+    u16 cur_state = WorldGetBlockState(target_pos);
     place_info.waterlogged = is_water_source(cur_state);
 
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -572,7 +562,7 @@ place_horizontal_facing(place_context context, i32 place_type) {
     place_info.horizontal_facing = get_opposite_direction(get_player_facing(context.player));
 
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -589,7 +579,7 @@ place_end_portal_frame(place_context context, i32 place_type) {
     place_info.eye = 0;
 
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -625,7 +615,7 @@ place_trapdoor(place_context context, i32 place_type) {
     // @TODO(traks) open trapdoor and set powered if necessary
 
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -641,11 +631,9 @@ place_fence_gate(place_context context, i32 place_type) {
     int player_facing = get_player_facing(context.player);
     place_info.horizontal_facing = player_facing;
     if (player_facing == DIRECTION_POS_X || player_facing == DIRECTION_NEG_X) {
-        int neighbour_state_pos = try_get_block_state(
-                get_relative_block_pos(target.pos, DIRECTION_POS_Z));
+        int neighbour_state_pos = WorldGetBlockState(WorldBlockPosRel(target.pos, DIRECTION_POS_Z));
         block_state_info neighbour_info_pos = describe_block_state(neighbour_state_pos);
-        int neighbour_state_neg = try_get_block_state(
-                get_relative_block_pos(target.pos, DIRECTION_NEG_Z));
+        int neighbour_state_neg = WorldGetBlockState(WorldBlockPosRel(target.pos, DIRECTION_NEG_Z));
         block_state_info neighbour_info_neg = describe_block_state(neighbour_state_neg);
         if (BlockHasTag(&neighbour_info_pos, BLOCK_TAG_WALL)
                 || BlockHasTag(&neighbour_info_neg, BLOCK_TAG_WALL)) {
@@ -653,11 +641,9 @@ place_fence_gate(place_context context, i32 place_type) {
         }
     } else {
         // facing along z axis
-        int neighbour_state_pos = try_get_block_state(
-                get_relative_block_pos(target.pos, DIRECTION_POS_X));
+        int neighbour_state_pos = WorldGetBlockState(WorldBlockPosRel(target.pos, DIRECTION_POS_X));
         block_state_info neighbour_info_pos = describe_block_state(neighbour_state_pos);
-        int neighbour_state_neg = try_get_block_state(
-                get_relative_block_pos(target.pos, DIRECTION_NEG_X));
+        int neighbour_state_neg = WorldGetBlockState(WorldBlockPosRel(target.pos, DIRECTION_NEG_X));
         block_state_info neighbour_info_neg = describe_block_state(neighbour_state_neg);
         if (BlockHasTag(&neighbour_info_pos, BLOCK_TAG_WALL)
                 || BlockHasTag(&neighbour_info_neg, BLOCK_TAG_WALL)) {
@@ -668,7 +654,7 @@ place_fence_gate(place_context context, i32 place_type) {
     // @TODO(traks) open fence gate and set powered if necessary
 
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -680,8 +666,7 @@ place_crop(place_context context, i32 place_type) {
         return;
     }
 
-    u16 state_below = try_get_block_state(
-            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
+    u16 state_below = WorldGetBlockState(WorldBlockPosRel(target.pos, DIRECTION_NEG_Y));
     i32 type_below = serv->block_type_by_state[state_below];
 
     // @TODO(traks) light level also needs to be sufficient
@@ -693,7 +678,7 @@ place_crop(place_context context, i32 place_type) {
     }
 
     u16 place_state = get_default_block_state(place_type);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -705,8 +690,7 @@ place_nether_wart(place_context context, i32 place_type) {
         return;
     }
 
-    u16 state_below = try_get_block_state(
-            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
+    u16 state_below = WorldGetBlockState(WorldBlockPosRel(target.pos, DIRECTION_NEG_Y));
     i32 type_below = serv->block_type_by_state[state_below];
 
     switch (type_below) {
@@ -717,7 +701,7 @@ place_nether_wart(place_context context, i32 place_type) {
     }
 
     u16 place_state = get_default_block_state(place_type);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -730,15 +714,14 @@ place_carpet(place_context context, i32 place_type) {
     }
 
     u16 place_state = get_default_block_state(place_type);
-    u16 state_below = try_get_block_state(
-            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
+    u16 state_below = WorldGetBlockState(WorldBlockPosRel(target.pos, DIRECTION_NEG_Y));
     i32 type_below = serv->block_type_by_state[state_below];
 
     if (!can_carpet_survive_on(type_below)) {
         return;
     }
 
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -755,8 +738,8 @@ place_mushroom_block(place_context context, i32 place_type) {
     int directions[] = {0, 1, 2, 3, 4, 5};
 
     for (int i = 0; i < 6; i++) {
-        BlockPos pos = get_relative_block_pos(target.pos, directions[i]);
-        u16 state = try_get_block_state(pos);
+        WorldBlockPos pos = WorldBlockPosRel(target.pos, directions[i]);
+        u16 state = WorldGetBlockState(pos);
         i32 type = serv->block_type_by_state[state];
 
         // connect to neighbouring mushroom blocks of the same type by setting
@@ -769,7 +752,7 @@ place_mushroom_block(place_context context, i32 place_type) {
     }
 
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -785,8 +768,8 @@ place_end_rod(place_context context, i32 place_type) {
 
     int opposite_face = get_opposite_direction(context.clicked_face);
 
-    BlockPos opposite_pos = get_relative_block_pos(target.pos, opposite_face);
-    u16 opposite_state = try_get_block_state(opposite_pos);
+    WorldBlockPos opposite_pos = WorldBlockPosRel(target.pos, opposite_face);
+    u16 opposite_state = WorldGetBlockState(opposite_pos);
     block_state_info opposite_info = describe_block_state(opposite_state);
 
     if (opposite_info.block_type == place_type) {
@@ -800,7 +783,7 @@ place_end_rod(place_context context, i32 place_type) {
     }
 
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -816,7 +799,7 @@ place_sugar_cane(place_context context, i32 place_type) {
     }
 
     u16 place_state = get_default_block_state(place_type);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -828,8 +811,7 @@ place_dead_coral(place_context context, i32 place_type) {
         return;
     }
 
-    u16 state_below = try_get_block_state(
-            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
+    u16 state_below = WorldGetBlockState(WorldBlockPosRel(target.pos, DIRECTION_NEG_Y));
     BlockModel support = BlockDetermineSupportModel(state_below);
     if (!(support.fullFaces & (1 << DIRECTION_POS_Y))) {
         // face below is not sturdy
@@ -840,7 +822,7 @@ place_dead_coral(place_context context, i32 place_type) {
     place_info.waterlogged = is_full_water(target.cur_state);
 
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -972,8 +954,8 @@ place_dead_coral_fan(place_context context, i32 base_place_type,
             continue;
         }
 
-        BlockPos attach_pos = get_relative_block_pos(target.pos, dir);
-        u16 wall_state = try_get_block_state(attach_pos);
+        WorldBlockPos attach_pos = WorldBlockPosRel(target.pos, dir);
+        u16 wall_state = WorldGetBlockState(attach_pos);
         int wall_face = get_opposite_direction(dir);
         BlockModel support = BlockDetermineSupportModel(wall_state);
 
@@ -1008,7 +990,7 @@ place_dead_coral_fan(place_context context, i32 base_place_type,
     place_info.horizontal_facing = get_opposite_direction(selected_dir);
 
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -1034,8 +1016,8 @@ place_torch(place_context context, i32 base_place_type,
             continue;
         }
 
-        BlockPos attach_pos = get_relative_block_pos(target.pos, dir);
-        u16 wall_state = try_get_block_state(attach_pos);
+        WorldBlockPos attach_pos = WorldBlockPosRel(target.pos, dir);
+        u16 wall_state = WorldGetBlockState(attach_pos);
         int wall_face = get_opposite_direction(dir);
         BlockModel support = BlockDetermineSupportModel(wall_state);
 
@@ -1069,7 +1051,7 @@ place_torch(place_context context, i32 base_place_type,
     place_info.horizontal_facing = get_opposite_direction(selected_dir);
 
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -1090,8 +1072,8 @@ place_ladder(place_context context, i32 place_type) {
             continue;
         }
 
-        BlockPos attach_pos = get_relative_block_pos(target.pos, dir);
-        u16 wall_state = try_get_block_state(attach_pos);
+        WorldBlockPos attach_pos = WorldBlockPosRel(target.pos, dir);
+        u16 wall_state = WorldGetBlockState(attach_pos);
         BlockModel support = BlockDetermineSupportModel(wall_state);
         int wall_face = get_opposite_direction(dir);
 
@@ -1110,7 +1092,7 @@ place_ladder(place_context context, i32 place_type) {
     place_info.waterlogged = is_water_source(target.cur_state);
 
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -1125,16 +1107,14 @@ place_door(place_context context, i32 place_type) {
         return;
     }
 
-    u16 state_below = try_get_block_state(
-            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
+    u16 state_below = WorldGetBlockState(WorldBlockPosRel(target.pos, DIRECTION_NEG_Y));
     BlockModel support = BlockDetermineSupportModel(state_below);
     if (!(support.fullFaces & (1 << DIRECTION_POS_Y))) {
         // face below is not sturdy
         return;
     }
 
-    u16 state_above = try_get_block_state(
-            get_relative_block_pos(target.pos, DIRECTION_POS_Y));
+    u16 state_above = WorldGetBlockState(WorldBlockPosRel(target.pos, DIRECTION_POS_Y));
     i32 type_above = serv->block_type_by_state[state_above];
 
     if (!can_replace(place_type, type_above)) {
@@ -1152,17 +1132,17 @@ place_door(place_context context, i32 place_type) {
 
     // place lower half
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
 
     // place upper half
     place_info.double_block_half = DOUBLE_BLOCK_HALF_UPPER;
     place_state = make_block_state(&place_info);
-    try_set_block_state(get_relative_block_pos(target.pos, DIRECTION_POS_Y), place_state);
+    WorldSetBlockState(WorldBlockPosRel(target.pos, DIRECTION_POS_Y), place_state);
 
     // @TODO(traks) don't update door halves themselves, only blocks around them
     push_direct_neighbour_block_updates(target.pos, context.buc);
     push_direct_neighbour_block_updates(
-            get_relative_block_pos(target.pos, DIRECTION_POS_Y),
+            WorldBlockPosRel(target.pos, DIRECTION_POS_Y),
             context.buc);
 }
 
@@ -1175,8 +1155,8 @@ place_bed(place_context context, i32 place_type, int dye_colour) {
     }
 
     int facing = get_player_facing(context.player);
-    BlockPos head_pos = get_relative_block_pos(target.pos, facing);
-    u16 neighbour_state = try_get_block_state(head_pos);
+    WorldBlockPos head_pos = WorldBlockPosRel(target.pos, facing);
+    u16 neighbour_state = WorldGetBlockState(head_pos);
     i32 neighbour_type = serv->block_type_by_state[neighbour_state];
 
     if (!can_replace(place_type, neighbour_type)) {
@@ -1188,22 +1168,22 @@ place_bed(place_context context, i32 place_type, int dye_colour) {
 
     // place foot part
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
 
     // place head part
     place_info.bed_part = BED_PART_HEAD;
     place_state = make_block_state(&place_info);
-    try_set_block_state(head_pos, place_state);
+    WorldSetBlockState(head_pos, place_state);
 
     // @TODO(traks) flesh out all this block entity business.
-    block_entity_base * block_entity = try_get_block_entity(target.pos);
+    block_entity_base * block_entity = try_get_block_entity(target.pos.xyz);
     if (block_entity != NULL) {
         block_entity->flags = BLOCK_ENTITY_IN_USE;
         block_entity->type = BLOCK_ENTITY_BED;
         block_entity->bed.dye_colour = dye_colour;
     }
 
-    block_entity = try_get_block_entity(head_pos);
+    block_entity = try_get_block_entity(head_pos.xyz);
     if (block_entity != NULL) {
         block_entity->flags = BLOCK_ENTITY_IN_USE;
         block_entity->type = BLOCK_ENTITY_BED;
@@ -1228,8 +1208,7 @@ place_bamboo(place_context context, i32 place_type) {
         return;
     }
 
-    u16 state_below = try_get_block_state(
-            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
+    u16 state_below = WorldGetBlockState(WorldBlockPosRel(target.pos, DIRECTION_NEG_Y));
     i32 type_below = serv->block_type_by_state[state_below];
 
     if (!is_bamboo_plantable_on(type_below)) {
@@ -1249,7 +1228,7 @@ place_bamboo(place_context context, i32 place_type) {
         place_state = get_default_block_state(BLOCK_BAMBOO_SAPLING);
     }
 
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -1272,7 +1251,7 @@ place_stairs(place_context context, i32 place_type) {
     update_stairs_shape(target.pos, &place_info);
 
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -1293,7 +1272,7 @@ place_fence(place_context context, i32 place_type) {
     }
 
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -1314,7 +1293,7 @@ place_pane(place_context context, i32 place_type) {
     }
 
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -1335,7 +1314,7 @@ place_wall(place_context context, i32 place_type) {
     }
 
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -1355,7 +1334,7 @@ place_rail(place_context context, i32 place_type) {
             || player_facing == DIRECTION_POS_X ? RAIL_SHAPE_X : RAIL_SHAPE_Z;
 
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -1372,8 +1351,8 @@ place_lever_or_button(place_context context, i32 place_type) {
 
     for (int i = 0; i < 6; i++) {
         int dir = list.directions[i];
-        BlockPos attach_pos = get_relative_block_pos(target.pos, dir);
-        u16 wall_state = try_get_block_state(attach_pos);
+        WorldBlockPos attach_pos = WorldBlockPosRel(target.pos, dir);
+        u16 wall_state = WorldGetBlockState(attach_pos);
         int wall_face = get_opposite_direction(dir);
         BlockModel support = BlockDetermineSupportModel(wall_state);
 
@@ -1404,7 +1383,7 @@ place_lever_or_button(place_context context, i32 place_type) {
     }
 
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -1436,7 +1415,7 @@ place_grindstone(place_context context, i32 place_type) {
     }
 
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
@@ -1448,8 +1427,7 @@ place_redstone_wire(place_context context, i32 place_type) {
         return;
     }
 
-    u16 state_below = try_get_block_state(
-            get_relative_block_pos(target.pos, DIRECTION_NEG_Y));
+    u16 state_below = WorldGetBlockState(WorldBlockPosRel(target.pos, DIRECTION_NEG_Y));
     i32 type_below = serv->block_type_by_state[state_below];
 
     if (!can_redstone_wire_survive_on(state_below)) {
@@ -1474,8 +1452,8 @@ place_amethyst_cluster(place_context context, i32 place_type) {
     }
 
     int opposite_face = get_opposite_direction(context.clicked_face);
-    BlockPos opposite_pos = get_relative_block_pos(target.pos, opposite_face);
-    u16 opposite_state = try_get_block_state(opposite_pos);
+    WorldBlockPos opposite_pos = WorldBlockPosRel(target.pos, opposite_face);
+    u16 opposite_state = WorldGetBlockState(opposite_pos);
 
     BlockModel support = BlockDetermineSupportModel(opposite_state);
     if (!(support.fullFaces & (1 << context.clicked_face))) {
@@ -1487,19 +1465,21 @@ place_amethyst_cluster(place_context context, i32 place_type) {
     place_info.waterlogged = is_water_source(target.cur_state);
 
     u16 place_state = make_block_state(&place_info);
-    try_set_block_state(target.pos, place_state);
+    WorldSetBlockState(target.pos, place_state);
     push_direct_neighbour_block_updates(target.pos, context.buc);
 }
 
 void
 process_use_item_on_packet(entity_base * player,
-        i32 hand, BlockPos clicked_pos, i32 clicked_face,
+        i32 hand, BlockPos packetClickedPos, i32 clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
         u8 is_inside, MemoryArena * scratch_arena) {
     if (player->flags & ENTITY_TELEPORTING) {
         // ignore
         return;
     }
+
+    WorldBlockPos clickedPos = {.worldId = player->worldId, .xyz = packetClickedPos};
 
     int sel_slot = player->player.selected_slot;
     item_stack * main = player->player.slots + sel_slot;
@@ -1528,7 +1508,7 @@ process_use_item_on_packet(entity_base * player,
     if (!(player->flags & ENTITY_SHIFTING)
             || (main->type == ITEM_AIR && off->type == ITEM_AIR)) {
         int used_block = use_block(player,
-                hand, clicked_pos, clicked_face,
+                hand, clickedPos, clicked_face,
                 click_offset_x, click_offset_y, click_offset_z,
                 is_inside, &buc);
         if (used_block) {
@@ -1574,7 +1554,7 @@ process_use_item_on_packet(entity_base * player,
 
     place_context context = {
         .player = player,
-        .clicked_pos = clicked_pos,
+        .clicked_pos = clickedPos,
         .clicked_face = clicked_face,
         .click_offset_x = click_offset_x,
         .click_offset_y = click_offset_y,
@@ -4118,12 +4098,12 @@ process_use_item_on_packet(entity_base * player,
     // can update a desynced block by clicking on it.
 
     // @TODO(traks) we shouldn't assert here
-    BlockPos changed_pos = clicked_pos;
+    WorldBlockPos changed_pos = clickedPos;
     assert(player->player.changed_block_count < ARRAY_SIZE(player->player.changed_blocks));
     player->player.changed_blocks[player->player.changed_block_count] = changed_pos;
     player->player.changed_block_count++;
 
-    changed_pos = get_relative_block_pos(clicked_pos, clicked_face);
+    changed_pos = WorldBlockPosRel(clickedPos, clicked_face);
     assert(player->player.changed_block_count < ARRAY_SIZE(player->player.changed_blocks));
     player->player.changed_blocks[player->player.changed_block_count] = changed_pos;
     player->player.changed_block_count++;

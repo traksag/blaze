@@ -507,6 +507,7 @@ move_entity(entity_base * entity) {
     // recall, vanilla was sometimes doing two item entity movements in one
     // tick. What's really going on?
 
+    i32 worldId = entity->worldId;
     double x = entity->x;
     double y = entity->y;
     double z = entity->z;
@@ -572,8 +573,8 @@ move_entity(entity_base * entity) {
         for (int block_x = iter_min_x; block_x <= iter_max_x; block_x++) {
             for (int block_y = iter_min_y; block_y <= iter_max_y; block_y++) {
                 for (int block_z = iter_min_z; block_z <= iter_max_z; block_z++) {
-                    BlockPos block_pos = {.x = block_x, .y = block_y, .z = block_z};
-                    u16 cur_state = try_get_block_state(block_pos);
+                    WorldBlockPos block_pos = {.worldId = worldId, .x = block_x, .y = block_y, .z = block_z};
+                    u16 cur_state = WorldGetBlockState(block_pos);
                     BlockModel model = BlockDetermineCollisionModel(cur_state, block_pos);
 
                     for (int boxi = 0; boxi < model.size; boxi++) {
@@ -745,13 +746,14 @@ tick_entity(entity_base * entity, MemoryArena * tick_arena) {
         if (entity->flags & ENTITY_ON_GROUND) {
             // Bit weird, but this is how MC works. Allows items to slide on
             // slabs if ice is below it.
-            BlockPos ground = {
+            WorldBlockPos ground = {
+                .worldId = entity->worldId,
                 .x = floor(entity->x),
                 .y = floor(entity->y - 0.99),
                 .z = floor(entity->z),
             };
 
-            u16 ground_state = try_get_block_state(ground);
+            u16 ground_state = WorldGetBlockState(ground);
             i32 ground_type = serv->block_type_by_state[ground_state];
 
             // Minecraft block friction

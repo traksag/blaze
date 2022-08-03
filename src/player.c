@@ -766,17 +766,14 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
             // @TODO(traks) implementation for other gamemodes
             if (player->gamemode == GAMEMODE_CREATIVE) {
                 // @TODO(traks) ensure block pos is close to the
-                // player and the chunk is sent to the player
+                // player and the chunk is sent to the player. Ensure not in
+                // teleport, etc. Might get handled automatically if we deal
+                // with the world ID properly (e.g. it's an invalid world while
+                // the player is teleporting).
 
-                chunk_pos pos = {
-                    .x = block_pos.x >> 4,
-                    .z = block_pos.z >> 4
-                };
-                Chunk * ch = GetChunkIfLoaded(pos);
-                if (ch == NULL) {
-                    // @TODO(traks) client will still see block as
-                    // broken. Does that really matter? A forget
-                    // packet will probably reach them soon enough.
+                WorldBlockPos destroyPos = {.worldId = entity->worldId, .xyz = block_pos};
+                SetBlockResult destroy = WorldSetBlockState(destroyPos, get_default_block_state(BLOCK_AIR));
+                if (destroy.failed) {
                     break;
                 }
 
@@ -793,9 +790,7 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
                     .max_updates = max_updates
                 };
 
-                u16 new_state = 0;
-                ChunkSetBlockState(ch, block_pos.x & 0xf, block_pos.y, block_pos.z & 0xf, new_state);
-                push_direct_neighbour_block_updates(block_pos, &buc);
+                push_direct_neighbour_block_updates(destroyPos, &buc);
                 propagate_block_updates(&buc);
                 AckBlockChange(player, sequenceNumber);
             }
@@ -2731,15 +2726,18 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
 
     // send block changes for this player only
     for (int i = 0; i < player->player.changed_block_count; i++) {
-        BlockPos pos = player->player.changed_blocks[i];
-        u16 block_state = try_get_block_state(pos);
+        WorldBlockPos pos = player->player.changed_blocks[i];
+        if (pos.worldId != player->worldId) {
+            continue;
+        }
+        u16 block_state = WorldGetBlockState(pos);
         if (block_state >= serv->vanilla_block_state_count) {
             // catches unknown blocks
             continue;
         }
 
         begin_packet(send_cursor, CBP_BLOCK_UPDATE);
-        CursorPutBlockPos(send_cursor, pos);
+        CursorPutBlockPos(send_cursor, pos.xyz);
         CursorPutVarU32(send_cursor, block_state);
         finish_packet(send_cursor, player);
     }
@@ -2818,8 +2816,8 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
 
                     for (i32 i = 0; i < section->changedBlockSetMask + 1; i++) {
                         if (section->changedBlockSet[i] != 0) {
-                            BlockPos pos = SectionIndexToPos(section->changedBlockSet[i] & 0x7fff);
-                            i64 block_state = ChunkGetBlockState(ch, pos.x, pos.y + sectionY * 16, pos.z);
+                            BlockPos pos = SectionIndexToPos(section->changedBlockSet[i] & 0xfff);
+                            i64 block_state = ChunkGetBlockState(ch, (BlockPos) {pos.x, pos.y + sectionY * 16, pos.z});
                             i64 encoded = (block_state << 12) | (pos.x << 8) | (pos.z << 4) | (pos.y & 0xf);
                             CursorPutVarU64(send_cursor, encoded);
                         }

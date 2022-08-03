@@ -29,7 +29,7 @@ get_horizontal_direction_index(int dir) {
 }
 
 static void
-push_block_update(BlockPos pos, int from_dir,
+push_block_update(WorldBlockPos pos, int from_dir,
         block_update_context * buc) {
     if (buc->update_count >= buc->max_updates) {
         return;
@@ -42,14 +42,14 @@ push_block_update(BlockPos pos, int from_dir,
 }
 
 static void
-push_neighbour_block_update(BlockPos pos, int dir,
+push_neighbour_block_update(WorldBlockPos pos, int dir,
         block_update_context * buc) {
-    push_block_update(get_relative_block_pos(pos, dir),
+    push_block_update(WorldBlockPosRel(pos, dir),
             get_opposite_direction(dir), buc);
 }
 
 void
-push_direct_neighbour_block_updates(BlockPos pos,
+push_direct_neighbour_block_updates(WorldBlockPos pos,
         block_update_context * buc) {
     if (buc->max_updates - buc->update_count < 6) {
         return;
@@ -57,7 +57,7 @@ push_direct_neighbour_block_updates(BlockPos pos,
 
     for (int j = 0; j < 6; j++) {
         int to_direction = update_order[j];
-        BlockPos neighbour = get_relative_block_pos(pos, to_direction);
+        WorldBlockPos neighbour = WorldBlockPosRel(pos, to_direction);
         buc->blocks_to_update[buc->update_count] = (block_update) {
             .pos = neighbour,
             .from_direction = get_opposite_direction(to_direction),
@@ -67,7 +67,7 @@ push_direct_neighbour_block_updates(BlockPos pos,
 }
 
 static void
-schedule_block_update(BlockPos pos, int from_direction, int delay) {
+schedule_block_update(WorldBlockPos pos, int from_direction, int delay) {
     assert(delay > 0);
     int count = serv->scheduled_block_update_count;
     if (count == ARRAY_SIZE(serv->scheduled_block_updates)) {
@@ -396,12 +396,11 @@ make_block_state(block_state_info * info) {
     return res;
 }
 
-static void
-break_block(BlockPos pos) {
-    u16 cur_state = try_get_block_state(pos);
+static SetBlockResult break_block(WorldBlockPos pos) {
+    u16 cur_state = WorldGetBlockState(pos);
     i32 cur_type = serv->block_type_by_state[cur_state];
 
-    // @TODO(traks) block setting for this
+    // @TODO(traks) add a block property for this
     if (cur_type != BLOCK_FIRE && cur_type != BLOCK_SOUL_FIRE) {
         chunk_pos ch_pos = {
             .x = pos.x >> 4,
@@ -412,7 +411,7 @@ break_block(BlockPos pos) {
             if (ch->local_event_count < ARRAY_SIZE(ch->local_events)) {
                 ch->local_events[ch->local_event_count] = (level_event) {
                     .type = LEVEL_EVENT_PARTICLES_DESTROY_BLOCK,
-                    .pos = pos,
+                    .pos = pos.xyz,
                     .data = cur_state,
                 };
                 ch->local_event_count++;
@@ -420,14 +419,15 @@ break_block(BlockPos pos) {
         }
     }
 
-    try_set_block_state(pos, get_default_block_state(BLOCK_AIR));
+    SetBlockResult res = WorldSetBlockState(pos, get_default_block_state(BLOCK_AIR));
+    return res;
 }
 
 // used to check whether redstone power travels through a block state. Also used
 // to check whether redstone wire connects diagonally through a block state;
 // this function returns false for those states.
 static int
-conducts_redstone(u16 block_state, BlockPos pos) {
+conducts_redstone(u16 block_state, WorldBlockPos pos) {
     i32 block_type = serv->block_type_by_state[block_state];
 
     switch (block_type) {
@@ -504,7 +504,7 @@ translate_model(BlockModel * model, float dx, float dy, float dz) {
     }
 }
 
-BlockModel BlockDetermineCollisionModel(i32 blockState, BlockPos pos) {
+BlockModel BlockDetermineCollisionModel(i32 blockState, WorldBlockPos pos) {
     i32 block_type = serv->block_type_by_state[blockState];
     BlockModel res;
 
@@ -731,13 +731,11 @@ can_big_dripleaf_survive_on(u16 state_below) {
 }
 
 int
-can_big_dripleaf_stem_survive_at(BlockPos cur_pos) {
-    u16 state_below = try_get_block_state(
-            get_relative_block_pos(cur_pos, DIRECTION_NEG_Y));
+can_big_dripleaf_stem_survive_at(WorldBlockPos cur_pos) {
+    u16 state_below = WorldGetBlockState(WorldBlockPosRel(cur_pos, DIRECTION_NEG_Y));
     i32 type_below = serv->block_type_by_state[state_below];
     BlockModel support_below = BlockDetermineSupportModel(state_below);
-    u16 state_above = try_get_block_state(
-            get_relative_block_pos(cur_pos, DIRECTION_POS_Y));
+    u16 state_above = WorldGetBlockState(WorldBlockPosRel(cur_pos, DIRECTION_POS_Y));
     i32 type_above = serv->block_type_by_state[state_above];
 
     if ((type_below == BLOCK_BIG_DRIPLEAF_STEM || support_below.fullFaces & (1 << DIRECTION_POS_Y))
@@ -798,7 +796,7 @@ is_bamboo_plantable_on(i32 type_below) {
 }
 
 int
-can_sea_pickle_survive_on(u16 state_below, BlockPos posBelow) {
+can_sea_pickle_survive_on(u16 state_below, WorldBlockPos posBelow) {
     BlockModel collision = BlockDetermineCollisionModel(state_below, posBelow);
     BlockModel support = BlockDetermineSupportModel(state_below);
     if ((collision.nonEmptyFaces & (1 << DIRECTION_POS_Y)) || (support.fullFaces & (1 << DIRECTION_POS_Y))) {
@@ -852,9 +850,8 @@ can_redstone_wire_survive_on(u16 state_below) {
 }
 
 int
-can_sugar_cane_survive_at(BlockPos cur_pos) {
-    u16 state_below = try_get_block_state(
-            get_relative_block_pos(cur_pos, DIRECTION_NEG_Y));
+can_sugar_cane_survive_at(WorldBlockPos cur_pos) {
+    u16 state_below = WorldGetBlockState(WorldBlockPosRel(cur_pos, DIRECTION_NEG_Y));
     i32 type_below = serv->block_type_by_state[state_below];
 
     switch (type_below) {
@@ -866,9 +863,9 @@ can_sugar_cane_survive_at(BlockPos cur_pos) {
     case BLOCK_PODZOL:
     case BLOCK_SAND:
     case BLOCK_RED_SAND: {
-        BlockPos neighbour_pos[4];
+        WorldBlockPos neighbour_pos[4];
         for (int i = 0; i < 4; i++) {
-            BlockPos pos = cur_pos;
+            WorldBlockPos pos = cur_pos;
             pos.y--;
             neighbour_pos[i] = pos;
         }
@@ -879,8 +876,8 @@ can_sugar_cane_survive_at(BlockPos cur_pos) {
 
         // check blocks next to ground block for water
         for (int i = 0; i < 4; i++) {
-            BlockPos pos = neighbour_pos[i];
-            u16 neighbour_state = try_get_block_state(pos);
+            WorldBlockPos pos = neighbour_pos[i];
+            u16 neighbour_state = WorldGetBlockState(pos);
             i32 neighbour_type = serv->block_type_by_state[neighbour_state];
             switch (neighbour_type) {
             case BLOCK_FROSTED_ICE:
@@ -927,7 +924,7 @@ rotate_direction_counter_clockwise(int direction) {
 }
 
 void
-update_stairs_shape(BlockPos pos, block_state_info * cur_info) {
+update_stairs_shape(WorldBlockPos pos, block_state_info * cur_info) {
     cur_info->stairs_shape = STAIRS_SHAPE_STRAIGHT;
 
     // first look on left and right of stairs block to see if there are other
@@ -935,8 +932,7 @@ update_stairs_shape(BlockPos pos, block_state_info * cur_info) {
     int force_connect_right = 0;
     int force_connect_left = 0;
 
-    u16 state_right = try_get_block_state(get_relative_block_pos(pos,
-            rotate_direction_clockwise(cur_info->horizontal_facing)));
+    u16 state_right = WorldGetBlockState(WorldBlockPosRel(pos, rotate_direction_clockwise(cur_info->horizontal_facing)));
     block_state_info info_right = describe_block_state(state_right);
     if (BlockHasTag(&info_right, BLOCK_TAG_STAIRS)) {
         if (info_right.half == cur_info->half && info_right.horizontal_facing == cur_info->horizontal_facing) {
@@ -944,7 +940,7 @@ update_stairs_shape(BlockPos pos, block_state_info * cur_info) {
         }
     }
 
-    u16 state_left = try_get_block_state(get_relative_block_pos(pos, rotate_direction_counter_clockwise(cur_info->horizontal_facing)));
+    u16 state_left = WorldGetBlockState(WorldBlockPosRel(pos, rotate_direction_counter_clockwise(cur_info->horizontal_facing)));
     block_state_info info_left = describe_block_state(state_left);
     if (BlockHasTag(&info_left, BLOCK_TAG_STAIRS)) {
         if (info_left.half == cur_info->half && info_left.horizontal_facing == cur_info->horizontal_facing) {
@@ -953,8 +949,7 @@ update_stairs_shape(BlockPos pos, block_state_info * cur_info) {
     }
 
     // try to connect with stairs in front
-    u16 state_front = try_get_block_state(get_relative_block_pos(pos,
-            get_opposite_direction(cur_info->horizontal_facing)));
+    u16 state_front = WorldGetBlockState(WorldBlockPosRel(pos, get_opposite_direction(cur_info->horizontal_facing)));
     block_state_info info_front = describe_block_state(state_front);
     if (BlockHasTag(&info_front, BLOCK_TAG_STAIRS)) {
         if (info_front.half == cur_info->half) {
@@ -971,8 +966,7 @@ update_stairs_shape(BlockPos pos, block_state_info * cur_info) {
     }
 
     // try to connect with stairs behind
-    u16 state_behind = try_get_block_state(get_relative_block_pos(pos,
-            cur_info->horizontal_facing));
+    u16 state_behind = WorldGetBlockState(WorldBlockPosRel(pos, cur_info->horizontal_facing));
     block_state_info info_behind = describe_block_state(state_behind);
     if (BlockHasTag(&info_behind, BLOCK_TAG_STAIRS)) {
         if (info_behind.half == cur_info->half) {
@@ -1011,10 +1005,10 @@ int CanCrossConnectToGeneric(block_state_info * curInfo,
 }
 
 void
-update_pane_shape(BlockPos pos,
+update_pane_shape(WorldBlockPos pos,
         block_state_info * cur_info, int from_direction) {
-    BlockPos neighbour_pos = get_relative_block_pos(pos, from_direction);
-    u16 neighbour_state = try_get_block_state(neighbour_pos);
+    WorldBlockPos neighbour_pos = WorldBlockPosRel(pos, from_direction);
+    u16 neighbour_state = WorldGetBlockState(neighbour_pos);
     i32 neighbour_type = serv->block_type_by_state[neighbour_state];
     block_state_info neighbour_info = describe_block_state(neighbour_state);
 
@@ -1031,10 +1025,10 @@ update_pane_shape(BlockPos pos,
 }
 
 void
-update_fence_shape(BlockPos pos,
+update_fence_shape(WorldBlockPos pos,
         block_state_info * cur_info, int from_direction) {
-    BlockPos neighbour_pos = get_relative_block_pos(pos, from_direction);
-    u16 neighbour_state = try_get_block_state(neighbour_pos);
+    WorldBlockPos neighbour_pos = WorldBlockPosRel(pos, from_direction);
+    u16 neighbour_state = WorldGetBlockState(neighbour_pos);
     i32 neighbour_type = serv->block_type_by_state[neighbour_state];
     block_state_info neighbour_info = describe_block_state(neighbour_state);
 
@@ -1054,10 +1048,10 @@ update_fence_shape(BlockPos pos,
 }
 
 void
-update_wall_shape(BlockPos pos,
+update_wall_shape(WorldBlockPos pos,
         block_state_info * cur_info, int from_direction) {
-    BlockPos neighbour_pos = get_relative_block_pos(pos, from_direction);
-    u16 neighbour_state = try_get_block_state(neighbour_pos);
+    WorldBlockPos neighbour_pos = WorldBlockPosRel(pos, from_direction);
+    u16 neighbour_state = WorldGetBlockState(neighbour_pos);
     i32 neighbour_type = serv->block_type_by_state[neighbour_state];
     block_state_info neighbour_info = describe_block_state(neighbour_state);
 
@@ -1387,11 +1381,11 @@ get_conducted_redstone_power(u16 block_state, int dir,
 }
 
 static int
-get_redstone_side_power(BlockPos pos, int dir, int to_wire,
+get_redstone_side_power(WorldBlockPos pos, int dir, int to_wire,
         int ignore_wires) {
-    BlockPos side_pos = get_relative_block_pos(pos, dir);
+    WorldBlockPos side_pos = WorldBlockPosRel(pos, dir);
     int opp_dir = get_opposite_direction(dir);
-    u16 side_state = try_get_block_state(side_pos);
+    u16 side_state = WorldGetBlockState(side_pos);
     int res = get_emitted_redstone_power(side_state, opp_dir,
             to_wire, ignore_wires);
 
@@ -1406,8 +1400,7 @@ get_redstone_side_power(BlockPos pos, int dir, int to_wire,
                 break;
             }
 
-            u16 state = try_get_block_state(
-                    get_relative_block_pos(side_pos, dir_on_side));
+            u16 state = WorldGetBlockState(WorldBlockPosRel(side_pos, dir_on_side));
             int power = get_conducted_redstone_power(
                     state, get_opposite_direction(dir_on_side),
                     to_wire, ignore_wires);
@@ -1418,9 +1411,9 @@ get_redstone_side_power(BlockPos pos, int dir, int to_wire,
 }
 
 static int
-is_redstone_wire_connected(BlockPos pos, block_state_info * info) {
-    BlockPos pos_above = get_relative_block_pos(pos, DIRECTION_POS_Y);
-    u16 state_above = try_get_block_state(pos_above);
+is_redstone_wire_connected(WorldBlockPos pos, block_state_info * info) {
+    WorldBlockPos pos_above = WorldBlockPosRel(pos, DIRECTION_POS_Y);
+    u16 state_above = WorldGetBlockState(pos_above);
     int conductor_above = conducts_redstone(state_above, pos_above);
 
     // order of redstone side entries in block state info struct
@@ -1431,14 +1424,13 @@ is_redstone_wire_connected(BlockPos pos, block_state_info * info) {
     for (int i = 0; i < 4; i++) {
         int dir = directions[i];
         int opp_dir = get_opposite_direction(dir);
-        BlockPos pos_side = get_relative_block_pos(pos, dir);
-        u16 state_side = try_get_block_state(pos_side);
+        WorldBlockPos pos_side = WorldBlockPosRel(pos, dir);
+        u16 state_side = WorldGetBlockState(pos_side);
 
         if (!conductor_above) {
             // try to connect diagonally up
-            BlockPos dest_pos = get_relative_block_pos(
-                    pos_side, DIRECTION_POS_Y);
-            u16 dest_state = try_get_block_state(dest_pos);
+            WorldBlockPos dest_pos = WorldBlockPosRel(pos_side, DIRECTION_POS_Y);
+            u16 dest_state = WorldGetBlockState(dest_pos);
             i32 dest_type = serv->block_type_by_state[dest_state];
 
             // can only connect diagonally to redstone wire
@@ -1453,9 +1445,8 @@ is_redstone_wire_connected(BlockPos pos, block_state_info * info) {
 
         if (!conducts_redstone(state_side, pos_side)) {
             // try to connect diagonally down
-            BlockPos dest_pos = get_relative_block_pos(
-                    pos_side, DIRECTION_NEG_Y);
-            u16 dest_state = try_get_block_state(dest_pos);
+            WorldBlockPos dest_pos = WorldBlockPosRel(pos_side, DIRECTION_NEG_Y);
+            u16 dest_state = WorldGetBlockState(dest_pos);
             i32 dest_type = serv->block_type_by_state[dest_state];
 
             // can only connect diagonally to redstone wire
@@ -1481,10 +1472,10 @@ typedef struct {
 } redstone_wire_env;
 
 int
-update_redstone_wire(BlockPos pos, u16 in_world_state,
+update_redstone_wire(WorldBlockPos pos, u16 in_world_state,
         block_state_info * base_info, block_update_context * buc) {
-    BlockPos pos_above = get_relative_block_pos(pos, DIRECTION_POS_Y);
-    u16 state_above = try_get_block_state(pos_above);
+    WorldBlockPos pos_above = WorldBlockPosRel(pos, DIRECTION_POS_Y);
+    u16 state_above = WorldGetBlockState(pos_above);
     int conductor_above = conducts_redstone(state_above, pos_above);
     int was_dot = is_redstone_wire_dot(base_info);
 
@@ -1500,17 +1491,16 @@ update_redstone_wire(BlockPos pos, u16 in_world_state,
     for (int i = 0; i < 4; i++) {
         int dir = directions[i];
         int opp_dir = get_opposite_direction(dir);
-        BlockPos pos_side = get_relative_block_pos(pos, dir);
-        u16 state_side = try_get_block_state(pos_side);
+        WorldBlockPos pos_side = WorldBlockPosRel(pos, dir);
+        u16 state_side = WorldGetBlockState(pos_side);
         i32 type_side = serv->block_type_by_state[state_side];
         block_state_info side_info = describe_block_state(state_side);
         int new_side = REDSTONE_SIDE_NONE;
 
         if (!conductor_above) {
             // try to connect diagonally up
-            BlockPos dest_pos = get_relative_block_pos(
-                    pos_side, DIRECTION_POS_Y);
-            u16 dest_state = try_get_block_state(dest_pos);
+            WorldBlockPos dest_pos = WorldBlockPosRel(pos_side, DIRECTION_POS_Y);
+            u16 dest_state = WorldGetBlockState(dest_pos);
             i32 dest_type = serv->block_type_by_state[dest_state];
 
             // can only connect diagonally to redstone wire
@@ -1536,9 +1526,8 @@ update_redstone_wire(BlockPos pos, u16 in_world_state,
 
         if (!conductor_side) {
             // try to connect diagonally down
-            BlockPos dest_pos = get_relative_block_pos(
-                    pos_side, DIRECTION_NEG_Y);
-            u16 dest_state = try_get_block_state(dest_pos);
+            WorldBlockPos dest_pos = WorldBlockPosRel(pos_side, DIRECTION_NEG_Y);
+            u16 dest_state = WorldGetBlockState(dest_pos);
             i32 dest_type = serv->block_type_by_state[dest_state];
 
             // can only connect diagonally to redstone wire
@@ -1597,19 +1586,19 @@ update_redstone_wire(BlockPos pos, u16 in_world_state,
         return 0;
     }
 
-    try_set_block_state(pos, new_state);
+    WorldSetBlockState(pos, new_state);
 
     // @TODO(traks) update direct neighbours and diagonal neighbours in the
     // global update order
     for (int i = 0; i < 4; i++) {
         int dir = directions[i];
         int opp_dir = get_opposite_direction(dir);
-        BlockPos side_pos = get_relative_block_pos(pos, dir);
-        BlockPos above_pos = get_relative_block_pos(side_pos, DIRECTION_POS_Y);
+        WorldBlockPos side_pos = WorldBlockPosRel(pos, dir);
+        WorldBlockPos above_pos = WorldBlockPosRel(side_pos, DIRECTION_POS_Y);
         if (env.connected[i][0]) {
             push_block_update(above_pos, opp_dir, buc);
         }
-        BlockPos below_pos = get_relative_block_pos(side_pos, DIRECTION_NEG_Y);
+        WorldBlockPos below_pos = WorldBlockPosRel(side_pos, DIRECTION_NEG_Y);
         if (env.connected[i][2]) {
             push_block_update(below_pos, opp_dir, buc);
         }
@@ -1620,13 +1609,13 @@ update_redstone_wire(BlockPos pos, u16 in_world_state,
 }
 
 redstone_wire_env
-calculate_redstone_wire_env(BlockPos pos, u16 block_state,
+calculate_redstone_wire_env(WorldBlockPos pos, u16 block_state,
         block_state_info * info, int ignore_same_line_power) {
-    BlockPos pos_above = get_relative_block_pos(pos, DIRECTION_POS_Y);
-    u16 state_above = try_get_block_state(pos_above);
+    WorldBlockPos pos_above = WorldBlockPosRel(pos, DIRECTION_POS_Y);
+    u16 state_above = WorldGetBlockState(pos_above);
     int conductor_above = conducts_redstone(state_above, pos_above);
-    BlockPos pos_below = get_relative_block_pos(pos, DIRECTION_NEG_Y);
-    u16 state_below = try_get_block_state(pos_below);
+    WorldBlockPos pos_below = WorldBlockPosRel(pos, DIRECTION_NEG_Y);
+    u16 state_below = WorldGetBlockState(pos_below);
     int conductor_below = conducts_redstone(state_below, pos_below);
 
     // order of redstone side entries in block state info struct
@@ -1643,8 +1632,8 @@ calculate_redstone_wire_env(BlockPos pos, u16 block_state,
     for (int i = 0; i < 4; i++) {
         int dir = directions[i];
         int opp_dir = get_opposite_direction(dir);
-        BlockPos pos_side = get_relative_block_pos(pos, dir);
-        u16 state_side = try_get_block_state(pos_side);
+        WorldBlockPos pos_side = WorldBlockPosRel(pos, dir);
+        u16 state_side = WorldGetBlockState(pos_side);
         i32 type_side = serv->block_type_by_state[state_side];
         block_state_info side_info = describe_block_state(state_side);
         int conductor_side = conducts_redstone(state_side, pos_side);
@@ -1655,9 +1644,8 @@ calculate_redstone_wire_env(BlockPos pos, u16 block_state,
 
         if (!conductor_above) {
             // try to connect diagonally up
-            BlockPos dest_pos = get_relative_block_pos(
-                    pos_side, DIRECTION_POS_Y);
-            u16 dest_state = try_get_block_state(dest_pos);
+            WorldBlockPos dest_pos = WorldBlockPosRel(pos_side, DIRECTION_POS_Y);
+            u16 dest_state = WorldGetBlockState(dest_pos);
             i32 dest_type = serv->block_type_by_state[dest_state];
 
             // can only connect diagonally to redstone wire
@@ -1695,9 +1683,8 @@ calculate_redstone_wire_env(BlockPos pos, u16 block_state,
 
         if (!conductor_side) {
             // try to connect diagonally down
-            BlockPos dest_pos = get_relative_block_pos(
-                    pos_side, DIRECTION_NEG_Y);
-            u16 dest_state = try_get_block_state(dest_pos);
+            WorldBlockPos dest_pos = WorldBlockPosRel(pos_side, DIRECTION_NEG_Y);
+            u16 dest_state = WorldGetBlockState(dest_pos);
             i32 dest_type = serv->block_type_by_state[dest_state];
 
             // can only connect diagonally to redstone wire
@@ -1775,13 +1762,13 @@ calculate_redstone_wire_env(BlockPos pos, u16 block_state,
 }
 
 typedef struct {
-    BlockPos pos;
+    WorldBlockPos pos;
     unsigned char distance;
 } redstone_wire_pos;
 
 static void
-update_redstone_line(BlockPos start_pos) {
-    u16 start_state = try_get_block_state(start_pos);
+update_redstone_line(WorldBlockPos start_pos) {
+    u16 start_state = WorldGetBlockState(start_pos);
     block_state_info start_info = describe_block_state(start_state);
     redstone_wire_env start_env = calculate_redstone_wire_env(
             start_pos, start_state, &start_info, 0);
@@ -1803,41 +1790,40 @@ update_redstone_line(BlockPos start_pos) {
     if (start_env.power > start_info.power) {
         // power went up, spread it around!
 
-        BlockPos wires[500];
+        WorldBlockPos wires[500];
         int wire_count = 0;
         wires[0] = start_pos;
         wire_count++;
 
         start_info.power = start_env.power;
         u16 new_start_state = make_block_state(&start_info);
-        try_set_block_state(start_pos, new_start_state);
+        WorldSetBlockState(start_pos, new_start_state);
 
         for (int i = 0; i < wire_count; i++) {
-            BlockPos wire_pos = wires[i];
-            u16 state = try_get_block_state(wire_pos);
+            WorldBlockPos wire_pos = wires[i];
+            u16 state = WorldGetBlockState(wire_pos);
             block_state_info info = describe_block_state(state);
             redstone_wire_env env = calculate_redstone_wire_env(
                     wire_pos, state, &info, 0);
 
             for (int i = 0; i < 4; i++) {
-                BlockPos rel = get_relative_block_pos(
-                        wire_pos, directions[i]);
-                rel = get_relative_block_pos(rel, DIRECTION_POS_Y);
+                WorldBlockPos rel = WorldBlockPosRel(wire_pos, directions[i]);
+                rel = WorldBlockPosRel(rel, DIRECTION_POS_Y);
 
                 for (int j = 0; j < 3; j++) {
                     if (env.wire_out[i][j]) {
-                        u16 out_state = try_get_block_state(rel);
+                        u16 out_state = WorldGetBlockState(rel);
                         block_state_info out_info = describe_block_state(out_state);
                         redstone_wire_env out_env = calculate_redstone_wire_env(
                                 rel, out_state, &out_info, 0);
                         if (out_env.power > out_info.power) {
                             out_info.power = out_env.power;
-                            try_set_block_state(rel, make_block_state(&out_info));
+                            WorldSetBlockState(rel, make_block_state(&out_info));
                             wires[wire_count] = rel;
                             wire_count++;
                         }
                     }
-                    rel = get_relative_block_pos(rel, DIRECTION_NEG_Y);
+                    rel = WorldBlockPosRel(rel, DIRECTION_NEG_Y);
                 }
             }
         }
@@ -1849,7 +1835,7 @@ update_redstone_line(BlockPos start_pos) {
         wires[0] = (redstone_wire_pos) {.pos = start_pos, .distance = 0};
         wire_count++;
 
-        BlockPos sources[50];
+        WorldBlockPos sources[50];
         int source_count = 0;
 
         redstone_wire_env lineless_env = calculate_redstone_wire_env(
@@ -1860,22 +1846,20 @@ update_redstone_line(BlockPos start_pos) {
         }
 
         for (int i = 0; i < wire_count; i++) {
-            BlockPos wire_pos = wires[i].pos;
+            WorldBlockPos wire_pos = wires[i].pos;
             int distance = wires[i].distance;
-            u16 state = try_get_block_state(wire_pos);
+            u16 state = WorldGetBlockState(wire_pos);
             block_state_info info = describe_block_state(state);
             redstone_wire_env env = calculate_redstone_wire_env(
                     wire_pos, state, &info, 1);
 
             for (int i = 0; i < 4; i++) {
-                BlockPos rel = get_relative_block_pos(
-                        wire_pos, directions[i]);
-                rel = get_relative_block_pos(rel, DIRECTION_POS_Y);
+                WorldBlockPos rel = WorldBlockPosRel(wire_pos, directions[i]);
+                rel = WorldBlockPosRel(rel, DIRECTION_POS_Y);
 
                 for (int j = 0; j < 3; j++) {
                     if (env.wire_out[i][j]) {
-                        block_state_info out_info = describe_block_state(
-                                try_get_block_state(rel));
+                        block_state_info out_info = describe_block_state(WorldGetBlockState(rel));
                         if (out_info.power == start_info.power - distance - 1
                                 && out_info.power > 0) {
                             redstone_wire_env out_env = calculate_redstone_wire_env(
@@ -1887,7 +1871,7 @@ update_redstone_line(BlockPos start_pos) {
                             }
 
                             out_info.power = 0;
-                            try_set_block_state(rel, make_block_state(&out_info));
+                            WorldSetBlockState(rel, make_block_state(&out_info));
 
                             // this neighbour is exactly
                             wires[wire_count] = (redstone_wire_pos) {
@@ -1897,22 +1881,22 @@ update_redstone_line(BlockPos start_pos) {
                             wire_count++;
                         }
                     }
-                    rel = get_relative_block_pos(rel, DIRECTION_NEG_Y);
+                    rel = WorldBlockPosRel(rel, DIRECTION_NEG_Y);
                 }
             }
         }
 
         for (int i = 0; i < wire_count; i++) {
-            BlockPos wire_pos = wires[i].pos;
+            WorldBlockPos wire_pos = wires[i].pos;
             int distance = wires[i].distance;
-            u16 state = try_get_block_state(wire_pos);
+            u16 state = WorldGetBlockState(wire_pos);
             block_state_info info = describe_block_state(state);
             int cur_power = info.power;
             redstone_wire_env env = calculate_redstone_wire_env(
                     wire_pos, state, &info, 1);
 
             info.power = 0;
-            try_set_block_state(wire_pos, make_block_state(&info));
+            WorldSetBlockState(wire_pos, make_block_state(&info));
 
             if (start_info.power - distance < cur_power) {
                 // the wire is powered by something other than the original wire
@@ -1929,14 +1913,12 @@ update_redstone_line(BlockPos start_pos) {
             }
 
             for (int i = 0; i < 4; i++) {
-                BlockPos rel = get_relative_block_pos(
-                        wire_pos, directions[i]);
-                rel = get_relative_block_pos(rel, DIRECTION_POS_Y);
+                WorldBlockPos rel = WorldBlockPosRel(wire_pos, directions[i]);
+                rel = WorldBlockPosRel(rel, DIRECTION_POS_Y);
 
                 for (int j = 0; j < 3; j++) {
                     if (env.wire_out[i][j]) {
-                        block_state_info out_info = describe_block_state(
-                                try_get_block_state(rel));
+                        block_state_info out_info = describe_block_state(WorldGetBlockState(rel));
                         if (out_info.power > 0) {
                             wires[wire_count] = (redstone_wire_pos) {
                                 .pos = rel,
@@ -1945,7 +1927,7 @@ update_redstone_line(BlockPos start_pos) {
                             wire_count++;
                         }
                     }
-                    rel = get_relative_block_pos(rel, DIRECTION_NEG_Y);
+                    rel = WorldBlockPosRel(rel, DIRECTION_NEG_Y);
                 }
             }
         }
@@ -1958,18 +1940,18 @@ update_redstone_line(BlockPos start_pos) {
 
 // @TODO(traks) can we perhaps get rid of the from_direction for simplicity?
 static int
-update_block(BlockPos pos, int from_direction, int is_delayed,
+update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         block_update_context * buc) {
     // @TODO(traks) ideally all these chunk lookups and block lookups should be
     // cached to make a single block update as fast as possible. It is after all
     // incredibly easy to create tons of block updates in a single tick.
 
-    u16 cur_state = try_get_block_state(pos);
+    u16 cur_state = WorldGetBlockState(pos);
     block_state_info cur_info = describe_block_state(cur_state);
     i32 cur_type = cur_info.block_type;
 
-    BlockPos from_pos = get_relative_block_pos(pos, from_direction);
-    u16 from_state = try_get_block_state(from_pos);
+    WorldBlockPos from_pos = WorldBlockPosRel(pos, from_direction);
+    u16 from_state = WorldGetBlockState(from_pos);
     block_state_info from_info = describe_block_state(from_state);
     i32 from_type = from_info.block_type;
 
@@ -1996,7 +1978,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
         if (new_state == cur_state) {
             return 0;
         }
-        try_set_block_state(pos, new_state);
+        WorldSetBlockState(pos, new_state);
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
@@ -2112,7 +2094,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
                     new_state = 0;
                 }
 
-                try_set_block_state(pos, new_state);
+                WorldSetBlockState(pos, new_state);
                 push_direct_neighbour_block_updates(pos, buc);
                 return 1;
             }
@@ -2130,7 +2112,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
                     new_state = 0;
                 }
 
-                try_set_block_state(pos, new_state);
+                WorldSetBlockState(pos, new_state);
                 push_direct_neighbour_block_updates(pos, buc);
                 return 1;
             }
@@ -2301,7 +2283,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
         if (cur_shape == cur_info.stairs_shape) {
             return 0;
         }
-        try_set_block_state(pos, make_block_state(&cur_info));
+        WorldSetBlockState(pos, make_block_state(&cur_info));
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
@@ -2310,7 +2292,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
     case BLOCK_REDSTONE_WIRE: {
         if (from_direction == DIRECTION_NEG_Y) {
             if (!can_redstone_wire_survive_on(from_state)) {
-                try_set_block_state(pos, 0);
+                WorldSetBlockState(pos, 0);
                 // @TODO(traks) also update diagonal redstone wires
                 push_direct_neighbour_block_updates(pos, buc);
                 return 1;
@@ -2385,7 +2367,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
                     new_state = 0;
                 }
 
-                try_set_block_state(pos, new_state);
+                WorldSetBlockState(pos, new_state);
                 push_direct_neighbour_block_updates(pos, buc);
                 return 1;
             }
@@ -2405,7 +2387,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
                     new_state = 0;
                 }
 
-                try_set_block_state(pos, new_state);
+                WorldSetBlockState(pos, new_state);
                 push_direct_neighbour_block_updates(pos, buc);
                 return 1;
             } else {
@@ -2414,7 +2396,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
                     return 0;
                 }
 
-                try_set_block_state(pos, 0);
+                WorldSetBlockState(pos, 0);
                 push_direct_neighbour_block_updates(pos, buc);
                 return 1;
             }
@@ -2551,7 +2533,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
         if (new_state == cur_state) {
             return 0;
         }
-        try_set_block_state(pos, new_state);
+        WorldSetBlockState(pos, new_state);
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
@@ -2607,7 +2589,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
         if (new_state == cur_state) {
             return 0;
         }
-        try_set_block_state(pos, new_state);
+        WorldSetBlockState(pos, new_state);
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
@@ -2640,7 +2622,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
         if (new_state == cur_state) {
             return 0;
         }
-        try_set_block_state(pos, new_state);
+        WorldSetBlockState(pos, new_state);
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
@@ -2686,11 +2668,9 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
 
         cur_info.in_wall = 0;
         if (facing == DIRECTION_POS_X || facing == DIRECTION_NEG_X) {
-            int neighbour_state_pos = try_get_block_state(
-                    get_relative_block_pos(pos, DIRECTION_POS_Z));
+            int neighbour_state_pos = WorldGetBlockState(WorldBlockPosRel(pos, DIRECTION_POS_Z));
             block_state_info neighbour_info_pos = describe_block_state(neighbour_state_pos);
-            int neighbour_state_neg = try_get_block_state(
-                    get_relative_block_pos(pos, DIRECTION_NEG_Z));
+            int neighbour_state_neg = WorldGetBlockState(WorldBlockPosRel(pos, DIRECTION_NEG_Z));
             block_state_info neighbour_info_neg = describe_block_state(neighbour_state_neg);
             if (BlockHasTag(&neighbour_info_pos, BLOCK_TAG_WALL)
                     || BlockHasTag(&neighbour_info_neg, BLOCK_TAG_WALL)) {
@@ -2698,11 +2678,9 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
             }
         } else {
             // facing along z axis
-            int neighbour_state_pos = try_get_block_state(
-                    get_relative_block_pos(pos, DIRECTION_POS_X));
+            int neighbour_state_pos = WorldGetBlockState(WorldBlockPosRel(pos, DIRECTION_POS_X));
             block_state_info neighbour_info_pos = describe_block_state(neighbour_state_pos);
-            int neighbour_state_neg = try_get_block_state(
-                    get_relative_block_pos(pos, DIRECTION_NEG_X));
+            int neighbour_state_neg = WorldGetBlockState(WorldBlockPosRel(pos, DIRECTION_NEG_X));
             block_state_info neighbour_info_neg = describe_block_state(neighbour_state_neg);
             if (BlockHasTag(&neighbour_info_pos, BLOCK_TAG_WALL)
                     || BlockHasTag(&neighbour_info_neg, BLOCK_TAG_WALL)) {
@@ -2714,7 +2692,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
         if (new_state == cur_state) {
             return 0;
         }
-        try_set_block_state(pos, new_state);
+        WorldSetBlockState(pos, new_state);
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
@@ -2793,7 +2771,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
         if (new_state == cur_state) {
             return 0;
         }
-        try_set_block_state(pos, new_state);
+        WorldSetBlockState(pos, new_state);
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
@@ -2909,21 +2887,21 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
         if (cur_info.double_block_half == DOUBLE_BLOCK_HALF_UPPER) {
             if (from_direction == DIRECTION_NEG_Y && (from_type != cur_type
                     || from_info.double_block_half != DOUBLE_BLOCK_HALF_LOWER)) {
-                try_set_block_state(pos, 0);
+                WorldSetBlockState(pos, 0);
                 push_direct_neighbour_block_updates(pos, buc);
                 return 1;
             }
         } else {
             if (from_direction == DIRECTION_NEG_Y) {
                 if (!can_plant_survive_on(from_type)) {
-                    try_set_block_state(pos, 0);
+                    WorldSetBlockState(pos, 0);
                     push_direct_neighbour_block_updates(pos, buc);
                     return 1;
                 }
             } else if (from_direction == DIRECTION_POS_Y) {
                 if (from_type != cur_type
                         || from_info.double_block_half != DOUBLE_BLOCK_HALF_UPPER) {
-                    try_set_block_state(pos, 0);
+                    WorldSetBlockState(pos, 0);
                     push_direct_neighbour_block_updates(pos, buc);
                     return 1;
                 }
@@ -3174,7 +3152,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
         } else if (from_direction == DIRECTION_POS_Y) {
             if (from_type == BLOCK_BAMBOO) {
                 u16 new_state = get_default_block_state(BLOCK_BAMBOO);
-                try_set_block_state(pos, new_state);
+                WorldSetBlockState(pos, new_state);
                 push_direct_neighbour_block_updates(pos, buc);
                 return 1;
             }
@@ -3196,7 +3174,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
             if (from_type == BLOCK_BAMBOO && from_info.age_1 > cur_info.age_1) {
                 cur_info.age_1++;
                 u16 new_state = make_block_state(&cur_info);
-                try_set_block_state(pos, new_state);
+                WorldSetBlockState(pos, new_state);
                 push_direct_neighbour_block_updates(pos, buc);
                 return 1;
             }
@@ -3337,7 +3315,7 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
                 // transform into stem block with same properties
                 cur_info.block_type = BLOCK_BIG_DRIPLEAF_STEM;
                 u16 new_state = make_block_state(&cur_info);
-                try_set_block_state(pos, new_state);
+                WorldSetBlockState(pos, new_state);
                 push_direct_neighbour_block_updates(pos, buc);
                 return 1;
             }
@@ -3365,21 +3343,21 @@ update_block(BlockPos pos, int from_direction, int is_delayed,
         if (cur_info.double_block_half == DOUBLE_BLOCK_HALF_UPPER) {
             if (from_direction == DIRECTION_NEG_Y && (from_type != cur_type
                     || from_info.double_block_half != DOUBLE_BLOCK_HALF_LOWER)) {
-                try_set_block_state(pos, 0);
+                WorldSetBlockState(pos, 0);
                 push_direct_neighbour_block_updates(pos, buc);
                 return 1;
             }
         } else {
             if (from_direction == DIRECTION_NEG_Y) {
                 if (!can_small_dripleaf_survive_at(from_type, cur_state)) {
-                    try_set_block_state(pos, 0);
+                    WorldSetBlockState(pos, 0);
                     push_direct_neighbour_block_updates(pos, buc);
                     return 1;
                 }
             } else if (from_direction == DIRECTION_POS_Y) {
                 if (from_type != cur_type
                         || from_info.double_block_half != DOUBLE_BLOCK_HALF_UPPER) {
-                    try_set_block_state(pos, 0);
+                    WorldSetBlockState(pos, 0);
                     push_direct_neighbour_block_updates(pos, buc);
                     return 1;
                 }
@@ -3419,14 +3397,14 @@ propagate_delayed_block_updates(MemoryArena * scratch_arena) {
         i--;
 
         // @TODO(traks) also count these for number of updates
-        BlockPos pos = sbu.pos;
+        WorldBlockPos pos = sbu.pos;
         update_block(pos, sbu.from_direction, 1, &buc);
     }
 
     serv->scheduled_block_update_count = sbu_count;
 
     for (int i = 0; i < buc.update_count; i++) {
-        BlockPos pos = buc.blocks_to_update[i].pos;
+        WorldBlockPos pos = buc.blocks_to_update[i].pos;
         int from_direction = buc.blocks_to_update[i].from_direction;
         update_block(pos, from_direction, 0, &buc);
     }
@@ -3435,7 +3413,7 @@ propagate_delayed_block_updates(MemoryArena * scratch_arena) {
 void
 propagate_block_updates(block_update_context * buc) {
     for (int i = 0; i < buc->update_count; i++) {
-        BlockPos pos = buc->blocks_to_update[i].pos;
+        WorldBlockPos pos = buc->blocks_to_update[i].pos;
         int from_direction = buc->blocks_to_update[i].from_direction;
         update_block(pos, from_direction, 0, buc);
     }
@@ -3443,10 +3421,10 @@ propagate_block_updates(block_update_context * buc) {
 
 int
 use_block(entity_base * player,
-        i32 hand, BlockPos clicked_pos, i32 clicked_face,
+        i32 hand, WorldBlockPos clicked_pos, i32 clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
         u8 is_inside, block_update_context * buc) {
-    u16 cur_state = try_get_block_state(clicked_pos);
+    u16 cur_state = WorldGetBlockState(clicked_pos);
     block_state_info cur_info = describe_block_state(cur_state);
     i32 cur_type = cur_info.block_type;
 
@@ -3488,7 +3466,7 @@ use_block(entity_base * player,
             cur_info.redstone_neg_x = REDSTONE_SIDE_SIDE;
             cur_info.redstone_neg_z = REDSTONE_SIDE_SIDE;
             u16 new_state = make_block_state(&cur_info);
-            try_set_block_state(clicked_pos, new_state);
+            WorldSetBlockState(clicked_pos, new_state);
             push_direct_neighbour_block_updates(clicked_pos, buc);
             return 1;
         } else if (!is_redstone_wire_connected(clicked_pos, &cur_info)) {
@@ -3497,7 +3475,7 @@ use_block(entity_base * player,
             cur_info.redstone_neg_x = REDSTONE_SIDE_NONE;
             cur_info.redstone_neg_z = REDSTONE_SIDE_NONE;
             u16 new_state = make_block_state(&cur_info);
-            try_set_block_state(clicked_pos, new_state);
+            WorldSetBlockState(clicked_pos, new_state);
             push_direct_neighbour_block_updates(clicked_pos, buc);
             return 1;
         }
@@ -3535,7 +3513,7 @@ use_block(entity_base * player,
         // @TODO play flip sound
         cur_info.powered = !cur_info.powered;
         u16 new_state = make_block_state(&cur_info);
-        try_set_block_state(clicked_pos, new_state);
+        WorldSetBlockState(clicked_pos, new_state);
         push_direct_neighbour_block_updates(clicked_pos, buc);
         return 1;
     }
@@ -3551,7 +3529,7 @@ use_block(entity_base * player,
         // @TODO(traks) play opening/closing sound
         cur_info.open = !cur_info.open;
         u16 new_state = make_block_state(&cur_info);
-        try_set_block_state(clicked_pos, new_state);
+        WorldSetBlockState(clicked_pos, new_state);
         // this will cause the other half of the door to switch states
         // @TODO(traks) perhaps we should just update the other half of the door
         // immediately and push block updates from there as well
@@ -3601,7 +3579,7 @@ use_block(entity_base * player,
         // currently?
         cur_info.delay = (cur_info.delay & 0x3) + 1;
         u16 new_state = make_block_state(&cur_info);
-        try_set_block_state(clicked_pos, new_state);
+        WorldSetBlockState(clicked_pos, new_state);
         push_direct_neighbour_block_updates(clicked_pos, buc);
         return 1;
     }
@@ -3617,7 +3595,7 @@ use_block(entity_base * player,
         // @TODO(traks) play opening/closing sound
         cur_info.open = !cur_info.open;
         u16 new_state = make_block_state(&cur_info);
-        try_set_block_state(clicked_pos, new_state);
+        WorldSetBlockState(clicked_pos, new_state);
         push_direct_neighbour_block_updates(clicked_pos, buc);
         return 1;
     }
@@ -3642,7 +3620,7 @@ use_block(entity_base * player,
         }
 
         u16 new_state = make_block_state(&cur_info);
-        try_set_block_state(clicked_pos, new_state);
+        WorldSetBlockState(clicked_pos, new_state);
         push_direct_neighbour_block_updates(clicked_pos, buc);
 
         // @TODO(traks) broadcast level event for opening/closing fence gate
@@ -3791,7 +3769,7 @@ use_block(entity_base * player,
         // @TODO(traks) play sound
         cur_info.mode_comparator = !cur_info.mode_comparator;
         u16 new_state = make_block_state(&cur_info);
-        try_set_block_state(clicked_pos, new_state);
+        WorldSetBlockState(clicked_pos, new_state);
         push_direct_neighbour_block_updates(clicked_pos, buc);
         return 1;
     }
@@ -3799,7 +3777,7 @@ use_block(entity_base * player,
         // @TODO(traks) update output signal
         cur_info.inverted = !cur_info.inverted;
         u16 new_state = make_block_state(&cur_info);
-        try_set_block_state(clicked_pos, new_state);
+        WorldSetBlockState(clicked_pos, new_state);
         push_direct_neighbour_block_updates(clicked_pos, buc);
         return 1;
     }
@@ -3911,7 +3889,7 @@ use_block(entity_base * player,
         if ((player->flags & PLAYER_CAN_BUILD) && used->size == 0 && cur_info.lit) {
             cur_info.lit = 0;
             u16 new_state = make_block_state(&cur_info);
-            try_set_block_state(clicked_pos, new_state);
+            WorldSetBlockState(clicked_pos, new_state);
             push_direct_neighbour_block_updates(clicked_pos, buc);
             // @TODO(traks) particles, sounds, game events
             return 1;
