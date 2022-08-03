@@ -70,6 +70,8 @@ struct chunk_bucket {
     Chunk chunks[CHUNKS_PER_BUCKET];
 };
 
+extern chunk_bucket chunk_map[CHUNK_MAP_SIZE];
+
 static inline i32 SectionPosToIndex(BlockPos pos) {
     return (pos.y << 8) | (pos.z << 4) | pos.x;
 }
