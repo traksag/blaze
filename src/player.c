@@ -1142,7 +1142,7 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
 }
 
 static int
-chunk_cache_index(chunk_pos pos) {
+chunk_cache_index(ChunkPos pos) {
     // Do some remainder operations first so we don't integer overflow. Note
     // that the remainder operator can produce negative numbers.
     int n = MAX_CHUNK_CACHE_DIAM * MAX_CHUNK_CACHE_DIAM;
@@ -1205,7 +1205,7 @@ finish_packet(BufCursor * send_cursor, entity_base * player) {
 }
 
 void
-send_chunk_fully(BufCursor * send_cursor, chunk_pos pos, Chunk * ch,
+send_chunk_fully(BufCursor * send_cursor, ChunkPos pos, Chunk * ch,
         entity_base * entity, MemoryArena * tick_arena) {
     BeginTimedZone("send chunk fully");
 
@@ -1369,7 +1369,7 @@ send_chunk_fully(BufCursor * send_cursor, chunk_pos pos, Chunk * ch,
 }
 
 static void
-send_light_update(BufCursor * send_cursor, chunk_pos pos, Chunk * ch,
+send_light_update(BufCursor * send_cursor, ChunkPos pos, Chunk * ch,
         entity_base * entity, MemoryArena * tick_arena) {
     BeginTimedZone("send light update");
 
@@ -1426,14 +1426,14 @@ disconnect_player_now(entity_base * entity) {
     entity_player * player = &entity->player;
     close(player->sock);
 
-    i16 chunk_cache_min_x = player->chunk_cache_centre_x - player->chunk_cache_radius;
-    i16 chunk_cache_max_x = player->chunk_cache_centre_x + player->chunk_cache_radius;
-    i16 chunk_cache_min_z = player->chunk_cache_centre_z - player->chunk_cache_radius;
-    i16 chunk_cache_max_z = player->chunk_cache_centre_z + player->chunk_cache_radius;
+    i32 chunk_cache_min_x = player->chunk_cache_centre_x - player->chunk_cache_radius;
+    i32 chunk_cache_max_x = player->chunk_cache_centre_x + player->chunk_cache_radius;
+    i32 chunk_cache_min_z = player->chunk_cache_centre_z - player->chunk_cache_radius;
+    i32 chunk_cache_max_z = player->chunk_cache_centre_z + player->chunk_cache_radius;
 
-    for (i16 x = chunk_cache_min_x; x <= chunk_cache_max_x; x++) {
-        for (i16 z = chunk_cache_min_z; z <= chunk_cache_max_z; z++) {
-            chunk_pos pos = {.x = x, .z = z};
+    for (i32 x = chunk_cache_min_x; x <= chunk_cache_max_x; x++) {
+        for (i32 z = chunk_cache_min_z; z <= chunk_cache_max_z; z++) {
+            ChunkPos pos = {.x = x, .z = z};
             Chunk * ch = GetChunkIfAvailable(pos);
             assert(ch != NULL);
             ch->available_interest--;
@@ -1518,7 +1518,7 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
         i32 x = floor(player->x);
         i32 y = floor(player->y);
         i32 z = floor(player->z);
-        chunk_pos chunkPos = {x >> 4, z >> 4};
+        ChunkPos chunkPos = {x >> 4, z >> 4};
         Chunk * ch = GetChunkIfLoaded(chunkPos);
         if (ch != NULL) {
             i32 basedY = y - MIN_WORLD_Y + 16;
@@ -2745,18 +2745,18 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
 
     BeginTimedZone("update chunk cache");
 
-    i16 chunk_cache_min_x = player->player.chunk_cache_centre_x - player->player.chunk_cache_radius;
-    i16 chunk_cache_min_z = player->player.chunk_cache_centre_z - player->player.chunk_cache_radius;
-    i16 chunk_cache_max_x = player->player.chunk_cache_centre_x + player->player.chunk_cache_radius;
-    i16 chunk_cache_max_z = player->player.chunk_cache_centre_z + player->player.chunk_cache_radius;
+    i32 chunk_cache_min_x = player->player.chunk_cache_centre_x - player->player.chunk_cache_radius;
+    i32 chunk_cache_min_z = player->player.chunk_cache_centre_z - player->player.chunk_cache_radius;
+    i32 chunk_cache_max_x = player->player.chunk_cache_centre_x + player->player.chunk_cache_radius;
+    i32 chunk_cache_max_z = player->player.chunk_cache_centre_z + player->player.chunk_cache_radius;
 
-    i16 new_chunk_cache_centre_x = (i32) floor(player->x) >> 4;
-    i16 new_chunk_cache_centre_z = (i32) floor(player->z) >> 4;
+    i32 new_chunk_cache_centre_x = (i32) floor(player->x) >> 4;
+    i32 new_chunk_cache_centre_z = (i32) floor(player->z) >> 4;
     assert(player->player.new_chunk_cache_radius <= MAX_CHUNK_CACHE_RADIUS);
-    i16 new_chunk_cache_min_x = new_chunk_cache_centre_x - player->player.new_chunk_cache_radius;
-    i16 new_chunk_cache_min_z = new_chunk_cache_centre_z - player->player.new_chunk_cache_radius;
-    i16 new_chunk_cache_max_x = new_chunk_cache_centre_x + player->player.new_chunk_cache_radius;
-    i16 new_chunk_cache_max_z = new_chunk_cache_centre_z + player->player.new_chunk_cache_radius;
+    i32 new_chunk_cache_min_x = new_chunk_cache_centre_x - player->player.new_chunk_cache_radius;
+    i32 new_chunk_cache_min_z = new_chunk_cache_centre_z - player->player.new_chunk_cache_radius;
+    i32 new_chunk_cache_max_x = new_chunk_cache_centre_x + player->player.new_chunk_cache_radius;
+    i32 new_chunk_cache_max_z = new_chunk_cache_centre_z + player->player.new_chunk_cache_radius;
 
     if (player->player.chunk_cache_centre_x != new_chunk_cache_centre_x
             || player->player.chunk_cache_centre_z != new_chunk_cache_centre_z) {
@@ -2774,9 +2774,9 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     }
 
     // untrack old chunks
-    for (i16 x = chunk_cache_min_x; x <= chunk_cache_max_x; x++) {
-        for (i16 z = chunk_cache_min_z; z <= chunk_cache_max_z; z++) {
-            chunk_pos pos = {.x = x, .z = z};
+    for (i32 x = chunk_cache_min_x; x <= chunk_cache_max_x; x++) {
+        for (i32 z = chunk_cache_min_z; z <= chunk_cache_max_z; z++) {
+            ChunkPos pos = {.x = x, .z = z};
             int index = chunk_cache_index(pos);
 
             if (x >= new_chunk_cache_min_x && x <= new_chunk_cache_max_x
@@ -2856,8 +2856,8 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     }
 
     // track new chunks
-    for (i16 x = new_chunk_cache_min_x; x <= new_chunk_cache_max_x; x++) {
-        for (i16 z = new_chunk_cache_min_z; z <= new_chunk_cache_max_z; z++) {
+    for (i32 x = new_chunk_cache_min_x; x <= new_chunk_cache_max_x; x++) {
+        for (i32 z = new_chunk_cache_min_z; z <= new_chunk_cache_max_z; z++) {
             if (x >= chunk_cache_min_x && x <= chunk_cache_max_x
                     && z >= chunk_cache_min_z && z <= chunk_cache_max_z) {
                 // chunk already in old region
@@ -2865,7 +2865,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             }
 
             // chunk not in old region
-            chunk_pos pos = {.x = x, .z = z};
+            ChunkPos pos = {.x = x, .z = z};
             Chunk * ch = GetOrCreateChunk(pos);
             ch->available_interest++;
         }
@@ -2901,9 +2901,9 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     for (int i = 0; i < chunk_cache_area; i++) {
         int x = new_chunk_cache_centre_x + off_x;
         int z = new_chunk_cache_centre_z + off_z;
-        int cache_index = chunk_cache_index((chunk_pos) {.x = x, .z = z});
+        int cache_index = chunk_cache_index((ChunkPos) {.x = x, .z = z});
         chunk_cache_entry * entry = player->player.chunk_cache + cache_index;
-        chunk_pos pos = {.x = x, .z = z};
+        ChunkPos pos = {.x = x, .z = z};
 
         if (newly_loaded_chunks < MAX_CHUNK_LOADS_PER_TICK
                 && serv->chunk_load_request_count
@@ -2912,7 +2912,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             assert(ch != NULL);
             assert(ch->available_interest > 0);
             if (!(ch->flags & CHUNK_LOADED)) {
-                serv->chunk_load_requests[serv->chunk_load_request_count] = pos;
+                serv->chunk_load_requests[serv->chunk_load_request_count] = (ChunkLoadRequest) {.worldId = player->worldId, .pos = pos};
                 serv->chunk_load_request_count++;
                 newly_loaded_chunks++;
             }

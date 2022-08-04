@@ -66,7 +66,7 @@ typedef struct chunk_bucket chunk_bucket;
 struct chunk_bucket {
     chunk_bucket * next_bucket;
     int size;
-    chunk_pos positions[CHUNKS_PER_BUCKET];
+    ChunkPos positions[CHUNKS_PER_BUCKET];
     Chunk chunks[CHUNKS_PER_BUCKET];
 };
 
@@ -85,9 +85,9 @@ static inline BlockPos SectionIndexToPos(i32 index) {
     return res;
 }
 
-Chunk * GetOrCreateChunk(chunk_pos pos);
-Chunk * GetChunkIfLoaded(chunk_pos pos);
-Chunk * GetChunkIfAvailable(chunk_pos pos);
+Chunk * GetOrCreateChunk(ChunkPos pos);
+Chunk * GetChunkIfLoaded(ChunkPos pos);
+Chunk * GetChunkIfAvailable(ChunkPos pos);
 
 typedef struct {
     i32 oldState;
@@ -102,8 +102,7 @@ i32 ChunkGetBlockState(Chunk * ch, BlockPos pos);
 
 SetBlockResult WorldSetBlockState(WorldBlockPos pos, i32 blockState);
 i32 WorldGetBlockState(WorldBlockPos pos);
-
-void TryReadChunkFromStorage(chunk_pos pos, Chunk * ch, MemoryArena * scratch_arena);
+void WorldLoadChunk(i32 worldId, ChunkPos chunkPos, Chunk * chunk, MemoryArena * scratchArena);
 
 ChunkSection * AllocChunkSection(void);
 void FreeChunkSection(ChunkSection * section);
@@ -126,5 +125,7 @@ static inline void SetSectionLight(u8 * lightArray, i32 posIndex, u8 light) {
 void LightChunk(Chunk * ch);
 
 void ChunkRecalculateMotionBlockingHeightMap(Chunk * ch);
+
+void LoadChunks();
 
 #endif

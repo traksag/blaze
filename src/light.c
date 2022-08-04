@@ -101,7 +101,6 @@ static inline void PropagateSkyLight(LightQueue * queue, i32 fromX, i32 fromY, i
     LightQueuePush(queue, (LightQueueEntry) {toX, toY, toZ});
 }
 
-
 void LightChunk(Chunk * ch) {
     // @NOTE(traks) calculating skylight for 1 chunk statistics in
     // vanilla-generated world, without optimisations:
@@ -139,6 +138,10 @@ void LightChunk(Chunk * ch) {
     // fast top extra y layers (averaged):
     // 1,106
     // 0.032 ms optimised
+
+    // TODO(traks): this is slow for Skygrid maps: 1.8 ms average per chunk!!
+    // Try switch to a different algorithm that propagates column downwards
+    // first.
 
     BeginTimedZone("LightChunk");
 
@@ -187,33 +190,66 @@ void LightChunk(Chunk * ch) {
 
     // @NOTE(traks) first set all y layers to full light level above the highest
     // block in the chunk
-    i32 chunkMaxY = MIN_WORLD_Y;
-    for (i32 x = 0; x < 16; x++) {
-        for (i32 z = 0; z < 16; z++) {
-            i32 maxY = ch->motion_blocking_height_map[(z << 4) | x];
-            chunkMaxY = MAX(maxY, chunkMaxY);
-        }
+    i32 firstFullAirY = MIN_WORLD_Y;
+    for (i32 zx = 0; zx < 16 * 16; zx++) {
+        i32 firstAirY = ch->motion_blocking_height_map[zx];
+        firstFullAirY = MAX(firstAirY, firstFullAirY);
+    }
+    if (firstFullAirY == MIN_WORLD_Y) {
+        firstFullAirY -= 16;
     }
 
-    i32 lowestSectionFullLight = ((chunkMaxY - MIN_WORLD_Y + 16) >> 4) + 1;
-    assert(lowestSectionFullLight >= 1);
-    assert(lowestSectionFullLight <= LIGHT_SECTIONS_PER_CHUNK);
+    i32 lowestSectionFullLight = ((firstFullAirY - MIN_WORLD_Y + 16 + 15) >> 4);
+    assert(lowestSectionFullLight >= 0);
+    assert(lowestSectionFullLight < LIGHT_SECTIONS_PER_CHUNK);
     for (i32 sectionIndex = LIGHT_SECTIONS_PER_CHUNK - 1; sectionIndex >= lowestSectionFullLight; sectionIndex--) {
         memset(ch->lightSections[sectionIndex].skyLight, 0xff, 2048);
     }
-    i32 extraFullLightOffset = (chunkMaxY & 0xf) * 16 * 16 / 2;
+    i32 extraFullLightOffset = (firstFullAirY & 0xf) * 16 * 16 / 2;
     memset(ch->lightSections[lowestSectionFullLight - 1].skyLight + extraFullLightOffset, 0xff, 2048 - extraFullLightOffset);
 
     EndTimedZone();
 
+    // NOTE(traks): here's another interesting approach. Per section we compute
+    // a layer that we stack 16 times. This has the major benefit of being able
+    // to set multiple bytes at once (instead of doing work per nibble if e.g.
+    // iterate through column until hit height map, then move to next column).
+    // Moreover, this also handles things like Skygrid well, while the
+    // empty-section approach above fails miserably.
+    //
+    // Can probably go even faster by setting up a nice data structure to figure
+    // out at which Y levels which columns start their height map. Then don't
+    // even need to do per section I imagine.
+    //
+    // Should implement a fully functioning lighting engine before diving in
+    // deep though.
+    /*
+    u8 lightLayer[16 * 16 / 2];
+    for (i32 zx = 0; zx < 16 * 16; zx++) {
+        lightLayer[zx] = 0xff;
+    }
+
+    for (i32 sectionIndex = LIGHT_SECTIONS_PER_CHUNK - 1; sectionIndex >= 0; sectionIndex--) {
+        i32 sectionMinY = (sectionIndex - 1) * 16 + MIN_WORLD_Y;
+        for (i32 zx = 0; zx < 16 * 16; zx++) {
+            i32 airColumnStartY = ch->motion_blocking_height_map[zx];
+            if (airColumnStartY > sectionMinY) {
+                SetSectionLight(lightLayer, zx, 0);
+            }
+        }
+        for (i32 y = 0; y < 16; y++) {
+            memcpy(ch->lightSections[sectionIndex].skyLight + (y << 8) / 2, lightLayer, sizeof lightLayer);
+        }
+    }
+    */
+
     EndTimedZone();
 
     // @NOTE(traks) prepare sky light sources for propagation
-    for (i32 x = 0; x < 16; x++) {
-        for (i32 z = 0; z < 16; z++) {
-            i32 y = chunkMaxY - MIN_WORLD_Y + 16;
-            LightQueuePush(&skyLightQueue, (LightQueueEntry) {x, y, z});
-        }
+
+    for (i32 zx = 0; zx < 16 * 16; zx++) {
+        i32 y = firstFullAirY - MIN_WORLD_Y + 16;
+        LightQueuePush(&skyLightQueue, (LightQueueEntry) {zx & 0xf, y, zx >> 4});
     }
 
     // @NOTE(traks) propagate sky light

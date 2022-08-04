@@ -12,6 +12,8 @@
 #include "chunk.h"
 
 static void FillBufferFromFile(int fd, BufCursor * cursor) {
+    BeginTimedZone("read file");
+
     int start_index = cursor->index;
 
     while (cursor->index < cursor->size) {
@@ -35,16 +37,18 @@ static void FillBufferFromFile(int fd, BufCursor * cursor) {
 
     cursor->size = cursor->index;
     cursor->index = start_index;
+
+    EndTimedZone();
 }
 
-void TryReadChunkFromStorage(chunk_pos pos, Chunk * ch, MemoryArena * scratch_arena) {
+void WorldLoadChunk(i32 worldId, ChunkPos chunkPos, Chunk * chunk, MemoryArena * scratchArena) {
     BeginTimedZone("read chunk");
 
     // @TODO(traks) error handling and/or error messages for all failure cases
     // in this entire function?
 
-    int region_x = pos.x >> 5;
-    int region_z = pos.z >> 5;
+    int region_x = chunkPos.x >> 5;
+    int region_z = chunkPos.z >> 5;
 
     unsigned char file_name[64];
     int file_name_size = sprintf((void *) file_name,
@@ -63,7 +67,7 @@ void TryReadChunkFromStorage(chunk_pos pos, Chunk * ch, MemoryArena * scratch_ar
     }
 
     BufCursor header_cursor = {
-        .data = MallocInArena(scratch_arena, 4096),
+        .data = MallocInArena(scratchArena, 4096),
         .size = 4096
     };
     FillBufferFromFile(region_fd, &header_cursor);
@@ -73,7 +77,7 @@ void TryReadChunkFromStorage(chunk_pos pos, Chunk * ch, MemoryArena * scratch_ar
 
     // First read from the chunk location table at which sector (4096 byte
     // block) the chunk data starts.
-    int index = ((pos.z & 0x1f) << 5) | (pos.x & 0x1f);
+    int index = ((chunkPos.z & 0x1f) << 5) | (chunkPos.x & 0x1f);
     header_cursor.index = index << 2;
     u32 loc = CursorGetU32(&header_cursor);
 
@@ -104,7 +108,7 @@ void TryReadChunkFromStorage(chunk_pos pos, Chunk * ch, MemoryArena * scratch_ar
     }
 
     BufCursor cursor = {
-        .data = MallocInArena(scratch_arena, sector_count << 12),
+        .data = MallocInArena(scratchArena, sector_count << 12),
         .size = sector_count << 12
     };
     FillBufferFromFile(region_fd, &cursor);
@@ -167,7 +171,7 @@ void TryReadChunkFromStorage(chunk_pos pos, Chunk * ch, MemoryArena * scratch_ar
     // @TODO(traks) can be many many times larger in case of e.g. NBT data with
     // tons and tons of empty lists.
     size_t max_uncompressed_size = 2 * (1 << 20);
-    unsigned char * uncompressed = MallocInArena(scratch_arena,
+    unsigned char * uncompressed = MallocInArena(scratchArena,
             max_uncompressed_size);
 
     zstream.next_out = uncompressed;
@@ -212,7 +216,7 @@ void TryReadChunkFromStorage(chunk_pos pos, Chunk * ch, MemoryArena * scratch_ar
         .size = zstream.total_out
     };
 
-    NbtCompound chunkNbt = NbtRead(&cursor, scratch_arena);
+    NbtCompound chunkNbt = NbtRead(&cursor, scratchArena);
 
     if (cursor.error) {
         LogInfo("Failed to load NBT data");
@@ -222,7 +226,7 @@ void TryReadChunkFromStorage(chunk_pos pos, Chunk * ch, MemoryArena * scratch_ar
     // NbtPrint(&chunkNbt);
 
     for (int section_y = 0; section_y < SECTIONS_PER_CHUNK; section_y++) {
-        assert(ch->sections[section_y].blockStates != NULL);
+        assert(chunk->sections[section_y].blockStates != NULL);
     }
 
     i32 dataVersion = NbtGetU32(&chunkNbt, STR("DataVersion"));
@@ -248,7 +252,7 @@ void TryReadChunkFromStorage(chunk_pos pos, Chunk * ch, MemoryArena * scratch_ar
 
     // maximum amount of memory the palette will ever use
     int max_palette_map_size = 4096;
-    u16 * palette_map = MallocInArena(scratch_arena, max_palette_map_size * sizeof (u16));
+    u16 * palette_map = MallocInArena(scratchArena, max_palette_map_size * sizeof (u16));
 
     if (numSections > LIGHT_SECTIONS_PER_CHUNK) {
         LogInfo("Too many chunk sections: %ju", (uintmax_t) numSections);
@@ -270,7 +274,7 @@ void TryReadChunkFromStorage(chunk_pos pos, Chunk * ch, MemoryArena * scratch_ar
             }
 
             i32 sectionIndex = sectionY - MIN_SECTION;
-            ChunkSection * section = ch->sections + sectionIndex;
+            ChunkSection * section = chunk->sections + sectionIndex;
 
             u32 paletteSize = palette.size;
 
@@ -358,7 +362,7 @@ void TryReadChunkFromStorage(chunk_pos pos, Chunk * ch, MemoryArena * scratch_ar
             }
 
             i32 lightSectionIndex = sectionY - MIN_SECTION + 1;
-            LightSection * lightSection = ch->lightSections + lightSectionIndex;
+            LightSection * lightSection = chunk->lightSections + lightSectionIndex;
 
             NbtList skyLight = NbtGetArrayU8(&sectionNbt, STR("SkyLight"));
             NbtList blockLight = NbtGetArrayU8(&sectionNbt, STR("BlockLight"));
@@ -372,7 +376,7 @@ void TryReadChunkFromStorage(chunk_pos pos, Chunk * ch, MemoryArena * scratch_ar
         }
     }
 
-    ChunkRecalculateMotionBlockingHeightMap(ch);
+    ChunkRecalculateMotionBlockingHeightMap(chunk);
 
     if (cursor.error) {
         LogInfo("Failed to decipher NBT data");
@@ -380,15 +384,17 @@ void TryReadChunkFromStorage(chunk_pos pos, Chunk * ch, MemoryArena * scratch_ar
         goto bail;
     }
 
-    ch->flags |= CHUNK_LOADED;
+    chunk->flags |= CHUNK_LOADED;
     if (lightIsStored) {
-        ch->flags |= CHUNK_LIT;
+        chunk->flags |= CHUNK_LIT;
     }
 
 bail:
     EndTimedZone();
 
     if (region_fd != -1) {
+        BeginTimedZone("close file");
         close(region_fd);
+        EndTimedZone();
     }
 }

@@ -111,9 +111,9 @@ enum dye_colour {
 };
 
 typedef struct {
-    i16 x;
-    i16 z;
-} chunk_pos;
+    i32 x;
+    i32 z;
+} ChunkPos;
 
 typedef struct {
     i8 x;
@@ -1777,8 +1777,8 @@ typedef struct {
     // and including an extra outer rim the client doesn't render but uses
     // for connected blocks and such.
     int chunk_cache_radius;
-    i16 chunk_cache_centre_x;
-    i16 chunk_cache_centre_z;
+    i32 chunk_cache_centre_x;
+    i32 chunk_cache_centre_z;
     int new_chunk_cache_radius;
     // @TODO(traks) maybe this should just be a bitmap
     chunk_cache_entry chunk_cache[MAX_CHUNK_CACHE_DIAM * MAX_CHUNK_CACHE_DIAM];
@@ -2102,6 +2102,11 @@ typedef struct {
 } block_update_context;
 
 typedef struct {
+    i32 worldId;
+    ChunkPos pos;
+} ChunkLoadRequest;
+
+typedef struct {
     i64 current_tick;
 
     entity_base entities[MAX_ENTITIES];
@@ -2111,7 +2116,7 @@ typedef struct {
     // All chunks that should be loaded. Stored in a request list to allow for
     // ordered loads. If a
     // @TODO(traks) appropriate size
-    chunk_pos chunk_load_requests[64];
+    ChunkLoadRequest chunk_load_requests[64];
     int chunk_load_request_count;
 
     // global messages for the current tick
