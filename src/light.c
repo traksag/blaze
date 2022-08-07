@@ -297,6 +297,7 @@ void LightChunk(Chunk * ch) {
 
 void UpdateLighting() {
     // @TODO(traks) further implementation
+    /*
     for (i32 bucketIndex = 0; bucketIndex < ARRAY_SIZE(chunk_map); bucketIndex++) {
         chunk_bucket * bucket = chunk_map + bucketIndex;
         for (i32 chunkIndex = 0; chunkIndex < bucket->size; chunkIndex++) {
@@ -309,4 +310,5 @@ void UpdateLighting() {
             }
         }
     }
+    */
 }

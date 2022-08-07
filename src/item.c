@@ -1176,14 +1176,14 @@ place_bed(place_context context, i32 place_type, int dye_colour) {
     WorldSetBlockState(head_pos, place_state);
 
     // @TODO(traks) flesh out all this block entity business.
-    block_entity_base * block_entity = try_get_block_entity(target.pos.xyz);
+    block_entity_base * block_entity = try_get_block_entity(target.pos);
     if (block_entity != NULL) {
         block_entity->flags = BLOCK_ENTITY_IN_USE;
         block_entity->type = BLOCK_ENTITY_BED;
         block_entity->bed.dye_colour = dye_colour;
     }
 
-    block_entity = try_get_block_entity(head_pos.xyz);
+    block_entity = try_get_block_entity(head_pos);
     if (block_entity != NULL) {
         block_entity->flags = BLOCK_ENTITY_IN_USE;
         block_entity->type = BLOCK_ENTITY_BED;

@@ -41,11 +41,13 @@ static void FillBufferFromFile(int fd, BufCursor * cursor) {
     EndTimedZone();
 }
 
-void WorldLoadChunk(i32 worldId, ChunkPos chunkPos, Chunk * chunk, MemoryArena * scratchArena) {
+void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
     BeginTimedZone("read chunk");
 
     // @TODO(traks) error handling and/or error messages for all failure cases
     // in this entire function?
+
+    WorldChunkPos chunkPos = chunk->pos;
 
     int region_x = chunkPos.x >> 5;
     int region_z = chunkPos.z >> 5;
@@ -267,7 +269,7 @@ void WorldLoadChunk(i32 worldId, ChunkPos chunkPos, Chunk * chunk, MemoryArena *
         NbtList palette = NbtGetList(&blockStatesNbt, STR("palette"), NBT_COMPOUND);
         NbtList blockData = NbtGetArrayU64(&blockStatesNbt, STR("data"));
 
-        if (palette.size > 0 && blockData.size > 0) {
+        if (palette.size > 0) {
             if (sectionY < MIN_SECTION || sectionY > MAX_SECTION) {
                 LogInfo("Section Y %d with palette", (int) sectionY);
                 goto bail;
@@ -319,38 +321,58 @@ void WorldLoadChunk(i32 worldId, ChunkPos chunkPos, Chunk * chunk, MemoryArena *
                 palette_map[palettei] = props->base_state + stride;
             }
 
-            u32 entryCount = blockData.size;
-
-            if (entryCount > 4096) {
-                LogInfo("Too many entries: %ju", (uintmax_t) entryCount);
-                goto bail;
-            }
-
-            int palette_size_ceil_log2 = CeilLog2U32(paletteSize);
-            int bits_per_id = MAX(4, palette_size_ceil_log2);
+            i32 palette_size_ceil_log2 = CeilLog2U32(paletteSize);
+            i32 bits_per_id = MAX(4, palette_size_ceil_log2);
             u32 id_mask = (1 << bits_per_id) - 1;
-            int offset = 0;
-            u64 entry = NbtNextU64(&blockData);
+            i32 offset = 0;
 
-            for (int j = 0; j < 4096; j++) {
-                u32 id = (entry >> offset) & id_mask;
-                offset += bits_per_id;
-                if (offset > 64 - bits_per_id) {
-                    entry = NbtNextU64(&blockData);
-                    offset = 0;
+            if (paletteSize == 1) {
+                // NOTE(traks): if the palette size is 1, the block data may be
+                // missing! The code below won't work in that case, so we need
+                // some special handling.
+                u16 block_state = palette_map[0];
+                for (i32 j = 0; j < 4096; j++) {
+                    section->blockStates[j] = block_state;
+                    // @TODO(traks) handle cave air and void air
+                    if (block_state != 0) {
+                        section->nonAirCount++;
+                    }
                 }
-
-                if (id >= paletteSize) {
-                    LogInfo("Out of bounds palette ID");
+            } else {
+                if (blockData.size > 4096) {
+                    LogInfo("Too many entries: %ju", (uintmax_t) blockData.size);
                     goto bail;
                 }
 
-                u16 block_state = palette_map[id];
-                section->blockStates[j] = block_state;
+                i32 idsPerLong = 64 / bits_per_id;
+                if (idsPerLong * blockData.size < 4096) {
+                    LogInfo("Not enough entries %jd with bits per ID %jd",
+                            (intmax_t) blockData.size, (intmax_t) bits_per_id);
+                    goto bail;
+                }
 
-                // @TODO(traks) handle cave air and void air
-                if (block_state != 0) {
-                    section->nonAirCount++;
+                u64 entry = NbtNextU64(&blockData);
+
+                for (i32 j = 0; j < 4096; j++) {
+                    u32 id = (entry >> offset) & id_mask;
+                    offset += bits_per_id;
+                    if (offset > 64 - bits_per_id) {
+                        entry = NbtNextU64(&blockData);
+                        offset = 0;
+                    }
+
+                    if (id >= paletteSize) {
+                        LogInfo("Out of bounds palette ID");
+                        goto bail;
+                    }
+
+                    u16 block_state = palette_map[id];
+                    section->blockStates[j] = block_state;
+
+                    // @TODO(traks) handle cave air and void air
+                    if (block_state != 0) {
+                        section->nonAirCount++;
+                    }
                 }
             }
         }

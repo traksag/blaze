@@ -402,7 +402,8 @@ static SetBlockResult break_block(WorldBlockPos pos) {
 
     // @TODO(traks) add a block property for this
     if (cur_type != BLOCK_FIRE && cur_type != BLOCK_SOUL_FIRE) {
-        ChunkPos ch_pos = {
+        WorldChunkPos ch_pos = {
+            .worldId = pos.worldId,
             .x = pos.x >> 4,
             .z = pos.z >> 4
         };

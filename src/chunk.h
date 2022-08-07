@@ -3,7 +3,6 @@
 
 #include "shared.h"
 
-#define CHUNK_LOADED (1u << 0)
 #define CHUNK_LIT (1u << 1)
 
 typedef struct {
@@ -28,6 +27,12 @@ typedef struct {
     MemoryPoolBlock * blockLightBlock;
 } LightSection;
 
+enum ChunkStatus {
+    CHUNK_INITIALISED,
+    CHUNK_REQUESTED_LOAD,
+    CHUNK_LOADED,
+};
+
 typedef struct {
     ChunkSection sections[SECTIONS_PER_CHUNK];
     LightSection lightSections[LIGHT_SECTIONS_PER_CHUNK];
@@ -38,7 +43,10 @@ typedef struct {
     // if you no longer care for the chunk.
     // If = 0 the chunk will be removed from the map at some point.
     u32 available_interest;
+    i32 chunkStatus;
     unsigned flags;
+
+    WorldChunkPos pos;
 
     // @TODO(traks) allow more block entities. Possibly use an internally
     // chained hashmap for this. The question is, where do we allocate this
@@ -57,21 +65,6 @@ typedef struct {
     u8 local_event_count;
 } Chunk;
 
-#define CHUNKS_PER_BUCKET (32)
-
-#define CHUNK_MAP_SIZE (1024)
-
-typedef struct chunk_bucket chunk_bucket;
-
-struct chunk_bucket {
-    chunk_bucket * next_bucket;
-    int size;
-    ChunkPos positions[CHUNKS_PER_BUCKET];
-    Chunk chunks[CHUNKS_PER_BUCKET];
-};
-
-extern chunk_bucket chunk_map[CHUNK_MAP_SIZE];
-
 static inline i32 SectionPosToIndex(BlockPos pos) {
     return (pos.y << 8) | (pos.z << 4) | pos.x;
 }
@@ -85,9 +78,18 @@ static inline BlockPos SectionIndexToPos(i32 index) {
     return res;
 }
 
-Chunk * GetOrCreateChunk(ChunkPos pos);
-Chunk * GetChunkIfLoaded(ChunkPos pos);
-Chunk * GetChunkIfAvailable(ChunkPos pos);
+static inline WorldChunkPos WorldBlockPosChunk(WorldBlockPos pos) {
+    WorldChunkPos res = {
+        .worldId = pos.worldId,
+        .x = pos.x >> 4,
+        .z = pos.z >> 4,
+    };
+    return res;
+}
+
+Chunk * GetOrCreateChunk(WorldChunkPos pos);
+Chunk * GetChunkIfLoaded(WorldChunkPos pos);
+Chunk * GetChunkIfAvailable(WorldChunkPos pos);
 
 typedef struct {
     i32 oldState;
@@ -102,7 +104,7 @@ i32 ChunkGetBlockState(Chunk * ch, BlockPos pos);
 
 SetBlockResult WorldSetBlockState(WorldBlockPos pos, i32 blockState);
 i32 WorldGetBlockState(WorldBlockPos pos);
-void WorldLoadChunk(i32 worldId, ChunkPos chunkPos, Chunk * chunk, MemoryArena * scratchArena);
+void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena);
 
 ChunkSection * AllocChunkSection(void);
 void FreeChunkSection(ChunkSection * section);

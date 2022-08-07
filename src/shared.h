@@ -111,11 +111,6 @@ enum dye_colour {
 };
 
 typedef struct {
-    i32 x;
-    i32 z;
-} ChunkPos;
-
-typedef struct {
     i8 x;
     i8 z;
     i16 y;
@@ -2102,8 +2097,7 @@ typedef struct {
 } block_update_context;
 
 typedef struct {
-    i32 worldId;
-    ChunkPos pos;
+    WorldChunkPos pos;
 } ChunkLoadRequest;
 
 typedef struct {
@@ -2200,7 +2194,7 @@ int
 find_property_value_index(block_property_spec * prop_spec, String val);
 
 block_entity_base *
-try_get_block_entity(BlockPos pos);
+try_get_block_entity(WorldBlockPos pos);
 
 void
 clean_up_unused_chunks(void);

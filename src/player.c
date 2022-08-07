@@ -1205,13 +1205,13 @@ finish_packet(BufCursor * send_cursor, entity_base * player) {
 }
 
 void
-send_chunk_fully(BufCursor * send_cursor, ChunkPos pos, Chunk * ch,
+send_chunk_fully(BufCursor * send_cursor, Chunk * ch,
         entity_base * entity, MemoryArena * tick_arena) {
     BeginTimedZone("send chunk fully");
 
     begin_packet(send_cursor, CBP_LEVEL_CHUNK_WITH_LIGHT);
-    CursorPutU32(send_cursor, pos.x);
-    CursorPutU32(send_cursor, pos.z);
+    CursorPutU32(send_cursor, ch->pos.x);
+    CursorPutU32(send_cursor, ch->pos.z);
 
     BeginTimedZone("write height map");
 
@@ -1433,7 +1433,7 @@ disconnect_player_now(entity_base * entity) {
 
     for (i32 x = chunk_cache_min_x; x <= chunk_cache_max_x; x++) {
         for (i32 z = chunk_cache_min_z; z <= chunk_cache_max_z; z++) {
-            ChunkPos pos = {.x = x, .z = z};
+            WorldChunkPos pos = {.worldId = entity->worldId, .x = x, .z = z};
             Chunk * ch = GetChunkIfAvailable(pos);
             assert(ch != NULL);
             ch->available_interest--;
@@ -1518,7 +1518,7 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
         i32 x = floor(player->x);
         i32 y = floor(player->y);
         i32 z = floor(player->z);
-        ChunkPos chunkPos = {x >> 4, z >> 4};
+        WorldChunkPos chunkPos = {.worldId = player->worldId, .x = x >> 4, .z = z >> 4};
         Chunk * ch = GetChunkIfLoaded(chunkPos);
         if (ch != NULL) {
             i32 basedY = y - MIN_WORLD_Y + 16;
@@ -2776,8 +2776,8 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     // untrack old chunks
     for (i32 x = chunk_cache_min_x; x <= chunk_cache_max_x; x++) {
         for (i32 z = chunk_cache_min_z; z <= chunk_cache_max_z; z++) {
-            ChunkPos pos = {.x = x, .z = z};
-            int index = chunk_cache_index(pos);
+            WorldChunkPos pos = {.worldId = player->worldId, .x = x, .z = z};
+            int index = chunk_cache_index(pos.xz);
 
             if (x >= new_chunk_cache_min_x && x <= new_chunk_cache_max_x
                     && z >= new_chunk_cache_min_z && z <= new_chunk_cache_max_z) {
@@ -2865,7 +2865,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             }
 
             // chunk not in old region
-            ChunkPos pos = {.x = x, .z = z};
+            WorldChunkPos pos = {.worldId = player->worldId, .x = x, .z = z};
             Chunk * ch = GetOrCreateChunk(pos);
             ch->available_interest++;
         }
@@ -2903,7 +2903,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         int z = new_chunk_cache_centre_z + off_z;
         int cache_index = chunk_cache_index((ChunkPos) {.x = x, .z = z});
         chunk_cache_entry * entry = player->player.chunk_cache + cache_index;
-        ChunkPos pos = {.x = x, .z = z};
+        WorldChunkPos pos = {.worldId = player->worldId, .x = x, .z = z};
 
         if (newly_loaded_chunks < MAX_CHUNK_LOADS_PER_TICK
                 && serv->chunk_load_request_count
@@ -2912,7 +2912,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             assert(ch != NULL);
             assert(ch->available_interest > 0);
             if (!(ch->flags & CHUNK_LOADED)) {
-                serv->chunk_load_requests[serv->chunk_load_request_count] = (ChunkLoadRequest) {.worldId = player->worldId, .pos = pos};
+                serv->chunk_load_requests[serv->chunk_load_request_count] = (ChunkLoadRequest) {.pos = pos};
                 serv->chunk_load_request_count++;
                 newly_loaded_chunks++;
             }
@@ -2922,7 +2922,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             Chunk * ch = GetChunkIfLoaded(pos);
             if (ch != NULL) {
                 // send chunk blocks and lighting
-                send_chunk_fully(send_cursor, pos, ch, player, tick_arena);
+                send_chunk_fully(send_cursor, ch, player, tick_arena);
                 entry->sent = 1;
                 newly_sent_chunks++;
             }

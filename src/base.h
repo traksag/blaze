@@ -48,6 +48,8 @@ extern int tracyContextCount;
 
 #define CLAMP(x, l, u) (MAX(MIN((x), (u)), (l)))
 
+#define MOD(a, b) (((a) % (b)) < 0 ? ((a) % (b)) + (b) : (a) % (b))
+
 #define PI (3.141592653589f)
 
 #define DEGREES_PER_RADIAN (360.0f / (2.0f * PI))
@@ -98,6 +100,22 @@ typedef struct {
         };
     };
 } WorldBlockPos;
+
+typedef struct {
+    i32 x;
+    i32 z;
+} ChunkPos;
+
+typedef struct {
+    i32 worldId;
+    union {
+        ChunkPos xz;
+        struct {
+            i32 x;
+            i32 z;
+        };
+    };
+} WorldChunkPos;
 
 typedef struct {
     u8 * data;
