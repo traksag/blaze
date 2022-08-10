@@ -1,3 +1,4 @@
+#include <stdatomic.h>
 #include "shared.h"
 #include "nbt.h"
 #include "chunk.h"
@@ -32,6 +33,21 @@ static ChunkMapEntry chunkMap[MAX_LOADED_CHUNKS];
 static ChunkHashEntry chunkHashes[MAX_LOADED_CHUNKS];
 static ChunkMapEntry * chunkFreeList;
 static i32 chunkMapMaxUsed;
+
+typedef struct {
+    Chunk * chunk;
+} ChunkLoadRequest;
+
+// NOTE(traks): single thread writer, multi thread reader
+static ChunkLoadRequest chunkLoadRequests[MAX_LOADED_CHUNKS];
+static _Atomic i32 chunkLoadRequestWriterIndex;
+static _Atomic i32 chunkLoadRequestReaderIndex;
+
+// NOTE(traks): multi thread writer, single thread reader
+static Chunk * chunkCompleteRequests[MAX_LOADED_CHUNKS];
+static _Atomic i32 chunkCompleteRequestWriterClaiming;
+static _Atomic i32 chunkCompleteRequestWriterIndex;
+static _Atomic i32 chunkCompleteRequestReaderIndex;
 
 static i32 WorldChunkPosEqual(WorldChunkPos a, WorldChunkPos b) {
     // @TODO(traks) make sure this compiles to a single compare. If not, should
@@ -227,7 +243,7 @@ void ChunkRecalculateMotionBlockingHeightMap(Chunk * ch) {
     // skip top sections:
     // 2.85 us
 
-    BeginTimedZone("recalculate height map");
+    BeginTimings(RecalculateHeightMap);
 
     i32 highestSectionWithBlocks = SECTIONS_PER_CHUNK - 1;
     while (highestSectionWithBlocks >= 0) {
@@ -305,7 +321,7 @@ finishedZx:;
     }
     */
 
-    EndTimedZone();
+    EndTimings(RecalculateHeightMap);
 }
 
 static inline i32 HashChangedBlockPos(i32 index, i32 hashMask) {
@@ -326,7 +342,7 @@ SetBlockResult ChunkSetBlockState(Chunk * ch, BlockPos pos, i32 blockState) {
 
     // TODO(traks): should we really be checking this? If so, might want to move
     // this to the if-check above
-    assert(ch->flags & CHUNK_LOADED);
+    assert(ch->flags & CHUNK_FINISHED_LOADING);
 
     // @TODO(traks) somehow ensure this never fails even with tons of players,
     // or make sure we appropriate handle cases in which too many changes occur
@@ -448,7 +464,7 @@ doHash:;
     return res;
 }
 
-Chunk * GetOrCreateChunk(WorldChunkPos pos) {
+static Chunk * GetOrCreateChunk(WorldChunkPos pos) {
     Chunk * res = NULL;
     ChunkHashEntry * entry = FindChunkHashEntryOrEmpty(pos);
     if (entry == NULL) {
@@ -463,22 +479,106 @@ Chunk * GetOrCreateChunk(WorldChunkPos pos) {
         res = (Chunk *) mapEntry;
         *res = (Chunk) {0};
         res->pos = pos;
+
+        Chunk * chunk = res;
+        for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
+            ChunkSection * section = chunk->sections + sectionIndex;
+            MemoryPoolAllocation alloc = CallocInPool(serv->sectionPool);
+            section->blockStates = alloc.data;
+            section->blockStatesBlock = alloc.block;
+        }
+
+        for (i32 sectionIndex = 0; sectionIndex < LIGHT_SECTIONS_PER_CHUNK; sectionIndex++) {
+            LightSection * section = chunk->lightSections + sectionIndex;
+            MemoryPoolAllocation alloc = CallocInPool(serv->lightingPool);
+            section->skyLight = alloc.data;
+            section->skyLightBlock = alloc.block;
+            alloc = CallocInPool(serv->lightingPool);
+            section->blockLight = alloc.data;
+            section->blockLightBlock = alloc.block;
+        }
     } else {
         res = (Chunk *) (chunkMap + entry->tableIndex);
     }
     return res;
 }
 
-Chunk * GetChunkIfLoaded(WorldChunkPos pos) {
-    Chunk * res = FindChunk(pos);
-    if (res == NULL || !(res->flags & CHUNK_LOADED)) {
-        return NULL;
+void AddChunkInterest(WorldChunkPos pos, i32 interest) {
+    Chunk * chunk = GetOrCreateChunk(pos);
+    // TODO(traks): shouldn't need this...
+    assert(chunk != NULL);
+    if (chunk != NULL) {
+        chunk->interestCount += interest;
+        assert(chunk->interestCount >= 0);
+
+        if (chunk->interestCount > 0) {
+            i32 writerIndex = atomic_load_explicit(&chunkLoadRequestWriterIndex, memory_order_relaxed);
+            i32 nextWriterIndex = writerIndex + 1;
+            i32 readerIndex = atomic_load_explicit(&chunkLoadRequestReaderIndex, memory_order_acquire);
+            if (((nextWriterIndex - readerIndex) % ARRAY_SIZE(chunkLoadRequests)) != 0
+                    && !(chunk->flags & CHUNK_WAS_ON_LOAD_REQUEST_LIST)) {
+                // NOTE(traks): never remove chunks that are being loaded, since
+                // another thread could be accessing the chunk data
+                chunk->flags |= CHUNK_WAS_ON_LOAD_REQUEST_LIST | CHUNK_FORCE_KEEP;
+                chunkLoadRequests[writerIndex % ARRAY_SIZE(chunkLoadRequests)] = (ChunkLoadRequest) {chunk};
+                atomic_store_explicit(&chunkLoadRequestWriterIndex, nextWriterIndex, memory_order_release);
+            }
+        }
     }
-    return res;
 }
 
-Chunk * GetChunkIfAvailable(WorldChunkPos pos) {
+i32 PopChunksToLoad(i32 worldId, Chunk * * chunkArray, i32 maxChunks) {
+    // TODO(traks): don't ignore world ID
+    i32 chunkCount = 0;
+    for (i32 loops = 0; loops < 64; loops++) {
+        if (chunkCount >= maxChunks) {
+            break;
+        }
+
+        i32 readerIndex = atomic_load_explicit(&chunkLoadRequestReaderIndex, memory_order_acquire);
+        i32 writerIndex = atomic_load_explicit(&chunkLoadRequestWriterIndex, memory_order_acquire);
+        if (readerIndex == writerIndex) {
+            // NOTE(traks): nothing anymore to read
+            break;
+        }
+        i32 nextReaderIndex = readerIndex + 1;
+        ChunkLoadRequest loadRequest = chunkLoadRequests[readerIndex % ARRAY_SIZE(chunkLoadRequests)];
+        if (atomic_compare_exchange_weak_explicit(&chunkLoadRequestReaderIndex, &readerIndex, nextReaderIndex, memory_order_acq_rel, memory_order_relaxed)) {
+            Chunk * chunk = loadRequest.chunk;
+            chunkArray[chunkCount] = chunk;
+            chunkCount++;
+        }
+    }
+    return chunkCount;
+}
+
+void PushChunksFinishedLoading(i32 worldId, Chunk * * chunkArray, i32 chunkCount) {
+    i32 chunkIndex = 0;
+    for (;;) {
+        if (chunkIndex >= chunkCount) {
+            break;
+        }
+
+        Chunk * chunk = chunkArray[chunkIndex];
+        // NOTE(traks): claim our slot
+        // TODO(traks): make sure new writer index never equals reader index
+        // (limit how many chunks can be in flight at a time)
+        i32 writerClaim = atomic_fetch_add_explicit(&chunkCompleteRequestWriterClaiming, 1, memory_order_acq_rel);
+        chunkCompleteRequests[writerClaim % ARRAY_SIZE(chunkCompleteRequests)] = chunk;
+        for (;;) {
+            if (atomic_compare_exchange_weak_explicit(&chunkCompleteRequestWriterIndex, &writerClaim, writerClaim + 1, memory_order_acq_rel, memory_order_relaxed)) {
+                break;
+            }
+        }
+        chunkIndex++;
+    }
+}
+
+Chunk * GetChunkIfLoaded(WorldChunkPos pos) {
     Chunk * res = FindChunk(pos);
+    if (res == NULL || !(res->flags & CHUNK_FINISHED_LOADING)) {
+        return NULL;
+    }
     return res;
 }
 
@@ -488,12 +588,17 @@ clean_up_unused_chunks(void) {
         ChunkMapEntry * mapEntry = chunkMap + index;
         if (mapEntry->used) {
             Chunk * chunk = (Chunk *) mapEntry;
+
+            if (chunk->flags & CHUNK_FORCE_KEEP) {
+                continue;
+            }
+
             chunk->local_event_count = 0;
 
-            if (chunk->available_interest == 0) {
+            if (chunk->interestCount == 0) {
                 for (int sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
                     ChunkSection * section = chunk->sections + sectionIndex;
-                    if (section->nonAirCount != 0) {
+                    if (section->blockStates) {
                         MemoryPoolAllocation alloc = {.data = section->blockStates, .block = section->blockStatesBlock};
                         FreeInPool(serv->sectionPool, alloc);
                     }
@@ -513,47 +618,19 @@ clean_up_unused_chunks(void) {
 }
 
 void LoadChunks() {
-    for (int i = 0; i < serv->chunk_load_request_count; i++) {
-        ChunkLoadRequest request = serv->chunk_load_requests[i];
-        Chunk * ch = GetChunkIfAvailable(request.pos);
-        if (ch == NULL) {
-            continue;
-        }
-        if (ch->available_interest == 0) {
-            // no one cares about the chunk anymore, so don't bother loading it
-            continue;
-        }
-        if (ch->flags & CHUNK_LOADED) {
-            continue;
-        }
+    i32 startIndex = atomic_load_explicit(&chunkCompleteRequestReaderIndex, memory_order_relaxed);
+    i32 endIndex = atomic_load_explicit(&chunkCompleteRequestWriterIndex, memory_order_acquire);
+    for (i32 index = startIndex; index < endIndex; index++) {
+        Chunk * chunk = chunkCompleteRequests[index % ARRAY_SIZE(chunkCompleteRequests)];
+        atomic_fetch_add_explicit(&chunkCompleteRequestReaderIndex, 1, memory_order_acq_rel);
 
-        // @TODO(traks) actual chunk loading from whatever storage provider
         MemoryArena scratch_arena = {
             .data = serv->short_lived_scratch,
             .size = serv->short_lived_scratch_size
         };
 
         for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
-            ChunkSection * section = ch->sections + sectionIndex;
-            MemoryPoolAllocation alloc = CallocInPool(serv->sectionPool);
-            section->blockStates = alloc.data;
-            section->blockStatesBlock = alloc.block;
-        }
-
-        for (i32 sectionIndex = 0; sectionIndex < LIGHT_SECTIONS_PER_CHUNK; sectionIndex++) {
-            LightSection * section = ch->lightSections + sectionIndex;
-            MemoryPoolAllocation alloc = CallocInPool(serv->lightingPool);
-            section->skyLight = alloc.data;
-            section->skyLightBlock = alloc.block;
-            alloc = CallocInPool(serv->lightingPool);
-            section->blockLight = alloc.data;
-            section->blockLightBlock = alloc.block;
-        }
-
-        WorldLoadChunk(ch, &scratch_arena);
-
-        for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
-            ChunkSection * section = ch->sections + sectionIndex;
+            ChunkSection * section = chunk->sections + sectionIndex;
             if (section->nonAirCount == 0) {
                 MemoryPoolAllocation alloc = {.data = section->blockStates, .block = section->blockStatesBlock};
                 section->blockStates = NULL;
@@ -562,42 +639,13 @@ void LoadChunks() {
             }
         }
 
-        if (!(ch->flags & CHUNK_LOADED)) {
-            // @TODO(traks) fall back to stone plateau at min y level for now
-
-            // @NOTE(traks) clean up some of the mess the chunk loader might've
-            // left behind
-            for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
-                ChunkSection * section = ch->sections + sectionIndex;
-                MemoryPoolAllocation alloc = {.data = section->blockStates, .block = section->blockStatesBlock};
-                section->blockStates = NULL;
-                section->blockStatesBlock = NULL;
-                FreeInPool(serv->sectionPool, alloc);
-            }
-
-            // @TODO(traks) perhaps should require enough chunk sections to be
-            // available for chunk before even trying to load/generate it.
-
-            MemoryPoolAllocation alloc = CallocInPool(serv->sectionPool);
-            ch->sections[0].blockStates = alloc.data;
-            ch->sections[0].blockStatesBlock = alloc.block;
-            for (int x = 0; x < 16; x++) {
-                for (int z = 0; z < 16; z++) {
-                    int index = (z << 4) | x;
-                    ch->sections[0].blockStates[index] = 2;
-                    ch->motion_blocking_height_map[index] = MIN_WORLD_Y + 1;
-                    ch->sections[0].nonAirCount++;
-                }
-            }
-
-            ch->flags |= CHUNK_LOADED;
-        }
-
         // TODO(traks): something is wrong here
-        if (!(ch->flags & CHUNK_LIT) || 1) {
-            LightChunk(ch);
+        if (!(chunk->flags & CHUNK_LIT) || 1) {
+            LightChunk(chunk);
+            chunk->flags |= CHUNK_LIT;
         }
-    }
 
-    serv->chunk_load_request_count = 0;
+        chunk->flags &= ~(CHUNK_FORCE_KEEP);
+        chunk->flags |= CHUNK_FINISHED_LOADING;
+    }
 }

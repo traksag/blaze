@@ -1715,9 +1715,12 @@ enum game_event {
 #define PLAYER_LAST_HOTBAR_SLOT (44)
 #define PLAYER_OFF_HAND_SLOT (45)
 
+#define PLAYER_CHUNK_SENT (0x1 << 0)
+#define PLAYER_CHUNK_ADDED_INTEREST (0x1 << 1)
+
 typedef struct {
-    unsigned char sent;
-} chunk_cache_entry;
+    u8 flags;
+} PlayerChunkCacheEntry;
 
 typedef struct {
     entity_id eid;
@@ -1776,7 +1779,7 @@ typedef struct {
     i32 chunk_cache_centre_z;
     int new_chunk_cache_radius;
     // @TODO(traks) maybe this should just be a bitmap
-    chunk_cache_entry chunk_cache[MAX_CHUNK_CACHE_DIAM * MAX_CHUNK_CACHE_DIAM];
+    PlayerChunkCacheEntry chunkCache[MAX_CHUNK_CACHE_DIAM * MAX_CHUNK_CACHE_DIAM];
 
     i32 current_teleport_id;
 
@@ -2097,21 +2100,11 @@ typedef struct {
 } block_update_context;
 
 typedef struct {
-    WorldChunkPos pos;
-} ChunkLoadRequest;
-
-typedef struct {
     i64 current_tick;
 
     entity_base entities[MAX_ENTITIES];
     u16 next_entity_generations[MAX_ENTITIES];
     i32 entity_count;
-
-    // All chunks that should be loaded. Stored in a request list to allow for
-    // ordered loads. If a
-    // @TODO(traks) appropriate size
-    ChunkLoadRequest chunk_load_requests[64];
-    int chunk_load_request_count;
 
     // global messages for the current tick
     global_msg global_msgs[16];

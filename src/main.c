@@ -784,10 +784,10 @@ tick_entity(entity_base * entity, MemoryArena * tick_arena) {
 
 static void
 server_tick(void) {
-    BeginTimedZone("server tick");
+    BeginTimings(ServerTick);
 
     // accept new connections
-    BeginTimedZone("accept initial connections");
+    BeginTimings(AcceptInitialConnections);
 
     for (;;) {
         int accepted = accept(server_sock, NULL, NULL);
@@ -843,10 +843,10 @@ server_tick(void) {
         LogInfo("Created initial connection");
     }
 
-    EndTimedZone();
+    EndTimings(AcceptInitialConnections);
 
     // update initial connections
-    BeginTimedZone("update initial connections");
+    BeginTimings(UpdateInitialConnections);
 
     for (int i = 0; i < ARRAY_SIZE(initial_connections); i++) {
         initial_connection * init_con = initial_connections + i;
@@ -1072,9 +1072,9 @@ server_tick(void) {
         }
     }
 
-    EndTimedZone();
+    EndTimings(UpdateInitialConnections);
 
-    BeginTimedZone("send initial connections");
+    BeginTimings(SendInitialConnections);
 
     for (int i = 0; i < ARRAY_SIZE(initial_connections); i++) {
         initial_connection * init_con = initial_connections + i;
@@ -1164,10 +1164,10 @@ server_tick(void) {
         }
     }
 
-    EndTimedZone();
+    EndTimings(SendInitialConnections);
 
     // run scheduled block updates
-    BeginTimedZone("scheduled updates");
+    BeginTimings(ScheduledUpdates);
 
     MemoryArena scheduled_update_arena = {
         .data = serv->short_lived_scratch,
@@ -1175,10 +1175,10 @@ server_tick(void) {
     };
     propagate_delayed_block_updates(&scheduled_update_arena);
 
-    EndTimedZone();
+    EndTimings(ScheduledUpdates);
 
     // update entities
-    BeginTimedZone("tick entities");
+    BeginTimings(TickEntities);
 
     for (int i = 0; i < ARRAY_SIZE(serv->entities); i++) {
         entity_base * entity = serv->entities + i;
@@ -1194,9 +1194,9 @@ server_tick(void) {
         tick_entity(entity, &tick_arena);
     }
 
-    EndTimedZone();
+    EndTimings(TickEntities);
 
-    BeginTimedZone("update tab list");
+    BeginTimings(UpdateTabList);
 
     // remove players from tab list if necessary
     for (int i = 0; i < serv->tab_list_size; i++) {
@@ -1224,9 +1224,9 @@ server_tick(void) {
         serv->tab_list_size++;
     }
 
-    EndTimedZone();
+    EndTimings(UpdateTabList);
 
-    BeginTimedZone("send players");
+    BeginTimings(SendPlayers);
 
     for (int i = 0; i < ARRAY_SIZE(serv->entities); i++) {
         entity_base * entity = serv->entities + i;
@@ -1244,7 +1244,7 @@ server_tick(void) {
         send_packets_to_player(entity, &tick_arena);
     }
 
-    EndTimedZone();
+    EndTimings(SendPlayers);
 
     // clear global messages
     serv->global_msg_count = 0;
@@ -1253,7 +1253,7 @@ server_tick(void) {
     serv->tab_list_added_count = 0;
     serv->tab_list_removed_count = 0;
 
-    BeginTimedZone("clear entity changes");
+    BeginTimings(ClearEntityChanges);
 
     for (int i = 0; i < ARRAY_SIZE(serv->entities); i++) {
         entity_base * entity = serv->entities + i;
@@ -1264,22 +1264,22 @@ server_tick(void) {
         entity->changed_data = 0;
     }
 
-    EndTimedZone();
+    EndTimings(ClearEntityChanges);
 
     // load chunks from requests
-    BeginTimedZone("load chunks");
+    BeginTimings(LoadChunks);
 
     LoadChunks();
 
-    EndTimedZone();
+    EndTimings(LoadChunks);
 
     // update chunks
-    BeginTimedZone("update chunks");
+    BeginTimings(UpdateChunks);
     clean_up_unused_chunks();
-    EndTimedZone();
+    EndTimings(UpdateChunks);
 
     serv->current_tick++;
-    EndTimedZone();
+    EndTimings(ServerTick);
 }
 
 static int
@@ -1832,6 +1832,8 @@ main(void) {
 
     init_dimension_types();
     init_biomes();
+
+    InitAnvil();
 
     // @NOTE(traks) chunk sections assume that no changes happen in tick 0, so
     // initialise tick number to something larger than 0 to be safe

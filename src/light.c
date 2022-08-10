@@ -11,6 +11,8 @@
 #define LIGHT_QUEUE_SIZE (LIGHT_QUEUE_MAP_SIZE + 8)
 
 typedef struct {
+    // NOTE(traks): position is offset from minimum light level
+    // (i.e. min world height - 16)
     i8 x;
     i16 y;
     i8 z;
@@ -143,13 +145,13 @@ void LightChunk(Chunk * ch) {
     // Try switch to a different algorithm that propagates column downwards
     // first.
 
-    BeginTimedZone("LightChunk");
+    BeginTimings(LightChunk);
 
-    BeginTimedZone("InitLightChunk");
+    BeginTimings(InitLightChunk);
 
     i64 startTime = program_nano_time();
 
-    BeginTimedZone("Init queue");
+    BeginTimings(InitQueue);
 
     LightQueue skyLightQueue = {0};
     // @NOTE(traks) keep the entries array out of the queue struct, so it isn't
@@ -158,9 +160,9 @@ void LightChunk(Chunk * ch) {
     LightQueueEntry allEntries[LIGHT_QUEUE_SIZE];
     skyLightQueue.entries = allEntries;
 
-    EndTimedZone();
+    EndTimings(InitQueue);
 
-    BeginTimedZone("Set up references");
+    BeginTimings(InitReferences);
 
     // @NOTE(traks) set up section references for easy access
     u16 sectionAir[4096] = {0};
@@ -184,31 +186,37 @@ void LightChunk(Chunk * ch) {
         skyLightQueue.lightSections[sectionIndex * 4] = ch->lightSections[sectionIndex].skyLight;
     }
 
-    EndTimedZone();
+    EndTimings(InitReferences);
 
-    BeginTimedZone("Top light");
+    BeginTimings(TopLight);
 
     // @NOTE(traks) first set all y layers to full light level above the highest
     // block in the chunk
-    i32 firstFullAirY = MIN_WORLD_Y;
+    i32 firstFullAirYLightOffset = MIN_WORLD_Y;
     for (i32 zx = 0; zx < 16 * 16; zx++) {
         i32 firstAirY = ch->motion_blocking_height_map[zx];
-        firstFullAirY = MAX(firstAirY, firstFullAirY);
+        firstFullAirYLightOffset = MAX(firstAirY, firstFullAirYLightOffset);
     }
-    if (firstFullAirY == MIN_WORLD_Y) {
-        firstFullAirY -= 16;
+    // NOTE(traks): also fill the light section below the world with skylight if
+    // the chunk consists entirely of air
+    if (firstFullAirYLightOffset == MIN_WORLD_Y) {
+        firstFullAirYLightOffset -= 16;
     }
+    firstFullAirYLightOffset -= (MIN_WORLD_Y - 16);
 
-    i32 lowestSectionFullLight = ((firstFullAirY - MIN_WORLD_Y + 16 + 15) >> 4);
-    assert(lowestSectionFullLight >= 0);
-    assert(lowestSectionFullLight < LIGHT_SECTIONS_PER_CHUNK);
-    for (i32 sectionIndex = LIGHT_SECTIONS_PER_CHUNK - 1; sectionIndex >= lowestSectionFullLight; sectionIndex--) {
+    // NOTE(traks): first set sections above the first full air Y
+    i32 aboveLightSectionFullLight = (firstFullAirYLightOffset >> 4) + 1;
+    assert(aboveLightSectionFullLight >= 1);
+    assert(aboveLightSectionFullLight < LIGHT_SECTIONS_PER_CHUNK);
+    for (i32 sectionIndex = LIGHT_SECTIONS_PER_CHUNK - 1; sectionIndex >= aboveLightSectionFullLight; sectionIndex--) {
         memset(ch->lightSections[sectionIndex].skyLight, 0xff, 2048);
     }
-    i32 extraFullLightOffset = (firstFullAirY & 0xf) * 16 * 16 / 2;
-    memset(ch->lightSections[lowestSectionFullLight - 1].skyLight + extraFullLightOffset, 0xff, 2048 - extraFullLightOffset);
+    // NOTE(traks): fill the section of the first full air Y level with sky
+    // light above the Y coordinate
+    i32 extraFullLightOffset = (firstFullAirYLightOffset & 0xf) * 16 * 16 / 2;
+    memset(ch->lightSections[aboveLightSectionFullLight - 1].skyLight + extraFullLightOffset, 0xff, 2048 - extraFullLightOffset);
 
-    EndTimedZone();
+    EndTimings(TopLight);
 
     // NOTE(traks): here's another interesting approach. Per section we compute
     // a layer that we stack 16 times. This has the major benefit of being able
@@ -243,12 +251,12 @@ void LightChunk(Chunk * ch) {
     }
     */
 
-    EndTimedZone();
+    EndTimings(InitLightChunk);
 
     // @NOTE(traks) prepare sky light sources for propagation
 
     for (i32 zx = 0; zx < 16 * 16; zx++) {
-        i32 y = firstFullAirY - MIN_WORLD_Y + 16;
+        i32 y = firstFullAirYLightOffset;
         LightQueuePush(&skyLightQueue, (LightQueueEntry) {zx & 0xf, y, zx >> 4});
     }
 
@@ -277,7 +285,7 @@ void LightChunk(Chunk * ch) {
 
     i64 endTime = program_nano_time();
 
-    EndTimedZone();
+    EndTimings(LightChunk);
 
     if (DEBUG_LIGHTING_ENGINE) {
         static i64 totalPushCount;

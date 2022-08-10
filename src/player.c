@@ -1161,10 +1161,9 @@ begin_packet(BufCursor * send_cursor, i32 id) {
     // LogInfo("Packet: %d", (int) id);
 
     send_cursor->mark = send_cursor->index;
-    // reserve space for internal header
-    send_cursor->index += 1;
-    // skip some bytes for packet size varint at the start
-    send_cursor->index += 5;
+    // NOTE(traks): reserve space for internal header and skip some bytes for
+    // packet size varint at the start
+    CursorSkip(send_cursor, 1 + 5);
     CursorPutVarU32(send_cursor, id);
 }
 
@@ -1180,8 +1179,11 @@ finish_packet(BufCursor * send_cursor, entity_base * player) {
     // encoding.
 
     if (send_cursor->error != 0 || send_cursor->index == send_cursor->size) {
-        LogInfo("Finished invalid packet");
-        // @NOTE(traks) the cursor mark may be invalid
+        // @NOTE(traks) packet ID could be invalid, but print it anyway
+        send_cursor->index = send_cursor->mark;
+        CursorSkip(send_cursor, 6);
+        i32 maybeId = CursorGetVarU32(send_cursor);
+        LogInfo("Finished invalid packet: %d", maybeId);
         return;
     }
 
@@ -1207,13 +1209,13 @@ finish_packet(BufCursor * send_cursor, entity_base * player) {
 void
 send_chunk_fully(BufCursor * send_cursor, Chunk * ch,
         entity_base * entity, MemoryArena * tick_arena) {
-    BeginTimedZone("send chunk fully");
+    BeginTimings(SendChunkFully);
 
     begin_packet(send_cursor, CBP_LEVEL_CHUNK_WITH_LIGHT);
     CursorPutU32(send_cursor, ch->pos.x);
     CursorPutU32(send_cursor, ch->pos.z);
 
-    BeginTimedZone("write height map");
+    BeginTimings(WriteHeightMap);
 
     // @NOTE(traks) height map NBT
     {
@@ -1247,11 +1249,11 @@ send_chunk_fully(BufCursor * send_cursor, Chunk * ch,
         CursorPutU8(send_cursor, NBT_TAG_END);
     }
 
-    EndTimedZone();
+    EndTimings(WriteHeightMap);
 
     // @NOTE(traks) calculate size of block data
 
-    BeginTimedZone("write blocks");
+    BeginTimings(WriteBlocks);
 
     // calculate total size of chunk section data
     i32 section_data_size = 0;
@@ -1322,11 +1324,11 @@ send_chunk_fully(BufCursor * send_cursor, Chunk * ch,
     // number of block entities
     CursorPutVarU32(send_cursor, 0);
 
-    EndTimedZone();
+    EndTimings(WriteBlocks);
 
     // @NOTE(traks) now write lighting data
 
-    BeginTimedZone("write light");
+    BeginTimings(WriteLight);
 
     i32 lightSections = LIGHT_SECTIONS_PER_CHUNK;
     // @NOTE(traks) light sections present as arrays in this packet
@@ -1361,17 +1363,17 @@ send_chunk_fully(BufCursor * send_cursor, Chunk * ch,
         CursorPutData(send_cursor, section->blockLight, 2048);
     }
 
-    EndTimedZone();
+    EndTimings(WriteLight);
 
     finish_packet(send_cursor, entity);
 
-    EndTimedZone();
+    EndTimings(SendChunkFully);
 }
 
 static void
 send_light_update(BufCursor * send_cursor, ChunkPos pos, Chunk * ch,
         entity_base * entity, MemoryArena * tick_arena) {
-    BeginTimedZone("send light update");
+    BeginTimings(SendLightUpdate);
 
     // @TODO(traks) send the real lighting data
 
@@ -1418,7 +1420,7 @@ send_light_update(BufCursor * send_cursor, ChunkPos pos, Chunk * ch,
 
     finish_packet(send_cursor, entity);
 
-    EndTimedZone();
+    EndTimings(SendLightUpdate);
 }
 
 static void
@@ -1434,9 +1436,10 @@ disconnect_player_now(entity_base * entity) {
     for (i32 x = chunk_cache_min_x; x <= chunk_cache_max_x; x++) {
         for (i32 z = chunk_cache_min_z; z <= chunk_cache_max_z; z++) {
             WorldChunkPos pos = {.worldId = entity->worldId, .x = x, .z = z};
-            Chunk * ch = GetChunkIfAvailable(pos);
-            assert(ch != NULL);
-            ch->available_interest--;
+            PlayerChunkCacheEntry * cacheEntry = player->chunkCache + chunk_cache_index(pos.xz);
+            if (cacheEntry->flags & PLAYER_CHUNK_ADDED_INTEREST) {
+                AddChunkInterest(pos, -1);
+            }
         }
     }
 
@@ -1511,7 +1514,7 @@ add_stack_to_player_inventory(entity_base * player, item_stack * to_add) {
 
 void
 tick_player(entity_base * player, MemoryArena * tick_arena) {
-    BeginTimedZone("tick player");
+    BeginTimings(TickPlayer);
 
     // @TODO(traks) remove
     if (0) {
@@ -1734,7 +1737,7 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
     }
 
 bail:
-    EndTimedZone();
+    EndTimings(TickPlayer);
 }
 
 static void
@@ -2381,7 +2384,7 @@ send_player_abilities(BufCursor * send_cursor, entity_base * player) {
 // use the CPU cache better, etc.
 void
 send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
-    BeginTimedZone("send packets");
+    BeginTimings(SendPackets);
 
     size_t max_uncompressed_packet_size = 1 << 20;
     BufCursor send_cursor_ = {
@@ -2743,7 +2746,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     }
     player->player.changed_block_count = 0;
 
-    BeginTimedZone("update chunk cache");
+    BeginTimings(UpdateChunkCache);
 
     i32 chunk_cache_min_x = player->player.chunk_cache_centre_x - player->player.chunk_cache_radius;
     i32 chunk_cache_min_z = player->player.chunk_cache_centre_z - player->player.chunk_cache_radius;
@@ -2777,13 +2780,14 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     for (i32 x = chunk_cache_min_x; x <= chunk_cache_max_x; x++) {
         for (i32 z = chunk_cache_min_z; z <= chunk_cache_max_z; z++) {
             WorldChunkPos pos = {.worldId = player->worldId, .x = x, .z = z};
-            int index = chunk_cache_index(pos.xz);
+            i32 index = chunk_cache_index(pos.xz);
+            PlayerChunkCacheEntry * cacheEntry = player->player.chunkCache + index;
 
             if (x >= new_chunk_cache_min_x && x <= new_chunk_cache_max_x
                     && z >= new_chunk_cache_min_z && z <= new_chunk_cache_max_z) {
                 // old chunk still in new region
                 // send block changes if chunk is visible to the client
-                if (!player->player.chunk_cache[index].sent) {
+                if (!(cacheEntry->flags & PLAYER_CHUNK_SENT)) {
                     continue;
                 }
 
@@ -2840,34 +2844,18 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             }
 
             // old chunk is not in the new region
-            Chunk * ch = GetChunkIfAvailable(pos);
-            assert(ch != NULL);
-            ch->available_interest--;
+            if (cacheEntry->flags & PLAYER_CHUNK_ADDED_INTEREST) {
+                AddChunkInterest(pos, -1);
+            }
 
-            if (player->player.chunk_cache[index].sent) {
-                player->player.chunk_cache[index] = (chunk_cache_entry) {0};
-
+            if (cacheEntry->flags & PLAYER_CHUNK_SENT) {
                 begin_packet(send_cursor, CBP_FORGET_LEVEL_CHUNK);
                 CursorPutU32(send_cursor, x);
                 CursorPutU32(send_cursor, z);
                 finish_packet(send_cursor, player);
             }
-        }
-    }
 
-    // track new chunks
-    for (i32 x = new_chunk_cache_min_x; x <= new_chunk_cache_max_x; x++) {
-        for (i32 z = new_chunk_cache_min_z; z <= new_chunk_cache_max_z; z++) {
-            if (x >= chunk_cache_min_x && x <= chunk_cache_max_x
-                    && z >= chunk_cache_min_z && z <= chunk_cache_max_z) {
-                // chunk already in old region
-                continue;
-            }
-
-            // chunk not in old region
-            WorldChunkPos pos = {.worldId = player->worldId, .x = x, .z = z};
-            Chunk * ch = GetOrCreateChunk(pos);
-            ch->available_interest++;
+            *cacheEntry = (PlayerChunkCacheEntry) {0};
         }
     }
 
@@ -2875,10 +2863,10 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     player->player.chunk_cache_centre_x = new_chunk_cache_centre_x;
     player->player.chunk_cache_centre_z = new_chunk_cache_centre_z;
 
-    EndTimedZone();
+    EndTimings(UpdateChunkCache);
 
     // load and send tracked chunks
-    BeginTimedZone("load and send chunks");
+    BeginTimings(LoadAndSendChunks);
 
     // @TODO(traks) Don't send chunks if there are still chunks being sent to
     // the client. Don't want to overflow the connection with chunks and lag
@@ -2891,7 +2879,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     // don't need to wait for the chunk they are in to load) and allows
     // players to move around much earlier.
     int newly_sent_chunks = 0;
-    int newly_loaded_chunks = 0;
+    int newInterestAdded = 0;
     int chunk_cache_diam = 2 * player->player.new_chunk_cache_radius + 1;
     int chunk_cache_area = chunk_cache_diam * chunk_cache_diam;
     int off_x = 0;
@@ -2902,28 +2890,23 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         int x = new_chunk_cache_centre_x + off_x;
         int z = new_chunk_cache_centre_z + off_z;
         int cache_index = chunk_cache_index((ChunkPos) {.x = x, .z = z});
-        chunk_cache_entry * entry = player->player.chunk_cache + cache_index;
+        PlayerChunkCacheEntry * cacheEntry = player->player.chunkCache + cache_index;
         WorldChunkPos pos = {.worldId = player->worldId, .x = x, .z = z};
 
-        if (newly_loaded_chunks < MAX_CHUNK_LOADS_PER_TICK
-                && serv->chunk_load_request_count
-                < ARRAY_SIZE(serv->chunk_load_requests)) {
-            Chunk * ch = GetChunkIfAvailable(pos);
-            assert(ch != NULL);
-            assert(ch->available_interest > 0);
-            if (!(ch->flags & CHUNK_LOADED)) {
-                serv->chunk_load_requests[serv->chunk_load_request_count] = (ChunkLoadRequest) {.pos = pos};
-                serv->chunk_load_request_count++;
-                newly_loaded_chunks++;
-            }
+        if (!(cacheEntry->flags & PLAYER_CHUNK_ADDED_INTEREST)
+                && newInterestAdded < MAX_CHUNK_LOADS_PER_TICK) {
+            AddChunkInterest(pos, 1);
+            cacheEntry->flags |= PLAYER_CHUNK_ADDED_INTEREST;
+            newInterestAdded++;
         }
 
-        if (newly_sent_chunks < MAX_CHUNK_SENDS_PER_TICK && !entry->sent) {
+        if (!(cacheEntry->flags & PLAYER_CHUNK_SENT)
+                && newly_sent_chunks < MAX_CHUNK_SENDS_PER_TICK) {
             Chunk * ch = GetChunkIfLoaded(pos);
             if (ch != NULL) {
                 // send chunk blocks and lighting
                 send_chunk_fully(send_cursor, ch, player, tick_arena);
-                entry->sent = 1;
+                cacheEntry->flags |= PLAYER_CHUNK_SENT;
                 newly_sent_chunks++;
             }
         }
@@ -2939,10 +2922,10 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         }
     }
 
-    EndTimedZone();
+    EndTimings(LoadAndSendChunks);
 
     // send updates in player's own inventory
-    BeginTimedZone("send inventory");
+    BeginTimings(SendInventory);
 
     for (int i = 0; i < PLAYER_SLOTS; i++) {
         if (!(player->player.slots_needing_update & ((u64) 1 << i))) {
@@ -2983,10 +2966,10 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     memcpy(player->player.slots_prev_tick, player->player.slots,
             sizeof player->player.slots);
 
-    EndTimedZone();
+    EndTimings(SendInventory);
 
     // tab list updates
-    BeginTimedZone("send tab list");
+    BeginTimings(SendTabList);
 
     if (!(player->flags & PLAYER_INITIALISED_TAB_LIST)) {
         player->flags |= PLAYER_INITIALISED_TAB_LIST;
@@ -3076,10 +3059,10 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         }
     }
 
-    EndTimedZone();
+    EndTimings(SendTabList);
 
     // entity tracking
-    BeginTimedZone("track entities");
+    BeginTimings(TrackEntities);
 
     entity_id removed_entities[64];
     int removed_entity_count = 0;
@@ -3148,10 +3131,10 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         finish_packet(send_cursor, player);
     }
 
-    EndTimedZone();
+    EndTimings(TrackEntities);
 
     // send chat messages
-    BeginTimedZone("send chat");
+    BeginTimings(SendChat);
 
     for (int i = 0; i < serv->global_msg_count; i++) {
         global_msg * msg = serv->global_msgs + i;
@@ -3195,7 +3178,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         finish_packet(send_cursor, player);
     }
 
-    EndTimedZone();
+    EndTimings(SendChat);
 
     // try to write everything to the socket buffer
 
@@ -3206,7 +3189,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         goto bail;
     }
 
-    BeginTimedZone("finalise packets");
+    BeginTimings(FinalisePackets);
 
     BufCursor final_cursor_ = {
         .data = player->player.send_buf,
@@ -3280,7 +3263,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         send_cursor->index = packet_end;
     }
 
-    EndTimedZone();
+    EndTimings(FinalisePackets);
 
     if (final_cursor->error != 0) {
         // just disconnect the player
@@ -3289,10 +3272,10 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         goto bail;
     }
 
-    BeginTimedZone("send()");
+    BeginTimings(SystemSend);
     ssize_t send_size = send(player->player.sock, final_cursor->data,
             final_cursor->index, 0);
-    EndTimedZone();
+    EndTimings(SystemSend);
 
     if (send_size == -1) {
         // EAGAIN means no data sent
@@ -3307,7 +3290,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     }
 
 bail:
-    EndTimedZone();
+    EndTimings(SendPackets);
 }
 
 int

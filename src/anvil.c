@@ -6,13 +6,52 @@
 #include <sys/stat.h>
 #include <stdio.h>
 #include <string.h>
+#include <pthread.h>
 #include "shared.h"
 #include "buf.h"
 #include "nbt.h"
 #include "chunk.h"
 
+static void * RunAnvilThread(void * arg) {
+#ifdef PROFILE
+    TracyCSetThreadName("Anvil");
+#endif
+    i32 scratchSize = 4 * (1 << 20);
+    MemoryArena scratchArena_ = {
+        .size = scratchSize,
+        .data = malloc(scratchSize)
+    };
+    MemoryArena * scratchArena = &scratchArena_;
+    Chunk * chunkArray[64];
+
+    for (;;) {
+        // TODO(traks): world ID
+        i32 chunkCount = PopChunksToLoad(0, chunkArray, ARRAY_SIZE(chunkArray));
+        for (i32 chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
+            Chunk * chunk = chunkArray[chunkIndex];
+            ClearArena(scratchArena);
+            WorldLoadChunk(chunk, scratchArena);
+        }
+
+        // TODO(traks): world ID
+        PushChunksFinishedLoading(0, chunkArray, chunkCount);
+
+        if (chunkCount == 0) {
+            usleep(50000);
+        }
+    }
+    return NULL;
+}
+
+void InitAnvil() {
+    pthread_t loaderThread;
+    if (pthread_create(&loaderThread, NULL, RunAnvilThread, NULL)) {
+        // TODO(traks): handle failure?
+    }
+}
+
 static void FillBufferFromFile(int fd, BufCursor * cursor) {
-    BeginTimedZone("read file");
+    BeginTimings(ReadFile);
 
     int start_index = cursor->index;
 
@@ -38,11 +77,11 @@ static void FillBufferFromFile(int fd, BufCursor * cursor) {
     cursor->size = cursor->index;
     cursor->index = start_index;
 
-    EndTimedZone();
+    EndTimings(ReadFile);
 }
 
 void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
-    BeginTimedZone("read chunk");
+    BeginTimings(ReadChunk);
 
     // @TODO(traks) error handling and/or error messages for all failure cases
     // in this entire function?
@@ -151,7 +190,7 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
         goto bail;
     }
 
-    BeginTimedZone("inflate");
+    BeginTimings(Inflate);
     // @TODO(traks) perhaps use https://github.com/ebiggers/libdeflate instead
     // of zlib. Using zlib now just because I had the code for it laying around.
     // If we don't end up doing this, make sure the code below is actually
@@ -163,7 +202,7 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
 
     if (inflateInit2(&zstream, windowBits) != Z_OK) {
         LogInfo("inflateInit failed");
-        EndTimedZone();
+        EndTimings(Inflate);
         goto bail;
     }
 
@@ -202,16 +241,16 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
 
     if (inflateEnd(&zstream) != Z_OK) {
         LogInfo("inflateEnd failed");
-        EndTimedZone();
+        EndTimings(Inflate);
         goto bail;
     }
 
     // bail in case of any errors above
     if (zstream.avail_in != 0) {
-        EndTimedZone();
+        EndTimings(Inflate);
         goto bail;
     }
-    EndTimedZone();
+    EndTimings(Inflate);
 
     cursor = (BufCursor) {
         .data = uncompressed,
@@ -406,17 +445,16 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
         goto bail;
     }
 
-    chunk->flags |= CHUNK_LOADED;
     if (lightIsStored) {
         chunk->flags |= CHUNK_LIT;
     }
 
 bail:
-    EndTimedZone();
+    EndTimings(ReadChunk);
 
     if (region_fd != -1) {
-        BeginTimedZone("close file");
+        BeginTimings(CloseFile);
         close(region_fd);
-        EndTimedZone();
+        EndTimings(CloseFile);
     }
 }

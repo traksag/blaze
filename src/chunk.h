@@ -3,8 +3,6 @@
 
 #include "shared.h"
 
-#define CHUNK_LIT (1u << 1)
-
 typedef struct {
     // @NOTE(traks) index as yzx
     // @NOTE(traks) NULL if section is air
@@ -27,11 +25,10 @@ typedef struct {
     MemoryPoolBlock * blockLightBlock;
 } LightSection;
 
-enum ChunkStatus {
-    CHUNK_INITIALISED,
-    CHUNK_REQUESTED_LOAD,
-    CHUNK_LOADED,
-};
+#define CHUNK_FINISHED_LOADING (0x1 << 0)
+#define CHUNK_WAS_ON_LOAD_REQUEST_LIST (0x1 << 1)
+#define CHUNK_FORCE_KEEP (0x1 << 3)
+#define CHUNK_LIT (0x1 << 4)
 
 typedef struct {
     ChunkSection sections[SECTIONS_PER_CHUNK];
@@ -42,7 +39,7 @@ typedef struct {
     // increment if you want to keep a chunk available in the map, decrement
     // if you no longer care for the chunk.
     // If = 0 the chunk will be removed from the map at some point.
-    u32 available_interest;
+    i32 interestCount;
     i32 chunkStatus;
     unsigned flags;
 
@@ -87,9 +84,10 @@ static inline WorldChunkPos WorldBlockPosChunk(WorldBlockPos pos) {
     return res;
 }
 
-Chunk * GetOrCreateChunk(WorldChunkPos pos);
+void AddChunkInterest(WorldChunkPos pos, i32 interest);
+i32 PopChunksToLoad(i32 worldId, Chunk * * chunkArray, i32 maxChunks);
+void PushChunksFinishedLoading(i32 worldId, Chunk * * chunkArray, i32 chunkCount);
 Chunk * GetChunkIfLoaded(WorldChunkPos pos);
-Chunk * GetChunkIfAvailable(WorldChunkPos pos);
 
 typedef struct {
     i32 oldState;
@@ -129,5 +127,7 @@ void LightChunk(Chunk * ch);
 void ChunkRecalculateMotionBlockingHeightMap(Chunk * ch);
 
 void LoadChunks();
+
+void InitAnvil();
 
 #endif

@@ -17,28 +17,14 @@
 
 #include <tracy/TracyC.h>
 
-extern TracyCZoneCtx tracyContexts[64];
-extern int tracyContextCount;
+#define BeginTimings(name) TracyCZoneNS(name##ctx, #name, 10, 1)
 
-#define BeginTimedZone(name) \
-    do { \
-        int tracyContextIndex = tracyContextCount; \
-        tracyContextCount++; \
-        TracyCZoneNS(ctx, name, 10, 1); \
-        tracyContexts[tracyContextIndex] = ctx; \
-    } while (0)
-
-#define EndTimedZone() \
-    do { \
-        tracyContextCount--; \
-        TracyCZoneCtx ctx = tracyContexts[tracyContextCount]; \
-        TracyCZoneEnd(ctx); \
-    } while (0)
+#define EndTimings(name) TracyCZoneEnd(name##ctx)
 
 #else
 
-#define BeginTimedZone(name)
-#define EndTimedZone()
+#define BeginTimings(name) i32 name##ctx = 0
+#define EndTimings(name) name##ctx = 1
 
 #endif // PROFILE
 
@@ -142,6 +128,10 @@ typedef struct {
     MemoryArena * arena;
     i32 startIndex;
 } TempMemoryArena;
+
+static void ClearArena(MemoryArena * arena) {
+    arena->index = 0;
+}
 
 static void * MallocInArena(MemoryArena * arena, i32 size) {
     i32 align = alignof (max_align_t);

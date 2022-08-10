@@ -175,7 +175,7 @@ static NbtValue * MakeNbtListEntry(NbtLevel * level, MemoryArena * arena) {
 }
 
 NbtCompound NbtRead(BufCursor * buf, MemoryArena * arena) {
-    BeginTimedZone("NbtRead");
+    BeginTimings(NbtRead);
     DebugPuts("-----");
 
     // process first tag
@@ -560,7 +560,7 @@ NbtCompound NbtRead(BufCursor * buf, MemoryArena * arena) {
     }
 
 bail:
-    EndTimedZone();
+    EndTimings(NbtRead);
     if (error) {
         root = NULL;
     }
