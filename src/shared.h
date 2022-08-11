@@ -37,6 +37,16 @@
 // whether all play packets should be compressed or not
 #define PACKET_COMPRESSION_ENABLED (1)
 
+// NOTE(traks): for block positions: 26 bits X, 26 bits Z, 12 bits Y
+// NOTE(traks): for chunk positions: 22 bits X, 22 bits Z
+// NOTE(traks): for world ID: 12 bits
+
+#define MAX_WORLD_ID ((1 << 12) - 1)
+// TODO(traks): we kind of have to support the vanilla limits, because people
+// like building stuff at the very edge. Ideally the world ID + XYZ would all
+// fit in a 64-bit value... might need to experiment at some point
+#define MIN_WORLD_XZ (-30000000)
+#define MAX_WORLD_XZ (29999999)
 // @NOTE(traks) must be multiple of 16
 #define MIN_WORLD_Y (0 - 64)
 // @NOTE(traks) must be 1 less than a multiple of 16

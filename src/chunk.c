@@ -13,9 +13,40 @@
 
 #define MAX_LOADED_CHUNKS (1024)
 
+// TODO(traks): we could also include the ID of the one with interest into the
+// chunk hash. Then we can't really run into issues where someone over-releasing
+// their interest frees up chunks that others are still interested in. Though to
+// be honest, this sounds more useful for debugging, and like massive overhead
+// for production servers (441 * 1000 is a lot of entries...)
+//
+// We can then also immediately add a virtual chunk system. Though we will
+// probably need to be able to refer to block data and other stuff separately
+// and have everything be copy on write.
+//
+// There are some pretty interesting things you can do with a virtual chunk
+// system. For example, set up duplicate worlds, so staff/builders can modify
+// lobbies/games and then sync the changes to the actual world. It's also
+// possible to set up per-player zones this way that are fully interactible and
+// have minimal memory usage. It automatically copies chunks if stuff is
+// modified. Flat worlds and plot worlds also have less memory usage this way.
+// Resetting game arenas is also trivial with virtual chunks. And hosting
+// multiple instances of the same minigame is also easy (set up mirror worlds).
+//
+// We could also add salt to whatever ID system we use, so it's harder for
+// players to force hash collisions.
+
+// TODO(traks): may be worthwhile to store multiple chunks under one hash. E.g.
+// a 4x4 per hash seems good (or even 8x8 so we can fit array of 16-bit
+// interestCounts into 1 cache lane). That adds a border of waste around player
+// loaded chunks (roughly 0.5-0.65 of the total is wasted) (linear!). However,
+// the number of entries is decreased by a factor of 16 (quadratic!).
+//
+// Might also be a bit more cache friendly, since if you access 1 chunk, you
+// probably also want to access some neighbouring chunks.
 typedef struct {
     WorldChunkPos pos;
     i32 tableIndex;
+    // @TODO(traks): maybe don't memoise this
     i32 hash;
 } ChunkHashEntry;
 
@@ -55,9 +86,27 @@ static i32 WorldChunkPosEqual(WorldChunkPos a, WorldChunkPos b) {
     return a.worldId == b.worldId && a.x == b.x && a.z == b.z;
 }
 
+// NOTe(traks): jenkins one at a time
+static inline u32 HashU64(u64 key) {
+    u8 * bytes = (u8 *) &key;
+    i32 length = 8;
+    u32 hash = 0;
+    for (i32 i = 0; i < length; i++) {
+        hash += bytes[i];
+        hash += hash << 10;
+        hash ^= hash >> 6;
+    }
+    hash += hash << 3;
+    hash ^= hash >> 11;
+    hash += hash << 15;
+    return hash;
+}
+
 static i32 HashWorldChunkPos(WorldChunkPos pos) {
     // NOTE(traks): never return 0 as hash. That means empty hash slot
-    return ((pos.x & 0x1f) << 5) | (pos.z & 0x1f) | 0x80000000;
+    u64 key = (((u64) pos.worldId & 0xfff) << 44) | (((u64) pos.x & 0x3fffff) << 22) | ((u64) pos.z & 0x3fffff);
+    u32 hash = HashU64(key) | 0x80000000;
+    return hash;
 }
 
 static i32 ChunkHashEntryIsEmpty(ChunkHashEntry * entry) {
