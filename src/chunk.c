@@ -1,4 +1,5 @@
 #include <stdatomic.h>
+#include <stdlib.h>
 #include "shared.h"
 #include "nbt.h"
 #include "chunk.h"
@@ -71,8 +72,8 @@ typedef struct {
 
 // NOTE(traks): single thread writer, multi thread reader
 static ChunkLoadRequest chunkLoadRequests[MAX_LOADED_CHUNKS];
-static _Atomic i32 chunkLoadRequestWriterIndex;
-static _Atomic i32 chunkLoadRequestReaderIndex;
+static i32 chunkLoadRequestWriterIndex;
+static i32 chunkLoadRequestReaderIndex;
 
 // NOTE(traks): multi thread writer, single thread reader
 static Chunk * chunkCompleteRequests[MAX_LOADED_CHUNKS];
@@ -561,44 +562,18 @@ void AddChunkInterest(WorldChunkPos pos, i32 interest) {
         assert(chunk->interestCount >= 0);
 
         if (chunk->interestCount > 0) {
-            i32 writerIndex = atomic_load_explicit(&chunkLoadRequestWriterIndex, memory_order_relaxed);
-            i32 nextWriterIndex = writerIndex + 1;
-            i32 readerIndex = atomic_load_explicit(&chunkLoadRequestReaderIndex, memory_order_acquire);
-            if (((nextWriterIndex - readerIndex) % ARRAY_SIZE(chunkLoadRequests)) != 0
-                    && !(chunk->flags & CHUNK_WAS_ON_LOAD_REQUEST_LIST)) {
+            i32 writerIndex = chunkLoadRequestWriterIndex;
+            i32 nextWriterIndex = (writerIndex + 1) % ARRAY_SIZE(chunkLoadRequests);
+            i32 readerIndex = chunkLoadRequestReaderIndex;
+            if (nextWriterIndex != readerIndex && !(chunk->flags & CHUNK_WAS_ON_LOAD_REQUEST_LIST)) {
                 // NOTE(traks): never remove chunks that are being loaded, since
                 // another thread could be accessing the chunk data
                 chunk->flags |= CHUNK_WAS_ON_LOAD_REQUEST_LIST | CHUNK_FORCE_KEEP;
                 chunkLoadRequests[writerIndex % ARRAY_SIZE(chunkLoadRequests)] = (ChunkLoadRequest) {chunk};
-                atomic_store_explicit(&chunkLoadRequestWriterIndex, nextWriterIndex, memory_order_release);
+                chunkLoadRequestWriterIndex = nextWriterIndex;
             }
         }
     }
-}
-
-i32 PopChunksToLoad(i32 worldId, Chunk * * chunkArray, i32 maxChunks) {
-    // TODO(traks): don't ignore world ID
-    i32 chunkCount = 0;
-    for (i32 loops = 0; loops < 64; loops++) {
-        if (chunkCount >= maxChunks) {
-            break;
-        }
-
-        i32 readerIndex = atomic_load_explicit(&chunkLoadRequestReaderIndex, memory_order_acquire);
-        i32 writerIndex = atomic_load_explicit(&chunkLoadRequestWriterIndex, memory_order_acquire);
-        if (readerIndex == writerIndex) {
-            // NOTE(traks): nothing anymore to read
-            break;
-        }
-        i32 nextReaderIndex = readerIndex + 1;
-        ChunkLoadRequest loadRequest = chunkLoadRequests[readerIndex % ARRAY_SIZE(chunkLoadRequests)];
-        if (atomic_compare_exchange_weak_explicit(&chunkLoadRequestReaderIndex, &readerIndex, nextReaderIndex, memory_order_acq_rel, memory_order_relaxed)) {
-            Chunk * chunk = loadRequest.chunk;
-            chunkArray[chunkCount] = chunk;
-            chunkCount++;
-        }
-    }
-    return chunkCount;
 }
 
 void PushChunksFinishedLoading(i32 worldId, Chunk * * chunkArray, i32 chunkCount) {
@@ -666,7 +641,41 @@ clean_up_unused_chunks(void) {
     }
 }
 
+static void LoadChunkAsync(void * arg) {
+    Chunk * chunk = arg;
+    // TODO(traks): turn this into thread local or something?
+    i32 scratchSize = 4 * (1 << 20);
+    MemoryArena scratchArena = {
+        .size = scratchSize,
+        .data = malloc(scratchSize)
+    };
+    WorldLoadChunk(chunk, &scratchArena);
+    free(scratchArena.data);
+    PushChunksFinishedLoading(chunk->pos.worldId, &chunk, 1);
+}
+
+static void ScheduleLoadTasks() {
+    for (i32 loops = 0; loops < 64; loops++) {
+        i32 readerIndex = chunkLoadRequestReaderIndex;
+        i32 writerIndex = chunkLoadRequestWriterIndex;
+        if (readerIndex == writerIndex) {
+            // NOTE(traks): nothing anymore to read
+            break;
+        }
+        i32 nextReaderIndex = (readerIndex + 1) % ARRAY_SIZE(chunkLoadRequests);
+        ChunkLoadRequest loadRequest = chunkLoadRequests[readerIndex];
+        Chunk * chunk = loadRequest.chunk;
+        if (!PushTaskToQueue(serv->backgroundQueue, LoadChunkAsync, chunk)) {
+            break;
+        }
+
+        chunkLoadRequestReaderIndex = nextReaderIndex;
+    }
+}
+
 void LoadChunks() {
+    ScheduleLoadTasks();
+
     i32 startIndex = atomic_load_explicit(&chunkCompleteRequestReaderIndex, memory_order_relaxed);
     i32 endIndex = atomic_load_explicit(&chunkCompleteRequestWriterIndex, memory_order_acquire);
     for (i32 index = startIndex; index < endIndex; index++) {
@@ -677,6 +686,8 @@ void LoadChunks() {
             .data = serv->short_lived_scratch,
             .size = serv->short_lived_scratch_size
         };
+
+        // TODO(traks): deal with chunk load failure
 
         for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
             ChunkSection * section = chunk->sections + sectionIndex;

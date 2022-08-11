@@ -149,7 +149,7 @@ void LightChunk(Chunk * ch) {
 
     BeginTimings(InitLightChunk);
 
-    i64 startTime = program_nano_time();
+    i64 startTime = NanoTime();
 
     BeginTimings(InitQueue);
 
@@ -283,7 +283,7 @@ void LightChunk(Chunk * ch) {
         PropagateSkyLight(&skyLightQueue, x, y, z, 0, 1, 0, value, value - 1);
     }
 
-    i64 endTime = program_nano_time();
+    i64 endTime = NanoTime();
 
     EndTimings(LightChunk);
 

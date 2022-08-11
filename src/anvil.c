@@ -12,44 +12,6 @@
 #include "nbt.h"
 #include "chunk.h"
 
-static void * RunAnvilThread(void * arg) {
-#ifdef PROFILE
-    TracyCSetThreadName("Anvil");
-#endif
-    i32 scratchSize = 4 * (1 << 20);
-    MemoryArena scratchArena_ = {
-        .size = scratchSize,
-        .data = malloc(scratchSize)
-    };
-    MemoryArena * scratchArena = &scratchArena_;
-    Chunk * chunkArray[64];
-
-    for (;;) {
-        // TODO(traks): world ID
-        i32 chunkCount = PopChunksToLoad(0, chunkArray, ARRAY_SIZE(chunkArray));
-        for (i32 chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
-            Chunk * chunk = chunkArray[chunkIndex];
-            ClearArena(scratchArena);
-            WorldLoadChunk(chunk, scratchArena);
-        }
-
-        // TODO(traks): world ID
-        PushChunksFinishedLoading(0, chunkArray, chunkCount);
-
-        if (chunkCount == 0) {
-            usleep(50000);
-        }
-    }
-    return NULL;
-}
-
-void InitAnvil() {
-    pthread_t loaderThread;
-    if (pthread_create(&loaderThread, NULL, RunAnvilThread, NULL)) {
-        // TODO(traks): handle failure?
-    }
-}
-
 static void FillBufferFromFile(int fd, BufCursor * cursor) {
     BeginTimings(ReadFile);
 
@@ -448,6 +410,8 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
     if (lightIsStored) {
         chunk->flags |= CHUNK_LIT;
     }
+
+    chunk->flags |= CHUNK_LOAD_SUCCESS;
 
 bail:
     EndTimings(ReadChunk);

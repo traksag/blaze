@@ -3,6 +3,7 @@
 
 #include "base.h"
 #include "blockinfo.h"
+#include "task.h"
 
 #define SERVER_PROTOCOL_VERSION (759)
 
@@ -2183,6 +2184,8 @@ typedef struct {
 
     MemoryPool * sectionPool;
     MemoryPool * lightingPool;
+
+    TaskQueue * backgroundQueue;
 } server;
 
 extern server * serv;

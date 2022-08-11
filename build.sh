@@ -3,7 +3,7 @@ slow=0
 assert=0
 
 CFLAGS=""
-LIBS="-lz -lm"
+LIBS="-lz -lm -lpthread"
 
 if [ $slow == 0 ]; then
     CFLAGS+=" -flto -O3 -march=native"
@@ -27,7 +27,7 @@ elif [ $profile == 1 ]; then
         rm lib/tracy.zip
     fi
 
-    LIBS+=" -lpthread -ldl"
+    LIBS+=" -ldl"
 
     if [[ "$OSTYPE" == darwin* ]]; then
         # No lib atomic on macOS

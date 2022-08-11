@@ -29,6 +29,7 @@ typedef struct {
 #define CHUNK_WAS_ON_LOAD_REQUEST_LIST (0x1 << 1)
 #define CHUNK_FORCE_KEEP (0x1 << 3)
 #define CHUNK_LIT (0x1 << 4)
+#define CHUNK_LOAD_SUCCESS (0x1 << 5)
 
 typedef struct {
     ChunkSection sections[SECTIONS_PER_CHUNK];
@@ -127,7 +128,5 @@ void LightChunk(Chunk * ch);
 void ChunkRecalculateMotionBlockingHeightMap(Chunk * ch);
 
 void LoadChunks();
-
-void InitAnvil();
 
 #endif

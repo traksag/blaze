@@ -68,46 +68,35 @@ typedef struct {
 static initial_connection initial_connections[32];
 static int initial_connection_count;
 
-#ifdef PROFILE
-
-TracyCZoneCtx tracyContexts[64];
-int tracyContextCount;
-
-#endif // PROFILE
-
 #if defined(__APPLE__) && defined(__MACH__)
 
-static mach_timebase_info_data_t timebase_info;
-static unsigned long long program_start_time;
+static mach_timebase_info_data_t timebaseInfo;
+static i64 programStartTime;
 
-static void
-init_program_nano_time() {
-    mach_timebase_info(&timebase_info);
-    program_start_time = mach_absolute_time();
+static void InitNanoTime() {
+    mach_timebase_info(&timebaseInfo);
+    programStartTime = mach_absolute_time();
 }
 
-long long
-program_nano_time() {
-    long long diff = mach_absolute_time() - program_start_time;
-    return diff * timebase_info.numer / timebase_info.denom;
+i64 NanoTime() {
+    i64 diff = mach_absolute_time() - programStartTime;
+    return diff * timebaseInfo.numer / timebaseInfo.denom;
 }
 
 #else
 
-static struct timespec program_start_time;
+static struct timespec programStartTime;
 
-static void
-init_program_nano_time() {
-    clock_gettime(CLOCK_MONOTONIC, &program_start_time);
+static void InitNanoTime() {
+    clock_gettime(CLOCK_MONOTONIC, &programStartTime);
 }
 
-long long
-program_nano_time() {
+i64 NanoTime() {
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
-    long long diff_sec_nanos = (now.tv_sec - program_start_time.tv_sec) * 1000000000;
-    long long diff_nanos = (long long) now.tv_nsec - program_start_time.tv_nsec;
-    return diff_sec_nanos + diff_nanos;
+    i64 diffSeconds = ((i64) now.tv_sec - programStartTime.tv_sec) * (i64) 1000000000;
+    i64 diffNanos = (i64) now.tv_nsec - programStartTime.tv_nsec;
+    return diffSeconds + diffNanos;
 }
 
 #endif
@@ -1707,7 +1696,7 @@ init_biomes(void) {
 
 int
 main(void) {
-    init_program_nano_time();
+    InitNanoTime();
 
     LogInfo("Running Blaze");
 
@@ -1794,16 +1783,18 @@ main(void) {
     }
 
     // @TODO(traks) must be able to grow
+    i32 tickArenaSize = 1 << 20;
     MemoryArena tickArena = {
-        .size = 1 << 20,
-        .data = calloc(tickArena.size, 1)
+        .size = tickArenaSize,
+        .data = calloc(tickArenaSize, 1)
     };
     serv->tickArena = &tickArena;
 
     // @TODO(traks) use this arena for other stuff we allocate above as well
+    i32 permanentArenaSize = 1 << 20;
     MemoryArena permanentArena = {
-        .size = 1 << 20,
-        .data = calloc(permanentArena.size, 1)
+        .size = permanentArenaSize,
+        .data = calloc(permanentArenaSize, 1)
     };
     serv->permanentArena = &permanentArena;
 
@@ -1833,24 +1824,26 @@ main(void) {
     init_dimension_types();
     init_biomes();
 
-    InitAnvil();
-
     // @NOTE(traks) chunk sections assume that no changes happen in tick 0, so
     // initialise tick number to something larger than 0 to be safe
     serv->current_tick = 10;
+
+    TaskQueue * backgroundQueue = MallocInArena(serv->permanentArena, sizeof *backgroundQueue);
+    CreateTaskQueue(backgroundQueue, 2);
+    serv->backgroundQueue = backgroundQueue;
 
     for (;;) {
 #ifdef PROFILE
         TracyCFrameMark
 #endif
 
-        long long start_time = program_nano_time();
+        i64 start_time = NanoTime();
 
         serv->tickArena->index = 0;
         server_tick();
 
-        long long end_time = program_nano_time();
-        long long elapsed_micros = (end_time - start_time) / 1000;
+        i64 end_time = NanoTime();
+        i64 elapsed_micros = (end_time - start_time) / 1000;
 
         if (got_sigint) {
             LogInfo("Interrupted");

@@ -110,7 +110,7 @@ typedef struct {
 
 #define STR(x) ((String) {.size = strlen(x), .data = (u8 *) (x)})
 
-i64 program_nano_time();
+i64 NanoTime();
 
 // @NOTE(traks) make sure you're not logging user input directly, but as e.g.
 // LogInfo("%s", userMessage), otherwise users can crash the server by pasting
