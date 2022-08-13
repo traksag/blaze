@@ -1137,7 +1137,7 @@ server_tick(void) {
                 // on player pose
                 entity->collision_width = 0.6;
                 entity->collision_height = 1.8;
-                set_player_gamemode(entity, GAMEMODE_CREATIVE);
+                set_player_gamemode(entity, GAMEMODE_SPECTATOR);
 
                 teleport_player(entity, 88, 70, 73, 0, 0);
 
@@ -1831,6 +1831,8 @@ main(void) {
     TaskQueue * backgroundQueue = MallocInArena(serv->permanentArena, sizeof *backgroundQueue);
     CreateTaskQueue(backgroundQueue, 2);
     serv->backgroundQueue = backgroundQueue;
+
+    InitChunkSystem();
 
     for (;;) {
 #ifdef PROFILE

@@ -2746,6 +2746,16 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     }
     player->player.changed_block_count = 0;
 
+    // NOTE(traks): takes 100us if doing nothing with all chunks loaded!!
+    // Profiling results:
+    //
+    // Calls to getChunkIfLoaded seem to take ~175ns
+    // (that's 2 main memory accesses?)
+    // Adds up to 175 * 441 = 77 us
+
+    static i64 getChunkTime = 0;
+    static i64 getChunkCalls = 0;
+
     BeginTimings(UpdateChunkCache);
 
     i32 chunk_cache_min_x = player->player.chunk_cache_centre_x - player->player.chunk_cache_radius;
@@ -2791,7 +2801,12 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                     continue;
                 }
 
+                getChunkCalls++;
+                i64 startTime = NanoTime();
                 Chunk * ch = GetChunkIfLoaded(pos);
+                i64 endTime = NanoTime();
+                getChunkTime += (endTime - startTime);
+
                 assert(ch != NULL);
 
                 for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
@@ -2864,6 +2879,12 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     player->player.chunk_cache_centre_z = new_chunk_cache_centre_z;
 
     EndTimings(UpdateChunkCache);
+
+    if (DEBUG_CHUNK_SYSTEM) {
+        if (getChunkCalls > 0) {
+            LogInfo("Get chunk time: %ld ns, calls: %ld", getChunkTime / getChunkCalls, getChunkCalls);
+        }
+    }
 
     // load and send tracked chunks
     BeginTimings(LoadAndSendChunks);

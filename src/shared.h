@@ -62,6 +62,8 @@
 
 #define DEBUG_LIGHTING_ENGINE (0)
 
+#define DEBUG_CHUNK_SYSTEM (0)
+
 // in network id order
 enum gamemode {
     GAMEMODE_SURVIVAL,

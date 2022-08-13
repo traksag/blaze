@@ -129,4 +129,6 @@ void ChunkRecalculateMotionBlockingHeightMap(Chunk * ch);
 
 void LoadChunks();
 
+void InitChunkSystem();
+
 #endif

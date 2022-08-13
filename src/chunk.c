@@ -1,5 +1,6 @@
 #include <stdatomic.h>
 #include <stdlib.h>
+#include <sys/mman.h>
 #include "shared.h"
 #include "nbt.h"
 #include "chunk.h"
@@ -13,6 +14,17 @@
 // Not sure if that's any good.
 
 #define MAX_LOADED_CHUNKS (1024)
+
+typedef struct {
+    union {
+        u64 packed;
+        struct {
+            u64 worldId : 12;
+            u64 packedX : 22;
+            u64 packedZ : 22;
+        };
+    };
+} PackedWorldChunkPos;
 
 // TODO(traks): we could also include the ID of the one with interest into the
 // chunk hash. Then we can't really run into issues where someone over-releasing
@@ -36,6 +48,8 @@
 // We could also add salt to whatever ID system we use, so it's harder for
 // players to force hash collisions.
 
+#define CHUNK_HASH_IN_USE ((u32) 0x1 << 0)
+
 // TODO(traks): may be worthwhile to store multiple chunks under one hash. E.g.
 // a 4x4 per hash seems good (or even 8x8 so we can fit array of 16-bit
 // interestCounts into 1 cache lane). That adds a border of waste around player
@@ -45,11 +59,17 @@
 // Might also be a bit more cache friendly, since if you access 1 chunk, you
 // probably also want to access some neighbouring chunks.
 typedef struct {
-    WorldChunkPos pos;
-    i32 tableIndex;
-    // @TODO(traks): maybe don't memoise this
-    i32 hash;
+    PackedWorldChunkPos pos;
+    u32 tableIndex;
+    u32 flags;
 } ChunkHashEntry;
+
+typedef struct {
+    ChunkHashEntry * entries;
+    u32 arraySize;
+    u32 sizeToStartGrow;
+    u32 useCount;
+} ChunkHashMap;
 
 typedef struct ChunkMapEntry ChunkMapEntry;
 
@@ -61,8 +81,9 @@ struct ChunkMapEntry {
     i32 used;
 };
 
+static ChunkHashMap chunkIndex;
+
 static ChunkMapEntry chunkMap[MAX_LOADED_CHUNKS];
-static ChunkHashEntry chunkHashes[MAX_LOADED_CHUNKS];
 static ChunkMapEntry * chunkFreeList;
 static i32 chunkMapMaxUsed;
 
@@ -81,13 +102,25 @@ static _Atomic i32 chunkCompleteRequestWriterClaiming;
 static _Atomic i32 chunkCompleteRequestWriterIndex;
 static _Atomic i32 chunkCompleteRequestReaderIndex;
 
-static i32 WorldChunkPosEqual(WorldChunkPos a, WorldChunkPos b) {
-    // @TODO(traks) make sure this compiles to a single compare. If not, should
-    // probably change chunk_pos to be a uint32_t.
-    return a.worldId == b.worldId && a.x == b.x && a.z == b.z;
+static inline PackedWorldChunkPos PackWorldChunkPos(WorldChunkPos pos) {
+    PackedWorldChunkPos res = {
+        .worldId = pos.worldId & 0xfff,
+        .packedX = pos.x & 0x3fffff,
+        .packedZ = pos.z & 0x3fffff
+    };
+    return res;
 }
 
-// NOTe(traks): jenkins one at a time
+static inline WorldChunkPos UnpackWorldChunkPos(PackedWorldChunkPos pos) {
+    WorldChunkPos res = {
+        .worldId = pos.worldId,
+        .x = ((i32) pos.packedX << 10) >> 10,
+        .z = ((i32) pos.packedZ << 10) >> 10,
+    };
+    return res;
+}
+
+// NOTE(traks): jenkins one at a time
 static inline u32 HashU64(u64 key) {
     u8 * bytes = (u8 *) &key;
     i32 length = 8;
@@ -103,28 +136,57 @@ static inline u32 HashU64(u64 key) {
     return hash;
 }
 
-static i32 HashWorldChunkPos(WorldChunkPos pos) {
-    // NOTE(traks): never return 0 as hash. That means empty hash slot
-    u64 key = (((u64) pos.worldId & 0xfff) << 44) | (((u64) pos.x & 0x3fffff) << 22) | ((u64) pos.z & 0x3fffff);
-    u32 hash = HashU64(key) | 0x80000000;
+static u32 HashWorldChunkPos(PackedWorldChunkPos pos) {
+    u64 key = pos.packed;
+    u32 hash = HashU64(key);
     return hash;
 }
 
 static i32 ChunkHashEntryIsEmpty(ChunkHashEntry * entry) {
-    return entry->hash == 0;
+    return !(entry->flags & CHUNK_HASH_IN_USE);
 }
 
-static ChunkHashEntry * FindChunkHashEntryOrEmpty(WorldChunkPos pos) {
-    i32 hash = HashWorldChunkPos(pos);
+static ChunkHashEntry * FindChunkHashEntryOrEmpty(PackedWorldChunkPos pos, u32 startIndex) {
     ChunkHashEntry * res = NULL;
-    for (i32 offset = 0; offset < ARRAY_SIZE(chunkHashes); offset++) {
-        i32 index = MOD(hash + offset, ARRAY_SIZE(chunkHashes));
-        res = chunkHashes + index;
-        if (ChunkHashEntryIsEmpty(res) || WorldChunkPosEqual(pos, res->pos)) {
+    for (u32 offset = 0; offset < chunkIndex.arraySize; offset++) {
+        u32 index = (startIndex + offset) % chunkIndex.arraySize;
+        ChunkHashEntry * entry = chunkIndex.entries + index;
+        if (ChunkHashEntryIsEmpty(entry) || pos.packed == entry->pos.packed) {
+            res = entry;
             break;
         }
     }
     return res;
+}
+
+static void RemoveHashEntryAt(u32 entryIndex) {
+    assert(!ChunkHashEntryIsEmpty(chunkIndex.entries + entryIndex));
+    chunkIndex.useCount--;
+    u32 chainStart = entryIndex;
+    u32 lastSlotToFill = chainStart;
+    chunkIndex.entries[entryIndex] = (ChunkHashEntry) {0};
+    for (u32 offset = 1; offset < chunkIndex.arraySize; offset++) {
+        u32 index = (chainStart + offset) % chunkIndex.arraySize;
+        ChunkHashEntry * chained = chunkIndex.entries + index;
+        if (ChunkHashEntryIsEmpty(chained)) {
+            break;
+        }
+        u32 desiredSlotIndex = HashWorldChunkPos(chained->pos) % chunkIndex.arraySize;
+        // NOTE(traks): handle cases
+        // ... lastSlotToFill ... index ...
+        // and
+        // ... index ... lastSlotToFill ...
+        // separately
+        i32 isBetween = (lastSlotToFill < index ?
+                (lastSlotToFill < desiredSlotIndex && desiredSlotIndex <= index)
+                : (lastSlotToFill < desiredSlotIndex || desiredSlotIndex <= index));
+        if (!isBetween) {
+            // NOTE(traks): move current item to last empty slot
+            chunkIndex.entries[lastSlotToFill] = *chained;
+            *chained = (ChunkHashEntry) {0};
+            lastSlotToFill = index;
+        }
+    }
 }
 
 static ChunkMapEntry * ReserveNextChunkInMap() {
@@ -135,6 +197,7 @@ static ChunkMapEntry * ReserveNextChunkInMap() {
         chunkMapMaxUsed++;
     } else {
         if (chunkFreeList == NULL) {
+            LogInfo("No next chunk to reserve");
             res = NULL;
         } else {
             res = chunkFreeList;
@@ -151,35 +214,10 @@ static void FreeChunkFromMap(ChunkMapEntry * entry) {
     chunkFreeList = entry;
 }
 
-static void RemoveHashEntryAt(i32 theIndex) {
-    i32 chainStart = theIndex;
-    i32 lastSlotToFill = chainStart;
-    for (i32 offset = 1; offset < ARRAY_SIZE(chunkHashes); offset++) {
-        i32 index = MOD(chainStart + offset, ARRAY_SIZE(chunkHashes));
-        ChunkHashEntry * chained = chunkHashes + index;
-        if (ChunkHashEntryIsEmpty(chained)) {
-            break;
-        }
-        i32 desiredSlotIndex = MOD(chained->hash, ARRAY_SIZE(chunkHashes));
-        // NOTE(traks): handle cases
-        // ... lastSlotToFill ... index ...
-        // and
-        // ... index ... lastSlotToFill ...
-        // separately
-        i32 isBetween = (lastSlotToFill < index ?
-                (lastSlotToFill < desiredSlotIndex && desiredSlotIndex <= index)
-                : (lastSlotToFill < desiredSlotIndex || desiredSlotIndex <= index));
-        if (!isBetween) {
-            // NOTE(traks): move current item to last empty slot
-            chunkHashes[lastSlotToFill] = *chained;
-            chained->hash = 0;
-            lastSlotToFill = index;
-        }
-    }
-}
-
 static Chunk * FindChunk(WorldChunkPos pos) {
-    ChunkHashEntry * entry = FindChunkHashEntryOrEmpty(pos);
+    PackedWorldChunkPos packedPos = PackWorldChunkPos(pos);
+    u32 hash = HashWorldChunkPos(packedPos);
+    ChunkHashEntry * entry = FindChunkHashEntryOrEmpty(packedPos, hash);
     if (entry == NULL || ChunkHashEntryIsEmpty(entry)) {
         return NULL;
     }
@@ -188,14 +226,24 @@ static Chunk * FindChunk(WorldChunkPos pos) {
 }
 
 static void FreeChunk(WorldChunkPos pos) {
-    ChunkHashEntry * entry = FindChunkHashEntryOrEmpty(pos);
+    PackedWorldChunkPos packedPos = PackWorldChunkPos(pos);
+    u32 hash = HashWorldChunkPos(packedPos);
+    ChunkHashEntry * entry = FindChunkHashEntryOrEmpty(packedPos, hash);
     if (entry == NULL || ChunkHashEntryIsEmpty(entry)) {
         return;
     }
     FreeChunkFromMap(chunkMap + entry->tableIndex);
-    entry->hash = 0;
-    i32 theIndex = entry - chunkHashes;
+    u32 theIndex = entry - chunkIndex.entries;
     RemoveHashEntryAt(theIndex);
+}
+
+void InitChunkSystem() {
+    void * mem = mmap(NULL, 32 * (1 << 20), PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, 0, 0);
+    if (mem == MAP_FAILED) {
+        LogInfo("Failed to map memory for chunks");
+        exit(1);
+    }
+    chunkIndex.entries = mem;
 }
 
 block_entity_base *
@@ -514,39 +562,49 @@ doHash:;
     return res;
 }
 
+static void GrowChunkHashMap() {
+    u32 oldSize = chunkIndex.arraySize;
+    u32 newSize = MAX(2 * oldSize, 32);
+    chunkIndex.arraySize = newSize;
+    chunkIndex.sizeToStartGrow = newSize * 7 / 10;
+
+    LogInfo("Resizing from %u to %u", oldSize, newSize);
+
+    for (u32 index = 0; index < chunkIndex.arraySize; index++) {
+        ChunkHashEntry * entry = chunkIndex.entries + index;
+        if (!ChunkHashEntryIsEmpty(entry)) {
+            u32 desiredSlotIndex = HashWorldChunkPos(entry->pos) % newSize;
+            ChunkHashEntry copy = *entry;
+            *entry = (ChunkHashEntry) {0};
+            ChunkHashEntry * freeEntry = FindChunkHashEntryOrEmpty(copy.pos, desiredSlotIndex);
+            assert(freeEntry != NULL);
+            *freeEntry = copy;
+        }
+    }
+}
+
 static Chunk * GetOrCreateChunk(WorldChunkPos pos) {
+    if (chunkIndex.useCount >= chunkIndex.sizeToStartGrow) {
+        GrowChunkHashMap();
+    }
+
     Chunk * res = NULL;
-    ChunkHashEntry * entry = FindChunkHashEntryOrEmpty(pos);
+    PackedWorldChunkPos packedPos = PackWorldChunkPos(pos);
+    u32 hash = HashWorldChunkPos(packedPos);
+    ChunkHashEntry * entry = FindChunkHashEntryOrEmpty(packedPos, hash);
     if (entry == NULL) {
         return NULL;
     }
     if (ChunkHashEntryIsEmpty(entry)) {
         ChunkMapEntry * mapEntry = ReserveNextChunkInMap();
         assert(mapEntry != NULL);
-        entry->pos = pos;
+        entry->pos = packedPos;
         entry->tableIndex = mapEntry - chunkMap;
-        entry->hash = HashWorldChunkPos(pos);
+        entry->flags = CHUNK_HASH_IN_USE;
+        chunkIndex.useCount++;
         res = (Chunk *) mapEntry;
         *res = (Chunk) {0};
         res->pos = pos;
-
-        Chunk * chunk = res;
-        for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
-            ChunkSection * section = chunk->sections + sectionIndex;
-            MemoryPoolAllocation alloc = CallocInPool(serv->sectionPool);
-            section->blockStates = alloc.data;
-            section->blockStatesBlock = alloc.block;
-        }
-
-        for (i32 sectionIndex = 0; sectionIndex < LIGHT_SECTIONS_PER_CHUNK; sectionIndex++) {
-            LightSection * section = chunk->lightSections + sectionIndex;
-            MemoryPoolAllocation alloc = CallocInPool(serv->lightingPool);
-            section->skyLight = alloc.data;
-            section->skyLightBlock = alloc.block;
-            alloc = CallocInPool(serv->lightingPool);
-            section->blockLight = alloc.data;
-            section->blockLightBlock = alloc.block;
-        }
     } else {
         res = (Chunk *) (chunkMap + entry->tableIndex);
     }
@@ -608,6 +666,7 @@ Chunk * GetChunkIfLoaded(WorldChunkPos pos) {
 
 void
 clean_up_unused_chunks(void) {
+    // if (1) return;
     for (i32 index = 0; index < ARRAY_SIZE(chunkMap); index++) {
         ChunkMapEntry * mapEntry = chunkMap + index;
         if (mapEntry->used) {
@@ -665,6 +724,24 @@ static void ScheduleLoadTasks() {
         i32 nextReaderIndex = (readerIndex + 1) % ARRAY_SIZE(chunkLoadRequests);
         ChunkLoadRequest loadRequest = chunkLoadRequests[readerIndex];
         Chunk * chunk = loadRequest.chunk;
+
+        for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
+            ChunkSection * section = chunk->sections + sectionIndex;
+            MemoryPoolAllocation alloc = CallocInPool(serv->sectionPool);
+            section->blockStates = alloc.data;
+            section->blockStatesBlock = alloc.block;
+        }
+
+        for (i32 sectionIndex = 0; sectionIndex < LIGHT_SECTIONS_PER_CHUNK; sectionIndex++) {
+            LightSection * section = chunk->lightSections + sectionIndex;
+            MemoryPoolAllocation alloc = CallocInPool(serv->lightingPool);
+            section->skyLight = alloc.data;
+            section->skyLightBlock = alloc.block;
+            alloc = CallocInPool(serv->lightingPool);
+            section->blockLight = alloc.data;
+            section->blockLightBlock = alloc.block;
+        }
+
         if (!PushTaskToQueue(serv->backgroundQueue, LoadChunkAsync, chunk)) {
             break;
         }
