@@ -16,14 +16,8 @@
 #define MAX_LOADED_CHUNKS (1024)
 
 typedef struct {
-    union {
-        u64 packed;
-        struct {
-            u64 worldId : 12;
-            u64 packedX : 22;
-            u64 packedZ : 22;
-        };
-    };
+    // NOTE(traks): would use bit-fields, but the spec for them is wack
+    u64 packed;
 } PackedWorldChunkPos;
 
 // TODO(traks): we could also include the ID of the one with interest into the
@@ -103,19 +97,18 @@ static _Atomic i32 chunkCompleteRequestWriterIndex;
 static _Atomic i32 chunkCompleteRequestReaderIndex;
 
 static inline PackedWorldChunkPos PackWorldChunkPos(WorldChunkPos pos) {
-    PackedWorldChunkPos res = {
-        .worldId = pos.worldId & 0xfff,
-        .packedX = pos.x & 0x3fffff,
-        .packedZ = pos.z & 0x3fffff
-    };
+    u64 packed = ((u64) (pos.worldId & 0xfff) << 44)
+            | ((u64) (pos.x & 0x3fffff) << 22)
+            | ((u64) (pos.z & 0x3fffff) << 0);
+    PackedWorldChunkPos res = {.packed = packed};
     return res;
 }
 
 static inline WorldChunkPos UnpackWorldChunkPos(PackedWorldChunkPos pos) {
     WorldChunkPos res = {
-        .worldId = pos.worldId,
-        .x = ((i32) pos.packedX << 10) >> 10,
-        .z = ((i32) pos.packedZ << 10) >> 10,
+        .worldId = pos.packed >> 44,
+        .x = ((i32) (pos.packed >> 22) << 10) >> 10,
+        .z = ((i32) (pos.packed >> 0) << 10) >> 10,
     };
     return res;
 }
@@ -212,17 +205,6 @@ static void FreeChunkFromMap(ChunkMapEntry * entry) {
     entry->used = 0;
     entry->nextFreeListEntry = chunkFreeList;
     chunkFreeList = entry;
-}
-
-static Chunk * FindChunk(WorldChunkPos pos) {
-    PackedWorldChunkPos packedPos = PackWorldChunkPos(pos);
-    u32 hash = HashWorldChunkPos(packedPos);
-    ChunkHashEntry * entry = FindChunkHashEntryOrEmpty(packedPos, hash);
-    if (entry == NULL || ChunkHashEntryIsEmpty(entry)) {
-        return NULL;
-    }
-    Chunk * res = (Chunk *) (chunkMap + entry->tableIndex);
-    return res;
 }
 
 static void FreeChunk(WorldChunkPos pos) {
@@ -508,6 +490,8 @@ SetBlockResult ChunkSetBlockState(Chunk * ch, BlockPos pos, i32 blockState) {
 
     // @NOTE(traks) update changed block list
 
+    // NOTE(traks): the tick arena is automatically cleared at the end of each
+    // tick, so reallocate memory if we're in a new tick
     if (section->lastChangeTick != serv->current_tick) {
         section->lastChangeTick = serv->current_tick;
         // @NOTE(traks) must be power of 2
@@ -568,8 +552,6 @@ static void GrowChunkHashMap() {
     chunkIndex.arraySize = newSize;
     chunkIndex.sizeToStartGrow = newSize * 7 / 10;
 
-    LogInfo("Resizing from %u to %u", oldSize, newSize);
-
     for (u32 index = 0; index < chunkIndex.arraySize; index++) {
         ChunkHashEntry * entry = chunkIndex.entries + index;
         if (!ChunkHashEntryIsEmpty(entry)) {
@@ -598,9 +580,11 @@ static Chunk * GetOrCreateChunk(WorldChunkPos pos) {
     if (ChunkHashEntryIsEmpty(entry)) {
         ChunkMapEntry * mapEntry = ReserveNextChunkInMap();
         assert(mapEntry != NULL);
-        entry->pos = packedPos;
-        entry->tableIndex = mapEntry - chunkMap;
-        entry->flags = CHUNK_HASH_IN_USE;
+        *entry = (ChunkHashEntry) {
+            .pos = packedPos,
+            .tableIndex = mapEntry - chunkMap,
+            .flags = CHUNK_HASH_IN_USE
+        };
         chunkIndex.useCount++;
         res = (Chunk *) mapEntry;
         *res = (Chunk) {0};
@@ -657,9 +641,15 @@ void PushChunksFinishedLoading(i32 worldId, Chunk * * chunkArray, i32 chunkCount
 }
 
 Chunk * GetChunkIfLoaded(WorldChunkPos pos) {
-    Chunk * res = FindChunk(pos);
-    if (res == NULL || !(res->flags & CHUNK_FINISHED_LOADING)) {
-        return NULL;
+    Chunk * res = NULL;
+    PackedWorldChunkPos packedPos = PackWorldChunkPos(pos);
+    u32 hash = HashWorldChunkPos(packedPos);
+    ChunkHashEntry * entry = FindChunkHashEntryOrEmpty(packedPos, hash);
+    if (entry != NULL && !ChunkHashEntryIsEmpty(entry)) {
+        Chunk * found = &chunkMap[entry->tableIndex].chunk;
+        if (found->flags & CHUNK_FINISHED_LOADING) {
+            res = found;
+        }
     }
     return res;
 }

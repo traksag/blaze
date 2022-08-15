@@ -18,7 +18,7 @@ if [ $profile == 0 ]; then
 elif [ $profile == 1 ]; then
     if [ ! -e "lib/tracy" ]; then
         # download Tracy if not present
-        TRACY_VER="0.7.8"
+        TRACY_VER="0.8.2"
 
         mkdir -p lib
         wget -O lib/tracy.zip https://github.com/wolfpld/tracy/archive/v${TRACY_VER}.zip

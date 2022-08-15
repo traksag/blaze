@@ -2746,15 +2746,29 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     }
     player->player.changed_block_count = 0;
 
-    // NOTE(traks): takes 100us if doing nothing with all chunks loaded!!
-    // Profiling results:
+    // TODO(traks): takes 113 us average if doing nothing with all chunks
+    // loaded!! Profiling results:
     //
     // Calls to getChunkIfLoaded seem to take ~175ns
     // (that's 2 main memory accesses?)
     // Adds up to 175 * 441 = 77 us
+    //
+    // Adding chunk finished loading flag to the chunk hash entries decreased
+    // time per getChunkIfLoaded to ~81ns
+    // Saves 41 us in theory. In practise nothing, because now something else is
+    // blocking on the memory fetch
+    //
+    // With last section change tick moved out of ChunkSection into a separate
+    // array: ~103 us average
+    //
+    // Also moving local_event_count next to section change ticks: 74 us
+    //
+    // Probably need a better solution...
 
+#if DEBUG_CHUNK_SYSTEM
     static i64 getChunkTime = 0;
     static i64 getChunkCalls = 0;
+#endif
 
     BeginTimings(UpdateChunkCache);
 
@@ -2801,11 +2815,15 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                     continue;
                 }
 
+#if DEBUG_CHUNK_SYSTEM
                 getChunkCalls++;
                 i64 startTime = NanoTime();
                 Chunk * ch = GetChunkIfLoaded(pos);
                 i64 endTime = NanoTime();
                 getChunkTime += (endTime - startTime);
+#else
+                Chunk * ch = GetChunkIfLoaded(pos);
+#endif
 
                 assert(ch != NULL);
 
@@ -2880,11 +2898,11 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
 
     EndTimings(UpdateChunkCache);
 
-    if (DEBUG_CHUNK_SYSTEM) {
-        if (getChunkCalls > 0) {
-            LogInfo("Get chunk time: %ld ns, calls: %ld", getChunkTime / getChunkCalls, getChunkCalls);
-        }
+#if DEBUG_CHUNK_SYSTEM
+    if (getChunkCalls > 0) {
+        LogInfo("Get chunk time: %ld ns, calls: %ld", getChunkTime / getChunkCalls, getChunkCalls);
     }
+#endif
 
     // load and send tracked chunks
     BeginTimings(LoadAndSendChunks);
