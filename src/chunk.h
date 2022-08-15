@@ -89,6 +89,7 @@ void AddChunkInterest(WorldChunkPos pos, i32 interest);
 i32 PopChunksToLoad(i32 worldId, Chunk * * chunkArray, i32 maxChunks);
 void PushChunksFinishedLoading(i32 worldId, Chunk * * chunkArray, i32 chunkCount);
 Chunk * GetChunkIfLoaded(WorldChunkPos pos);
+void CollectLoadedChunks(WorldChunkPos from, WorldChunkPos to, Chunk * * chunkArray);
 
 typedef struct {
     i32 oldState;

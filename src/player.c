@@ -465,8 +465,7 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         // while chunk cache radius is with the extra border of
         // chunks. This clamps the view distance between the minimum
         // of 2 and the server maximum.
-        player->new_chunk_cache_radius = MIN(MAX(view_distance, 2),
-                MAX_CHUNK_CACHE_RADIUS - 1) + 1;
+        player->nextChunkCacheRadius = MIN(MAX(view_distance, 2), MAX_CHUNK_CACHE_RADIUS - 1) + 1;
         memcpy(player->language, language.data, language.size);
         player->language_size = language.size;
         player->sees_chat_colours = sees_chat_colours;
@@ -1428,10 +1427,10 @@ disconnect_player_now(entity_base * entity) {
     entity_player * player = &entity->player;
     close(player->sock);
 
-    i32 chunk_cache_min_x = player->chunk_cache_centre_x - player->chunk_cache_radius;
-    i32 chunk_cache_max_x = player->chunk_cache_centre_x + player->chunk_cache_radius;
-    i32 chunk_cache_min_z = player->chunk_cache_centre_z - player->chunk_cache_radius;
-    i32 chunk_cache_max_z = player->chunk_cache_centre_z + player->chunk_cache_radius;
+    i32 chunk_cache_min_x = player->chunkCacheCentreX - player->chunkCacheRadius;
+    i32 chunk_cache_max_x = player->chunkCacheCentreX + player->chunkCacheRadius;
+    i32 chunk_cache_min_z = player->chunkCacheCentreZ - player->chunkCacheRadius;
+    i32 chunk_cache_max_z = player->chunkCacheCentreZ + player->chunkCacheRadius;
 
     for (i32 x = chunk_cache_min_x; x <= chunk_cache_max_x; x++) {
         for (i32 z = chunk_cache_min_z; z <= chunk_cache_max_z; z++) {
@@ -2378,6 +2377,156 @@ send_player_abilities(BufCursor * send_cursor, entity_base * player) {
     finish_packet(send_cursor, player);
 }
 
+static void UpdateChunkCache(entity_base * player, BufCursor * sendCursor) {
+    i32 chunkCacheMinX = player->player.chunkCacheCentreX - player->player.chunkCacheRadius;
+    i32 chunkCacheMinZ = player->player.chunkCacheCentreZ - player->player.chunkCacheRadius;
+    i32 chunkCacheMaxX = player->player.chunkCacheCentreX + player->player.chunkCacheRadius;
+    i32 chunkCacheMaxZ = player->player.chunkCacheCentreZ + player->player.chunkCacheRadius;
+
+    i32 nextChunkCacheCentreX = (i32) floor(player->x) >> 4;
+    i32 nextChunkCacheCentreZ = (i32) floor(player->z) >> 4;
+    assert(player->player.nextChunkCacheRadius <= MAX_CHUNK_CACHE_RADIUS);
+    i32 nextChunkCacheMinX = nextChunkCacheCentreX - player->player.nextChunkCacheRadius;
+    i32 nextChunkCacheMinZ = nextChunkCacheCentreZ - player->player.nextChunkCacheRadius;
+    i32 nextChunkCacheMaxX = nextChunkCacheCentreX + player->player.nextChunkCacheRadius;
+    i32 nextChunkCacheMaxZ = nextChunkCacheCentreZ + player->player.nextChunkCacheRadius;
+
+    if (player->player.chunkCacheCentreX != nextChunkCacheCentreX
+            || player->player.chunkCacheCentreZ != nextChunkCacheCentreZ) {
+        begin_packet(sendCursor, CBP_SET_CHUNK_CACHE_CENTRE);
+        CursorPutVarU32(sendCursor, nextChunkCacheCentreX);
+        CursorPutVarU32(sendCursor, nextChunkCacheCentreZ);
+        finish_packet(sendCursor, player);
+    }
+
+    if (player->player.chunkCacheRadius != player->player.nextChunkCacheRadius) {
+        // TODO(traks): also send set simulation distance packet?
+        begin_packet(sendCursor, CBP_SET_CHUNK_CACHE_RADIUS);
+        CursorPutVarU32(sendCursor, player->player.nextChunkCacheRadius);
+        finish_packet(sendCursor, player);
+    }
+
+    // NOTE(traks): untrack old chunks
+    for (i32 x = chunkCacheMinX; x <= chunkCacheMaxX; x++) {
+        for (i32 z = chunkCacheMinZ; z <= chunkCacheMaxZ; z++) {
+            WorldChunkPos pos = {.worldId = player->worldId, .x = x, .z = z};
+            i32 index = chunk_cache_index(pos.xz);
+            PlayerChunkCacheEntry * cacheEntry = player->player.chunkCache + index;
+
+            if (x >= nextChunkCacheMinX && x <= nextChunkCacheMaxX
+                    && z >= nextChunkCacheMinZ && z <= nextChunkCacheMaxZ) {
+                // NOTE(traks): old chunk still in new region
+                continue;
+            }
+
+            if (cacheEntry->flags & PLAYER_CHUNK_ADDED_INTEREST) {
+                AddChunkInterest(pos, -1);
+            }
+
+            if (cacheEntry->flags & PLAYER_CHUNK_SENT) {
+                begin_packet(sendCursor, CBP_FORGET_LEVEL_CHUNK);
+                CursorPutU32(sendCursor, x);
+                CursorPutU32(sendCursor, z);
+                finish_packet(sendCursor, player);
+            }
+
+            *cacheEntry = (PlayerChunkCacheEntry) {0};
+        }
+    }
+
+    player->player.chunkCacheRadius = player->player.nextChunkCacheRadius;
+    player->player.chunkCacheCentreX = nextChunkCacheCentreX;
+    player->player.chunkCacheCentreZ = nextChunkCacheCentreZ;
+}
+
+static void SendTrackedBlockChanges(entity_base * player, BufCursor * sendCursor, MemoryArena * tickArena) {
+    // TODO(traks): Current implementation:
+    // 101 us and 34.3 us for the collecting
+    //
+    // When grouping chunks in 4x4 areas:
+    // 97.2 us and 31.4 us for the collecting (71 ns per chunk lookup)
+    //
+    // When doing collecting in groups as well (reuse hashes and stuff):
+    // 76.3 us and 9.83 us (22 ns per chunk lookup)
+    //
+    // City hash instead of Jenkins one at a time:
+    // seems to give ~1 us more?
+
+    i32 chunkCacheDiam = 2 * player->player.chunkCacheRadius + 1;
+    i32 chunkCacheMinX = player->player.chunkCacheCentreX - player->player.chunkCacheRadius;
+    i32 chunkCacheMaxX = player->player.chunkCacheCentreX + player->player.chunkCacheRadius;
+    i32 chunkCacheMinZ = player->player.chunkCacheCentreZ - player->player.chunkCacheRadius;
+    i32 chunkCacheMaxZ = player->player.chunkCacheCentreZ + player->player.chunkCacheRadius;
+    Chunk * * loadedChunks = CallocInArena(tickArena, MAX_CHUNK_CACHE_DIAM * MAX_CHUNK_CACHE_DIAM * sizeof (Chunk *));
+    BeginTimings(CollectLoadedChunks);
+    CollectLoadedChunks((WorldChunkPos) {.worldId = player->worldId, .x = chunkCacheMinX, .z = chunkCacheMinZ},
+            (WorldChunkPos) {.worldId = player->worldId, .x = chunkCacheMaxX, .z = chunkCacheMaxZ},
+            loadedChunks);
+    EndTimings(CollectLoadedChunks);
+
+    for (i32 x = chunkCacheMinX; x <= chunkCacheMaxX; x++) {
+        for (i32 z = chunkCacheMinZ; z <= chunkCacheMaxZ; z++) {
+            WorldChunkPos pos = {.worldId = player->worldId, .x = x, .z = z};
+            i32 index = chunk_cache_index(pos.xz);
+            PlayerChunkCacheEntry * cacheEntry = player->player.chunkCache + index;
+
+            if (!(cacheEntry->flags & PLAYER_CHUNK_SENT)) {
+                continue;
+            }
+
+            Chunk * ch = loadedChunks[(z - chunkCacheMinZ) * chunkCacheDiam + (x - chunkCacheMinX)];
+            assert(ch != NULL);
+
+            for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
+                i32 sectionY = sectionIndex + MIN_SECTION;
+                ChunkSection * section = ch->sections + sectionIndex;
+                if (section->lastChangeTick != serv->current_tick) {
+                    continue;
+                }
+
+                assert(section->changedBlockCount > 0);
+
+                // @TODO(traks) in case of tons of block changes in all
+                // sections combined, we shouldn't spam clients with section
+                // change packets. We should limit the maximum number of
+                // packet data for this packet type and if the limit is
+                // exceeded, reload chunks for clients.
+
+                begin_packet(sendCursor, CBP_SECTION_BLOCKS_UPDATE);
+                u64 section_pos = ((u64) (x & 0x3fffff) << 42)
+                        | ((u64) (z & 0x3fffff) << 20)
+                        | (u64) (sectionY & 0xfffff);
+                CursorPutU64(sendCursor, section_pos);
+                // @TODO(traks) appropriate value for this
+                CursorPutU8(sendCursor, 1); // suppress light updates
+                CursorPutVarU32(sendCursor, section->changedBlockCount);
+
+                for (i32 i = 0; i < section->changedBlockSetMask + 1; i++) {
+                    if (section->changedBlockSet[i] != 0) {
+                        BlockPos pos = SectionIndexToPos(section->changedBlockSet[i] & 0xfff);
+                        i64 block_state = ChunkGetBlockState(ch, (BlockPos) {pos.x, pos.y + sectionY * 16, pos.z});
+                        i64 encoded = (block_state << 12) | (pos.x << 8) | (pos.z << 4) | (pos.y & 0xf);
+                        CursorPutVarU64(sendCursor, encoded);
+                    }
+                }
+
+                finish_packet(sendCursor, player);
+            }
+
+            for (int i = 0; i < ch->local_event_count; i++) {
+                level_event * event = ch->local_events + i;
+
+                begin_packet(sendCursor, CBP_LEVEL_EVENT);
+                CursorPutU32(sendCursor, event->type);
+                CursorPutBlockPos(sendCursor, event->pos);
+                CursorPutU32(sendCursor, event->data);
+                CursorPutU8(sendCursor, 0); // is global event
+                finish_packet(sendCursor, player);
+            }
+        }
+    }
+}
+
 // @TODO(traks) I wonder if this function should be sending packets to all
 // players at once instead of to only a single player. That would allow us to
 // cache compressed chunk packets, copy packets that get sent to all players,
@@ -2590,10 +2739,10 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
 
         CursorPutU64(send_cursor, 0); // hashed seed
         CursorPutVarU32(send_cursor, 0); // max players (ignored by client)
-        CursorPutVarU32(send_cursor, player->player.new_chunk_cache_radius - 1); // chunk radius
+        CursorPutVarU32(send_cursor, player->player.nextChunkCacheRadius - 1); // chunk radius
         // @TODO(traks) figure out why the client needs to know the simulation
         // distance and what it uses it for
-        CursorPutVarU32(send_cursor, player->player.new_chunk_cache_radius - 1); // simulation distance
+        CursorPutVarU32(send_cursor, player->player.nextChunkCacheRadius - 1); // simulation distance
         CursorPutU8(send_cursor, 0); // reduced debug info
         CursorPutU8(send_cursor, 1); // show death screen on death
         CursorPutU8(send_cursor, 0); // is debug
@@ -2746,163 +2895,13 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     }
     player->player.changed_block_count = 0;
 
-    // TODO(traks): takes 113 us average if doing nothing with all chunks
-    // loaded!! Profiling results:
-    //
-    // Calls to getChunkIfLoaded seem to take ~175ns
-    // (that's 2 main memory accesses?)
-    // Adds up to 175 * 441 = 77 us
-    //
-    // Adding chunk finished loading flag to the chunk hash entries decreased
-    // time per getChunkIfLoaded to ~81ns
-    // Saves 41 us in theory. In practise nothing, because now something else is
-    // blocking on the memory fetch
-    //
-    // With last section change tick moved out of ChunkSection into a separate
-    // array: ~103 us average
-    //
-    // Also moving local_event_count next to section change ticks: 74 us
-    //
-    // Probably need a better solution...
-
-#if DEBUG_CHUNK_SYSTEM
-    static i64 getChunkTime = 0;
-    static i64 getChunkCalls = 0;
-#endif
-
     BeginTimings(UpdateChunkCache);
-
-    i32 chunk_cache_min_x = player->player.chunk_cache_centre_x - player->player.chunk_cache_radius;
-    i32 chunk_cache_min_z = player->player.chunk_cache_centre_z - player->player.chunk_cache_radius;
-    i32 chunk_cache_max_x = player->player.chunk_cache_centre_x + player->player.chunk_cache_radius;
-    i32 chunk_cache_max_z = player->player.chunk_cache_centre_z + player->player.chunk_cache_radius;
-
-    i32 new_chunk_cache_centre_x = (i32) floor(player->x) >> 4;
-    i32 new_chunk_cache_centre_z = (i32) floor(player->z) >> 4;
-    assert(player->player.new_chunk_cache_radius <= MAX_CHUNK_CACHE_RADIUS);
-    i32 new_chunk_cache_min_x = new_chunk_cache_centre_x - player->player.new_chunk_cache_radius;
-    i32 new_chunk_cache_min_z = new_chunk_cache_centre_z - player->player.new_chunk_cache_radius;
-    i32 new_chunk_cache_max_x = new_chunk_cache_centre_x + player->player.new_chunk_cache_radius;
-    i32 new_chunk_cache_max_z = new_chunk_cache_centre_z + player->player.new_chunk_cache_radius;
-
-    if (player->player.chunk_cache_centre_x != new_chunk_cache_centre_x
-            || player->player.chunk_cache_centre_z != new_chunk_cache_centre_z) {
-        begin_packet(send_cursor, CBP_SET_CHUNK_CACHE_CENTRE);
-        CursorPutVarU32(send_cursor, new_chunk_cache_centre_x);
-        CursorPutVarU32(send_cursor, new_chunk_cache_centre_z);
-        finish_packet(send_cursor, player);
-    }
-
-    if (player->player.chunk_cache_radius != player->player.new_chunk_cache_radius) {
-        // @TODO(traks) also send set simulation distance packet?
-        begin_packet(send_cursor, CBP_SET_CHUNK_CACHE_RADIUS);
-        CursorPutVarU32(send_cursor, player->player.new_chunk_cache_radius);
-        finish_packet(send_cursor, player);
-    }
-
-    // untrack old chunks
-    for (i32 x = chunk_cache_min_x; x <= chunk_cache_max_x; x++) {
-        for (i32 z = chunk_cache_min_z; z <= chunk_cache_max_z; z++) {
-            WorldChunkPos pos = {.worldId = player->worldId, .x = x, .z = z};
-            i32 index = chunk_cache_index(pos.xz);
-            PlayerChunkCacheEntry * cacheEntry = player->player.chunkCache + index;
-
-            if (x >= new_chunk_cache_min_x && x <= new_chunk_cache_max_x
-                    && z >= new_chunk_cache_min_z && z <= new_chunk_cache_max_z) {
-                // old chunk still in new region
-                // send block changes if chunk is visible to the client
-                if (!(cacheEntry->flags & PLAYER_CHUNK_SENT)) {
-                    continue;
-                }
-
-#if DEBUG_CHUNK_SYSTEM
-                getChunkCalls++;
-                i64 startTime = NanoTime();
-                Chunk * ch = GetChunkIfLoaded(pos);
-                i64 endTime = NanoTime();
-                getChunkTime += (endTime - startTime);
-#else
-                Chunk * ch = GetChunkIfLoaded(pos);
-#endif
-
-                assert(ch != NULL);
-
-                for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
-                    i32 sectionY = sectionIndex + MIN_SECTION;
-                    ChunkSection * section = ch->sections + sectionIndex;
-                    if (section->lastChangeTick != serv->current_tick) {
-                        continue;
-                    }
-
-                    assert(section->changedBlockCount > 0);
-
-                    // @TODO(traks) in case of tons of block changes in all
-                    // sections combined, we shouldn't spam clients with section
-                    // change packets. We should limit the maximum number of
-                    // packet data for this packet type and if the limit is
-                    // exceeded, reload chunks for clients.
-
-                    begin_packet(send_cursor, CBP_SECTION_BLOCKS_UPDATE);
-                    u64 section_pos = ((u64) (x & 0x3fffff) << 42)
-                            | ((u64) (z & 0x3fffff) << 20)
-                            | (u64) (sectionY & 0xfffff);
-                    CursorPutU64(send_cursor, section_pos);
-                    // @TODO(traks) appropriate value for this
-                    CursorPutU8(send_cursor, 1); // suppress light updates
-                    CursorPutVarU32(send_cursor, section->changedBlockCount);
-
-                    for (i32 i = 0; i < section->changedBlockSetMask + 1; i++) {
-                        if (section->changedBlockSet[i] != 0) {
-                            BlockPos pos = SectionIndexToPos(section->changedBlockSet[i] & 0xfff);
-                            i64 block_state = ChunkGetBlockState(ch, (BlockPos) {pos.x, pos.y + sectionY * 16, pos.z});
-                            i64 encoded = (block_state << 12) | (pos.x << 8) | (pos.z << 4) | (pos.y & 0xf);
-                            CursorPutVarU64(send_cursor, encoded);
-                        }
-                    }
-
-                    finish_packet(send_cursor, player);
-                }
-
-                for (int i = 0; i < ch->local_event_count; i++) {
-                    level_event * event = ch->local_events + i;
-
-                    begin_packet(send_cursor, CBP_LEVEL_EVENT);
-                    CursorPutU32(send_cursor, event->type);
-                    CursorPutBlockPos(send_cursor, event->pos);
-                    CursorPutU32(send_cursor, event->data);
-                    CursorPutU8(send_cursor, 0); // is global event
-                    finish_packet(send_cursor, player);
-                }
-                continue;
-            }
-
-            // old chunk is not in the new region
-            if (cacheEntry->flags & PLAYER_CHUNK_ADDED_INTEREST) {
-                AddChunkInterest(pos, -1);
-            }
-
-            if (cacheEntry->flags & PLAYER_CHUNK_SENT) {
-                begin_packet(send_cursor, CBP_FORGET_LEVEL_CHUNK);
-                CursorPutU32(send_cursor, x);
-                CursorPutU32(send_cursor, z);
-                finish_packet(send_cursor, player);
-            }
-
-            *cacheEntry = (PlayerChunkCacheEntry) {0};
-        }
-    }
-
-    player->player.chunk_cache_radius = player->player.new_chunk_cache_radius;
-    player->player.chunk_cache_centre_x = new_chunk_cache_centre_x;
-    player->player.chunk_cache_centre_z = new_chunk_cache_centre_z;
-
+    UpdateChunkCache(player, send_cursor);
     EndTimings(UpdateChunkCache);
 
-#if DEBUG_CHUNK_SYSTEM
-    if (getChunkCalls > 0) {
-        LogInfo("Get chunk time: %ld ns, calls: %ld", getChunkTime / getChunkCalls, getChunkCalls);
-    }
-#endif
+    BeginTimings(SendTrackedBlockChanges);
+    SendTrackedBlockChanges(player, send_cursor, tick_arena);
+    EndTimings(SendTrackedBlockChanges);
 
     // load and send tracked chunks
     BeginTimings(LoadAndSendChunks);
@@ -2919,15 +2918,15 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     // players to move around much earlier.
     int newly_sent_chunks = 0;
     int newInterestAdded = 0;
-    int chunk_cache_diam = 2 * player->player.new_chunk_cache_radius + 1;
+    int chunk_cache_diam = 2 * player->player.chunkCacheRadius + 1;
     int chunk_cache_area = chunk_cache_diam * chunk_cache_diam;
     int off_x = 0;
     int off_z = 0;
     int step_x = 1;
     int step_z = 0;
     for (int i = 0; i < chunk_cache_area; i++) {
-        int x = new_chunk_cache_centre_x + off_x;
-        int z = new_chunk_cache_centre_z + off_z;
+        int x = player->player.chunkCacheCentreX + off_x;
+        int z = player->player.chunkCacheCentreZ + off_z;
         int cache_index = chunk_cache_index((ChunkPos) {.x = x, .z = z});
         PlayerChunkCacheEntry * cacheEntry = player->player.chunkCache + cache_index;
         WorldChunkPos pos = {.worldId = player->worldId, .x = x, .z = z};

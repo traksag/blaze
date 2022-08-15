@@ -1127,9 +1127,9 @@ server_tick(void) {
                 memcpy(player->username, init_con->username,
                         init_con->username_size);
                 player->username_size = init_con->username_size;
-                player->chunk_cache_radius = -1;
+                player->chunkCacheRadius = -1;
                 // @TODO(traks) configurable server-wide global
-                player->new_chunk_cache_radius = MAX_CHUNK_CACHE_RADIUS;
+                player->nextChunkCacheRadius = MAX_CHUNK_CACHE_RADIUS;
                 player->last_keep_alive_sent_tick = serv->current_tick;
                 entity->flags |= PLAYER_GOT_ALIVE_RESPONSE;
                 player->selected_slot = PLAYER_FIRST_HOTBAR_SLOT;

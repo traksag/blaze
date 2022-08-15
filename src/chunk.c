@@ -654,6 +654,21 @@ Chunk * GetChunkIfLoaded(WorldChunkPos pos) {
     return res;
 }
 
+void CollectLoadedChunks(WorldChunkPos from, WorldChunkPos to, Chunk * * chunkArray) {
+    i32 jumpZ = to.x - from.x + 1;
+    for (i32 x = from.x; x <= to.x; x++) {
+        for (i32 z = from.z; z <= to.z; z++) {
+            WorldChunkPos pos = {.worldId = from.worldId, .x = x, .z = z};
+            if (from.x <= x && x <= to.x && from.z <= z && z <= to.z) {
+                Chunk * chunk = GetChunkIfLoaded(pos);
+                if (chunk != NULL && (chunk->flags & CHUNK_FINISHED_LOADING)) {
+                    chunkArray[(z - from.z) * jumpZ + (x - from.x)] = chunk;
+                }
+            }
+        }
+    }
+}
+
 void
 clean_up_unused_chunks(void) {
     // if (1) return;

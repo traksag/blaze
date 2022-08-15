@@ -62,8 +62,6 @@
 
 #define DEBUG_LIGHTING_ENGINE (0)
 
-#define DEBUG_CHUNK_SYSTEM (0)
-
 // in network id order
 enum gamemode {
     GAMEMODE_SURVIVAL,
@@ -1787,10 +1785,10 @@ typedef struct {
     // The radius of the client's view distance, excluding the centre chunk,
     // and including an extra outer rim the client doesn't render but uses
     // for connected blocks and such.
-    int chunk_cache_radius;
-    i32 chunk_cache_centre_x;
-    i32 chunk_cache_centre_z;
-    int new_chunk_cache_radius;
+    i32 chunkCacheRadius;
+    i32 chunkCacheCentreX;
+    i32 chunkCacheCentreZ;
+    i32 nextChunkCacheRadius;
     // @TODO(traks) maybe this should just be a bitmap
     PlayerChunkCacheEntry chunkCache[MAX_CHUNK_CACHE_DIAM * MAX_CHUNK_CACHE_DIAM];
 
