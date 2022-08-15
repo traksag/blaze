@@ -65,21 +65,25 @@ typedef struct {
     u32 useCount;
 } ChunkHashMap;
 
-typedef struct ChunkMapEntry ChunkMapEntry;
+typedef struct ChunkHolder ChunkHolder;
 
-struct ChunkMapEntry {
+struct ChunkHolder {
     union {
         Chunk chunk;
-        ChunkMapEntry * nextFreeListEntry;
+        ChunkHolder * nextFreeListEntry;
     };
     i32 used;
 };
 
-static ChunkHashMap chunkIndex;
+typedef struct {
+    ChunkHolder * entries;
+    ChunkHolder * freeList;
+    u32 arraySize;
+    u32 upperBoundSize;
+} ChunkTable;
 
-static ChunkMapEntry chunkMap[MAX_LOADED_CHUNKS];
-static ChunkMapEntry * chunkFreeList;
-static i32 chunkMapMaxUsed;
+static ChunkHashMap chunkIndex;
+static ChunkTable chunkTable;
 
 typedef struct {
     Chunk * chunk;
@@ -149,6 +153,8 @@ static ChunkHashEntry * FindChunkHashEntryOrEmpty(PackedWorldChunkPos pos, u32 s
             break;
         }
     }
+    // TODO(traks): crash if it is NULL?
+    assert(res != NULL);
     return res;
 }
 
@@ -182,29 +188,27 @@ static void RemoveHashEntryAt(u32 entryIndex) {
     }
 }
 
-static ChunkMapEntry * ReserveNextChunkInMap() {
-    ChunkMapEntry * res = NULL;
-    if (chunkMapMaxUsed < ARRAY_SIZE(chunkMap)) {
-        res = chunkMap + chunkMapMaxUsed;
-        res->used = 1;
-        chunkMapMaxUsed++;
+static ChunkHolder * ReserveChunkHolder() {
+    ChunkHolder * res = NULL;
+    if (chunkTable.freeList) {
+        res = chunkTable.freeList;
+        chunkTable.freeList = chunkTable.freeList->nextFreeListEntry;
     } else {
-        if (chunkFreeList == NULL) {
-            LogInfo("No next chunk to reserve");
-            res = NULL;
-        } else {
-            res = chunkFreeList;
-            chunkFreeList = chunkFreeList->nextFreeListEntry;
-            res->used = 1;
+        if (chunkTable.upperBoundSize == chunkTable.arraySize) {
+            chunkTable.arraySize *= 2;
         }
+        res = chunkTable.entries + chunkTable.upperBoundSize;
+        chunkTable.upperBoundSize++;
     }
+    res->used = 1;
     return res;
 }
 
-static void FreeChunkFromMap(ChunkMapEntry * entry) {
-    entry->used = 0;
-    entry->nextFreeListEntry = chunkFreeList;
-    chunkFreeList = entry;
+static void FreeChunkHolder(ChunkHolder * holder) {
+    assert(holder->used);
+    holder->used = 0;
+    holder->nextFreeListEntry = chunkTable.freeList;
+    chunkTable.freeList = holder;
 }
 
 static void FreeChunk(WorldChunkPos pos) {
@@ -214,18 +218,69 @@ static void FreeChunk(WorldChunkPos pos) {
     if (entry == NULL || ChunkHashEntryIsEmpty(entry)) {
         return;
     }
-    FreeChunkFromMap(chunkMap + entry->tableIndex);
-    u32 theIndex = entry - chunkIndex.entries;
-    RemoveHashEntryAt(theIndex);
+    FreeChunkHolder(chunkTable.entries + entry->tableIndex);
+    RemoveHashEntryAt(entry - chunkIndex.entries);
+}
+
+static void GrowChunkHashMap() {
+    u32 oldSize = chunkIndex.arraySize;
+    u32 newSize = MAX(2 * oldSize, 32);
+    chunkIndex.arraySize = newSize;
+    chunkIndex.sizeToStartGrow = newSize * 7 / 10;
+
+    for (u32 index = 0; index < chunkIndex.arraySize; index++) {
+        ChunkHashEntry * entry = chunkIndex.entries + index;
+        if (!ChunkHashEntryIsEmpty(entry)) {
+            u32 desiredSlotIndex = HashWorldChunkPos(entry->pos) % newSize;
+            ChunkHashEntry copy = *entry;
+            *entry = (ChunkHashEntry) {0};
+            ChunkHashEntry * freeEntry = FindChunkHashEntryOrEmpty(copy.pos, desiredSlotIndex);
+            *freeEntry = copy;
+        }
+    }
+}
+
+static Chunk * GetOrCreateChunk(WorldChunkPos pos) {
+    if (chunkIndex.useCount >= chunkIndex.sizeToStartGrow) {
+        GrowChunkHashMap();
+    }
+
+    Chunk * res = NULL;
+    PackedWorldChunkPos packedPos = PackWorldChunkPos(pos);
+    u32 hash = HashWorldChunkPos(packedPos);
+    ChunkHashEntry * entry = FindChunkHashEntryOrEmpty(packedPos, hash);
+    if (ChunkHashEntryIsEmpty(entry)) {
+        ChunkHolder * holder = ReserveChunkHolder();
+        *entry = (ChunkHashEntry) {
+            .pos = packedPos,
+            .tableIndex = holder - chunkTable.entries,
+            .flags = CHUNK_HASH_IN_USE
+        };
+        chunkIndex.useCount++;
+        res = &holder->chunk;
+        *res = (Chunk) {0};
+        res->pos = pos;
+    } else {
+        res = &chunkTable.entries[entry->tableIndex].chunk;
+    }
+    return res;
 }
 
 void InitChunkSystem() {
-    void * mem = mmap(NULL, 32 * (1 << 20), PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, 0, 0);
-    if (mem == MAP_FAILED) {
+    void * indexMem = mmap(NULL, 32 * (1 << 20), PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, 0, 0);
+    if (indexMem == MAP_FAILED) {
         LogInfo("Failed to map memory for chunks");
         exit(1);
     }
-    chunkIndex.entries = mem;
+    chunkIndex.entries = indexMem;
+    GrowChunkHashMap();
+
+    void * tableMem = mmap(NULL, (1 << 30), PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, 0, 0);
+    if (tableMem == MAP_FAILED) {
+        LogInfo("Failed to map memory for chunks");
+        exit(1);
+    }
+    chunkTable.entries = tableMem;
 }
 
 block_entity_base *
@@ -546,55 +601,6 @@ doHash:;
     return res;
 }
 
-static void GrowChunkHashMap() {
-    u32 oldSize = chunkIndex.arraySize;
-    u32 newSize = MAX(2 * oldSize, 32);
-    chunkIndex.arraySize = newSize;
-    chunkIndex.sizeToStartGrow = newSize * 7 / 10;
-
-    for (u32 index = 0; index < chunkIndex.arraySize; index++) {
-        ChunkHashEntry * entry = chunkIndex.entries + index;
-        if (!ChunkHashEntryIsEmpty(entry)) {
-            u32 desiredSlotIndex = HashWorldChunkPos(entry->pos) % newSize;
-            ChunkHashEntry copy = *entry;
-            *entry = (ChunkHashEntry) {0};
-            ChunkHashEntry * freeEntry = FindChunkHashEntryOrEmpty(copy.pos, desiredSlotIndex);
-            assert(freeEntry != NULL);
-            *freeEntry = copy;
-        }
-    }
-}
-
-static Chunk * GetOrCreateChunk(WorldChunkPos pos) {
-    if (chunkIndex.useCount >= chunkIndex.sizeToStartGrow) {
-        GrowChunkHashMap();
-    }
-
-    Chunk * res = NULL;
-    PackedWorldChunkPos packedPos = PackWorldChunkPos(pos);
-    u32 hash = HashWorldChunkPos(packedPos);
-    ChunkHashEntry * entry = FindChunkHashEntryOrEmpty(packedPos, hash);
-    if (entry == NULL) {
-        return NULL;
-    }
-    if (ChunkHashEntryIsEmpty(entry)) {
-        ChunkMapEntry * mapEntry = ReserveNextChunkInMap();
-        assert(mapEntry != NULL);
-        *entry = (ChunkHashEntry) {
-            .pos = packedPos,
-            .tableIndex = mapEntry - chunkMap,
-            .flags = CHUNK_HASH_IN_USE
-        };
-        chunkIndex.useCount++;
-        res = (Chunk *) mapEntry;
-        *res = (Chunk) {0};
-        res->pos = pos;
-    } else {
-        res = (Chunk *) (chunkMap + entry->tableIndex);
-    }
-    return res;
-}
-
 void AddChunkInterest(WorldChunkPos pos, i32 interest) {
     Chunk * chunk = GetOrCreateChunk(pos);
     // TODO(traks): shouldn't need this...
@@ -645,8 +651,8 @@ Chunk * GetChunkIfLoaded(WorldChunkPos pos) {
     PackedWorldChunkPos packedPos = PackWorldChunkPos(pos);
     u32 hash = HashWorldChunkPos(packedPos);
     ChunkHashEntry * entry = FindChunkHashEntryOrEmpty(packedPos, hash);
-    if (entry != NULL && !ChunkHashEntryIsEmpty(entry)) {
-        Chunk * found = &chunkMap[entry->tableIndex].chunk;
+    if (!ChunkHashEntryIsEmpty(entry)) {
+        Chunk * found = &chunkTable.entries[entry->tableIndex].chunk;
         if (found->flags & CHUNK_FINISHED_LOADING) {
             res = found;
         }
@@ -671,11 +677,10 @@ void CollectLoadedChunks(WorldChunkPos from, WorldChunkPos to, Chunk * * chunkAr
 
 void
 clean_up_unused_chunks(void) {
-    // if (1) return;
-    for (i32 index = 0; index < ARRAY_SIZE(chunkMap); index++) {
-        ChunkMapEntry * mapEntry = chunkMap + index;
-        if (mapEntry->used) {
-            Chunk * chunk = (Chunk *) mapEntry;
+    for (i32 index = 0; index < chunkTable.upperBoundSize; index++) {
+        ChunkHolder * holder = chunkTable.entries + index;
+        if (holder->used) {
+            Chunk * chunk = &holder->chunk;
 
             if (chunk->flags & CHUNK_FORCE_KEEP) {
                 continue;
