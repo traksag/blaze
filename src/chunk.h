@@ -27,6 +27,7 @@ typedef struct {
 
 #define CHUNK_FINISHED_LOADING (0x1 << 0)
 #define CHUNK_WAS_ON_LOAD_REQUEST_LIST (0x1 << 1)
+#define CHUNK_WAS_ON_UNLOAD_REQUEST_LIST (0x1 << 2)
 #define CHUNK_FORCE_KEEP (0x1 << 3)
 #define CHUNK_LIT (0x1 << 4)
 #define CHUNK_LOAD_SUCCESS (0x1 << 5)
@@ -59,8 +60,9 @@ typedef struct {
     // block entity updates to players.
     block_entity_base block_entities[10];
 
-    level_event local_events[64];
-    u8 local_event_count;
+    level_event localEvents[64];
+    i64 lastLocalEventTick;
+    u8 localEventCount;
 } Chunk;
 
 static inline i32 SectionPosToIndex(BlockPos pos) {

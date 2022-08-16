@@ -60,7 +60,9 @@ typedef struct {
 
 typedef struct {
     ChunkHashEntry * entries;
+    // NOTE(traks): must be power of 2
     u32 arraySize;
+    u32 sizeMask;
     u32 sizeToStartGrow;
     u32 useCount;
 } ChunkHashMap;
@@ -89,10 +91,17 @@ typedef struct {
     Chunk * chunk;
 } ChunkLoadRequest;
 
-// NOTE(traks): single thread writer, multi thread reader
 static ChunkLoadRequest chunkLoadRequests[MAX_LOADED_CHUNKS];
 static i32 chunkLoadRequestWriterIndex;
 static i32 chunkLoadRequestReaderIndex;
+
+typedef struct {
+    Chunk * chunk;
+} ChunkUnloadRequest;
+
+static ChunkUnloadRequest chunkUnloadRequests[MAX_LOADED_CHUNKS];
+static i32 chunkUnloadRequestWriterIndex;
+static i32 chunkUnloadRequestReaderIndex;
 
 // NOTE(traks): multi thread writer, single thread reader
 static Chunk * chunkCompleteRequests[MAX_LOADED_CHUNKS];
@@ -146,7 +155,7 @@ static i32 ChunkHashEntryIsEmpty(ChunkHashEntry * entry) {
 static ChunkHashEntry * FindChunkHashEntryOrEmpty(PackedWorldChunkPos pos, u32 startIndex) {
     ChunkHashEntry * res = NULL;
     for (u32 offset = 0; offset < chunkIndex.arraySize; offset++) {
-        u32 index = (startIndex + offset) % chunkIndex.arraySize;
+        u32 index = (startIndex + offset) & chunkIndex.sizeMask;
         ChunkHashEntry * entry = chunkIndex.entries + index;
         if (ChunkHashEntryIsEmpty(entry) || pos.packed == entry->pos.packed) {
             res = entry;
@@ -165,12 +174,12 @@ static void RemoveHashEntryAt(u32 entryIndex) {
     u32 lastSlotToFill = chainStart;
     chunkIndex.entries[entryIndex] = (ChunkHashEntry) {0};
     for (u32 offset = 1; offset < chunkIndex.arraySize; offset++) {
-        u32 index = (chainStart + offset) % chunkIndex.arraySize;
+        u32 index = (chainStart + offset) & chunkIndex.sizeMask;
         ChunkHashEntry * chained = chunkIndex.entries + index;
         if (ChunkHashEntryIsEmpty(chained)) {
             break;
         }
-        u32 desiredSlotIndex = HashWorldChunkPos(chained->pos) % chunkIndex.arraySize;
+        u32 desiredSlotIndex = HashWorldChunkPos(chained->pos) & chunkIndex.sizeMask;
         // NOTE(traks): handle cases
         // ... lastSlotToFill ... index ...
         // and
@@ -193,6 +202,7 @@ static ChunkHolder * ReserveChunkHolder() {
     if (chunkTable.freeList) {
         res = chunkTable.freeList;
         chunkTable.freeList = chunkTable.freeList->nextFreeListEntry;
+        res->chunk = (Chunk) {0};
     } else {
         if (chunkTable.upperBoundSize == chunkTable.arraySize) {
             chunkTable.arraySize *= 2;
@@ -226,12 +236,13 @@ static void GrowChunkHashMap() {
     u32 oldSize = chunkIndex.arraySize;
     u32 newSize = MAX(2 * oldSize, 32);
     chunkIndex.arraySize = newSize;
+    chunkIndex.sizeMask = newSize - 1;
     chunkIndex.sizeToStartGrow = newSize * 7 / 10;
 
     for (u32 index = 0; index < chunkIndex.arraySize; index++) {
         ChunkHashEntry * entry = chunkIndex.entries + index;
         if (!ChunkHashEntryIsEmpty(entry)) {
-            u32 desiredSlotIndex = HashWorldChunkPos(entry->pos) % newSize;
+            u32 desiredSlotIndex = HashWorldChunkPos(entry->pos) & chunkIndex.sizeMask;
             ChunkHashEntry copy = *entry;
             *entry = (ChunkHashEntry) {0};
             ChunkHashEntry * freeEntry = FindChunkHashEntryOrEmpty(copy.pos, desiredSlotIndex);
@@ -258,7 +269,6 @@ static Chunk * GetOrCreateChunk(WorldChunkPos pos) {
         };
         chunkIndex.useCount++;
         res = &holder->chunk;
-        *res = (Chunk) {0};
         res->pos = pos;
     } else {
         res = &chunkTable.entries[entry->tableIndex].chunk;
@@ -601,6 +611,32 @@ doHash:;
     return res;
 }
 
+static void ScheduleLoad(Chunk * chunk) {
+    i32 writerIndex = chunkLoadRequestWriterIndex;
+    i32 nextWriterIndex = (writerIndex + 1) % ARRAY_SIZE(chunkLoadRequests);
+    i32 readerIndex = chunkLoadRequestReaderIndex;
+    // TODO(traks): don't fail here
+    if (nextWriterIndex != readerIndex && !(chunk->flags & CHUNK_WAS_ON_LOAD_REQUEST_LIST)) {
+        // NOTE(traks): never remove chunks that are being loaded, since
+        // another thread could be accessing the chunk data
+        chunk->flags |= CHUNK_WAS_ON_LOAD_REQUEST_LIST | CHUNK_FORCE_KEEP;
+        chunkLoadRequests[writerIndex % ARRAY_SIZE(chunkLoadRequests)] = (ChunkLoadRequest) {chunk};
+        chunkLoadRequestWriterIndex = nextWriterIndex;
+    }
+}
+
+static void ScheduleUnload(Chunk * chunk) {
+    i32 writerIndex = chunkUnloadRequestWriterIndex;
+    i32 nextWriterIndex = (writerIndex + 1) % ARRAY_SIZE(chunkUnloadRequests);
+    i32 readerIndex = chunkUnloadRequestReaderIndex;
+    // TODO(traks): don't fail here
+    if (nextWriterIndex != readerIndex && !(chunk->flags & CHUNK_WAS_ON_UNLOAD_REQUEST_LIST)) {
+        chunk->flags |= CHUNK_WAS_ON_UNLOAD_REQUEST_LIST;
+        chunkUnloadRequests[writerIndex % ARRAY_SIZE(chunkUnloadRequests)] = (ChunkUnloadRequest) {chunk};
+        chunkUnloadRequestWriterIndex = nextWriterIndex;
+    }
+}
+
 void AddChunkInterest(WorldChunkPos pos, i32 interest) {
     Chunk * chunk = GetOrCreateChunk(pos);
     // TODO(traks): shouldn't need this...
@@ -610,16 +646,9 @@ void AddChunkInterest(WorldChunkPos pos, i32 interest) {
         assert(chunk->interestCount >= 0);
 
         if (chunk->interestCount > 0) {
-            i32 writerIndex = chunkLoadRequestWriterIndex;
-            i32 nextWriterIndex = (writerIndex + 1) % ARRAY_SIZE(chunkLoadRequests);
-            i32 readerIndex = chunkLoadRequestReaderIndex;
-            if (nextWriterIndex != readerIndex && !(chunk->flags & CHUNK_WAS_ON_LOAD_REQUEST_LIST)) {
-                // NOTE(traks): never remove chunks that are being loaded, since
-                // another thread could be accessing the chunk data
-                chunk->flags |= CHUNK_WAS_ON_LOAD_REQUEST_LIST | CHUNK_FORCE_KEEP;
-                chunkLoadRequests[writerIndex % ARRAY_SIZE(chunkLoadRequests)] = (ChunkLoadRequest) {chunk};
-                chunkLoadRequestWriterIndex = nextWriterIndex;
-            }
+            ScheduleLoad(chunk);
+        } else if (chunk->interestCount == 0) {
+            ScheduleUnload(chunk);
         }
     }
 }
@@ -677,36 +706,46 @@ void CollectLoadedChunks(WorldChunkPos from, WorldChunkPos to, Chunk * * chunkAr
 
 void
 clean_up_unused_chunks(void) {
-    for (i32 index = 0; index < chunkTable.upperBoundSize; index++) {
-        ChunkHolder * holder = chunkTable.entries + index;
-        if (holder->used) {
-            Chunk * chunk = &holder->chunk;
+    for (i32 loops = 0; loops < 64; loops++) {
+        i32 readerIndex = chunkUnloadRequestReaderIndex;
+        i32 writerIndex = chunkUnloadRequestWriterIndex;
+        if (readerIndex == writerIndex) {
+            // NOTE(traks): nothing anymore to read
+            break;
+        }
+        i32 nextReaderIndex = (readerIndex + 1) % ARRAY_SIZE(chunkUnloadRequests);
+        ChunkUnloadRequest unloadRequest = chunkUnloadRequests[readerIndex];
+        Chunk * chunk = unloadRequest.chunk;
 
-            if (chunk->flags & CHUNK_FORCE_KEEP) {
-                continue;
-            }
+        assert(((ChunkHolder *) chunk)->used);
 
-            chunk->local_event_count = 0;
+        chunkUnloadRequestReaderIndex = nextReaderIndex;
 
-            if (chunk->interestCount == 0) {
-                for (int sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
-                    ChunkSection * section = chunk->sections + sectionIndex;
-                    if (section->blockStates) {
-                        MemoryPoolAllocation alloc = {.data = section->blockStates, .block = section->blockStatesBlock};
-                        FreeInPool(serv->sectionPool, alloc);
-                    }
-                }
-                for (int sectionIndex = 0; sectionIndex < LIGHT_SECTIONS_PER_CHUNK; sectionIndex++) {
-                    LightSection * section = chunk->lightSections + sectionIndex;
-                    MemoryPoolAllocation skyAlloc = {.data = section->skyLight, .block = section->skyLightBlock};
-                    FreeInPool(serv->lightingPool, skyAlloc);
-                    MemoryPoolAllocation blockAlloc = {.data = section->blockLight, .block = section->blockLightBlock};
-                    FreeInPool(serv->lightingPool, blockAlloc);
-                }
+        if ((chunk->flags & CHUNK_FORCE_KEEP) || chunk->interestCount > 0) {
+            // NOTE(traks): allow chunk to be rescheduled for unloading
+            chunk->flags &= ~CHUNK_WAS_ON_UNLOAD_REQUEST_LIST;
+            continue;
+        }
 
-                FreeChunk(chunk->pos);
+        assert(chunk->flags & CHUNK_FINISHED_LOADING);
+
+        // NOTE(traks): remove the chunk
+        for (int sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
+            ChunkSection * section = chunk->sections + sectionIndex;
+            if (section->blockStates) {
+                MemoryPoolAllocation alloc = {.data = section->blockStates, .block = section->blockStatesBlock};
+                FreeInPool(serv->sectionPool, alloc);
             }
         }
+        for (int sectionIndex = 0; sectionIndex < LIGHT_SECTIONS_PER_CHUNK; sectionIndex++) {
+            LightSection * section = chunk->lightSections + sectionIndex;
+            MemoryPoolAllocation skyAlloc = {.data = section->skyLight, .block = section->skyLightBlock};
+            FreeInPool(serv->lightingPool, skyAlloc);
+            MemoryPoolAllocation blockAlloc = {.data = section->blockLight, .block = section->blockLightBlock};
+            FreeInPool(serv->lightingPool, blockAlloc);
+        }
+
+        FreeChunk(chunk->pos);
     }
 }
 
@@ -794,5 +833,13 @@ void LoadChunks() {
 
         chunk->flags &= ~(CHUNK_FORCE_KEEP);
         chunk->flags |= CHUNK_FINISHED_LOADING;
+
+        if (chunk->interestCount == 0) {
+            // TODO(traks): we need to reschedule for removal in case someone
+            // scheduled for removal before we finished loading the chunk (so
+            // the chunk was force loaded and unloads got ignored). Kinda
+            // annoying we have to do this. Any better way?
+            ScheduleUnload(chunk);
+        }
     }
 }

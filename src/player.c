@@ -2513,15 +2513,17 @@ static void SendTrackedBlockChanges(entity_base * player, BufCursor * sendCursor
                 finish_packet(sendCursor, player);
             }
 
-            for (int i = 0; i < ch->local_event_count; i++) {
-                level_event * event = ch->local_events + i;
+            if (ch->lastLocalEventTick == serv->current_tick) {
+                for (i32 i = 0; i < ch->localEventCount; i++) {
+                    level_event * event = ch->localEvents + i;
 
-                begin_packet(sendCursor, CBP_LEVEL_EVENT);
-                CursorPutU32(sendCursor, event->type);
-                CursorPutBlockPos(sendCursor, event->pos);
-                CursorPutU32(sendCursor, event->data);
-                CursorPutU8(sendCursor, 0); // is global event
-                finish_packet(sendCursor, player);
+                    begin_packet(sendCursor, CBP_LEVEL_EVENT);
+                    CursorPutU32(sendCursor, event->type);
+                    CursorPutBlockPos(sendCursor, event->pos);
+                    CursorPutU32(sendCursor, event->data);
+                    CursorPutU8(sendCursor, 0); // is global event
+                    finish_packet(sendCursor, player);
+                }
             }
         }
     }

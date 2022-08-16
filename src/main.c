@@ -1139,7 +1139,8 @@ server_tick(void) {
                 entity->collision_height = 1.8;
                 set_player_gamemode(entity, GAMEMODE_SPECTATOR);
 
-                teleport_player(entity, 88, 70, 73, 0, 0);
+                // teleport_player(entity, 88, 70, 73, 0, 0);
+                teleport_player(entity, 0.5, 140, 0.5, 0, 0);
 
                 // @TODO(traks) ensure this can never happen instead of assering
                 // it never will hopefully happen

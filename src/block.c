@@ -409,13 +409,17 @@ static SetBlockResult break_block(WorldBlockPos pos) {
         };
         Chunk * ch = GetChunkIfLoaded(ch_pos);
         if (ch != NULL) {
-            if (ch->local_event_count < ARRAY_SIZE(ch->local_events)) {
-                ch->local_events[ch->local_event_count] = (level_event) {
+            if (ch->lastLocalEventTick != serv->current_tick) {
+                ch->lastLocalEventTick = serv->current_tick;
+                ch->localEventCount = 0;
+            }
+            if (ch->localEventCount < ARRAY_SIZE(ch->localEvents)) {
+                ch->localEvents[ch->localEventCount] = (level_event) {
                     .type = LEVEL_EVENT_PARTICLES_DESTROY_BLOCK,
                     .pos = pos.xyz,
                     .data = cur_state,
                 };
-                ch->local_event_count++;
+                ch->localEventCount++;
             }
         }
     }
