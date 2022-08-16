@@ -60,8 +60,6 @@
 // @NOTE(traks) add 2 for extra section above and below the world
 #define LIGHT_SECTIONS_PER_CHUNK (SECTIONS_PER_CHUNK + 2)
 
-#define DEBUG_LIGHTING_ENGINE (0)
-
 // in network id order
 enum gamemode {
     GAMEMODE_SURVIVAL,

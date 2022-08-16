@@ -48,9 +48,22 @@ void CreateTaskQueue(TaskQueue * queue, i32 threadCount) {
     pthread_mutex_init(&queue->mutex, NULL);
     pthread_cond_init(&queue->cond, NULL);
 
+    // TODO(traks): should we have different policies/priorities for different
+    // queues? E.g. the background queue and a possible high priority queue
+    pthread_attr_t attributes;
+    pthread_attr_init(&attributes);
+    i32 schedPolicy = SCHED_OTHER;
+    i32 minSchedPrio = sched_get_priority_min(schedPolicy);
+    i32 maxSchedPrio = sched_get_priority_max(schedPolicy);
+    struct sched_param schedParam = {
+        .sched_priority = minSchedPrio + (maxSchedPrio - minSchedPrio) / 2
+    };
+    pthread_attr_setschedpolicy(&attributes, schedPolicy);
+    pthread_attr_setschedparam(&attributes, &schedParam);
+
     for (i32 threadIndex = 0; threadIndex < threadCount; threadIndex++) {
         pthread_t thread;
-        pthread_create(&thread, NULL, RunThread, queue);
+        pthread_create(&thread, &attributes, RunThread, queue);
     }
 }
 

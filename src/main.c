@@ -1705,6 +1705,17 @@ main(void) {
     // client decides to abruptly close its end of the connection.
     signal(SIGPIPE, SIG_IGN);
 
+    // NOTE(traks): without this, sleep times can be delayed by 3 ms. With this,
+    // the delay is in the order of 100 us - 1 ms (at least on macOS).
+    pthread_t mainThread = pthread_self();
+    i32 mainThreadSchedPolicy = SCHED_FIFO;
+    i32 minSchedPrio = sched_get_priority_min(mainThreadSchedPolicy);
+    i32 maxSchedPrio = sched_get_priority_max(mainThreadSchedPolicy);
+    struct sched_param mainThreadSchedParam = {
+        .sched_priority = minSchedPrio + (maxSchedPrio - minSchedPrio) / 2
+    };
+    pthread_setschedparam(mainThread, SCHED_FIFO, &mainThreadSchedParam);
+
     // @TODO(traks) ctrl+c is useful for debugging if the program ends up inside
     // an infinite loop
     // signal(SIGINT, handle_sigint);
@@ -1835,26 +1846,37 @@ main(void) {
 
     InitChunkSystem();
 
+    i64 tickStart = NanoTime();
+
     for (;;) {
 #ifdef PROFILE
         TracyCFrameMark
 #endif
 
-        i64 start_time = NanoTime();
-
         serv->tickArena->index = 0;
         server_tick();
-
-        i64 end_time = NanoTime();
-        i64 elapsed_micros = (end_time - start_time) / 1000;
 
         if (got_sigint) {
             LogInfo("Interrupted");
             break;
         }
 
-        if (elapsed_micros < 50000) {
-            usleep(50000 - elapsed_micros);
+        // NOTE(traks): update tick starts this way to avoid time drift
+        i64 nextTickStart = tickStart + 50000000LL;
+
+        // NOTE(traks): nanosleep can exit early due to interrupts, so we need
+        // to sleep again in such cases
+        for (;;) {
+            i64 timeRemaining = nextTickStart - NanoTime();
+            if (timeRemaining >= 10000) {
+                struct timespec sleepTime = {
+                    .tv_nsec = timeRemaining
+                };
+                nanosleep(&sleepTime, NULL);
+            } else {
+                tickStart = nextTickStart;
+                break;
+            }
         }
     }
 

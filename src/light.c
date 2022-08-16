@@ -1,74 +1,58 @@
 #include "shared.h"
 #include "chunk.h"
 
-#define LIGHT_QUEUE_MAP_SIZE (16 * 16 * 16 * LIGHT_SECTIONS_PER_CHUNK)
-
-// @NOTE(traks) we track which blocks are enqueued and don't queue the same
-// block twice. Therefore the queue size is limited by the size of the queue
-// map. We don't need to worry about ever overflowing the queue. Add a couple of
-// extra entries because we may need 1 (or so) more entry to ensure the tail and
-// head aren't at the same position if the queue is full.
-#define LIGHT_QUEUE_SIZE (LIGHT_QUEUE_MAP_SIZE + 8)
+// NOTE(traks): Add a couple of extra entries because we may need 1 (or so) more
+// entry to ensure the tail and head aren't at the same position if the queue is
+// full.
+// TODO(traks): I doubt we're ever going to have all blocks in the 9 chunks
+// enqueued. Is there some better theoretical limit? Another problem currently
+// is that blocks can be enqueued multiple times (can the limit ever be
+// exceeded?).
+#define LIGHT_QUEUE_SIZE (9 * 16 * 16 * 16 * LIGHT_SECTIONS_PER_CHUNK + 8)
 
 typedef struct {
-    // NOTE(traks): position is offset from minimum light level
-    // (i.e. min world height - 16)
-    i8 x;
+    // NOTE(traks): position is the offset from y = min sky light level
+    // (i.e. min world height - 16) in the lowest corner of the centre chunk
     i16 y;
     i8 z;
+    i8 x;
 } LightQueueEntry;
 
 typedef struct {
-    // @NOTE(traks) pop at head, push at tail
-    i32 head;
-    i32 tail;
+    // NOTE(traks): contains which positions to propagate from
     LightQueueEntry * entries;
-    u64 queuedMap[LIGHT_QUEUE_MAP_SIZE / 64];
-    // @NOTE(traks) index as yzx
-    u8 * lightSections[4 * 32];
-    u16 * blockSections[4 * 32];
-
-    // @TODO(traks) remove debug data
-    i32 pushCount;
+    i32 readIndex;
+    i32 writeIndex;
+    // NOTE(traks): index as yzx
+    u8 * lightSections[4 * 4 * 32];
+    u16 * blockSections[4 * 4 * 32];
 } LightQueue;
 
 static inline void LightQueuePush(LightQueue * queue, LightQueueEntry entry) {
-    i32 mapIndex = (entry.y << 8) | (entry.z << 4) | entry.x;
-    i32 longIndex = mapIndex >> 6;
-    i32 bitIndex = mapIndex & 0x3f;
-    if (queue->queuedMap[longIndex] & ((u64) 1 << bitIndex)) {
-        return;
-    }
-    queue->queuedMap[longIndex] |= ((u64) 1 << bitIndex);
-
-    i32 tail = queue->tail;
-    queue->entries[tail] = entry;
-    tail = (tail + 1) % LIGHT_QUEUE_SIZE;
-    assert(tail != queue->head);
-    queue->tail = tail;
-    queue->pushCount++;
+    i32 writeIndex = queue->writeIndex;
+    queue->entries[writeIndex] = entry;
+    writeIndex = (writeIndex + 1) % LIGHT_QUEUE_SIZE;
+    assert(writeIndex != queue->readIndex);
+    queue->writeIndex = writeIndex;
 }
 
 static inline LightQueueEntry LightQueuePop(LightQueue * queue) {
-    i32 head = queue->head;
-    assert(head != queue->tail);
-    LightQueueEntry res = queue->entries[head];
-    head = (head + 1) % LIGHT_QUEUE_SIZE;
-    queue->head = head;
-
-    i32 mapIndex = (res.y << 8) | (res.z << 4) | res.x;
-    i32 longIndex = mapIndex >> 6;
-    i32 bitIndex = mapIndex & 0x3f;
-    queue->queuedMap[longIndex] &= ~((u64) 1 << bitIndex);
+    i32 readIndex = queue->readIndex;
+    assert(readIndex != queue->writeIndex);
+    LightQueueEntry res = queue->entries[readIndex];
+    readIndex = (readIndex + 1) % LIGHT_QUEUE_SIZE;
+    queue->readIndex = readIndex;
     return res;
 }
 
+// NOTE(traks): update a neighbour's skylight and push the neighbour to the
+// queue if further propagation is necessary
 static inline void PropagateSkyLight(LightQueue * queue, i32 fromX, i32 fromY, i32 fromZ, i32 dx, i32 dy, i32 dz, i32 fromValue, i32 spreadValue) {
-    i32 toX = fromX + dx;
-    i32 toY = fromY + dy;
-    i32 toZ = fromZ + dz;
+    i32 toX = (fromX + dx) & 0x3f;
+    i32 toY = (fromY + dy) & 0x1ff;
+    i32 toZ = (fromZ + dz) & 0x3f;
 
-    i32 sectionIndex = ((toY & 0x1f0) >> 2) | ((toZ & 0x10) >> 3) | ((toX & 0x10) >> 4);
+    i32 sectionIndex = ((toY & 0x1f0) >> 0) | ((toZ & 0x30) >> 2) | ((toX & 0x30) >> 4);
     i32 posIndex = ((toY & 0xf) << 8) | ((toZ & 0xf) << 4) | (toX & 0xf);
     i32 storedValue = GetSectionLight(queue->lightSections[sectionIndex], posIndex);
     // @NOTE(traks) final value is only going to be less than the spread value.
@@ -100,61 +84,140 @@ static inline void PropagateSkyLight(LightQueue * queue, i32 fromX, i32 fromY, i
     }
     SetSectionLight(queue->lightSections[sectionIndex], posIndex, finalValue);
 
-    LightQueuePush(queue, (LightQueueEntry) {toX, toY, toZ});
+    LightQueuePush(queue, (LightQueueEntry) {.x = toX, .y = toY, .z = toZ});
 }
 
-void LightChunk(Chunk * ch) {
-    // @NOTE(traks) calculating skylight for 1 chunk statistics in
-    // vanilla-generated world, without optimisations:
-    // dumb (by eye):
-    // ~400,000 pushes
-    // ~28 ms
-    //
-    // fast top (averaged):
-    // 15,844 pushes
-    // 1.249 ms
-    //
-    // avoid duplicate pushes (averaged):
-    // 1,864 pushes
-    // 0.645 ms
-    // 0.317 ms optimised
-    //
-    // avoid block queries (averaged):
-    // 1,864 pushes
-    // 0.305 ms optimised
-    //
-    // bit mask for queued map (averaged):
-    // 1,864 pushes
-    // 0.303 ms optimised
-    // -> apparently the extra computations don't affect duration, but might
-    // help with cache usage
-    //
-    // section lookup tables (averaged):
-    // 1,859 pushes
-    // 0.286 ms optimised
-    //
-    // don't clear entries array (averaged):
-    // 1,859 pushes
-    // 0.044 ms optimised
-    //
-    // fast top extra y layers (averaged):
-    // 1,106
-    // 0.032 ms optimised
+static i32 GetNeighbourIndex(i32 dx, i32 dz) {
+    i32 res = ((dz & 0x3) << 2) | (dx & 0x3);
+    return res;
+}
 
-    // TODO(traks): this is slow for Skygrid maps: 1.8 ms average per chunk!!
-    // Try switch to a different algorithm that propagates column downwards
-    // first.
+static void PropagateSkyLightFromNeighbour(LightQueue * queue, Chunk * * chunkGrid, i32 baseX, i32 baseZ, i32 addX, i32 addZ, i32 chunkDx, i32 chunkDz) {
+    Chunk * from = chunkGrid[GetNeighbourIndex(chunkDx, chunkDz)];
+    if (from == NULL) {
+        // NOTE(traks): null chunks have max sky light to prevent propagating
+        // into it. Don't propagate that max light out of it!
+        return;
+    }
+
+    i32 startY = LIGHT_SECTIONS_PER_CHUNK * 16 - 1;
+    for (i32 y = startY; y >= 0; y--) {
+        i32 x = 16 * chunkDx + baseX;
+        i32 z = 16 * chunkDz + baseZ;
+        for (i32 h = 0; h < 16; h++) {
+            i32 sectionIndex = ((y & 0x1f0) >> 0) | ((z & 0x30) >> 2) | ((x & 0x30) >> 4);
+            i32 posIndex = ((y & 0xf) << 8) | ((z & 0xf) << 4) | (x & 0xf);
+            i32 value = GetSectionLight(queue->lightSections[sectionIndex], posIndex);
+            PropagateSkyLight(queue, x, y, z, -chunkDx, 0, -chunkDz, value, value - 1);
+            x += addX;
+            z += addZ;
+        }
+    }
+}
+
+static void PropagateSkyLightFully(LightQueue * queue) {
+    for (;;) {
+        if (queue->readIndex == queue->writeIndex) {
+            break;
+        }
+
+        LightQueueEntry entry = LightQueuePop(queue);
+        i32 x = entry.x;
+        i32 y = entry.y;
+        i32 z = entry.z;
+
+        i32 sectionIndex = ((y & 0x1f0) >> 0) | ((z & 0x30) >> 2) | ((x & 0x30) >> 4);
+        i32 posIndex = ((y & 0xf) << 8) | ((z & 0xf) << 4) | (x & 0xf);
+        i32 value = GetSectionLight(queue->lightSections[sectionIndex], posIndex);
+
+        PropagateSkyLight(queue, x, y, z, -1, 0, 0, value, value - 1);
+        PropagateSkyLight(queue, x, y, z, 1, 0, 0, value, value - 1);
+        PropagateSkyLight(queue, x, y, z, 0, 0, -1, value, value - 1);
+        PropagateSkyLight(queue, x, y, z, 0, 0, 1, value, value - 1);
+        PropagateSkyLight(queue, x, y, z, 0, -1, 0, value, value == 15 ? 15 : (value - 1));
+        PropagateSkyLight(queue, x, y, z, 0, 1, 0, value, value - 1);
+    }
+}
+
+static void LoadChunkGrid(Chunk * targetChunk, Chunk * * chunkGrid) {
+    chunkGrid[0] = targetChunk;
+    for (i32 dz = -1; dz <= 1; dz++) {
+        for (i32 dx = -1; dx <= 1; dx++) {
+            if (dx == 0 && dz == 0) {
+                continue;
+            }
+            WorldChunkPos mid = targetChunk->pos;
+            WorldChunkPos pos = mid;
+            pos.x += dx;
+            pos.z += dz;
+            i32 index = GetNeighbourIndex(dx, dz);
+            Chunk * neighbour = GetChunkInternal(pos);
+            if (neighbour != NULL && neighbour->exchangeLightWithNeighbours & 1) {
+                // NOTE(traks): the neighbouring chunk lit itself, so we can
+                // exchange light with it
+                chunkGrid[index] = neighbour;
+            }
+        }
+    }
+}
+
+static void MarkLightExchanged(Chunk * * chunkGrid) {
+    for (i32 dz = -1; dz <= 1; dz++) {
+        for (i32 dx = -1; dx <= 1; dx++) {
+            i32 index = GetNeighbourIndex(dx, dz);
+            i32 oppositeIndex = GetNeighbourIndex(-dx, -dz);
+            Chunk * neighbour = chunkGrid[index];
+            if (neighbour != NULL) {
+                Chunk * target = chunkGrid[0];
+                target->exchangeLightWithNeighbours |= ((u16) 1 << index);
+                neighbour->exchangeLightWithNeighbours |= ((u16) 1 << oppositeIndex);
+
+                // TODO(traks): kinda weird we set finished loading here
+                if (target->exchangeLightWithNeighbours == 0b1011000010111011) {
+                    target->flags |= CHUNK_FULLY_LIT | CHUNK_FINISHED_LOADING;
+                }
+                if (neighbour->exchangeLightWithNeighbours == 0b1011000010111011) {
+                    neighbour->flags |= CHUNK_FULLY_LIT | CHUNK_FINISHED_LOADING;
+                }
+            }
+        }
+    }
+}
+
+void LightChunkAndExchangeWithNeighbours(Chunk * targetChunk) {
+    // TODO(traks): this takes in the order of 1 ms per call. In the past I
+    // tried filling empty sections at the top of the world for extra speed.
+    // However, that doesn't work well for Skygrid maps. Consider propagating a
+    // column at a time using the chunk's heightmap first, before doing general
+    // propagation.
+    //
+    // Here's another interesting approach. Per section we compute a layer that
+    // we stack 16 times. This has the major benefit of being able to set
+    // multiple bytes at once (instead of doing work per nibble if e.g. iterate
+    // through column until hit height map, then move to next column). Moreover,
+    // this also handles things like Skygrid well, while the empty-section
+    // approach fails miserably.
+    //
+    // Can probably go even faster by setting up a nice data structure to figure
+    // out at which Y levels which columns start their height map. Then don't
+    // even need to do per section I imagine.
+    //
+    // Should implement a fully functioning lighting engine before diving in
+    // deep though.
 
     BeginTimings(LightChunk);
 
-    BeginTimings(InitLightChunk);
+    BeginTimings(LoadChunkGrid);
 
-    i64 startTime = NanoTime();
+    Chunk * chunkGrid[4 * 4] = {0};
+    LoadChunkGrid(targetChunk, chunkGrid);
+
+    EndTimings(LoadChunkGrid);
 
     BeginTimings(InitQueue);
 
     LightQueue skyLightQueue = {0};
-    // @NOTE(traks) keep the entries array out of the queue struct, so it isn't
+    // NOTE(traks): keep the entries array out of the queue struct, so it isn't
     // zero-initialised above. Zero initialising the entry array can be very
     // slow: hundreds of microseconds for 2^20 entries.
     LightQueueEntry allEntries[LIGHT_QUEUE_SIZE];
@@ -164,7 +227,7 @@ void LightChunk(Chunk * ch) {
 
     BeginTimings(InitReferences);
 
-    // @NOTE(traks) set up section references for easy access
+    // NOTE(traks): set up section references for easy access
     u16 sectionAir[4096] = {0};
     u8 sectionFullLight[2048];
     memset(sectionFullLight, 0xff, 2048);
@@ -172,135 +235,61 @@ void LightChunk(Chunk * ch) {
     for (i32 i = 0; i < ARRAY_SIZE(skyLightQueue.blockSections); i++) {
         skyLightQueue.lightSections[i] = sectionFullLight;
     }
-    for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
-        u16 * blockStates = ch->sections[sectionIndex].blockStates;
-        if (blockStates == NULL) {
-            blockStates = sectionAir;
-        }
-        skyLightQueue.blockSections[(sectionIndex + 1) * 4] = blockStates;
-    }
-    skyLightQueue.blockSections[0] = sectionAir;
-    skyLightQueue.blockSections[(LIGHT_SECTIONS_PER_CHUNK - 1) * 4] = sectionAir;
 
-    for (i32 sectionIndex = 0; sectionIndex < LIGHT_SECTIONS_PER_CHUNK; sectionIndex++) {
-        skyLightQueue.lightSections[sectionIndex * 4] = ch->lightSections[sectionIndex].skyLight;
+    for (i32 zx = 0; zx < 16; zx++) {
+        Chunk * chunk = chunkGrid[zx];
+
+        for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
+            u16 * blockStates = NULL;
+            if (chunk != NULL) {
+                blockStates = chunk->sections[sectionIndex].blockStates;
+            }
+            if (blockStates == NULL) {
+                blockStates = sectionAir;
+            }
+            i32 gridIndex = ((sectionIndex + 1) << 4) | zx;
+            skyLightQueue.blockSections[gridIndex] = blockStates;
+        }
+
+        skyLightQueue.blockSections[(0 << 4) | zx] = sectionAir;
+        skyLightQueue.blockSections[((LIGHT_SECTIONS_PER_CHUNK - 1) << 4) | zx] = sectionAir;
+
+        if (chunk != NULL) {
+            for (i32 sectionIndex = 0; sectionIndex < LIGHT_SECTIONS_PER_CHUNK; sectionIndex++) {
+                skyLightQueue.lightSections[(sectionIndex << 4) | zx] = chunk->lightSections[sectionIndex].skyLight;
+            }
+        }
     }
 
     EndTimings(InitReferences);
 
-    BeginTimings(TopLight);
+    BeginTimings(PropagateOwnSkyLight);
 
-    // @NOTE(traks) first set all y layers to full light level above the highest
-    // block in the chunk
-    i32 firstFullAirYLightOffset = MIN_WORLD_Y;
+    // NOTE(traks): prepare sky light sources for propagation
     for (i32 zx = 0; zx < 16 * 16; zx++) {
-        i32 firstAirY = ch->motion_blocking_height_map[zx];
-        firstFullAirYLightOffset = MAX(firstAirY, firstFullAirYLightOffset);
-    }
-    // NOTE(traks): also fill the light section below the world with skylight if
-    // the chunk consists entirely of air
-    if (firstFullAirYLightOffset == MIN_WORLD_Y) {
-        firstFullAirYLightOffset -= 16;
-    }
-    firstFullAirYLightOffset -= (MIN_WORLD_Y - 16);
-
-    // NOTE(traks): first set sections above the first full air Y
-    i32 aboveLightSectionFullLight = (firstFullAirYLightOffset >> 4) + 1;
-    assert(aboveLightSectionFullLight >= 1);
-    assert(aboveLightSectionFullLight < LIGHT_SECTIONS_PER_CHUNK);
-    for (i32 sectionIndex = LIGHT_SECTIONS_PER_CHUNK - 1; sectionIndex >= aboveLightSectionFullLight; sectionIndex--) {
-        memset(ch->lightSections[sectionIndex].skyLight, 0xff, 2048);
-    }
-    // NOTE(traks): fill the section of the first full air Y level with sky
-    // light above the Y coordinate
-    i32 extraFullLightOffset = (firstFullAirYLightOffset & 0xf) * 16 * 16 / 2;
-    memset(ch->lightSections[aboveLightSectionFullLight - 1].skyLight + extraFullLightOffset, 0xff, 2048 - extraFullLightOffset);
-
-    EndTimings(TopLight);
-
-    // NOTE(traks): here's another interesting approach. Per section we compute
-    // a layer that we stack 16 times. This has the major benefit of being able
-    // to set multiple bytes at once (instead of doing work per nibble if e.g.
-    // iterate through column until hit height map, then move to next column).
-    // Moreover, this also handles things like Skygrid well, while the
-    // empty-section approach above fails miserably.
-    //
-    // Can probably go even faster by setting up a nice data structure to figure
-    // out at which Y levels which columns start their height map. Then don't
-    // even need to do per section I imagine.
-    //
-    // Should implement a fully functioning lighting engine before diving in
-    // deep though.
-    /*
-    u8 lightLayer[16 * 16 / 2];
-    for (i32 zx = 0; zx < 16 * 16; zx++) {
-        lightLayer[zx] = 0xff;
+        i32 y = (MAX_WORLD_Y - MIN_WORLD_Y + 1) + 16 + 16;
+        LightQueuePush(&skyLightQueue, (LightQueueEntry) {.x = zx & 0xf, .y = y, .z = zx >> 4});
     }
 
-    for (i32 sectionIndex = LIGHT_SECTIONS_PER_CHUNK - 1; sectionIndex >= 0; sectionIndex--) {
-        i32 sectionMinY = (sectionIndex - 1) * 16 + MIN_WORLD_Y;
-        for (i32 zx = 0; zx < 16 * 16; zx++) {
-            i32 airColumnStartY = ch->motion_blocking_height_map[zx];
-            if (airColumnStartY > sectionMinY) {
-                SetSectionLight(lightLayer, zx, 0);
-            }
-        }
-        for (i32 y = 0; y < 16; y++) {
-            memcpy(ch->lightSections[sectionIndex].skyLight + (y << 8) / 2, lightLayer, sizeof lightLayer);
-        }
-    }
-    */
+    PropagateSkyLightFully(&skyLightQueue);
 
-    EndTimings(InitLightChunk);
+    EndTimings(PropagateOwnSkyLight);
 
-    // @NOTE(traks) prepare sky light sources for propagation
+    BeginTimings(PropagateNeighbourSkyLight);
 
-    for (i32 zx = 0; zx < 16 * 16; zx++) {
-        i32 y = firstFullAirYLightOffset;
-        LightQueuePush(&skyLightQueue, (LightQueueEntry) {zx & 0xf, y, zx >> 4});
-    }
+    PropagateSkyLightFromNeighbour(&skyLightQueue, chunkGrid, 15, 0, 0, 1, -1, 0);
+    PropagateSkyLightFromNeighbour(&skyLightQueue, chunkGrid, 0, 0, 0, 1, 1, 0);
+    PropagateSkyLightFromNeighbour(&skyLightQueue, chunkGrid, 0, 15, 1, 0, 0, -1);
+    PropagateSkyLightFromNeighbour(&skyLightQueue, chunkGrid, 0, 0, 1, 0, 0, 1);
+    PropagateSkyLightFully(&skyLightQueue);
 
-    // @NOTE(traks) propagate sky light
-    for (;;) {
-        if (skyLightQueue.head == skyLightQueue.tail) {
-            break;
-        }
+    EndTimings(PropagateNeighbourSkyLight);
 
-        LightQueueEntry entry = LightQueuePop(&skyLightQueue);
-        i32 x = entry.x;
-        i32 y = entry.y;
-        i32 z = entry.z;
-
-        i32 sectionIndex = ((y & 0x1f0) >> 2) | ((z & 0x10) >> 3) | ((x & 0x10) >> 4);
-        i32 posIndex = ((y & 0xf) << 8) | ((z & 0xf) << 4) | (x & 0xf);
-        i32 value = GetSectionLight(skyLightQueue.lightSections[sectionIndex], posIndex);
-
-        PropagateSkyLight(&skyLightQueue, x, y, z, -1, 0, 0, value, value - 1);
-        PropagateSkyLight(&skyLightQueue, x, y, z, 1, 0, 0, value, value - 1);
-        PropagateSkyLight(&skyLightQueue, x, y, z, 0, 0, -1, value, value - 1);
-        PropagateSkyLight(&skyLightQueue, x, y, z, 0, 0, 1, value, value - 1);
-        PropagateSkyLight(&skyLightQueue, x, y, z, 0, -1, 0, value, value == 15 ? 15 : (value - 1));
-        PropagateSkyLight(&skyLightQueue, x, y, z, 0, 1, 0, value, value - 1);
-    }
-
-    i64 endTime = NanoTime();
+    BeginTimings(MarkLightExchanged);
+    MarkLightExchanged(chunkGrid);
+    EndTimings(MarkLightExchanged);
 
     EndTimings(LightChunk);
-
-    if (DEBUG_LIGHTING_ENGINE) {
-        static i64 totalPushCount;
-        static i64 totalCallCount;
-        static i64 totalElapsedTime;
-
-        totalPushCount += skyLightQueue.pushCount;
-        totalCallCount++;
-        totalElapsedTime += (endTime - startTime) / 1000;
-
-        LogInfo("pushes: %d, elapsed: %d, calls: %d",
-                totalPushCount / totalCallCount,
-                totalElapsedTime / totalCallCount,
-                totalCallCount);
-    }
 }
 
 void UpdateLighting() {

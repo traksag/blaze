@@ -408,7 +408,7 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
     }
 
     if (lightIsStored) {
-        chunk->flags |= CHUNK_LIT;
+        chunk->flags |= CHUNK_FULLY_LIT;
     }
 
     chunk->flags |= CHUNK_LOAD_SUCCESS;

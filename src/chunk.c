@@ -689,6 +689,17 @@ Chunk * GetChunkIfLoaded(WorldChunkPos pos) {
     return res;
 }
 
+Chunk * GetChunkInternal(WorldChunkPos pos) {
+    Chunk * res = NULL;
+    PackedWorldChunkPos packedPos = PackWorldChunkPos(pos);
+    u32 hash = HashWorldChunkPos(packedPos);
+    ChunkHashEntry * entry = FindChunkHashEntryOrEmpty(packedPos, hash);
+    if (!ChunkHashEntryIsEmpty(entry)) {
+        res = &chunkTable.entries[entry->tableIndex].chunk;
+    }
+    return res;
+}
+
 void CollectLoadedChunks(WorldChunkPos from, WorldChunkPos to, Chunk * * chunkArray) {
     i32 jumpZ = to.x - from.x + 1;
     for (i32 x = from.x; x <= to.x; x++) {
@@ -727,7 +738,7 @@ clean_up_unused_chunks(void) {
             continue;
         }
 
-        assert(chunk->flags & CHUNK_FINISHED_LOADING);
+        assert(chunk->flags & CHUNK_BLOCKS_LOADED);
 
         // NOTE(traks): remove the chunk
         for (int sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
@@ -825,14 +836,10 @@ void LoadChunks() {
             }
         }
 
-        // TODO(traks): something is wrong here
-        if (!(chunk->flags & CHUNK_LIT) || 1) {
-            LightChunk(chunk);
-            chunk->flags |= CHUNK_LIT;
-        }
-
         chunk->flags &= ~(CHUNK_FORCE_KEEP);
-        chunk->flags |= CHUNK_FINISHED_LOADING;
+        chunk->flags |= CHUNK_BLOCKS_LOADED;
+
+        LightChunkAndExchangeWithNeighbours(chunk);
 
         if (chunk->interestCount == 0) {
             // TODO(traks): we need to reschedule for removal in case someone

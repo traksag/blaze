@@ -29,8 +29,9 @@ typedef struct {
 #define CHUNK_WAS_ON_LOAD_REQUEST_LIST (0x1 << 1)
 #define CHUNK_WAS_ON_UNLOAD_REQUEST_LIST (0x1 << 2)
 #define CHUNK_FORCE_KEEP (0x1 << 3)
-#define CHUNK_LIT (0x1 << 4)
+#define CHUNK_FULLY_LIT (0x1 << 4)
 #define CHUNK_LOAD_SUCCESS (0x1 << 5)
+#define CHUNK_BLOCKS_LOADED (0x1 << 7)
 
 typedef struct {
     ChunkSection sections[SECTIONS_PER_CHUNK];
@@ -44,6 +45,7 @@ typedef struct {
     i32 interestCount;
     i32 chunkStatus;
     unsigned flags;
+    u16 exchangeLightWithNeighbours;
 
     WorldChunkPos pos;
 
@@ -91,6 +93,9 @@ void AddChunkInterest(WorldChunkPos pos, i32 interest);
 i32 PopChunksToLoad(i32 worldId, Chunk * * chunkArray, i32 maxChunks);
 void PushChunksFinishedLoading(i32 worldId, Chunk * * chunkArray, i32 chunkCount);
 Chunk * GetChunkIfLoaded(WorldChunkPos pos);
+Chunk * GetChunkInternal(WorldChunkPos pos);
+// NOTE(traks): chunkArray will hold the data, may need to zero-initialise it.
+// It is indexed as zx
 void CollectLoadedChunks(WorldChunkPos from, WorldChunkPos to, Chunk * * chunkArray);
 
 typedef struct {
@@ -127,6 +132,7 @@ static inline void SetSectionLight(u8 * lightArray, i32 posIndex, u8 light) {
 // @NOTE(traks) assumes all light sections are present in the chunk and assumes
 // all light values are equal to 0
 void LightChunk(Chunk * ch);
+void LightChunkAndExchangeWithNeighbours(Chunk * targetChunk);
 
 void ChunkRecalculateMotionBlockingHeightMap(Chunk * ch);
 
