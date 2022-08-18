@@ -2159,6 +2159,7 @@ typedef struct {
     u8 supportModelByState[MAX_BLOCK_STATES];
     u8 lightBlockingModelByState[MAX_BLOCK_STATES];
     u8 lightReductionByState[MAX_BLOCK_STATES];
+    u8 emittedLightByState[MAX_BLOCK_STATES];
 
     dimension_type dimension_types[32];
     int dimension_type_count;

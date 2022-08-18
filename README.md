@@ -42,7 +42,7 @@ As of writing this, Blaze runs in offline mode and has the following features:
 8. Server list ping with a sample of the online players.
 9. Basic block update system.
 10. Non-player entity movement and block collisions.
-11. Basic sky light engine.
+11. Basic light engine.
 
 ## Contributing
 
