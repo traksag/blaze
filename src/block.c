@@ -1943,14 +1943,7 @@ update_redstone_line(WorldBlockPos start_pos) {
     }
 }
 
-// @TODO(traks) can we perhaps get rid of the from_direction for simplicity?
-static int
-update_block(WorldBlockPos pos, int from_direction, int is_delayed,
-        block_update_context * buc) {
-    // @TODO(traks) ideally all these chunk lookups and block lookups should be
-    // cached to make a single block update as fast as possible. It is after all
-    // incredibly easy to create tons of block updates in a single tick.
-
+static i32 DoBlockBehaviour(WorldBlockPos pos, int from_direction, int is_delayed, block_update_context * buc, i32 behaviour) {
     u16 cur_state = WorldGetBlockState(pos);
     block_state_info cur_info = describe_block_state(cur_state);
     i32 cur_type = cur_info.block_type;
@@ -1960,14 +1953,8 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
     block_state_info from_info = describe_block_state(from_state);
     i32 from_type = from_info.block_type;
 
-    // @TODO(traks) drop items if the block is broken
-
-    // @TODO(traks) remove block entity data
-
-    switch (cur_type) {
-    case BLOCK_GRASS_BLOCK:
-    case BLOCK_PODZOL:
-    case BLOCK_MYCELIUM: {
+    switch (behaviour) {
+    case BLOCK_BEHAVIOUR_SNOWY_TOP: {
         if (from_direction != DIRECTION_POS_Y) {
             return 0;
         }
@@ -1987,27 +1974,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
-    case BLOCK_OAK_SAPLING:
-    case BLOCK_SPRUCE_SAPLING:
-    case BLOCK_BIRCH_SAPLING:
-    case BLOCK_JUNGLE_SAPLING:
-    case BLOCK_ACACIA_SAPLING:
-    case BLOCK_DARK_OAK_SAPLING:
-    case BLOCK_DANDELION:
-    case BLOCK_POPPY:
-    case BLOCK_BLUE_ORCHID:
-    case BLOCK_ALLIUM:
-    case BLOCK_AZURE_BLUET:
-    case BLOCK_RED_TULIP:
-    case BLOCK_ORANGE_TULIP:
-    case BLOCK_WHITE_TULIP:
-    case BLOCK_PINK_TULIP:
-    case BLOCK_OXEYE_DAISY:
-    case BLOCK_CORNFLOWER:
-    case BLOCK_LILY_OF_THE_VALLEY:
-    case BLOCK_SWEET_BERRY_BUSH:
-    case BLOCK_GRASS:
-    case BLOCK_FERN: {
+    case BLOCK_BEHAVIOUR_NEED_SOIL_BELOW: {
         if (from_direction != DIRECTION_NEG_Y) {
             return 0;
         }
@@ -2020,7 +1987,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
-    case BLOCK_MANGROVE_PROPAGULE: {
+    case BLOCK_BEHAVIOUR_NEED_PROPAGULE_ENVIRONMENT: {
         if (from_direction == DIRECTION_NEG_Y) {
             i32 typeBelow = from_type;
             if (!can_propagule_survive_on(typeBelow)) {
@@ -2038,52 +2005,11 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         }
         return 0;
     }
-    case BLOCK_MANGROVE_ROOTS:
-        // @TODO(traks) fluid update
-        break;
-    case BLOCK_WATER:
-        break;
-    case BLOCK_LAVA:
-        break;
-    case BLOCK_SAND:
-        break;
-    case BLOCK_RED_SAND:
-        break;
-    case BLOCK_GRAVEL:
-        break;
-    case BLOCK_OAK_LEAVES:
-    case BLOCK_SPRUCE_LEAVES:
-    case BLOCK_BIRCH_LEAVES:
-    case BLOCK_JUNGLE_LEAVES:
-    case BLOCK_ACACIA_LEAVES:
-    case BLOCK_DARK_OAK_LEAVES:
-    case BLOCK_MANGROVE_LEAVES:
-    case BLOCK_AZALEA_LEAVES:
-    case BLOCK_FLOWERING_AZALEA_LEAVES:
-        // @TODO(traks) fluid update
-        break;
-    case BLOCK_SPONGE:
-        break;
-    case BLOCK_DISPENSER:
-        break;
-    case BLOCK_NOTE_BLOCK:
-        break;
-    case BLOCK_WHITE_BED:
-    case BLOCK_ORANGE_BED:
-    case BLOCK_MAGENTA_BED:
-    case BLOCK_LIGHT_BLUE_BED:
-    case BLOCK_YELLOW_BED:
-    case BLOCK_LIME_BED:
-    case BLOCK_PINK_BED:
-    case BLOCK_GRAY_BED:
-    case BLOCK_LIGHT_GRAY_BED:
-    case BLOCK_CYAN_BED:
-    case BLOCK_PURPLE_BED:
-    case BLOCK_BLUE_BED:
-    case BLOCK_BROWN_BED:
-    case BLOCK_GREEN_BED:
-    case BLOCK_RED_BED:
-    case BLOCK_BLACK_BED: {
+    case BLOCK_BEHAVIOUR_FLUID: {
+        // TODO(traks): fluid update
+        return 0;
+    }
+    case BLOCK_BEHAVIOUR_BED: {
         int facing = cur_info.horizontal_facing;
         if (from_direction == facing) {
             if (cur_info.bed_part == BED_PART_FOOT) {
@@ -2124,13 +2050,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         }
         return 0;
     }
-    case BLOCK_POWERED_RAIL:
-        break;
-    case BLOCK_DETECTOR_RAIL:
-        break;
-    case BLOCK_STICKY_PISTON:
-        break;
-    case BLOCK_DEAD_BUSH: {
+    case BLOCK_BEHAVIOUR_NEED_SOIL_OR_DRY_SOIL_BELOW: {
         if (from_direction != DIRECTION_NEG_Y) {
             return 0;
         }
@@ -2143,17 +2063,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
-    case BLOCK_SEAGRASS:
-        break;
-    case BLOCK_TALL_SEAGRASS:
-        break;
-    case BLOCK_PISTON:
-        break;
-    case BLOCK_PISTON_HEAD:
-        break;
-    case BLOCK_MOVING_PISTON:
-        break;
-    case BLOCK_WITHER_ROSE: {
+    case BLOCK_BEHAVIOUR_WITHER_ROSE: {
         if (from_direction != DIRECTION_NEG_Y) {
             return 0;
         }
@@ -2166,31 +2076,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
-    case BLOCK_BROWN_MUSHROOM:
-        break;
-    case BLOCK_RED_MUSHROOM:
-        break;
-    case BLOCK_TNT:
-        break;
-    case BLOCK_TORCH:
-    case BLOCK_SOUL_TORCH:
-    case BLOCK_CANDLE:
-    case BLOCK_WHITE_CANDLE:
-    case BLOCK_ORANGE_CANDLE:
-    case BLOCK_MAGENTA_CANDLE:
-    case BLOCK_LIGHT_BLUE_CANDLE:
-    case BLOCK_YELLOW_CANDLE:
-    case BLOCK_LIME_CANDLE:
-    case BLOCK_PINK_CANDLE:
-    case BLOCK_GRAY_CANDLE:
-    case BLOCK_LIGHT_GRAY_CANDLE:
-    case BLOCK_CYAN_CANDLE:
-    case BLOCK_PURPLE_CANDLE:
-    case BLOCK_BLUE_CANDLE:
-    case BLOCK_BROWN_CANDLE:
-    case BLOCK_GREEN_CANDLE:
-    case BLOCK_RED_CANDLE:
-    case BLOCK_BLACK_CANDLE: {
+    case BLOCK_BEHAVIOUR_NEED_POLE_SUPPORT_BELOW: {
         if (from_direction != DIRECTION_NEG_Y) {
             return 0;
         }
@@ -2205,9 +2091,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
-    case BLOCK_WALL_TORCH:
-    case BLOCK_SOUL_WALL_TORCH:
-    case BLOCK_LADDER: {
+    case BLOCK_BEHAVIOUR_NEED_FULL_SUPPORT_BEHIND_HORIZONTAL: {
         if (from_direction != get_opposite_direction(cur_info.horizontal_facing)) {
             return 0;
         }
@@ -2222,62 +2106,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
-    case BLOCK_FIRE:
-        break;
-    case BLOCK_SOUL_FIRE:
-        break;
-    case BLOCK_SPAWNER:
-        break;
-    case BLOCK_OAK_STAIRS:
-    case BLOCK_COBBLESTONE_STAIRS:
-    case BLOCK_BRICK_STAIRS:
-    case BLOCK_STONE_BRICK_STAIRS:
-    case BLOCK_MUD_BRICK_STAIRS:
-    case BLOCK_NETHER_BRICK_STAIRS:
-    case BLOCK_SANDSTONE_STAIRS:
-    case BLOCK_SPRUCE_STAIRS:
-    case BLOCK_BIRCH_STAIRS:
-    case BLOCK_JUNGLE_STAIRS:
-    case BLOCK_QUARTZ_STAIRS:
-    case BLOCK_ACACIA_STAIRS:
-    case BLOCK_DARK_OAK_STAIRS:
-    case BLOCK_MANGROVE_STAIRS:
-    case BLOCK_PRISMARINE_STAIRS:
-    case BLOCK_PRISMARINE_BRICK_STAIRS:
-    case BLOCK_DARK_PRISMARINE_STAIRS:
-    case BLOCK_RED_SANDSTONE_STAIRS:
-    case BLOCK_PURPUR_STAIRS:
-    case BLOCK_POLISHED_GRANITE_STAIRS:
-    case BLOCK_SMOOTH_RED_SANDSTONE_STAIRS:
-    case BLOCK_MOSSY_STONE_BRICK_STAIRS:
-    case BLOCK_POLISHED_DIORITE_STAIRS:
-    case BLOCK_MOSSY_COBBLESTONE_STAIRS:
-    case BLOCK_END_STONE_BRICK_STAIRS:
-    case BLOCK_STONE_STAIRS:
-    case BLOCK_SMOOTH_SANDSTONE_STAIRS:
-    case BLOCK_SMOOTH_QUARTZ_STAIRS:
-    case BLOCK_GRANITE_STAIRS:
-    case BLOCK_ANDESITE_STAIRS:
-    case BLOCK_RED_NETHER_BRICK_STAIRS:
-    case BLOCK_POLISHED_ANDESITE_STAIRS:
-    case BLOCK_DIORITE_STAIRS:
-    case BLOCK_CRIMSON_STAIRS:
-    case BLOCK_WARPED_STAIRS:
-    case BLOCK_BLACKSTONE_STAIRS:
-    case BLOCK_POLISHED_BLACKSTONE_BRICK_STAIRS:
-    case BLOCK_POLISHED_BLACKSTONE_STAIRS:
-    case BLOCK_OXIDIZED_CUT_COPPER_STAIRS:
-    case BLOCK_WEATHERED_CUT_COPPER_STAIRS:
-    case BLOCK_EXPOSED_CUT_COPPER_STAIRS:
-    case BLOCK_CUT_COPPER_STAIRS:
-    case BLOCK_WAXED_OXIDIZED_CUT_COPPER_STAIRS:
-    case BLOCK_WAXED_WEATHERED_CUT_COPPER_STAIRS:
-    case BLOCK_WAXED_EXPOSED_CUT_COPPER_STAIRS:
-    case BLOCK_WAXED_CUT_COPPER_STAIRS:
-    case BLOCK_COBBLED_DEEPSLATE_STAIRS:
-    case BLOCK_POLISHED_DEEPSLATE_STAIRS:
-    case BLOCK_DEEPSLATE_TILE_STAIRS:
-    case BLOCK_DEEPSLATE_BRICK_STAIRS: {
+    case BLOCK_BEHAVIOUR_STAIRS: {
         if (from_direction == DIRECTION_NEG_Y
                 || from_direction == DIRECTION_POS_Y) {
             return 0;
@@ -2292,9 +2121,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
-    case BLOCK_CHEST:
-        break;
-    case BLOCK_REDSTONE_WIRE: {
+    case BLOCK_BEHAVIOUR_REDSTONE_WIRE: {
         if (from_direction == DIRECTION_NEG_Y) {
             if (!can_redstone_wire_survive_on(from_state)) {
                 WorldSetBlockState(pos, 0);
@@ -2310,10 +2137,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
             return res;
         }
     }
-    case BLOCK_WHEAT:
-    case BLOCK_BEETROOTS:
-    case BLOCK_CARROTS:
-    case BLOCK_POTATOES: {
+    case BLOCK_BEHAVIOUR_NEED_FARMLAND_BELOW: {
         if (from_direction != DIRECTION_NEG_Y) {
             return 0;
         }
@@ -2328,34 +2152,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
-    case BLOCK_FARMLAND:
-        break;
-    case BLOCK_FURNACE:
-        break;
-    case BLOCK_OAK_SIGN:
-        break;
-    case BLOCK_SPRUCE_SIGN:
-        break;
-    case BLOCK_BIRCH_SIGN:
-        break;
-    case BLOCK_ACACIA_SIGN:
-        break;
-    case BLOCK_JUNGLE_SIGN:
-        break;
-    case BLOCK_DARK_OAK_SIGN:
-        break;
-    case BLOCK_MANGROVE_SIGN:
-        break;
-    case BLOCK_OAK_DOOR:
-    case BLOCK_IRON_DOOR:
-    case BLOCK_SPRUCE_DOOR:
-    case BLOCK_BIRCH_DOOR:
-    case BLOCK_JUNGLE_DOOR:
-    case BLOCK_ACACIA_DOOR:
-    case BLOCK_DARK_OAK_DOOR:
-    case BLOCK_MANGROVE_DOOR:
-    case BLOCK_CRIMSON_DOOR:
-    case BLOCK_WARPED_DOOR: {
+    case BLOCK_BEHAVIOUR_DOOR_MATCH_OTHER_PART: {
         if (from_direction == DIRECTION_POS_Y) {
             if (cur_info.double_block_half == DOUBLE_BLOCK_HALF_LOWER) {
                 u16 new_state;
@@ -2408,35 +2205,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         }
         return 0;
     }
-    case BLOCK_RAIL:
-        break;
-    case BLOCK_OAK_WALL_SIGN:
-        break;
-    case BLOCK_SPRUCE_WALL_SIGN:
-        break;
-    case BLOCK_BIRCH_WALL_SIGN:
-        break;
-    case BLOCK_ACACIA_WALL_SIGN:
-        break;
-    case BLOCK_JUNGLE_WALL_SIGN:
-        break;
-    case BLOCK_DARK_OAK_WALL_SIGN:
-        break;
-    case BLOCK_MANGROVE_WALL_SIGN:
-        break;
-    case BLOCK_STONE_PRESSURE_PLATE:
-    case BLOCK_OAK_PRESSURE_PLATE:
-    case BLOCK_SPRUCE_PRESSURE_PLATE:
-    case BLOCK_BIRCH_PRESSURE_PLATE:
-    case BLOCK_JUNGLE_PRESSURE_PLATE:
-    case BLOCK_ACACIA_PRESSURE_PLATE:
-    case BLOCK_DARK_OAK_PRESSURE_PLATE:
-    case BLOCK_MANGROVE_PRESSURE_PLATE:
-    case BLOCK_LIGHT_WEIGHTED_PRESSURE_PLATE:
-    case BLOCK_HEAVY_WEIGHTED_PRESSURE_PLATE:
-    case BLOCK_CRIMSON_PRESSURE_PLATE:
-    case BLOCK_WARPED_PRESSURE_PLATE:
-    case BLOCK_POLISHED_BLACKSTONE_PRESSURE_PLATE: {
+    case BLOCK_BEHAVIOUR_NEED_PLATE_SUPPORTING_SURFACE_BELOW: {
         if (from_direction != DIRECTION_NEG_Y) {
             return 0;
         }
@@ -2447,22 +2216,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
-    case BLOCK_REDSTONE_TORCH:
-        break;
-    case BLOCK_REDSTONE_WALL_TORCH:
-        break;
-    case BLOCK_STONE_BUTTON:
-    case BLOCK_OAK_BUTTON:
-    case BLOCK_SPRUCE_BUTTON:
-    case BLOCK_BIRCH_BUTTON:
-    case BLOCK_JUNGLE_BUTTON:
-    case BLOCK_ACACIA_BUTTON:
-    case BLOCK_DARK_OAK_BUTTON:
-    case BLOCK_MANGROVE_BUTTON:
-    case BLOCK_CRIMSON_BUTTON:
-    case BLOCK_WARPED_BUTTON:
-    case BLOCK_POLISHED_BLACKSTONE_BUTTON:
-    case BLOCK_LEVER: {
+    case BLOCK_BEHAVIOUR_NEED_FULL_SUPPORT_ATTACHED: {
         int wall_dir;
         switch (cur_info.attach_face) {
         case ATTACH_FACE_FLOOR:
@@ -2489,7 +2243,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
-    case BLOCK_SNOW: {
+    case BLOCK_BEHAVIOUR_SNOW_LAYER: {
         if (from_direction != DIRECTION_NEG_Y) {
             return 0;
         }
@@ -2500,9 +2254,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
-    case BLOCK_CACTUS:
-        break;
-    case BLOCK_SUGAR_CANE: {
+    case BLOCK_BEHAVIOUR_SUGAR_CANE: {
         if (can_sugar_cane_survive_at(pos)) {
             return 0;
         }
@@ -2515,20 +2267,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
             return 0;
         }
     }
-    case BLOCK_JUKEBOX:
-        break;
-    case BLOCK_OAK_FENCE:
-    case BLOCK_NETHER_BRICK_FENCE:
-    case BLOCK_SPRUCE_FENCE:
-    case BLOCK_BIRCH_FENCE:
-    case BLOCK_JUNGLE_FENCE:
-    case BLOCK_ACACIA_FENCE:
-    case BLOCK_DARK_OAK_FENCE:
-    case BLOCK_MANGROVE_FENCE:
-    case BLOCK_CRIMSON_FENCE:
-    case BLOCK_WARPED_FENCE: {
-        // @TODO(traks) update water
-
+    case BLOCK_BEHAVIOUR_FENCE_CONNECT: {
         if (from_direction == DIRECTION_NEG_Y
                 || from_direction == DIRECTION_POS_Y) {
             return 0;
@@ -2542,48 +2281,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
-    case BLOCK_SOUL_SAND:
-        break;
-    case BLOCK_NETHER_PORTAL:
-        break;
-    case BLOCK_CAKE:
-    case BLOCK_CANDLE_CAKE:
-    case BLOCK_WHITE_CANDLE_CAKE:
-    case BLOCK_ORANGE_CANDLE_CAKE:
-    case BLOCK_MAGENTA_CANDLE_CAKE:
-    case BLOCK_LIGHT_BLUE_CANDLE_CAKE:
-    case BLOCK_YELLOW_CANDLE_CAKE:
-    case BLOCK_LIME_CANDLE_CAKE:
-    case BLOCK_PINK_CANDLE_CAKE:
-    case BLOCK_GRAY_CANDLE_CAKE:
-    case BLOCK_LIGHT_GRAY_CANDLE_CAKE:
-    case BLOCK_CYAN_CANDLE_CAKE:
-    case BLOCK_PURPLE_CANDLE_CAKE:
-    case BLOCK_BLUE_CANDLE_CAKE:
-    case BLOCK_BROWN_CANDLE_CAKE:
-    case BLOCK_GREEN_CANDLE_CAKE:
-    case BLOCK_RED_CANDLE_CAKE:
-    case BLOCK_BLACK_CANDLE_CAKE:
-        break;
-    case BLOCK_REPEATER:
-        break;
-    case BLOCK_OAK_TRAPDOOR:
-        break;
-    case BLOCK_SPRUCE_TRAPDOOR:
-        break;
-    case BLOCK_BIRCH_TRAPDOOR:
-        break;
-    case BLOCK_JUNGLE_TRAPDOOR:
-        break;
-    case BLOCK_ACACIA_TRAPDOOR:
-        break;
-    case BLOCK_DARK_OAK_TRAPDOOR:
-        break;
-    case BLOCK_MANGROVE_TRAPDOOR:
-        break;
-    case BLOCK_BROWN_MUSHROOM_BLOCK:
-    case BLOCK_RED_MUSHROOM_BLOCK:
-    case BLOCK_MUSHROOM_STEM: {
+    case BLOCK_BEHAVIOUR_MUSHROOM_BLOCK_CONNECT: {
         if (from_type != cur_type) {
             return 0;
         }
@@ -2598,26 +2296,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
-    case BLOCK_IRON_BARS:
-    case BLOCK_GLASS_PANE:
-    case BLOCK_WHITE_STAINED_GLASS_PANE:
-    case BLOCK_ORANGE_STAINED_GLASS_PANE:
-    case BLOCK_MAGENTA_STAINED_GLASS_PANE:
-    case BLOCK_LIGHT_BLUE_STAINED_GLASS_PANE:
-    case BLOCK_YELLOW_STAINED_GLASS_PANE:
-    case BLOCK_LIME_STAINED_GLASS_PANE:
-    case BLOCK_PINK_STAINED_GLASS_PANE:
-    case BLOCK_GRAY_STAINED_GLASS_PANE:
-    case BLOCK_LIGHT_GRAY_STAINED_GLASS_PANE:
-    case BLOCK_CYAN_STAINED_GLASS_PANE:
-    case BLOCK_PURPLE_STAINED_GLASS_PANE:
-    case BLOCK_BLUE_STAINED_GLASS_PANE:
-    case BLOCK_BROWN_STAINED_GLASS_PANE:
-    case BLOCK_GREEN_STAINED_GLASS_PANE:
-    case BLOCK_RED_STAINED_GLASS_PANE:
-    case BLOCK_BLACK_STAINED_GLASS_PANE: {
-        // @TODO(traks) update water
-
+    case BLOCK_BEHAVIOUR_PANE_CONNECT: {
         if (from_direction == DIRECTION_NEG_Y
                 || from_direction == DIRECTION_POS_Y) {
             return 0;
@@ -2631,40 +2310,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
-    case BLOCK_CHAIN:
-        break;
-    case BLOCK_ATTACHED_PUMPKIN_STEM:
-        break;
-    case BLOCK_ATTACHED_MELON_STEM:
-        break;
-    case BLOCK_PUMPKIN_STEM:
-    case BLOCK_MELON_STEM: {
-        if (from_direction != DIRECTION_NEG_Y) {
-            return 0;
-        }
-
-        i32 type_below = from_type;
-        if (type_below == BLOCK_FARMLAND) {
-            return 0;
-        }
-
-        break_block(pos);
-        push_direct_neighbour_block_updates(pos, buc);
-        return 1;
-    }
-    case BLOCK_VINE:
-        break;
-    case BLOCK_GLOW_LICHEN:
-        break;
-    case BLOCK_OAK_FENCE_GATE:
-    case BLOCK_SPRUCE_FENCE_GATE:
-    case BLOCK_BIRCH_FENCE_GATE:
-    case BLOCK_JUNGLE_FENCE_GATE:
-    case BLOCK_ACACIA_FENCE_GATE:
-    case BLOCK_DARK_OAK_FENCE_GATE:
-    case BLOCK_MANGROVE_FENCE_GATE:
-    case BLOCK_CRIMSON_FENCE_GATE:
-    case BLOCK_WARPED_FENCE_GATE: {
+    case BLOCK_BEHAVIOUR_FENCE_GATE_CONNECT: {
         int facing = cur_info.horizontal_facing;
         int rotated = rotate_direction_clockwise(facing);
         if (rotated != from_direction && rotated != get_opposite_direction(from_direction)) {
@@ -2701,7 +2347,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
-    case BLOCK_LILY_PAD: {
+    case BLOCK_BEHAVIOUR_LILY_PAD: {
         if (from_direction != DIRECTION_NEG_Y) {
             return 0;
         }
@@ -2712,7 +2358,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
-    case BLOCK_NETHER_WART: {
+    case BLOCK_BEHAVIOUR_NETHER_WART: {
         if (from_direction != DIRECTION_NEG_Y) {
             return 0;
         }
@@ -2726,48 +2372,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
-    case BLOCK_ENCHANTING_TABLE:
-        break;
-    case BLOCK_DRAGON_EGG:
-        break;
-    case BLOCK_REDSTONE_LAMP:
-        break;
-    case BLOCK_COCOA:
-        break;
-    case BLOCK_ENDER_CHEST:
-        break;
-    case BLOCK_TRIPWIRE_HOOK:
-        break;
-    case BLOCK_TRIPWIRE:
-        break;
-    case BLOCK_COMMAND_BLOCK:
-        break;
-    case BLOCK_BEACON:
-        break;
-    case BLOCK_COBBLESTONE_WALL:
-    case BLOCK_MOSSY_COBBLESTONE_WALL:
-    case BLOCK_BRICK_WALL:
-    case BLOCK_PRISMARINE_WALL:
-    case BLOCK_RED_SANDSTONE_WALL:
-    case BLOCK_MOSSY_STONE_BRICK_WALL:
-    case BLOCK_GRANITE_WALL:
-    case BLOCK_STONE_BRICK_WALL:
-    case BLOCK_MUD_BRICK_WALL:
-    case BLOCK_NETHER_BRICK_WALL:
-    case BLOCK_ANDESITE_WALL:
-    case BLOCK_RED_NETHER_BRICK_WALL:
-    case BLOCK_SANDSTONE_WALL:
-    case BLOCK_END_STONE_BRICK_WALL:
-    case BLOCK_DIORITE_WALL:
-    case BLOCK_BLACKSTONE_WALL:
-    case BLOCK_POLISHED_BLACKSTONE_BRICK_WALL:
-    case BLOCK_POLISHED_BLACKSTONE_WALL:
-    case BLOCK_COBBLED_DEEPSLATE_WALL:
-    case BLOCK_POLISHED_DEEPSLATE_WALL:
-    case BLOCK_DEEPSLATE_TILE_WALL:
-    case BLOCK_DEEPSLATE_BRICK_WALL: {
-        // @TODO(traks) update water
-
+    case BLOCK_BEHAVIOUR_WALL_CONNECT: {
         if (from_direction == DIRECTION_NEG_Y) {
             return 0;
         }
@@ -2780,97 +2385,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
-    case BLOCK_ANVIL:
-        break;
-    case BLOCK_CHIPPED_ANVIL:
-        break;
-    case BLOCK_DAMAGED_ANVIL:
-        break;
-    case BLOCK_TRAPPED_CHEST:
-        break;
-    case BLOCK_COMPARATOR:
-        break;
-    case BLOCK_HOPPER:
-        break;
-    case BLOCK_ACTIVATOR_RAIL:
-        break;
-    case BLOCK_DROPPER:
-        break;
-    case BLOCK_IRON_TRAPDOOR:
-        break;
-    case BLOCK_PRISMARINE_SLAB:
-    case BLOCK_PRISMARINE_BRICK_SLAB:
-    case BLOCK_DARK_PRISMARINE_SLAB:
-    case BLOCK_OAK_SLAB:
-    case BLOCK_SPRUCE_SLAB:
-    case BLOCK_BIRCH_SLAB:
-    case BLOCK_JUNGLE_SLAB:
-    case BLOCK_ACACIA_SLAB:
-    case BLOCK_DARK_OAK_SLAB:
-    case BLOCK_MANGROVE_SLAB:
-    case BLOCK_STONE_SLAB:
-    case BLOCK_SMOOTH_STONE_SLAB:
-    case BLOCK_SANDSTONE_SLAB:
-    case BLOCK_CUT_SANDSTONE_SLAB:
-    case BLOCK_PETRIFIED_OAK_SLAB:
-    case BLOCK_COBBLESTONE_SLAB:
-    case BLOCK_BRICK_SLAB:
-    case BLOCK_STONE_BRICK_SLAB:
-    case BLOCK_MUD_BRICK_SLAB:
-    case BLOCK_NETHER_BRICK_SLAB:
-    case BLOCK_QUARTZ_SLAB:
-    case BLOCK_RED_SANDSTONE_SLAB:
-    case BLOCK_CUT_RED_SANDSTONE_SLAB:
-    case BLOCK_PURPUR_SLAB:
-    case BLOCK_POLISHED_GRANITE_SLAB:
-    case BLOCK_SMOOTH_RED_SANDSTONE_SLAB:
-    case BLOCK_MOSSY_STONE_BRICK_SLAB:
-    case BLOCK_POLISHED_DIORITE_SLAB:
-    case BLOCK_MOSSY_COBBLESTONE_SLAB:
-    case BLOCK_END_STONE_BRICK_SLAB:
-    case BLOCK_SMOOTH_SANDSTONE_SLAB:
-    case BLOCK_SMOOTH_QUARTZ_SLAB:
-    case BLOCK_GRANITE_SLAB:
-    case BLOCK_ANDESITE_SLAB:
-    case BLOCK_RED_NETHER_BRICK_SLAB:
-    case BLOCK_POLISHED_ANDESITE_SLAB:
-    case BLOCK_DIORITE_SLAB:
-    case BLOCK_CRIMSON_SLAB:
-    case BLOCK_WARPED_SLAB:
-    case BLOCK_BLACKSTONE_SLAB:
-    case BLOCK_POLISHED_BLACKSTONE_BRICK_SLAB:
-    case BLOCK_POLISHED_BLACKSTONE_SLAB:
-    case BLOCK_OXIDIZED_CUT_COPPER_SLAB:
-    case BLOCK_WEATHERED_CUT_COPPER_SLAB:
-    case BLOCK_EXPOSED_CUT_COPPER_SLAB:
-    case BLOCK_CUT_COPPER_SLAB:
-    case BLOCK_WAXED_OXIDIZED_CUT_COPPER_SLAB:
-    case BLOCK_WAXED_WEATHERED_CUT_COPPER_SLAB:
-    case BLOCK_WAXED_EXPOSED_CUT_COPPER_SLAB:
-    case BLOCK_WAXED_CUT_COPPER_SLAB:
-    case BLOCK_COBBLED_DEEPSLATE_SLAB:
-    case BLOCK_POLISHED_DEEPSLATE_SLAB:
-    case BLOCK_DEEPSLATE_TILE_SLAB:
-    case BLOCK_DEEPSLATE_BRICK_SLAB:
-        // @TODO(traks) fluid update
-        break;
-    case BLOCK_WHITE_CARPET:
-    case BLOCK_ORANGE_CARPET:
-    case BLOCK_MAGENTA_CARPET:
-    case BLOCK_LIGHT_BLUE_CARPET:
-    case BLOCK_YELLOW_CARPET:
-    case BLOCK_LIME_CARPET:
-    case BLOCK_PINK_CARPET:
-    case BLOCK_GRAY_CARPET:
-    case BLOCK_LIGHT_GRAY_CARPET:
-    case BLOCK_CYAN_CARPET:
-    case BLOCK_PURPLE_CARPET:
-    case BLOCK_BLUE_CARPET:
-    case BLOCK_BROWN_CARPET:
-    case BLOCK_GREEN_CARPET:
-    case BLOCK_RED_CARPET:
-    case BLOCK_BLACK_CARPET:
-    case BLOCK_MOSS_CARPET: {
+    case BLOCK_BEHAVIOUR_NEED_NON_AIR_BELOW: {
         if (from_direction != DIRECTION_NEG_Y) {
             return 0;
         }
@@ -2883,12 +2398,13 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
-    case BLOCK_SUNFLOWER:
-    case BLOCK_LILAC:
-    case BLOCK_ROSE_BUSH:
-    case BLOCK_PEONY:
-    case BLOCK_TALL_GRASS:
-    case BLOCK_LARGE_FERN: {
+    case BLOCK_BEHAVIOUR_TALL_PLANT: {
+        i32 breakState = 0;
+        if (get_water_level(cur_state) > 0) {
+            block_state_info breakInfo = describe_default_block_state(BLOCK_WATER);
+            breakInfo.level = FLUID_LEVEL_SOURCE;
+            breakState = make_block_state(&breakInfo);
+        }
         if (cur_info.double_block_half == DOUBLE_BLOCK_HALF_UPPER) {
             if (from_direction == DIRECTION_NEG_Y && (from_type != cur_type
                     || from_info.double_block_half != DOUBLE_BLOCK_HALF_LOWER)) {
@@ -2898,6 +2414,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
             }
         } else {
             if (from_direction == DIRECTION_NEG_Y) {
+                // TODO(traks): use plant behaviour for this?
                 if (!can_plant_survive_on(from_type)) {
                     WorldSetBlockState(pos, 0);
                     push_direct_neighbour_block_updates(pos, buc);
@@ -2914,228 +2431,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         }
         return 0;
     }
-    case BLOCK_WHITE_BANNER:
-        break;
-    case BLOCK_ORANGE_BANNER:
-        break;
-    case BLOCK_MAGENTA_BANNER:
-        break;
-    case BLOCK_LIGHT_BLUE_BANNER:
-        break;
-    case BLOCK_YELLOW_BANNER:
-        break;
-    case BLOCK_LIME_BANNER:
-        break;
-    case BLOCK_PINK_BANNER:
-        break;
-    case BLOCK_GRAY_BANNER:
-        break;
-    case BLOCK_LIGHT_GRAY_BANNER:
-        break;
-    case BLOCK_CYAN_BANNER:
-        break;
-    case BLOCK_PURPLE_BANNER:
-        break;
-    case BLOCK_BLUE_BANNER:
-        break;
-    case BLOCK_BROWN_BANNER:
-        break;
-    case BLOCK_GREEN_BANNER:
-        break;
-    case BLOCK_RED_BANNER:
-        break;
-    case BLOCK_BLACK_BANNER:
-        break;
-    case BLOCK_WHITE_WALL_BANNER:
-        break;
-    case BLOCK_ORANGE_WALL_BANNER:
-        break;
-    case BLOCK_MAGENTA_WALL_BANNER:
-        break;
-    case BLOCK_LIGHT_BLUE_WALL_BANNER:
-        break;
-    case BLOCK_YELLOW_WALL_BANNER:
-        break;
-    case BLOCK_LIME_WALL_BANNER:
-        break;
-    case BLOCK_PINK_WALL_BANNER:
-        break;
-    case BLOCK_GRAY_WALL_BANNER:
-        break;
-    case BLOCK_LIGHT_GRAY_WALL_BANNER:
-        break;
-    case BLOCK_CYAN_WALL_BANNER:
-        break;
-    case BLOCK_PURPLE_WALL_BANNER:
-        break;
-    case BLOCK_BLUE_WALL_BANNER:
-        break;
-    case BLOCK_BROWN_WALL_BANNER:
-        break;
-    case BLOCK_GREEN_WALL_BANNER:
-        break;
-    case BLOCK_RED_WALL_BANNER:
-        break;
-    case BLOCK_BLACK_WALL_BANNER:
-        break;
-    case BLOCK_CHORUS_PLANT:
-        break;
-    case BLOCK_CHORUS_FLOWER:
-        break;
-    case BLOCK_DIRT_PATH:
-        break;
-    case BLOCK_REPEATING_COMMAND_BLOCK:
-        break;
-    case BLOCK_CHAIN_COMMAND_BLOCK:
-        break;
-    case BLOCK_FROSTED_ICE:
-        break;
-    case BLOCK_MAGMA_BLOCK:
-        break;
-    case BLOCK_OBSERVER:
-        break;
-    case BLOCK_SHULKER_BOX:
-        break;
-    case BLOCK_WHITE_SHULKER_BOX:
-        break;
-    case BLOCK_ORANGE_SHULKER_BOX:
-        break;
-    case BLOCK_MAGENTA_SHULKER_BOX:
-        break;
-    case BLOCK_LIGHT_BLUE_SHULKER_BOX:
-        break;
-    case BLOCK_YELLOW_SHULKER_BOX:
-        break;
-    case BLOCK_LIME_SHULKER_BOX:
-        break;
-    case BLOCK_PINK_SHULKER_BOX:
-        break;
-    case BLOCK_GRAY_SHULKER_BOX:
-        break;
-    case BLOCK_LIGHT_GRAY_SHULKER_BOX:
-        break;
-    case BLOCK_CYAN_SHULKER_BOX:
-        break;
-    case BLOCK_PURPLE_SHULKER_BOX:
-        break;
-    case BLOCK_BLUE_SHULKER_BOX:
-        break;
-    case BLOCK_BROWN_SHULKER_BOX:
-        break;
-    case BLOCK_GREEN_SHULKER_BOX:
-        break;
-    case BLOCK_RED_SHULKER_BOX:
-        break;
-    case BLOCK_BLACK_SHULKER_BOX:
-        break;
-    case BLOCK_WHITE_CONCRETE_POWDER:
-        break;
-    case BLOCK_ORANGE_CONCRETE_POWDER:
-        break;
-    case BLOCK_MAGENTA_CONCRETE_POWDER:
-        break;
-    case BLOCK_LIGHT_BLUE_CONCRETE_POWDER:
-        break;
-    case BLOCK_YELLOW_CONCRETE_POWDER:
-        break;
-    case BLOCK_LIME_CONCRETE_POWDER:
-        break;
-    case BLOCK_PINK_CONCRETE_POWDER:
-        break;
-    case BLOCK_GRAY_CONCRETE_POWDER:
-        break;
-    case BLOCK_LIGHT_GRAY_CONCRETE_POWDER:
-        break;
-    case BLOCK_CYAN_CONCRETE_POWDER:
-        break;
-    case BLOCK_PURPLE_CONCRETE_POWDER:
-        break;
-    case BLOCK_BLUE_CONCRETE_POWDER:
-        break;
-    case BLOCK_BROWN_CONCRETE_POWDER:
-        break;
-    case BLOCK_GREEN_CONCRETE_POWDER:
-        break;
-    case BLOCK_RED_CONCRETE_POWDER:
-        break;
-    case BLOCK_BLACK_CONCRETE_POWDER:
-        break;
-    case BLOCK_KELP:
-        break;
-    case BLOCK_KELP_PLANT:
-        break;
-    case BLOCK_TUBE_CORAL_BLOCK:
-        break;
-    case BLOCK_BRAIN_CORAL_BLOCK:
-        break;
-    case BLOCK_BUBBLE_CORAL_BLOCK:
-        break;
-    case BLOCK_FIRE_CORAL_BLOCK:
-        break;
-    case BLOCK_HORN_CORAL_BLOCK:
-        break;
-    case BLOCK_DEAD_TUBE_CORAL:
-        break;
-    case BLOCK_DEAD_BRAIN_CORAL:
-        break;
-    case BLOCK_DEAD_BUBBLE_CORAL:
-        break;
-    case BLOCK_DEAD_FIRE_CORAL:
-        break;
-    case BLOCK_DEAD_HORN_CORAL:
-        break;
-    case BLOCK_TUBE_CORAL:
-        break;
-    case BLOCK_BRAIN_CORAL:
-        break;
-    case BLOCK_BUBBLE_CORAL:
-        break;
-    case BLOCK_FIRE_CORAL:
-        break;
-    case BLOCK_HORN_CORAL:
-        break;
-    case BLOCK_DEAD_TUBE_CORAL_FAN:
-        break;
-    case BLOCK_DEAD_BRAIN_CORAL_FAN:
-        break;
-    case BLOCK_DEAD_BUBBLE_CORAL_FAN:
-        break;
-    case BLOCK_DEAD_FIRE_CORAL_FAN:
-        break;
-    case BLOCK_DEAD_HORN_CORAL_FAN:
-        break;
-    case BLOCK_TUBE_CORAL_FAN:
-        break;
-    case BLOCK_BRAIN_CORAL_FAN:
-        break;
-    case BLOCK_BUBBLE_CORAL_FAN:
-        break;
-    case BLOCK_FIRE_CORAL_FAN:
-        break;
-    case BLOCK_HORN_CORAL_FAN:
-        break;
-    case BLOCK_DEAD_TUBE_CORAL_WALL_FAN:
-        break;
-    case BLOCK_DEAD_BRAIN_CORAL_WALL_FAN:
-        break;
-    case BLOCK_DEAD_BUBBLE_CORAL_WALL_FAN:
-        break;
-    case BLOCK_DEAD_FIRE_CORAL_WALL_FAN:
-        break;
-    case BLOCK_DEAD_HORN_CORAL_WALL_FAN:
-        break;
-    case BLOCK_TUBE_CORAL_WALL_FAN:
-        break;
-    case BLOCK_BRAIN_CORAL_WALL_FAN:
-        break;
-    case BLOCK_BUBBLE_CORAL_WALL_FAN:
-        break;
-    case BLOCK_FIRE_CORAL_WALL_FAN:
-        break;
-    case BLOCK_HORN_CORAL_WALL_FAN:
-        break;
-    case BLOCK_SEA_PICKLE: {
-        // @TODO(traks) water scheduled tick
+    case BLOCK_BEHAVIOUR_SEA_PICKLE: {
         if (from_direction == DIRECTION_NEG_Y) {
             if (!can_sea_pickle_survive_on(from_state, from_pos)) {
                 break_block(pos);
@@ -3145,9 +2441,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         }
         return 0;
     }
-    case BLOCK_CONDUIT:
-        break;
-    case BLOCK_BAMBOO_SAPLING: {
+    case BLOCK_BEHAVIOUR_BAMBOO_SAPLING: {
         if (from_direction == DIRECTION_NEG_Y) {
             if (!is_bamboo_plantable_on(from_type)) {
                 break_block(pos);
@@ -3164,7 +2458,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         }
         return 0;
     }
-    case BLOCK_BAMBOO: {
+    case BLOCK_BEHAVIOUR_BAMBOO: {
         if (from_direction == DIRECTION_NEG_Y) {
             if (!is_bamboo_plantable_on(from_type)) {
                 if (is_delayed) {
@@ -3186,25 +2480,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         }
         return 0;
     }
-    case BLOCK_BUBBLE_COLUMN:
-        break;
-    case BLOCK_SCAFFOLDING:
-        break;
-    case BLOCK_BELL:
-        break;
-    case BLOCK_LANTERN:
-        break;
-    case BLOCK_SOUL_LANTERN:
-        break;
-    case BLOCK_CAMPFIRE:
-        break;
-    case BLOCK_SOUL_CAMPFIRE:
-        break;
-    case BLOCK_WARPED_FUNGUS:
-    case BLOCK_CRIMSON_FUNGUS:
-    case BLOCK_WARPED_ROOTS:
-    case BLOCK_CRIMSON_ROOTS:
-    case BLOCK_NETHER_SPROUTS:
+    case BLOCK_BEHAVIOUR_NEED_SOIL_OR_NETHER_SOIL_BELOW:
         if (from_direction != DIRECTION_NEG_Y) {
             return 0;
         }
@@ -3216,36 +2492,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         break_block(pos);
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
-    case BLOCK_WEEPING_VINES:
-        break;
-    case BLOCK_WEEPING_VINES_PLANT:
-        break;
-    case BLOCK_TWISTING_VINES:
-        break;
-    case BLOCK_TWISTING_VINES_PLANT:
-        break;
-    case BLOCK_CRIMSON_TRAPDOOR:
-        break;
-    case BLOCK_WARPED_TRAPDOOR:
-        break;
-    case BLOCK_CRIMSON_SIGN:
-        break;
-    case BLOCK_WARPED_SIGN:
-        break;
-    case BLOCK_CRIMSON_WALL_SIGN:
-        break;
-    case BLOCK_WARPED_WALL_SIGN:
-        break;
-    case BLOCK_STRUCTURE_BLOCK:
-        break;
-    case BLOCK_BEE_NEST:
-        break;
-    case BLOCK_BEEHIVE:
-        break;
-    case BLOCK_AMETHYST_CLUSTER:
-    case BLOCK_LARGE_AMETHYST_BUD:
-    case BLOCK_MEDIUM_AMETHYST_BUD:
-    case BLOCK_SMALL_AMETHYST_BUD: {
+    case BLOCK_BEHAVIOUR_NEED_FULL_SUPPORT_BEHIND: {
         if (from_direction != get_opposite_direction(cur_info.facing)) {
             return 0;
         }
@@ -3260,25 +2507,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
-    case BLOCK_SCULK_SENSOR:
-        break;
-    case BLOCK_SCULK_VEIN:
-        // @TODO(traks) fluid update
-        break;
-    case BLOCK_SCULK_CATALYST:
-        break;
-    case BLOCK_SCULK_SHRIEKER:
-        break;
-    case BLOCK_LIGHTNING_ROD:
-        // @TODO(traks) fluid update
-        break;
-    case BLOCK_POINTED_DRIPSTONE:
-        break;
-    case BLOCK_CAVE_VINES:
-        break;
-    case BLOCK_CAVE_VINES_PLANT:
-        break;
-    case BLOCK_SPORE_BLOSSOM: {
+    case BLOCK_BEHAVIOUR_NEED_POLE_SUPPORT_ABOVE: {
         if (from_direction != DIRECTION_POS_Y) {
             return 0;
         }
@@ -3293,8 +2522,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
-    case BLOCK_AZALEA:
-    case BLOCK_FLOWERING_AZALEA: {
+    case BLOCK_BEHAVIOUR_AZALEA: {
         if (from_direction != DIRECTION_NEG_Y) {
             return 0;
         }
@@ -3307,8 +2535,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
     }
-    case BLOCK_BIG_DRIPLEAF: {
-        // @TODO(traks) fluid update
+    case BLOCK_BEHAVIOUR_BIG_DRIPLEAF: {
         if (from_direction == DIRECTION_NEG_Y) {
             if (!can_azalea_survive_on(from_state)) {
                 break_block(pos);
@@ -3327,8 +2554,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         }
         return 0;
     }
-    case BLOCK_BIG_DRIPLEAF_STEM: {
-        // @TODO(traks) fluid update
+    case BLOCK_BEHAVIOUR_BIG_DRIPLEAF_STEM: {
         if (from_direction == DIRECTION_NEG_Y || from_direction == DIRECTION_POS_Y) {
             if (!can_big_dripleaf_stem_survive_at(pos)) {
                 if (is_delayed) {
@@ -3343,8 +2569,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         }
         return 0;
     }
-    case BLOCK_SMALL_DRIPLEAF: {
-        // @TODO(traks) fluid update
+    case BLOCK_BEHAVIOUR_SMALL_DRIPLEAF: {
         if (cur_info.double_block_half == DOUBLE_BLOCK_HALF_UPPER) {
             if (from_direction == DIRECTION_NEG_Y && (from_type != cur_type
                     || from_info.double_block_half != DOUBLE_BLOCK_HALF_LOWER)) {
@@ -3370,12 +2595,39 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
         }
         return 0;
     }
-    case BLOCK_HANGING_ROOTS:
     default:
          // nothing
          break;
     }
     return 0;
+}
+
+// @TODO(traks) can we perhaps get rid of the from_direction for simplicity?
+static int
+update_block(WorldBlockPos pos, int from_direction, int is_delayed,
+        block_update_context * buc) {
+    // @TODO(traks) ideally all these chunk lookups and block lookups should be
+    // cached to make a single block update as fast as possible. It is after all
+    // incredibly easy to create tons of block updates in a single tick.
+
+    u16 curState = WorldGetBlockState(pos);
+
+    // @TODO(traks) drop items if the block is broken
+
+    // @TODO(traks) remove block entity data
+
+    BlockBehaviours behaviours = BlockGetBehaviours(curState);
+    i32 res = 0;
+
+    // TODO(traks): should we run all behaviours or stop once a behaviour has
+    // changed a block? Problem is that updates will depend on the order in
+    // which behaviours are registered.
+    for (i32 i = 0; i < behaviours.size; i++) {
+        i32 behaviour = behaviours.entries[i];
+        i32 changed = DoBlockBehaviour(pos, from_direction, is_delayed, buc, behaviour);
+        res += changed;
+    }
+    return res;
 }
 
 void
