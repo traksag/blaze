@@ -1858,6 +1858,21 @@ typedef struct {
 #define PLAYER_ABILITIES_CHANGED ((u64) (1ULL << 32))
 #define PLAYER_GAMEMODE_CHANGED ((u64) (1ULL << 33))
 
+// NOTE(traks): variable entity metadata we need to support for protocol stuff:
+// - custom names
+// - inventory items (arbitrary nbt data) (mobs, but also ender pearls, etc.)
+// - player left/right shoulder parrot nbt
+// - minecart command block command + last output
+//
+// For the implementation we need more variable data:
+// - data for plugins
+// - passengers
+// - entity tags (used in datapacks)
+// - list of applied effects
+// - list of entity collision exemptions?
+// - crazy vanilla brain stuff
+// - ???
+
 typedef struct {
     entity_id eid;
     unsigned type;

@@ -65,9 +65,29 @@ register_bool_property(int id, char * name) {
     register_property_v(id, name, 2, "true", "false");
 }
 
+static i32 count_block_states(block_properties * props) {
+    i32 res = 1;
+    for (int i = 0; i < props->property_count; i++) {
+        res *= serv->block_property_specs[props->property_specs[i]].value_count;
+    }
+    return res;
+}
+
+static void UpdateGlobalBlockReferences(block_properties * props) {
+    i32 blockType = props - serv->block_properties_table;
+    i32 blockStates = count_block_states(props);
+    assert(props->base_state + blockStates <= ARRAY_SIZE(serv->block_type_by_state));
+
+    for (int i = 0; i < blockStates; i++) {
+        serv->block_type_by_state[props->base_state + i] = blockType;
+    }
+}
+
 static void
 add_block_property(block_properties * props, int id, char * default_value) {
-    // figure out index of default value
+    i32 oldStateCount = count_block_states(props);
+
+    // NOTE(traks): figure out index of default value
     block_property_spec * spec = serv->block_property_specs + id;
     int default_value_index = spec->value_count;
     int tape_index = 1 + spec->tape[0];
@@ -88,48 +108,36 @@ add_block_property(block_properties * props, int id, char * default_value) {
     }
     assert(default_value_index < spec->value_count);
 
+    // NOTE(traks): register new property for the block and set the default
+    // value for it
     int prop_index = props->property_count;
     props->property_specs[prop_index] = id;
     props->default_value_indices[prop_index] = default_value_index;
-
     props->property_count++;
+
+    // NOTE(traks): update global info
+    i32 newStateCount = count_block_states(props);
+    assert(serv->actual_block_state_count == props->base_state + oldStateCount);
+    serv->actual_block_state_count = props->base_state + newStateCount;
+    UpdateGlobalBlockReferences(props);
 }
 
-static int
-count_block_states(block_properties * props) {
-    int block_states = 1;
-    for (int i = 0; i < props->property_count; i++) {
-        block_states *= serv->block_property_specs[props->property_specs[i]].value_count;
-    }
-    return block_states;
-}
-
-static void
-finalise_block_props(block_properties * props) {
-    props->base_state = serv->actual_block_state_count;
-
-    i32 block_type = props - serv->block_properties_table;
-    int block_states = count_block_states(props);
-
-    assert(serv->actual_block_state_count + block_states <= ARRAY_SIZE(serv->block_type_by_state));
-
-    for (int i = 0; i < block_states; i++) {
-        serv->block_type_by_state[serv->actual_block_state_count + i] = block_type;
-    }
-
-    serv->actual_block_state_count += block_states;
-}
-
-static i32
-register_block_type(char * resource_loc) {
-    String key = STR(resource_loc);
+static block_properties * BeginNextBlock(char * resourceLoc) {
+    // NOTE(traks): register the new resource location
+    String key = STR(resourceLoc);
     resource_loc_table * table = &serv->block_resource_table;
-    i32 block_type = serv->block_type_count;
+    i32 blockType = serv->block_type_count;
     serv->block_type_count++;
-    register_resource_loc(key, block_type, table);
-    assert(net_string_equal(key, get_resource_loc(block_type, table)));
-    assert(block_type == resolve_resource_loc_id(key, table));
-    return block_type;
+    register_resource_loc(key, blockType, table);
+    assert(net_string_equal(key, get_resource_loc(blockType, table)));
+    assert(blockType == resolve_resource_loc_id(key, table));
+
+    // NOTE(traks): initialise the properties
+    block_properties * res = serv->block_properties_table + blockType;
+    res->base_state = serv->actual_block_state_count;
+    serv->actual_block_state_count++;
+    UpdateGlobalBlockReferences(res);
+    return res;
 }
 
 static void SetParticularModelForAllStates(block_properties * props, u8 * modelByState, i32 modelId) {
@@ -220,7 +228,8 @@ static void SetEmittedLightWhenBerries(block_properties * props, i32 emittedLigh
     }
 }
 
-static void AddBlockBehaviour(i32 blockType, i32 behaviour) {
+static void AddBlockBehaviour(block_properties * props, i32 behaviour) {
+    i32 blockType = props - serv->block_properties_table;
     BlockBehaviours * behaviours = serv->blockBehavioursByType + blockType;
     assert(behaviours->size < ARRAY_SIZE(behaviours->entries));
     behaviours->entries[behaviours->size] = behaviour;
@@ -237,9 +246,7 @@ static void
 InitSimpleBlockWithModels(char * resource_loc,
         i32 collisionModelId, i32 supportModelId, i32 lightModelId,
         i32 lightReduction, i32 emittedLight) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
-    finalise_block_props(props);
+    block_properties * props = BeginNextBlock(resource_loc);
     SetCollisionModelForAllStates(props, collisionModelId);
     SetSupportModelForAllStates(props, supportModelId);
     SetLightBlockingModelForAllStates(props, lightModelId);
@@ -266,36 +273,30 @@ static void InitSimpleFullEmittingBlock(char * resourceLoc, i32 emittedLight) {
 
 static void
 init_sapling(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_STAGE, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_NEED_SOIL_BELOW);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_SOIL_BELOW);
 }
 
 static void
 init_propagule(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_STAGE, "0");
     add_block_property(props, BLOCK_PROPERTY_AGE_4, "0");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
     add_block_property(props, BLOCK_PROPERTY_HANGING, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_NEED_PROPAGULE_ENVIRONMENT);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_PROPAGULE_ENVIRONMENT);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 }
 
 static void
 init_pillar(char * resource_loc, i32 emittedLight) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_AXIS, "y");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_FULL);
     SetLightReductionForAllStates(props, 15);
     SetEmittedLightForAllStates(props, emittedLight);
@@ -303,28 +304,24 @@ init_pillar(char * resource_loc, i32 emittedLight) {
 
 static void
 init_leaves(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     props->type_tags |= (u32) 1 << BLOCK_TAG_LEAVES;
     add_block_property(props, BLOCK_PROPERTY_DISTANCE, "7");
     add_block_property(props, BLOCK_PROPERTY_PERSISTENT, "false");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
     SetCollisionModelForAllStates(props, BLOCK_MODEL_FULL);
     SetSupportModelForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightBlockingModelForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 1);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 }
 
 static void
 init_bed(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_OCCUPIED, "false");
     add_block_property(props, BLOCK_PROPERTY_BED_PART, "foot");
-    finalise_block_props(props);
 
     for (int i = 0; i < count_block_states(props); i++) {
         u16 block_state = props->base_state + i;
@@ -346,16 +343,14 @@ init_bed(char * resource_loc) {
 
     SetLightBlockingModelForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_BED);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_BED);
 }
 
 static void
 init_slab(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_SLAB_TYPE, "bottom");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
     for (int i = 0; i < count_block_states(props); i++) {
         u16 block_state = props->base_state + i;
         block_state_info info = describe_block_state(block_state);
@@ -370,88 +365,75 @@ init_slab(char * resource_loc) {
         serv->lightBlockingModelByState[block_state] = model_index;
     }
     SetLightReductionWhenWaterlogged(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 }
 
 static void
 init_sign(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_ROTATION_16, "0");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 }
 
 static void
 init_wall_sign(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 }
 
 static void
 init_stair_props(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     props->type_tags |= (u32) 1 << BLOCK_TAG_STAIRS;
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_HALF, "bottom");
     add_block_property(props, BLOCK_PROPERTY_STAIRS_SHAPE, "straight");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
     // TODO(traks): block models
     SetLightReductionWhenWaterlogged(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_STAIRS);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_STAIRS);
 }
 
 static void
 init_tall_plant(char * resource_loc, i32 hasWater) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_DOUBLE_BLOCK_HALF, "lower");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, hasWater ? 1 : 0);
     if (hasWater) {
-        AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+        AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
     }
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_TALL_PLANT);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_TALL_PLANT);
 }
 
 static void
 init_glazed_terracotta(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_FULL);
     SetLightReductionForAllStates(props, 15);
 }
 
 static void
 init_shulker_box_props(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     props->type_tags |= (u32) 1 << BLOCK_TAG_SHULKER_BOX;
     add_block_property(props, BLOCK_PROPERTY_FACING, "up");
-    finalise_block_props(props);
     // TODO(traks): block models
     SetLightReductionForAllStates(props, 1);
 }
 
 static void
 init_wall_props(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     props->type_tags |= ((u32) 1) << BLOCK_TAG_WALL;
     add_block_property(props, BLOCK_PROPERTY_WALL_POS_X, "none");
     add_block_property(props, BLOCK_PROPERTY_WALL_NEG_Z, "none");
@@ -459,35 +441,30 @@ init_wall_props(char * resource_loc) {
     add_block_property(props, BLOCK_PROPERTY_POS_Y, "true");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
     add_block_property(props, BLOCK_PROPERTY_WALL_NEG_X, "none");
-    finalise_block_props(props);
     // TODO(traks): block models
     SetLightReductionWhenWaterlogged(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_WALL_CONNECT);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_WALL_CONNECT);
 }
 
 static void
 init_pressure_plate(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_NEED_PLATE_SUPPORTING_SURFACE_BELOW);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_PLATE_SUPPORTING_SURFACE_BELOW);
 }
 
 static void
 init_pane(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     props->type_tags |= (u32) 1 << BLOCK_TAG_PANE_LIKE;
     add_block_property(props, BLOCK_PROPERTY_POS_X, "false");
     add_block_property(props, BLOCK_PROPERTY_NEG_Z, "false");
     add_block_property(props, BLOCK_PROPERTY_POS_Z, "false");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
     add_block_property(props, BLOCK_PROPERTY_NEG_X, "false");
-    finalise_block_props(props);
     for (int i = 0; i < count_block_states(props); i++) {
         u16 block_state = props->base_state + i;
         block_state_info info = describe_block_state(block_state);
@@ -498,14 +475,13 @@ init_pane(char * resource_loc) {
     }
     SetLightBlockingModelForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_PANE_CONNECT);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_PANE_CONNECT);
 }
 
 static void
 init_fence(char * resource_loc, int wooden) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     if (wooden) {
         props->type_tags |= (u32) 1 << BLOCK_TAG_WOODEN_FENCE;
     }
@@ -514,7 +490,6 @@ init_fence(char * resource_loc, int wooden) {
     add_block_property(props, BLOCK_PROPERTY_POS_Z, "false");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
     add_block_property(props, BLOCK_PROPERTY_NEG_X, "false");
-    finalise_block_props(props);
     for (int i = 0; i < count_block_states(props); i++) {
         u16 block_state = props->base_state + i;
         block_state_info info = describe_block_state(block_state);
@@ -525,64 +500,56 @@ init_fence(char * resource_loc, int wooden) {
     }
     SetLightBlockingModelForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FENCE_CONNECT);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FENCE_CONNECT);
 }
 
 static void
 init_door_props(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_DOUBLE_BLOCK_HALF, "lower");
     add_block_property(props, BLOCK_PROPERTY_DOOR_HINGE, "left");
     add_block_property(props, BLOCK_PROPERTY_OPEN, "false");
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
-    finalise_block_props(props);
     // TODO(traks): block models
     SetLightReductionWhenWaterlogged(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_DOOR_MATCH_OTHER_PART);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_DOOR_MATCH_OTHER_PART);
 }
 
 static void
 init_button(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_ATTACH_FACE, "wall");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_NEED_FULL_SUPPORT_ATTACHED);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_FULL_SUPPORT_ATTACHED);
 }
 
 static void
 init_trapdoor_props(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_HALF, "bottom");
     add_block_property(props, BLOCK_PROPERTY_OPEN, "false");
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
     // TODO(traks): block models
     SetLightBlockingModelForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 }
 
 static void
 init_fence_gate(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     props->type_tags |= (u32) 1 << BLOCK_TAG_FENCE_GATE;
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_IN_WALL, "false");
     add_block_property(props, BLOCK_PROPERTY_OPEN, "false");
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
-    finalise_block_props(props);
     for (int i = 0; i < count_block_states(props); i++) {
         u16 block_state = props->base_state + i;
         block_state_info info = describe_block_state(block_state);
@@ -599,31 +566,27 @@ init_fence_gate(char * resource_loc) {
     }
     SetLightBlockingModelForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FENCE_GATE_CONNECT);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FENCE_GATE_CONNECT);
 }
 
 static void
 init_mushroom_block(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_NEG_Y, "true");
     add_block_property(props, BLOCK_PROPERTY_POS_X, "true");
     add_block_property(props, BLOCK_PROPERTY_NEG_Z, "true");
     add_block_property(props, BLOCK_PROPERTY_POS_Z, "true");
     add_block_property(props, BLOCK_PROPERTY_POS_Y, "true");
     add_block_property(props, BLOCK_PROPERTY_NEG_X, "true");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_FULL);
     SetLightReductionForAllStates(props, 15);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_MUSHROOM_BLOCK_CONNECT);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_MUSHROOM_BLOCK_CONNECT);
 }
 
 static void
 init_skull_props(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_ROTATION_16, "0");
-    finalise_block_props(props);
     // TODO(traks): block models
     SetLightBlockingModelForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(props);
@@ -631,10 +594,8 @@ init_skull_props(char * resource_loc) {
 
 static void
 init_wall_skull_props(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    finalise_block_props(props);
     // TODO(traks): block models
     SetLightBlockingModelForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(props);
@@ -642,10 +603,8 @@ init_wall_skull_props(char * resource_loc) {
 
 static void
 init_anvil_props(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    finalise_block_props(props);
     // TODO(traks): block models
     SetLightBlockingModelForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(props);
@@ -653,75 +612,61 @@ init_anvil_props(char * resource_loc) {
 
 static void
 init_banner(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_ROTATION_16, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(props);
 }
 
 static void
 init_wall_banner(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(props);
 }
 
 static void
 init_coral(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "true");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 }
 
 static void
 init_coral_fan(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "true");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 }
 
 static void
 init_coral_wall_fan(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "true");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 }
 
 static void
 init_snowy_grassy_block(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_SNOWY, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_FULL);
     SetLightReductionForAllStates(props, 15);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_SNOWY_TOP);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_SNOWY_TOP);
 }
 
 static void
 init_redstone_ore(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_LIT, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_FULL);
     SetLightReductionForAllStates(props, 15);
     SetEmittedLightWhenLit(props, 9);
@@ -729,12 +674,10 @@ init_redstone_ore(char * resource_loc) {
 
 static void
 init_cauldron(char * resource_loc, int layered, i32 emittedLight) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     if (layered) {
         add_block_property(props, BLOCK_PROPERTY_LEVEL_CAULDRON, "1");
     }
-    finalise_block_props(props);
     // TODO(traks): block models
     SetLightBlockingModelForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(props);
@@ -743,12 +686,10 @@ init_cauldron(char * resource_loc, int layered, i32 emittedLight) {
 
 static void
 init_candle(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_CANDLES, "1");
     add_block_property(props, BLOCK_PROPERTY_LIT, "false");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
     // TODO(traks): block models
     SetLightBlockingModelForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(props);
@@ -759,16 +700,14 @@ init_candle(char * resource_loc) {
             serv->emittedLightByState[blockState] = 3 * info.candles;
         }
     }
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_NEED_POLE_SUPPORT_BELOW);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_POLE_SUPPORT_BELOW);
 }
 
 static void
 init_candle_cake(char * resource_loc) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_LIT, "false");
-    finalise_block_props(props);
     // TODO(traks): block models
     SetLightBlockingModelForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(props);
@@ -777,22 +716,19 @@ init_candle_cake(char * resource_loc) {
 
 static void
 init_amethyst_cluster(char * resource_loc, i32 emittedLight) {
-    i32 block_type = register_block_type(resource_loc);
-    block_properties * props = serv->block_properties_table + block_type;
+    block_properties * props = BeginNextBlock(resource_loc);
     add_block_property(props, BLOCK_PROPERTY_FACING, "up");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
     // TODO(traks): block models
     SetLightBlockingModelForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(props);
     SetEmittedLightForAllStates(props, emittedLight);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_NEED_FULL_SUPPORT_BEHIND);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_FULL_SUPPORT_BEHIND);
 }
 
 static void InitMultiFaceBlock(char * resourceLoc, i32 emittedLight) {
-    i32 blockType = register_block_type(resourceLoc);
-    block_properties * props = serv->block_properties_table + blockType;
+    block_properties * props = BeginNextBlock(resourceLoc);
     add_block_property(props, BLOCK_PROPERTY_NEG_Y, "false");
     add_block_property(props, BLOCK_PROPERTY_POS_Y, "false");
     add_block_property(props, BLOCK_PROPERTY_NEG_Z, "false");
@@ -800,7 +736,6 @@ static void InitMultiFaceBlock(char * resourceLoc, i32 emittedLight) {
     add_block_property(props, BLOCK_PROPERTY_NEG_X, "false");
     add_block_property(props, BLOCK_PROPERTY_POS_X, "false");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(props);
 
@@ -812,7 +747,7 @@ static void InitMultiFaceBlock(char * resourceLoc, i32 emittedLight) {
         }
     }
 
-    AddBlockBehaviour(blockType, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 }
 
 static void InitFlowerPot(char * resourceLoc) {
@@ -820,51 +755,41 @@ static void InitFlowerPot(char * resourceLoc) {
 }
 
 static void InitCarpet(char * resourceLoc) {
-    i32 block_type = register_block_type(resourceLoc);
-    block_properties * props = serv->block_properties_table + block_type;
-    finalise_block_props(props);
+    block_properties * props = BeginNextBlock(resourceLoc);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_Y_1, BLOCK_MODEL_Y_1, BLOCK_MODEL_EMPTY);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_NEED_NON_AIR_BELOW);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_NON_AIR_BELOW);
 }
 
 static void InitSimplePlant(char * resourceLoc) {
-    i32 block_type = register_block_type(resourceLoc);
-    block_properties * props = serv->block_properties_table + block_type;
-    finalise_block_props(props);
+    block_properties * props = BeginNextBlock(resourceLoc);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_NEED_SOIL_BELOW);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_SOIL_BELOW);
 }
 
 static void InitSimpleNetherPlant(char * resourceLoc) {
-    i32 block_type = register_block_type(resourceLoc);
-    block_properties * props = serv->block_properties_table + block_type;
-    finalise_block_props(props);
+    block_properties * props = BeginNextBlock(resourceLoc);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_NEED_SOIL_OR_NETHER_SOIL_BELOW);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_SOIL_OR_NETHER_SOIL_BELOW);
 }
 
 static void InitTorch(char * resourceLoc, i32 onWall, i32 emittedLight) {
-    i32 blockType = register_block_type(resourceLoc);
-    block_properties * props = serv->block_properties_table + blockType;
+    block_properties * props = BeginNextBlock(resourceLoc);
     if (onWall) {
         add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     }
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetEmittedLightForAllStates(props, emittedLight);
     if (onWall) {
-        AddBlockBehaviour(blockType, BLOCK_BEHAVIOUR_NEED_FULL_SUPPORT_BEHIND_HORIZONTAL);
+        AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_FULL_SUPPORT_BEHIND_HORIZONTAL);
     } else {
-        AddBlockBehaviour(blockType, BLOCK_BEHAVIOUR_NEED_POLE_SUPPORT_BELOW);
+        AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_POLE_SUPPORT_BELOW);
     }
 }
 
 static void InitAzalea(char * resourceLoc) {
     // TODO(traks): block models
-    i32 block_type = register_block_type(resourceLoc);
-    block_properties * props = serv->block_properties_table + block_type;
-    finalise_block_props(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_AZALEA);
+    block_properties * props = BeginNextBlock(resourceLoc);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_AZALEA);
 }
 
 typedef struct {
@@ -1305,7 +1230,6 @@ init_block_data(void) {
     register_property_v(BLOCK_PROPERTY_SCULK_SENSOR_PHASE, "sculk_sensor_phase", 3, "inactive", "active", "cooldown");
 
     block_properties * props;
-    i32 block_type;
 
     InitSimpleEmptyBlock("minecraft:air");
     InitSimpleFullBlock("minecraft:stone");
@@ -1337,23 +1261,19 @@ init_block_data(void) {
     InitSimpleFullBlock("minecraft:bedrock");
 
     // @TODO(traks) slower movement in fluids
-    block_type = register_block_type("minecraft:water");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:water");
     add_block_property(props, BLOCK_PROPERTY_LEVEL, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 1);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
     // @TODO(traks) slower movement in fluids
-    block_type = register_block_type("minecraft:lava");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:lava");
     add_block_property(props, BLOCK_PROPERTY_LEVEL, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 1);
     SetEmittedLightForAllStates(props, 15);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
     InitSimpleFullBlock("minecraft:sand");
     InitSimpleFullBlock("minecraft:red_sand");
@@ -1373,13 +1293,11 @@ init_block_data(void) {
     init_pillar("minecraft:dark_oak_log", 0);
     init_pillar("minecraft:mangrove_log", 0);
 
-    block_type = register_block_type("minecraft:mangrove_roots");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:mangrove_roots");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
     init_pillar("minecraft:muddy_mangrove_roots", 0);
     init_pillar("minecraft:stripped_spruce_log", 0);
@@ -1419,11 +1337,9 @@ init_block_data(void) {
     InitSimpleFullBlock("minecraft:deepslate_lapis_ore");
     InitSimpleFullBlock("minecraft:lapis_block");
 
-    block_type = register_block_type("minecraft:dispenser");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:dispenser");
     add_block_property(props, BLOCK_PROPERTY_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_TRIGGERED, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 15);
 
@@ -1431,12 +1347,10 @@ init_block_data(void) {
     InitSimpleFullBlock("minecraft:chiseled_sandstone");
     InitSimpleFullBlock("minecraft:cut_sandstone");
 
-    block_type = register_block_type("minecraft:note_block");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:note_block");
     add_block_property(props, BLOCK_PROPERTY_NOTEBLOCK_INSTRUMENT, "harp");
     add_block_property(props, BLOCK_PROPERTY_NOTE, "0");
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 15);
 
@@ -1457,67 +1371,53 @@ init_block_data(void) {
     init_bed("minecraft:red_bed");
     init_bed("minecraft:black_bed");
 
-    block_type = register_block_type("minecraft:powered_rail");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:powered_rail");
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
     add_block_property(props, BLOCK_PROPERTY_RAIL_SHAPE_STRAIGHT, "north_south");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 0);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
-    block_type = register_block_type("minecraft:detector_rail");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:detector_rail");
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
     add_block_property(props, BLOCK_PROPERTY_RAIL_SHAPE_STRAIGHT, "north_south");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 0);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:sticky_piston");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:sticky_piston");
     add_block_property(props, BLOCK_PROPERTY_EXTENDED, "false");
     add_block_property(props, BLOCK_PROPERTY_FACING, "north");
-    finalise_block_props(props);
 
     // @TODO(traks) slow down entities in cobwebs
     init_simple_block("minecraft:cobweb", BLOCK_MODEL_EMPTY, 1, 0);
     InitSimplePlant("minecraft:grass");
     InitSimplePlant("minecraft:fern");
 
-    block_type = register_block_type("minecraft:dead_bush");
-    props = serv->block_properties_table + block_type;
-    finalise_block_props(props);
+    props = BeginNextBlock("minecraft:dead_bush");
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_NEED_SOIL_OR_DRY_SOIL_BELOW);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_SOIL_OR_DRY_SOIL_BELOW);
 
-    block_type = register_block_type("minecraft:seagrass");
-    props = serv->block_properties_table + block_type;
-    finalise_block_props(props);
+    props = BeginNextBlock("minecraft:seagrass");
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 1);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
     init_tall_plant("minecraft:tall_seagrass", 1);
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:piston");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:piston");
     add_block_property(props, BLOCK_PROPERTY_EXTENDED, "false");
     add_block_property(props, BLOCK_PROPERTY_FACING, "north");
-    finalise_block_props(props);
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:piston_head");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:piston_head");
     add_block_property(props, BLOCK_PROPERTY_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_SHORT_PISTON, "false");
     add_block_property(props, BLOCK_PROPERTY_PISTON_TYPE, "normal");
-    finalise_block_props(props);
 
     InitSimpleFullBlock("minecraft:white_wool");
     InitSimpleFullBlock("minecraft:orange_wool");
@@ -1537,11 +1437,9 @@ init_block_data(void) {
     InitSimpleFullBlock("minecraft:black_wool");
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:moving_piston");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:moving_piston");
     add_block_property(props, BLOCK_PROPERTY_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_PISTON_TYPE, "normal");
-    finalise_block_props(props);
 
     InitSimplePlant("minecraft:dandelion");
     InitSimplePlant("minecraft:poppy");
@@ -1555,11 +1453,9 @@ init_block_data(void) {
     InitSimplePlant("minecraft:oxeye_daisy");
     InitSimplePlant("minecraft:cornflower");
 
-    block_type = register_block_type("minecraft:wither_rose");
-    props = serv->block_properties_table + block_type;
-    finalise_block_props(props);
+    props = BeginNextBlock("minecraft:wither_rose");
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_WITHER_ROSE);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_WITHER_ROSE);
 
     InitSimplePlant("minecraft:lily_of_the_valley");
     init_simple_block("minecraft:brown_mushroom", BLOCK_MODEL_EMPTY, 0, 1);
@@ -1568,10 +1464,8 @@ init_block_data(void) {
     InitSimpleFullBlock("minecraft:iron_block");
     InitSimpleFullBlock("minecraft:bricks");
 
-    block_type = register_block_type("minecraft:tnt");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:tnt");
     add_block_property(props, BLOCK_PROPERTY_UNSTABLE, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 15);
 
@@ -1582,15 +1476,13 @@ init_block_data(void) {
     InitTorch("minecraft:torch", 0, 14);
     InitTorch("minecraft:wall_torch", 1, 14);
 
-    block_type = register_block_type("minecraft:fire");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:fire");
     add_block_property(props, BLOCK_PROPERTY_AGE_15, "0");
     add_block_property(props, BLOCK_PROPERTY_POS_X, "false");
     add_block_property(props, BLOCK_PROPERTY_NEG_Z, "false");
     add_block_property(props, BLOCK_PROPERTY_POS_Z, "false");
     add_block_property(props, BLOCK_PROPERTY_POS_Y, "false");
     add_block_property(props, BLOCK_PROPERTY_NEG_X, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 0);
     SetEmittedLightForAllStates(props, 15);
@@ -1603,49 +1495,39 @@ init_block_data(void) {
     init_stair_props("minecraft:oak_stairs");
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:chest");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:chest");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_CHEST_TYPE, "single");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
-    block_type = register_block_type("minecraft:redstone_wire");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:redstone_wire");
     add_block_property(props, BLOCK_PROPERTY_REDSTONE_POS_X, "none");
     add_block_property(props, BLOCK_PROPERTY_REDSTONE_NEG_Z, "none");
     add_block_property(props, BLOCK_PROPERTY_POWER, "0");
     add_block_property(props, BLOCK_PROPERTY_REDSTONE_POS_Z, "none");
     add_block_property(props, BLOCK_PROPERTY_REDSTONE_NEG_X, "none");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_REDSTONE_WIRE);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_REDSTONE_WIRE);
 
     InitSimpleFullBlock("minecraft:diamond_ore");
     InitSimpleFullBlock("minecraft:deepslate_diamond_ore");
     InitSimpleFullBlock("minecraft:diamond_block");
     InitSimpleFullBlock("minecraft:crafting_table");
 
-    block_type = register_block_type("minecraft:wheat");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:wheat");
     add_block_property(props, BLOCK_PROPERTY_AGE_7, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_NEED_FARMLAND_BELOW);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_FARMLAND_BELOW);
 
-    block_type = register_block_type("minecraft:farmland");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:farmland");
     add_block_property(props, BLOCK_PROPERTY_MOISTURE, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_Y_15);
     SetLightReductionForAllStates(props, 0);
 
-    block_type = register_block_type("minecraft:furnace");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:furnace");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_LIT, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 15);
     SetEmittedLightWhenLit(props, 13);
@@ -1662,22 +1544,18 @@ init_block_data(void) {
     init_door_props("minecraft:oak_door");
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:ladder");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:ladder");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_NEED_FULL_SUPPORT_BEHIND_HORIZONTAL);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_FULL_SUPPORT_BEHIND_HORIZONTAL);
 
-    block_type = register_block_type("minecraft:rail");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:rail");
     add_block_property(props, BLOCK_PROPERTY_RAIL_SHAPE, "north_south");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 0);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
     init_stair_props("minecraft:cobblestone_stairs");
 
@@ -1689,14 +1567,12 @@ init_block_data(void) {
     init_wall_sign("minecraft:dark_oak_wall_sign");
     init_wall_sign("minecraft:mangrove_wall_sign");
 
-    block_type = register_block_type("minecraft:lever");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:lever");
     add_block_property(props, BLOCK_PROPERTY_ATTACH_FACE, "wall");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_NEED_FULL_SUPPORT_ATTACHED);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_FULL_SUPPORT_ATTACHED);
 
     init_pressure_plate("minecraft:stone_pressure_plate");
 
@@ -1713,29 +1589,23 @@ init_block_data(void) {
     init_redstone_ore("minecraft:redstone_ore");
     init_redstone_ore("minecraft:deepslate_redstone_ore");
 
-    block_type = register_block_type("minecraft:redstone_torch");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:redstone_torch");
     add_block_property(props, BLOCK_PROPERTY_LIT, "true");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 0);
     SetEmittedLightWhenLit(props, 7);
 
-    block_type = register_block_type("minecraft:redstone_wall_torch");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:redstone_wall_torch");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_LIT, "true");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 0);
     SetEmittedLightWhenLit(props, 7);
 
     init_button("minecraft:stone_button");
 
-    block_type = register_block_type("minecraft:snow");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:snow");
     add_block_property(props, BLOCK_PROPERTY_LAYERS, "1");
-    finalise_block_props(props);
     for (int i = 0; i < count_block_states(props); i++) {
         u16 block_state = props->base_state + i;
         block_state_info info = describe_block_state(block_state);
@@ -1745,31 +1615,25 @@ init_block_data(void) {
         serv->supportModelByState[block_state] = supportModelId;
         serv->lightBlockingModelByState[block_state] = supportModelId;
     }
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_SNOW_LAYER);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_SNOW_LAYER);
 
     InitSimpleBlockWithModels("minecraft:ice", BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY, 1, 0);
     InitSimpleFullBlock("minecraft:snow_block");
 
-    block_type = register_block_type("minecraft:cactus");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:cactus");
     add_block_property(props, BLOCK_PROPERTY_AGE_15, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_CACTUS, BLOCK_MODEL_CACTUS, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 0);
 
     InitSimpleFullBlock("minecraft:clay");
 
-    block_type = register_block_type("minecraft:sugar_cane");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:sugar_cane");
     add_block_property(props, BLOCK_PROPERTY_AGE_15, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_SUGAR_CANE);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_SUGAR_CANE);
 
-    block_type = register_block_type("minecraft:jukebox");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:jukebox");
     add_block_property(props, BLOCK_PROPERTY_HAS_RECORD, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 15);
 
@@ -1787,42 +1651,32 @@ init_block_data(void) {
 
     InitSimpleFullEmittingBlock("minecraft:glowstone", 15);
 
-    block_type = register_block_type("minecraft:nether_portal");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:nether_portal");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_AXIS, "x");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 0);
     SetEmittedLightForAllStates(props, 11);
 
-    block_type = register_block_type("minecraft:carved_pumpkin");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:carved_pumpkin");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 15);
 
-    block_type = register_block_type("minecraft:jack_o_lantern");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:jack_o_lantern");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 15);
     SetEmittedLightForAllStates(props, 15);
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:cake");
-    props = serv->block_properties_table + BLOCK_CAKE;
+    props = BeginNextBlock("minecraft:cake");
     add_block_property(props, BLOCK_PROPERTY_BITES, "0");
-    finalise_block_props(props);
 
-    block_type = register_block_type("minecraft:repeater");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:repeater");
     add_block_property(props, BLOCK_PROPERTY_DELAY, "1");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_LOCKED, "false");
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_Y_2, BLOCK_MODEL_Y_2, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 0);
 
@@ -1873,53 +1727,41 @@ init_block_data(void) {
     init_pane("minecraft:iron_bars");
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:chain");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:chain");
     add_block_property(props, BLOCK_PROPERTY_AXIS, "y");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
     init_pane("minecraft:glass_pane");
 
     InitSimpleFullBlock("minecraft:melon");
 
-    block_type = register_block_type("minecraft:attached_pumpkin_stem");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:attached_pumpkin_stem");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 0);
 
-    block_type = register_block_type("minecraft:attached_melon_stem");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:attached_melon_stem");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 0);
 
-    block_type = register_block_type("minecraft:pumpkin_stem");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:pumpkin_stem");
     add_block_property(props, BLOCK_PROPERTY_AGE_7, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_NEED_FARMLAND_BELOW);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_FARMLAND_BELOW);
 
-    block_type = register_block_type("minecraft:melon_stem");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:melon_stem");
     add_block_property(props, BLOCK_PROPERTY_AGE_7, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_NEED_FARMLAND_BELOW);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_FARMLAND_BELOW);
 
-    block_type = register_block_type("minecraft:vine");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:vine");
     add_block_property(props, BLOCK_PROPERTY_POS_X, "false");
     add_block_property(props, BLOCK_PROPERTY_NEG_Z, "false");
     add_block_property(props, BLOCK_PROPERTY_POS_Z, "false");
     add_block_property(props, BLOCK_PROPERTY_POS_Y, "false");
     add_block_property(props, BLOCK_PROPERTY_NEG_X, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 0);
 
@@ -1933,11 +1775,9 @@ init_block_data(void) {
 
     init_snowy_grassy_block("minecraft:mycelium");
 
-    block_type = register_block_type("minecraft:lily_pad");
-    props = serv->block_properties_table + block_type;
-    finalise_block_props(props);
+    props = BeginNextBlock("minecraft:lily_pad");
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_LILY_PAD, BLOCK_MODEL_LILY_PAD, BLOCK_MODEL_EMPTY);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_LILY_PAD);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_LILY_PAD);
 
     InitSimpleFullBlock("minecraft:nether_bricks");
 
@@ -1945,22 +1785,18 @@ init_block_data(void) {
 
     init_stair_props("minecraft:nether_brick_stairs");
 
-    block_type = register_block_type("minecraft:nether_wart");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:nether_wart");
     add_block_property(props, BLOCK_PROPERTY_AGE_3, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_NETHER_WART);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NETHER_WART);
 
     InitSimpleBlockWithModels("minecraft:enchanting_table", BLOCK_MODEL_Y_12, BLOCK_MODEL_Y_12, BLOCK_MODEL_Y_12, 1, 7);
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:brewing_stand");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:brewing_stand");
     add_block_property(props, BLOCK_PROPERTY_HAS_BOTTLE_0, "false");
     add_block_property(props, BLOCK_PROPERTY_HAS_BOTTLE_1, "false");
     add_block_property(props, BLOCK_PROPERTY_HAS_BOTTLE_2, "false");
-    finalise_block_props(props);
     SetEmittedLightForAllStates(props, 1);
 
     init_cauldron("minecraft:cauldron", 0, 0);
@@ -1971,30 +1807,24 @@ init_block_data(void) {
     init_simple_block("minecraft:end_portal", BLOCK_MODEL_EMPTY, 0, 15);
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:end_portal_frame");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:end_portal_frame");
     add_block_property(props, BLOCK_PROPERTY_EYE, "false");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    finalise_block_props(props);
     SetEmittedLightForAllStates(props, 1);
 
     InitSimpleFullBlock("minecraft:end_stone");
     // @TODO(traks) correct block model
     InitSimpleBlockWithModels("minecraft:dragon_egg", BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY, 0, 1);
 
-    block_type = register_block_type("minecraft:redstone_lamp");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:redstone_lamp");
     add_block_property(props, BLOCK_PROPERTY_LIT, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 15);
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:cocoa");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:cocoa");
     add_block_property(props, BLOCK_PROPERTY_AGE_2, "0");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    finalise_block_props(props);
 
     init_stair_props("minecraft:sandstone_stairs");
 
@@ -2002,24 +1832,19 @@ init_block_data(void) {
     InitSimpleFullBlock("minecraft:deepslate_emerald_ore");
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:ender_chest");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:ender_chest");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
     SetEmittedLightForAllStates(props, 7);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:tripwire_hook");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:tripwire_hook");
     add_block_property(props, BLOCK_PROPERTY_ATTACHED, "false");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
-    finalise_block_props(props);
 
-    block_type = register_block_type("minecraft:tripwire");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:tripwire");
     add_block_property(props, BLOCK_PROPERTY_ATTACHED, "false");
     add_block_property(props, BLOCK_PROPERTY_DISARMED, "false");
     add_block_property(props, BLOCK_PROPERTY_POS_X, "false");
@@ -2027,7 +1852,6 @@ init_block_data(void) {
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
     add_block_property(props, BLOCK_PROPERTY_POS_Z, "false");
     add_block_property(props, BLOCK_PROPERTY_NEG_X, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 0);
 
@@ -2037,11 +1861,9 @@ init_block_data(void) {
     init_stair_props("minecraft:birch_stairs");
     init_stair_props("minecraft:jungle_stairs");
 
-    block_type = register_block_type("minecraft:command_block");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:command_block");
     add_block_property(props, BLOCK_PROPERTY_CONDITIONAL, "false");
     add_block_property(props, BLOCK_PROPERTY_FACING, "north");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 15);
 
@@ -2078,19 +1900,15 @@ init_block_data(void) {
     InitFlowerPot("minecraft:potted_dead_bush");
     InitFlowerPot("minecraft:potted_cactus");
 
-    block_type = register_block_type("minecraft:carrots");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:carrots");
     add_block_property(props, BLOCK_PROPERTY_AGE_7, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_NEED_FARMLAND_BELOW);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_FARMLAND_BELOW);
 
-    block_type = register_block_type("minecraft:potatoes");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:potatoes");
     add_block_property(props, BLOCK_PROPERTY_AGE_7, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_NEED_FARMLAND_BELOW);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_FARMLAND_BELOW);
 
     init_button("minecraft:oak_button");
     init_button("minecraft:spruce_button");
@@ -2120,44 +1938,34 @@ init_block_data(void) {
     init_anvil_props("minecraft:damaged_anvil");
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:trapped_chest");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:trapped_chest");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_CHEST_TYPE, "single");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
-    block_type = register_block_type("minecraft:light_weighted_pressure_plate");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:light_weighted_pressure_plate");
     add_block_property(props, BLOCK_PROPERTY_POWER, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 0);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_NEED_PLATE_SUPPORTING_SURFACE_BELOW);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_PLATE_SUPPORTING_SURFACE_BELOW);
 
-    block_type = register_block_type("minecraft:heavy_weighted_pressure_plate");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:heavy_weighted_pressure_plate");
     add_block_property(props, BLOCK_PROPERTY_POWER, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 0);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_NEED_PLATE_SUPPORTING_SURFACE_BELOW);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_PLATE_SUPPORTING_SURFACE_BELOW);
 
-    block_type = register_block_type("minecraft:comparator");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:comparator");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_MODE_COMPARATOR, "compare");
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_Y_2, BLOCK_MODEL_Y_2, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 0);
 
-    block_type = register_block_type("minecraft:daylight_detector");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:daylight_detector");
     add_block_property(props, BLOCK_PROPERTY_INVERTED, "false");
     add_block_property(props, BLOCK_PROPERTY_POWER, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_Y_6);
     SetLightReductionForAllStates(props, 0);
 
@@ -2165,11 +1973,9 @@ init_block_data(void) {
     InitSimpleFullBlock("minecraft:nether_quartz_ore");
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:hopper");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:hopper");
     add_block_property(props, BLOCK_PROPERTY_ENABLED, "true");
     add_block_property(props, BLOCK_PROPERTY_FACING_HOPPER, "down");
-    finalise_block_props(props);
 
     InitSimpleFullBlock("minecraft:quartz_block");
     InitSimpleFullBlock("minecraft:chiseled_quartz_block");
@@ -2178,21 +1984,17 @@ init_block_data(void) {
 
     init_stair_props("minecraft:quartz_stairs");
 
-    block_type = register_block_type("minecraft:activator_rail");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:activator_rail");
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
     add_block_property(props, BLOCK_PROPERTY_RAIL_SHAPE_STRAIGHT, "north_south");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 0);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
-    block_type = register_block_type("minecraft:dropper");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:dropper");
     add_block_property(props, BLOCK_PROPERTY_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_TRIGGERED, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 15);
 
@@ -2237,11 +2039,9 @@ init_block_data(void) {
     InitSimpleBlockWithModels("minecraft:slime_block", BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY, 1, 0);
     InitSimpleBlockWithModels("minecraft:barrier", BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY, 0, 0);
 
-    block_type = register_block_type("minecraft:light");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:light");
     add_block_property(props, BLOCK_PROPERTY_LEVEL_LIGHT, "15");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 0);
     for (i32 i = 0; i < count_block_states(props); i++) {
@@ -2249,7 +2049,7 @@ init_block_data(void) {
         block_state_info info = describe_block_state(blockState);
         serv->emittedLightByState[blockState] = info.level_light & 0xf;
     }
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
     init_trapdoor_props("minecraft:iron_trapdoor");
 
@@ -2385,28 +2185,22 @@ init_block_data(void) {
     init_door_props("minecraft:mangrove_door");
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:end_rod");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:end_rod");
     add_block_property(props, BLOCK_PROPERTY_FACING, "up");
-    finalise_block_props(props);
     SetEmittedLightForAllStates(props, 14);
 
     // TODO(traks): block modesl + light reduction
-    block_type = register_block_type("minecraft:chorus_plant");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:chorus_plant");
     add_block_property(props, BLOCK_PROPERTY_NEG_Y, "false");
     add_block_property(props, BLOCK_PROPERTY_POS_X, "false");
     add_block_property(props, BLOCK_PROPERTY_NEG_Z, "false");
     add_block_property(props, BLOCK_PROPERTY_POS_Z, "false");
     add_block_property(props, BLOCK_PROPERTY_POS_Y, "false");
     add_block_property(props, BLOCK_PROPERTY_NEG_X, "false");
-    finalise_block_props(props);
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:chorus_flower");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:chorus_flower");
     add_block_property(props, BLOCK_PROPERTY_AGE_5, "0");
-    finalise_block_props(props);
 
     InitSimpleFullBlock("minecraft:purpur_block");
 
@@ -2416,36 +2210,28 @@ init_block_data(void) {
 
     InitSimpleFullBlock("minecraft:end_stone_bricks");
 
-    block_type = register_block_type("minecraft:beetroots");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:beetroots");
     add_block_property(props, BLOCK_PROPERTY_AGE_3, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_NEED_FARMLAND_BELOW);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_FARMLAND_BELOW);
 
     init_simple_block("minecraft:dirt_path", BLOCK_MODEL_Y_15, 0, 0);
     init_simple_block("minecraft:end_gateway", BLOCK_MODEL_EMPTY, 0, 15);
 
-    block_type = register_block_type("minecraft:repeating_command_block");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:repeating_command_block");
     add_block_property(props, BLOCK_PROPERTY_CONDITIONAL, "false");
     add_block_property(props, BLOCK_PROPERTY_FACING, "north");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 15);
 
-    block_type = register_block_type("minecraft:chain_command_block");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:chain_command_block");
     add_block_property(props, BLOCK_PROPERTY_CONDITIONAL, "false");
     add_block_property(props, BLOCK_PROPERTY_FACING, "north");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 15);
 
-    block_type = register_block_type("minecraft:frosted_ice");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:frosted_ice");
     add_block_property(props, BLOCK_PROPERTY_AGE_3, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 15);
 
@@ -2457,11 +2243,9 @@ init_block_data(void) {
 
     InitSimpleEmptyBlock("minecraft:structure_void");
 
-    block_type = register_block_type("minecraft:observer");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:observer");
     add_block_property(props, BLOCK_PROPERTY_FACING, "south");
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 15);
 
@@ -2535,29 +2319,23 @@ init_block_data(void) {
     InitSimpleFullBlock("minecraft:red_concrete_powder");
     InitSimpleFullBlock("minecraft:black_concrete_powder");
 
-    block_type = register_block_type("minecraft:kelp");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:kelp");
     add_block_property(props, BLOCK_PROPERTY_AGE_25, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 1);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
-    block_type = register_block_type("minecraft:kelp_plant");
-    props = serv->block_properties_table + block_type;
-    finalise_block_props(props);
+    props = BeginNextBlock("minecraft:kelp_plant");
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 1);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
     InitSimpleFullBlock("minecraft:dried_kelp_block");
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:turtle_egg");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:turtle_egg");
     add_block_property(props, BLOCK_PROPERTY_EGGS, "1");
     add_block_property(props, BLOCK_PROPERTY_HATCH, "0");
-    finalise_block_props(props);
 
     InitSimpleFullBlock("minecraft:dead_tube_coral_block");
     InitSimpleFullBlock("minecraft:dead_brain_coral_block");
@@ -2605,11 +2383,9 @@ init_block_data(void) {
     init_coral_wall_fan("minecraft:horn_coral_wall_fan");
 
     // @TODO(traks) collision models
-    block_type = register_block_type("minecraft:sea_pickle");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:sea_pickle");
     add_block_property(props, BLOCK_PROPERTY_PICKLES, "1");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "true");
-    finalise_block_props(props);
     for (i32 i = 0; i < count_block_states(props); i++) {
         i32 blockState = props->base_state + i;
         block_state_info info = describe_block_state(blockState);
@@ -2617,45 +2393,37 @@ init_block_data(void) {
             serv->emittedLightByState[blockState] = (info.pickles + 1) * 3;
         }
     }
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_SEA_PICKLE);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_SEA_PICKLE);
 
     InitSimpleFullBlock("minecraft:blue_ice");
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:conduit");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:conduit");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "true");
-    finalise_block_props(props);
     SetEmittedLightForAllStates(props, 15);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
-    block_type = register_block_type("minecraft:bamboo_sapling");
-    props = serv->block_properties_table + block_type;
-    finalise_block_props(props);
+    props = BeginNextBlock("minecraft:bamboo_sapling");
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_BAMBOO_SAPLING);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_BAMBOO_SAPLING);
 
-    block_type = register_block_type("minecraft:bamboo");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:bamboo");
     add_block_property(props, BLOCK_PROPERTY_AGE_1, "0");
     add_block_property(props, BLOCK_PROPERTY_BAMBOO_LEAVES, "none");
     add_block_property(props, BLOCK_PROPERTY_STAGE, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_CENTRED_BAMBOO, BLOCK_MODEL_CENTRED_BAMBOO, BLOCK_MODEL_EMPTY);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_BAMBOO);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_BAMBOO);
 
     InitFlowerPot("minecraft:potted_bamboo");
     InitSimpleEmptyBlock("minecraft:void_air");
     InitSimpleEmptyBlock("minecraft:cave_air");
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:bubble_column");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:bubble_column");
     add_block_property(props, BLOCK_PROPERTY_DRAG, "true");
-    finalise_block_props(props);
     SetLightReductionForAllStates(props, 1);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
     init_stair_props("minecraft:polished_granite_stairs");
     init_stair_props("minecraft:smooth_red_sandstone_stairs");
@@ -2702,43 +2470,33 @@ init_block_data(void) {
 
     // TODO(traks): block models (collision models & support model
     // (THE scaffolding model)) + light reduction
-    block_type = register_block_type("minecraft:scaffolding");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:scaffolding");
     add_block_property(props, BLOCK_PROPERTY_BOTTOM, "false");
     add_block_property(props, BLOCK_PROPERTY_STABILITY_DISTANCE, "7");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
-    block_type = register_block_type("minecraft:loom");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:loom");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 15);
 
-    block_type = register_block_type("minecraft:barrel");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:barrel");
     add_block_property(props, BLOCK_PROPERTY_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_OPEN, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 15);
 
-    block_type = register_block_type("minecraft:smoker");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:smoker");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_LIT, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 15);
     SetEmittedLightWhenLit(props, 13);
 
-    block_type = register_block_type("minecraft:blast_furnace");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:blast_furnace");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_LIT, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 15);
     SetEmittedLightWhenLit(props, 13);
@@ -2747,87 +2505,69 @@ init_block_data(void) {
     InitSimpleFullBlock("minecraft:fletching_table");
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:grindstone");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:grindstone");
     add_block_property(props, BLOCK_PROPERTY_ATTACH_FACE, "wall");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    finalise_block_props(props);
 
-    block_type = register_block_type("minecraft:lectern");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:lectern");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_HAS_BOOK, "false");
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_LECTERN);
     SetLightReductionForAllStates(props, 0);
 
     InitSimpleFullBlock("minecraft:smithing_table");
 
-    block_type = register_block_type("minecraft:stonecutter");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:stonecutter");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_Y_9, BLOCK_MODEL_Y_9, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 0);
 
     // TODO(traks): collisions models + light reduction
-    block_type = register_block_type("minecraft:bell");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:bell");
     add_block_property(props, BLOCK_PROPERTY_BELL_ATTACHMENT, "floor");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
-    finalise_block_props(props);
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:lantern");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:lantern");
     add_block_property(props, BLOCK_PROPERTY_HANGING, "false");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
     SetEmittedLightForAllStates(props, 15);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:soul_lantern");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:soul_lantern");
     add_block_property(props, BLOCK_PROPERTY_HANGING, "false");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
     SetEmittedLightForAllStates(props, 10);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
-    block_type = register_block_type("minecraft:campfire");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:campfire");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_LIT, "true");
     add_block_property(props, BLOCK_PROPERTY_SIGNAL_FIRE, "false");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_Y_7, BLOCK_MODEL_Y_7, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 0);
     SetEmittedLightWhenLit(props, 15);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
-    block_type = register_block_type("minecraft:soul_campfire");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:soul_campfire");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_LIT, "true");
     add_block_property(props, BLOCK_PROPERTY_SIGNAL_FIRE, "false");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_Y_7, BLOCK_MODEL_Y_7, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 0);
     SetEmittedLightWhenLit(props, 10);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
-    block_type = register_block_type("minecraft:sweet_berry_bush");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:sweet_berry_bush");
     add_block_property(props, BLOCK_PROPERTY_AGE_3, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 0);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_NEED_SOIL_BELOW);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_SOIL_BELOW);
 
     init_pillar("minecraft:warped_stem", 0);
     init_pillar("minecraft:stripped_warped_stem", 0);
@@ -2849,19 +2589,15 @@ init_block_data(void) {
     InitSimpleNetherPlant("minecraft:crimson_fungus");
     InitSimpleFullEmittingBlock("minecraft:shroomlight", 15);
 
-    block_type = register_block_type("minecraft:weeping_vines");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:weeping_vines");
     add_block_property(props, BLOCK_PROPERTY_AGE_25, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 0);
 
     InitSimpleEmptyBlock("minecraft:weeping_vines_plant");
 
-    block_type = register_block_type("minecraft:twisting_vines");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:twisting_vines");
     add_block_property(props, BLOCK_PROPERTY_AGE_25, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 0);
 
@@ -2901,47 +2637,35 @@ init_block_data(void) {
     init_wall_sign("minecraft:crimson_wall_sign");
     init_wall_sign("minecraft:warped_wall_sign");
 
-    block_type = register_block_type("minecraft:structure_block");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:structure_block");
     add_block_property(props, BLOCK_PROPERTY_STRUCTUREBLOCK_MODE, "save");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 15);
 
-    block_type = register_block_type("minecraft:jigsaw");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:jigsaw");
     add_block_property(props, BLOCK_PROPERTY_JIGSAW_ORIENTATION, "north_up");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 15);
 
-    block_type = register_block_type("minecraft:composter");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:composter");
     add_block_property(props, BLOCK_PROPERTY_LEVEL_COMPOSTER, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_COMPOSTER, BLOCK_MODEL_COMPOSTER, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 0);
 
-    block_type = register_block_type("minecraft:target");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:target");
     add_block_property(props, BLOCK_PROPERTY_POWER, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 15);
 
-    block_type = register_block_type("minecraft:bee_nest");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:bee_nest");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_LEVEL_HONEY, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 15);
 
-    block_type = register_block_type("minecraft:beehive");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:beehive");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_LEVEL_HONEY, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 15);
 
@@ -2951,10 +2675,8 @@ init_block_data(void) {
     InitSimpleFullBlock("minecraft:ancient_debris");
     InitSimpleFullEmittingBlock("minecraft:crying_obsidian", 10);
 
-    block_type = register_block_type("minecraft:respawn_anchor");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:respawn_anchor");
     add_block_property(props, BLOCK_PROPERTY_RESPAWN_ANCHOR_CHARGES, "0");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 15);
     for (i32 i = 0; i < count_block_states(props); i++) {
@@ -3057,35 +2779,29 @@ init_block_data(void) {
     InitSimpleBlockWithModels("minecraft:powder_snow", BLOCK_MODEL_EMPTY, BLOCK_MODEL_EMPTY, BLOCK_MODEL_EMPTY, 1, 0);
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:sculk_sensor");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:sculk_sensor");
     add_block_property(props, BLOCK_PROPERTY_SCULK_SENSOR_PHASE, "inactive");
     add_block_property(props, BLOCK_PROPERTY_POWER, "0");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
     SetEmittedLightForAllStates(props, 1);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
     InitSimpleFullBlock("minecraft:sculk");
     InitMultiFaceBlock("minecraft:sculk_vein", 0);
 
-    block_type = register_block_type("minecraft:sculk_catalyst");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:sculk_catalyst");
     add_block_property(props, BLOCK_PROPERTY_BLOOM, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(props, 15);
     SetEmittedLightForAllStates(props, 6);
 
-    block_type = register_block_type("minecraft:sculk_shrieker");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:sculk_shrieker");
     add_block_property(props, BLOCK_PROPERTY_SHRIEKING, "false");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
     add_block_property(props, BLOCK_PROPERTY_CAN_SUMMON, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_Y_8);
     SetLightReductionForAllStates(props, 0);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
     InitSimpleFullBlock("minecraft:oxidized_copper");
     InitSimpleFullBlock("minecraft:weathered_copper");
@@ -3128,45 +2844,35 @@ init_block_data(void) {
     init_slab("minecraft:waxed_cut_copper_slab");
 
     // TODO(traks) block models + light reduction
-    block_type = register_block_type("minecraft:lightning_rod");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:lightning_rod");
     add_block_property(props, BLOCK_PROPERTY_FACING, "up");
     add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:pointed_dripstone");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:pointed_dripstone");
     add_block_property(props, BLOCK_PROPERTY_VERTICAL_DIRECTION, "up");
     add_block_property(props, BLOCK_PROPERTY_DRIPSTONE_THICKNESS, "tip");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
     InitSimpleFullBlock("minecraft:dripstone_block");
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:cave_vines");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:cave_vines");
     add_block_property(props, BLOCK_PROPERTY_AGE_25, "0");
     add_block_property(props, BLOCK_PROPERTY_BERRIES, "false");
-    finalise_block_props(props);
     SetEmittedLightWhenBerries(props, 14);
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:cave_vines_plant");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:cave_vines_plant");
     add_block_property(props, BLOCK_PROPERTY_BERRIES, "false");
-    finalise_block_props(props);
     SetEmittedLightWhenBerries(props, 14);
 
-    block_type = register_block_type("minecraft:spore_blossom");
-    props = serv->block_properties_table + block_type;
-    finalise_block_props(props);
+    props = BeginNextBlock("minecraft:spore_blossom");
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_NEED_POLE_SUPPORT_ABOVE);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_POLE_SUPPORT_ABOVE);
 
     InitAzalea("minecraft:azalea");
     InitAzalea("minecraft:flowering_azalea");
@@ -3175,40 +2881,32 @@ init_block_data(void) {
     InitSimpleFullBlock("minecraft:moss_block");
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:big_dripleaf");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:big_dripleaf");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     add_block_property(props, BLOCK_PROPERTY_DRIPLEAF_TILT, "none");
-    finalise_block_props(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_BIG_DRIPLEAF);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_BIG_DRIPLEAF);
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:big_dripleaf_stem");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:big_dripleaf_stem");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    finalise_block_props(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_BIG_DRIPLEAF_STEM);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_BIG_DRIPLEAF_STEM);
 
     // TODO(traks): block models + light reduction
-    block_type = register_block_type("minecraft:small_dripleaf");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:small_dripleaf");
     add_block_property(props, BLOCK_PROPERTY_DOUBLE_BLOCK_HALF, "lower");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    finalise_block_props(props);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_SMALL_DRIPLEAF);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_SMALL_DRIPLEAF);
 
-    block_type = register_block_type("minecraft:hanging_roots");
-    props = serv->block_properties_table + block_type;
+    props = BeginNextBlock("minecraft:hanging_roots");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
-    finalise_block_props(props);
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
-    AddBlockBehaviour(block_type, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
     InitSimpleFullBlock("minecraft:rooted_dirt");
     InitSimpleFullBlock("minecraft:mud");
@@ -3260,4 +2958,5 @@ init_block_data(void) {
     InitSimpleFullBlock("blaze:unknown");
 
     assert(MAX_BLOCK_STATES >= serv->actual_block_state_count);
+    LogInfo("block state count: %d\n", serv->actual_block_state_count);
 }
