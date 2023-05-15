@@ -11,7 +11,6 @@ typedef struct {
     u16 * changedBlockSet;
     i32 changedBlockSetMask;
     i32 changedBlockCount;
-    i64 lastChangeTick;
     u16 nonAirCount;
 } ChunkSection;
 
@@ -48,6 +47,9 @@ typedef struct {
     u16 exchangeLightWithNeighbours;
 
     WorldChunkPos pos;
+
+    i64 lastBlockChangeTick;
+    u32 changedBlockSections;
 
     // @TODO(traks) allow more block entities. Possibly use an internally
     // chained hashmap for this. The question is, where do we allocate this
@@ -97,6 +99,7 @@ Chunk * GetChunkInternal(WorldChunkPos pos);
 // NOTE(traks): chunkArray will hold the data, may need to zero-initialise it.
 // It is indexed as zx
 void CollectLoadedChunks(WorldChunkPos from, WorldChunkPos to, Chunk * * chunkArray);
+i32 CollectChangedChunks(WorldChunkPos from, WorldChunkPos to, Chunk * * chunkArray);
 
 typedef struct {
     i32 oldState;

@@ -2440,90 +2440,78 @@ static void UpdateChunkCache(entity_base * player, BufCursor * sendCursor) {
 }
 
 static void SendTrackedBlockChanges(entity_base * player, BufCursor * sendCursor, MemoryArena * tickArena) {
-    // TODO(traks): Current implementation:
-    // 101 us and 34.3 us for the collecting
-    //
-    // When grouping chunks in 4x4 areas:
-    // 97.2 us and 31.4 us for the collecting (71 ns per chunk lookup)
-    //
-    // When doing collecting in groups as well (reuse hashes and stuff):
-    // 76.3 us and 9.83 us (22 ns per chunk lookup)
-    //
-    // City hash instead of Jenkins one at a time:
-    // seems to give ~1 us more?
-
     i32 chunkCacheDiam = 2 * player->player.chunkCacheRadius + 1;
     i32 chunkCacheMinX = player->player.chunkCacheCentreX - player->player.chunkCacheRadius;
     i32 chunkCacheMaxX = player->player.chunkCacheCentreX + player->player.chunkCacheRadius;
     i32 chunkCacheMinZ = player->player.chunkCacheCentreZ - player->player.chunkCacheRadius;
     i32 chunkCacheMaxZ = player->player.chunkCacheCentreZ + player->player.chunkCacheRadius;
-    Chunk * * loadedChunks = CallocInArena(tickArena, MAX_CHUNK_CACHE_DIAM * MAX_CHUNK_CACHE_DIAM * sizeof (Chunk *));
+    Chunk * * changedChunks = CallocInArena(tickArena, MAX_CHUNK_CACHE_DIAM * MAX_CHUNK_CACHE_DIAM * sizeof (Chunk *));
     BeginTimings(CollectLoadedChunks);
-    CollectLoadedChunks((WorldChunkPos) {.worldId = player->worldId, .x = chunkCacheMinX, .z = chunkCacheMinZ},
+    i32 changedChunkCount = CollectChangedChunks(
+            (WorldChunkPos) {.worldId = player->worldId, .x = chunkCacheMinX, .z = chunkCacheMinZ},
             (WorldChunkPos) {.worldId = player->worldId, .x = chunkCacheMaxX, .z = chunkCacheMaxZ},
-            loadedChunks);
+            changedChunks);
     EndTimings(CollectLoadedChunks);
 
-    for (i32 x = chunkCacheMinX; x <= chunkCacheMaxX; x++) {
-        for (i32 z = chunkCacheMinZ; z <= chunkCacheMaxZ; z++) {
-            WorldChunkPos pos = {.worldId = player->worldId, .x = x, .z = z};
-            i32 index = chunk_cache_index(pos.xz);
-            PlayerChunkCacheEntry * cacheEntry = player->player.chunkCache + index;
+    for (i32 chunkIndex = 0; chunkIndex < changedChunkCount; chunkIndex++) {
+        Chunk * chunk = changedChunks[chunkIndex];
+        WorldChunkPos pos = chunk->pos;
+        i32 index = chunk_cache_index(pos.xz);
+        PlayerChunkCacheEntry * cacheEntry = player->player.chunkCache + index;
 
-            if (!(cacheEntry->flags & PLAYER_CHUNK_SENT)) {
+        if (!(cacheEntry->flags & PLAYER_CHUNK_SENT)) {
+            continue;
+        }
+
+        Chunk * ch = changedChunks[chunkIndex];
+        assert(ch != NULL);
+
+        for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
+            i32 sectionY = sectionIndex + MIN_SECTION;
+            ChunkSection * section = ch->sections + sectionIndex;
+            if (!(chunk->changedBlockSections & ((u32) 1 << sectionIndex))) {
                 continue;
             }
 
-            Chunk * ch = loadedChunks[(z - chunkCacheMinZ) * chunkCacheDiam + (x - chunkCacheMinX)];
-            assert(ch != NULL);
+            assert(section->changedBlockCount > 0);
 
-            for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
-                i32 sectionY = sectionIndex + MIN_SECTION;
-                ChunkSection * section = ch->sections + sectionIndex;
-                if (section->lastChangeTick != serv->current_tick) {
-                    continue;
+            // @TODO(traks) in case of tons of block changes in all
+            // sections combined, we shouldn't spam clients with section
+            // change packets. We should limit the maximum number of
+            // packet data for this packet type and if the limit is
+            // exceeded, reload chunks for clients.
+
+            begin_packet(sendCursor, CBP_SECTION_BLOCKS_UPDATE);
+            u64 section_pos = ((u64) (pos.x & 0x3fffff) << 42)
+                    | ((u64) (pos.z & 0x3fffff) << 20)
+                    | (u64) (sectionY & 0xfffff);
+            CursorPutU64(sendCursor, section_pos);
+            // @TODO(traks) appropriate value for this
+            CursorPutU8(sendCursor, 1); // suppress light updates
+            CursorPutVarU32(sendCursor, section->changedBlockCount);
+
+            for (i32 i = 0; i < section->changedBlockSetMask + 1; i++) {
+                if (section->changedBlockSet[i] != 0) {
+                    BlockPos pos = SectionIndexToPos(section->changedBlockSet[i] & 0xfff);
+                    i64 block_state = ChunkGetBlockState(ch, (BlockPos) {pos.x, pos.y + sectionY * 16, pos.z});
+                    i64 encoded = (block_state << 12) | (pos.x << 8) | (pos.z << 4) | (pos.y & 0xf);
+                    CursorPutVarU64(sendCursor, encoded);
                 }
-
-                assert(section->changedBlockCount > 0);
-
-                // @TODO(traks) in case of tons of block changes in all
-                // sections combined, we shouldn't spam clients with section
-                // change packets. We should limit the maximum number of
-                // packet data for this packet type and if the limit is
-                // exceeded, reload chunks for clients.
-
-                begin_packet(sendCursor, CBP_SECTION_BLOCKS_UPDATE);
-                u64 section_pos = ((u64) (x & 0x3fffff) << 42)
-                        | ((u64) (z & 0x3fffff) << 20)
-                        | (u64) (sectionY & 0xfffff);
-                CursorPutU64(sendCursor, section_pos);
-                // @TODO(traks) appropriate value for this
-                CursorPutU8(sendCursor, 1); // suppress light updates
-                CursorPutVarU32(sendCursor, section->changedBlockCount);
-
-                for (i32 i = 0; i < section->changedBlockSetMask + 1; i++) {
-                    if (section->changedBlockSet[i] != 0) {
-                        BlockPos pos = SectionIndexToPos(section->changedBlockSet[i] & 0xfff);
-                        i64 block_state = ChunkGetBlockState(ch, (BlockPos) {pos.x, pos.y + sectionY * 16, pos.z});
-                        i64 encoded = (block_state << 12) | (pos.x << 8) | (pos.z << 4) | (pos.y & 0xf);
-                        CursorPutVarU64(sendCursor, encoded);
-                    }
-                }
-
-                finish_packet(sendCursor, player);
             }
 
-            if (ch->lastLocalEventTick == serv->current_tick) {
-                for (i32 i = 0; i < ch->localEventCount; i++) {
-                    level_event * event = ch->localEvents + i;
+            finish_packet(sendCursor, player);
+        }
 
-                    begin_packet(sendCursor, CBP_LEVEL_EVENT);
-                    CursorPutU32(sendCursor, event->type);
-                    CursorPutBlockPos(sendCursor, event->pos);
-                    CursorPutU32(sendCursor, event->data);
-                    CursorPutU8(sendCursor, 0); // is global event
-                    finish_packet(sendCursor, player);
-                }
+        if (ch->lastLocalEventTick == serv->current_tick) {
+            for (i32 i = 0; i < ch->localEventCount; i++) {
+                level_event * event = ch->localEvents + i;
+
+                begin_packet(sendCursor, CBP_LEVEL_EVENT);
+                CursorPutU32(sendCursor, event->type);
+                CursorPutBlockPos(sendCursor, event->pos);
+                CursorPutU32(sendCursor, event->data);
+                CursorPutU8(sendCursor, 0); // is global event
+                finish_packet(sendCursor, player);
             }
         }
     }

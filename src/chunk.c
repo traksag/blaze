@@ -109,6 +109,15 @@ static _Atomic i32 chunkCompleteRequestWriterClaiming;
 static _Atomic i32 chunkCompleteRequestWriterIndex;
 static _Atomic i32 chunkCompleteRequestReaderIndex;
 
+// TODO(traks): may need to add some sort of spacial indexing to this, so we
+// don't need to look through all changed chunks to find those in a small region
+typedef struct {
+    PackedWorldChunkPos * entries;
+    u32 arraySize;
+} ChangedChunkList;
+
+static ChangedChunkList changedChunks;
+
 static inline PackedWorldChunkPos PackWorldChunkPos(WorldChunkPos pos) {
     u64 packed = ((u64) (pos.worldId & 0xfff) << 44)
             | ((u64) (pos.x & 0x3fffff) << 22)
@@ -276,6 +285,38 @@ static Chunk * GetOrCreateChunk(WorldChunkPos pos) {
     return res;
 }
 
+static inline void ChunkMarkChanged(Chunk * chunk) {
+    if (chunk->lastBlockChangeTick != serv->current_tick) {
+        chunk->lastBlockChangeTick = serv->current_tick;
+        chunk->changedBlockSections = 0;
+
+        changedChunks.entries[changedChunks.arraySize] = PackWorldChunkPos(chunk->pos);
+        changedChunks.arraySize++;
+    }
+}
+
+static void ClearChangedChunks() {
+    changedChunks.arraySize = 0;
+}
+
+i32 CollectChangedChunks(WorldChunkPos from, WorldChunkPos to, Chunk * * chunkArray) {
+    i32 jumpZ = to.x - from.x + 1;
+    i32 count = 0;
+    for (u32 i = 0; i < changedChunks.arraySize; i++) {
+        PackedWorldChunkPos packedPos = changedChunks.entries[i];
+        WorldChunkPos pos = UnpackWorldChunkPos(packedPos);
+
+        if (pos.worldId == from.worldId && from.x <= pos.x && pos.x <= to.x && from.z <= pos.z && pos.z <= to.z) {
+            Chunk * chunk = GetChunkIfLoaded(pos);
+            if (chunk != NULL) {
+                chunkArray[count] = chunk;
+                count++;
+            }
+        }
+    }
+    return count;
+}
+
 void InitChunkSystem() {
     void * indexMem = mmap(NULL, 32 * (1 << 20), PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, 0, 0);
     if (indexMem == MAP_FAILED) {
@@ -291,6 +332,13 @@ void InitChunkSystem() {
         exit(1);
     }
     chunkTable.entries = tableMem;
+
+    void * changedMem = mmap(NULL, (1 << 20), PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, 0, 0);
+    if (changedMem == MAP_FAILED) {
+        LogInfo("Failed to map memory for chunks");
+        exit(1);
+    }
+    changedChunks.entries = changedMem;
 }
 
 block_entity_base *
@@ -557,8 +605,9 @@ SetBlockResult ChunkSetBlockState(Chunk * ch, BlockPos pos, i32 blockState) {
 
     // NOTE(traks): the tick arena is automatically cleared at the end of each
     // tick, so reallocate memory if we're in a new tick
-    if (section->lastChangeTick != serv->current_tick) {
-        section->lastChangeTick = serv->current_tick;
+    ChunkMarkChanged(ch);
+    if (!(ch->changedBlockSections & ((u32) 1 << sectionIndex))) {
+        ch->changedBlockSections |= (u32) 1 << sectionIndex;
         // @NOTE(traks) must be power of 2
         i32 initialSize = 128;
         section->changedBlockSet = CallocInArena(serv->tickArena, 128 * sizeof *section->changedBlockSet);
@@ -758,6 +807,8 @@ clean_up_unused_chunks(void) {
 
         FreeChunk(chunk->pos);
     }
+
+    ClearChangedChunks();
 }
 
 static void LoadChunkAsync(void * arg) {
@@ -839,6 +890,11 @@ void LoadChunks() {
         chunk->flags &= ~(CHUNK_FORCE_KEEP);
         chunk->flags |= CHUNK_BLOCKS_LOADED;
 
+        // TODO(traks): consider force loading a 3x3 around this chunk before
+        // marking this chunk as fully loaded. And also keep the 3x3 loaded!
+        // Keep the 3x3 "invisibly" loaded. The majority of the server code only
+        // cares  about chunks that are fully loaded, not chunks that are
+        // partially loaded.
         LightChunkAndExchangeWithNeighbours(chunk);
 
         if (chunk->interestCount == 0) {
