@@ -1,7 +1,7 @@
 #ifndef NBT_H
 #define NBT_H
 
-#include "buf.h"
+#include "buffer.h"
 
 typedef struct {
     void * internal;
@@ -45,7 +45,7 @@ enum NbtTag {
     NBT_TAG_LONG_ARRAY,
 };
 
-NbtCompound NbtRead(BufCursor * buf, MemoryArena * arena);
+NbtCompound NbtRead(Cursor * buf, MemoryArena * arena);
 void NbtPrint(NbtCompound * compound);
 
 u8 NbtGetU8(NbtCompound * compound, String key);

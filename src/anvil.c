@@ -8,11 +8,11 @@
 #include <string.h>
 #include <pthread.h>
 #include "shared.h"
-#include "buf.h"
+#include "buffer.h"
 #include "nbt.h"
 #include "chunk.h"
 
-static void FillBufferFromFile(int fd, BufCursor * cursor) {
+static void FillBufferFromFile(int fd, Cursor * cursor) {
     BeginTimings(ReadFile);
 
     int start_index = cursor->index;
@@ -69,7 +69,7 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
         goto bail;
     }
 
-    BufCursor header_cursor = {
+    Cursor header_cursor = {
         .data = MallocInArena(scratchArena, 4096),
         .size = 4096
     };
@@ -82,7 +82,7 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
     // block) the chunk data starts.
     int index = ((chunkPos.z & 0x1f) << 5) | (chunkPos.x & 0x1f);
     header_cursor.index = index << 2;
-    u32 loc = CursorGetU32(&header_cursor);
+    u32 loc = ReadU32(&header_cursor);
 
     if (loc == 0) {
         // chunk not present in region file
@@ -110,13 +110,13 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
         goto bail;
     }
 
-    BufCursor cursor = {
+    Cursor cursor = {
         .data = MallocInArena(scratchArena, sector_count << 12),
         .size = sector_count << 12
     };
     FillBufferFromFile(region_fd, &cursor);
 
-    u32 size_in_bytes = CursorGetU32(&cursor);
+    u32 size_in_bytes = ReadU32(&cursor);
 
     if (size_in_bytes > cursor.size - cursor.index) {
         LogInfo("Chunk data outside of its sectors");
@@ -124,7 +124,7 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
     }
 
     cursor.size = cursor.index + size_in_bytes;
-    u8 storage_type = CursorGetU8(&cursor);
+    u8 storage_type = ReadU8(&cursor);
 
     if (cursor.error) {
         LogInfo("Chunk header reading error");
@@ -214,7 +214,7 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
     }
     EndTimings(Inflate);
 
-    cursor = (BufCursor) {
+    cursor = (Cursor) {
         .data = uncompressed,
         .size = zstream.total_out
     };

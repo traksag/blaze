@@ -185,16 +185,16 @@ enum clientbound_packet_type {
 };
 
 static void
-nbt_write_key(BufCursor * cursor, u8 tag, String key) {
-    CursorPutU8(cursor, tag);
-    CursorPutU16(cursor, key.size);
-    CursorPutData(cursor, key.data, key.size);
+nbt_write_key(Cursor * cursor, u8 tag, String key) {
+    WriteU8(cursor, tag);
+    WriteU16(cursor, key.size);
+    WriteData(cursor, key.data, key.size);
 }
 
 static void
-nbt_write_string(BufCursor * cursor, String val) {
-    CursorPutU16(cursor, val.size);
-    CursorPutData(cursor, val.data, val.size);
+nbt_write_string(Cursor * cursor, String val) {
+    WriteU16(cursor, val.size);
+    WriteData(cursor, val.data, val.size);
 }
 
 void
@@ -354,7 +354,7 @@ AckBlockChange(entity_player * player, u32 sequenceNumber) {
 }
 
 static void
-process_packet(entity_base * entity, BufCursor * rec_cursor,
+process_packet(entity_base * entity, Cursor * rec_cursor,
         MemoryArena * process_arena) {
     // @NOTE(traks) we need to handle packets in the order in which they arive,
     // so e.g. the client can move the player to a position, perform some
@@ -365,12 +365,12 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
     // action.
 
     entity_player * player = &entity->player;
-    i32 packet_id = CursorGetVarU32(rec_cursor);
+    i32 packet_id = ReadVarU32(rec_cursor);
 
     switch (packet_id) {
     case SBP_ACCEPT_TELEPORT: {
         LogInfo("Packet accept teleport");
-        i32 teleport_id = CursorGetVarU32(rec_cursor);
+        i32 teleport_id = ReadVarU32(rec_cursor);
 
         if ((entity->flags & ENTITY_TELEPORTING)
                 && (entity->flags & PLAYER_SENT_TELEPORT)
@@ -383,65 +383,65 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
     }
     case SBP_BLOCK_ENTITY_TAG_QUERY: {
         LogInfo("Packet block entity tag query");
-        i32 id = CursorGetVarU32(rec_cursor);
-        u64 block_pos = CursorGetU64(rec_cursor);
+        i32 id = ReadVarU32(rec_cursor);
+        u64 block_pos = ReadU64(rec_cursor);
         // @TODO(traks) handle packet
         break;
     }
     case SBP_CHANGE_DIFFICULTY: {
         LogInfo("Packet change difficulty");
-        u8 difficulty = CursorGetU8(rec_cursor);
+        u8 difficulty = ReadU8(rec_cursor);
         // @TODO(traks) handle packet
         break;
     }
     case SBP_CHAT_ACK: {
         LogInfo("Chat ack");
-        u32 offset = CursorGetVarU32(rec_cursor);
+        u32 offset = ReadVarU32(rec_cursor);
         // TODO(traks): handle packet
         break;
     }
     case SBP_CHAT_COMMAND: {
         LogInfo("Packet chat command");
-        String command = CursorGetVarString(rec_cursor, 256);
-        u64 timestamp = CursorGetU64(rec_cursor);
-        u64 salt = CursorGetU64(rec_cursor);
+        String command = ReadVarString(rec_cursor, 256);
+        u64 timestamp = ReadU64(rec_cursor);
+        u64 salt = ReadU64(rec_cursor);
 
         // @NOTE(traks) signatures for command arguments or something. Not sure
         // if anything is being done with them in 1.19.
-        u32 argumentCount = CursorGetVarU32(rec_cursor);
+        u32 argumentCount = ReadVarU32(rec_cursor);
         argumentCount = MIN(argumentCount, 8);
         for (u32 argIndex = 0; argIndex < argumentCount; argIndex++) {
-            String key = CursorGetVarString(rec_cursor, 16);
-            u32 valueSize = CursorGetVarU32(rec_cursor);
+            String key = ReadVarString(rec_cursor, 16);
+            u32 valueSize = ReadVarU32(rec_cursor);
             valueSize = MIN(valueSize, rec_cursor->size);
             u8 * value = rec_cursor->data + rec_cursor->index;
         }
 
         // NOTE(traks): last seen messages acknowledgement
-        u32 offset = CursorGetVarU32(rec_cursor);
+        u32 offset = ReadVarU32(rec_cursor);
         for (i32 ackIndex = 0; ackIndex < 3; ackIndex++) {
-            u8 ackData = CursorGetU8(rec_cursor);
+            u8 ackData = ReadU8(rec_cursor);
         }
         break;
     }
     case SBP_CHAT: {
-        String chat = CursorGetVarString(rec_cursor, 256);
-        u64 timestamp = CursorGetU64(rec_cursor);
-        u64 salt = CursorGetU64(rec_cursor);
+        String chat = ReadVarString(rec_cursor, 256);
+        u64 timestamp = ReadU64(rec_cursor);
+        u64 salt = ReadU64(rec_cursor);
 
         // @TODO(traks) validate signature?
-        i32 hasSignature = CursorGetU8(rec_cursor);
+        i32 hasSignature = ReadU8(rec_cursor);
         if (hasSignature) {
-            u32 signatureSize = CursorGetVarU32(rec_cursor);
+            u32 signatureSize = ReadVarU32(rec_cursor);
             signatureSize = MIN(signatureSize, rec_cursor->size);
             u8 * signature = rec_cursor->data + rec_cursor->index;
             rec_cursor->index += signatureSize;
         }
 
         // NOTE(traks): last seen messages acknowledgement
-        u32 offset = CursorGetVarU32(rec_cursor);
+        u32 offset = ReadVarU32(rec_cursor);
         for (i32 ackIndex = 0; ackIndex < 3; ackIndex++) {
-            u8 ackData = CursorGetU8(rec_cursor);
+            u8 ackData = ReadU8(rec_cursor);
         }
 
         // TODO(traks): filter out bad characters from the message
@@ -462,9 +462,9 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
     case SBP_CHAT_SESSION_UPDATE: {
         LogInfo("Packet chat session update");
         // NOTE(traks): some UUID
-        u64 uuid_high = CursorGetU64(rec_cursor);
-        u64 uuid_low = CursorGetU64(rec_cursor);
-        u64 timestamp = CursorGetU64(rec_cursor);
+        u64 uuid_high = ReadU64(rec_cursor);
+        u64 uuid_low = ReadU64(rec_cursor);
+        u64 timestamp = ReadU64(rec_cursor);
         // NOTE(traks): public key data
         CursorSkip(rec_cursor, 512);
         // NOTE(traks): signature data
@@ -475,7 +475,7 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
     }
     case SBP_CLIENT_COMMAND: {
         LogInfo("Packet client command");
-        i32 action = CursorGetVarU32(rec_cursor);
+        i32 action = ReadVarU32(rec_cursor);
         switch (action) {
         case 0: { // perform respawn
             // @TODO(traks) implement
@@ -493,14 +493,14 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
     }
     case SBP_CLIENT_INFORMATION: {
         LogInfo("Packet client information");
-        String language = CursorGetVarString(rec_cursor, 16);
-        u8 view_distance = CursorGetU8(rec_cursor);
-        i32 chat_visibility = CursorGetVarU32(rec_cursor);
-        u8 sees_chat_colours = CursorGetU8(rec_cursor);
-        u8 model_customisation = CursorGetU8(rec_cursor);
-        i32 main_hand = CursorGetVarU32(rec_cursor);
-        u8 text_filtering = CursorGetU8(rec_cursor);
-        u8 allowInStatusList = CursorGetU8(rec_cursor);
+        String language = ReadVarString(rec_cursor, 16);
+        u8 view_distance = ReadU8(rec_cursor);
+        i32 chat_visibility = ReadVarU32(rec_cursor);
+        u8 sees_chat_colours = ReadU8(rec_cursor);
+        u8 model_customisation = ReadU8(rec_cursor);
+        i32 main_hand = ReadVarU32(rec_cursor);
+        u8 text_filtering = ReadU8(rec_cursor);
+        u8 allowInStatusList = ReadU8(rec_cursor);
 
         // View distance is without the extra border of chunks,
         // while chunk cache radius is with the extra border of
@@ -518,24 +518,24 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
     }
     case SBP_COMMAND_SUGGESTION: {
         LogInfo("Packet command suggestion");
-        i32 id = CursorGetVarU32(rec_cursor);
-        String command = CursorGetVarString(rec_cursor, 32500);
+        i32 id = ReadVarU32(rec_cursor);
+        String command = ReadVarString(rec_cursor, 32500);
         break;
     }
     case SBP_CONTAINER_BUTTON_CLICK: {
         LogInfo("Packet container button click");
-        u8 container_id = CursorGetU8(rec_cursor);
-        u8 button_id = CursorGetU8(rec_cursor);
+        u8 container_id = ReadU8(rec_cursor);
+        u8 button_id = ReadU8(rec_cursor);
         break;
     }
     case SBP_CONTAINER_CLICK: {
         LogInfo("Packet container click");
-        u8 container_id = CursorGetU8(rec_cursor);
-        i32 state_id = CursorGetVarU32(rec_cursor);
-        u16 slot = CursorGetU16(rec_cursor);
-        u8 button = CursorGetU8(rec_cursor);
-        i32 click_type = CursorGetVarU32(rec_cursor);
-        i32 changed_slot_count = CursorGetVarU32(rec_cursor);
+        u8 container_id = ReadU8(rec_cursor);
+        i32 state_id = ReadVarU32(rec_cursor);
+        u16 slot = ReadU16(rec_cursor);
+        u8 button = ReadU8(rec_cursor);
+        i32 click_type = ReadVarU32(rec_cursor);
+        i32 changed_slot_count = ReadVarU32(rec_cursor);
         if (changed_slot_count > 100 || changed_slot_count < 0) {
             // @TODO(traks) better filtering of high values
             rec_cursor->error = 1;
@@ -545,15 +545,15 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         // @TODO(traks) do something with the changed slots?
 
         for (int i = 0; i < changed_slot_count; i++) {
-            u16 changed_slot = CursorGetU16(rec_cursor);
+            u16 changed_slot = ReadU16(rec_cursor);
             // @TODO(traks) read item function
-            u8 has_item = CursorGetU8(rec_cursor);
+            u8 has_item = ReadU8(rec_cursor);
             if (has_item) {
                 // @TODO(traks) is this the new item stack or what?
                 item_stack new_iss = {0};
                 item_stack * new_is = &new_iss;
-                new_is->type = CursorGetVarU32(rec_cursor);
-                new_is->size = CursorGetU8(rec_cursor);
+                new_is->type = ReadVarU32(rec_cursor);
+                new_is->size = ReadU8(rec_cursor);
                 // @TODO(traks) validate size and type as below
 
                 NbtCompound itemNbt = NbtRead(rec_cursor, process_arena);
@@ -569,13 +569,13 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
             break;
         }
 
-        u8 has_item = CursorGetU8(rec_cursor);
+        u8 has_item = ReadU8(rec_cursor);
         item_stack cursor_iss = {0};
         item_stack * cursor_is = &cursor_iss;
 
         if (has_item) {
-            cursor_is->type = CursorGetVarU32(rec_cursor);
-            cursor_is->size = CursorGetU8(rec_cursor);
+            cursor_is->type = ReadVarU32(rec_cursor);
+            cursor_is->size = ReadU8(rec_cursor);
 
             if (cursor_is->type < 0 || cursor_is->type >= ITEM_TYPE_COUNT || cursor_is->size == 0) {
                 cursor_is->type = 0;
@@ -600,12 +600,12 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
     }
     case SBP_CONTAINER_CLOSE: {
         LogInfo("Packet container close");
-        u8 container_id = CursorGetU8(rec_cursor);
+        u8 container_id = ReadU8(rec_cursor);
         break;
     }
     case SBP_CUSTOM_PAYLOAD: {
         LogInfo("Packet custom payload");
-        String id = CursorGetVarString(rec_cursor, 32767);
+        String id = ReadVarString(rec_cursor, 32767);
         unsigned char * payload = rec_cursor->data + rec_cursor->index;
         i32 payload_size = rec_cursor->size - rec_cursor->index;
 
@@ -620,20 +620,20 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
     }
     case SBP_EDIT_BOOK: {
         LogInfo("Packet edit book");
-        i32 slot = CursorGetVarU32(rec_cursor);
-        i32 page_count = CursorGetVarU32(rec_cursor);
+        i32 slot = ReadVarU32(rec_cursor);
+        i32 page_count = ReadVarU32(rec_cursor);
         if (page_count > 200 || page_count < 0) {
             rec_cursor->error = 1;
             break;
         }
         for (int i = 0; i < page_count; i++) {
-            String page = CursorGetVarString(rec_cursor, 8192);
+            String page = ReadVarString(rec_cursor, 8192);
         }
 
-        u8 has_title = CursorGetU8(rec_cursor);
+        u8 has_title = ReadU8(rec_cursor);
         String title = {0};
         if (has_title) {
-            title = CursorGetVarString(rec_cursor, 128);
+            title = ReadVarString(rec_cursor, 128);
         }
 
         // @TODO(traks) handle the packet
@@ -641,33 +641,33 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
     }
     case SBP_ENTITY_TAG_QUERY: {
         LogInfo("Packet entity tag query");
-        i32 transaction_id = CursorGetVarU32(rec_cursor);
-        i32 entity_id = CursorGetVarU32(rec_cursor);
+        i32 transaction_id = ReadVarU32(rec_cursor);
+        i32 entity_id = ReadVarU32(rec_cursor);
         break;
     }
     case SBP_INTERACT: {
         LogInfo("Packet interact");
-        i32 entity_id = CursorGetVarU32(rec_cursor);
-        i32 action = CursorGetVarU32(rec_cursor);
+        i32 entity_id = ReadVarU32(rec_cursor);
+        i32 action = ReadVarU32(rec_cursor);
 
         switch (action) {
         case 0: { // interact
-            i32 hand = CursorGetVarU32(rec_cursor);
-            u8 secondary_action = CursorGetU8(rec_cursor);
+            i32 hand = ReadVarU32(rec_cursor);
+            u8 secondary_action = ReadU8(rec_cursor);
             // @TODO(traks) implement
             break;
         }
         case 1: { // attack
-            u8 secondary_action = CursorGetU8(rec_cursor);
+            u8 secondary_action = ReadU8(rec_cursor);
             // @TODO(traks) implement
             break;
         }
         case 2: { // interact at
-            float x = CursorGetF32(rec_cursor);
-            float y = CursorGetF32(rec_cursor);
-            float z = CursorGetF32(rec_cursor);
-            i32 hand = CursorGetVarU32(rec_cursor);
-            u8 secondary_action = CursorGetU8(rec_cursor);
+            float x = ReadF32(rec_cursor);
+            float y = ReadF32(rec_cursor);
+            float z = ReadF32(rec_cursor);
+            i32 hand = ReadVarU32(rec_cursor);
+            u8 secondary_action = ReadU8(rec_cursor);
             // @TODO(traks) implement
             break;
         }
@@ -678,14 +678,14 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
     }
     case SBP_JIGSAW_GENERATE: {
         LogInfo("Packet jigsaw generate");
-        BlockPos block_pos = CursorGetBlockPos(rec_cursor);
-        i32 levels = CursorGetVarU32(rec_cursor);
-        u8 keep_jigsaws = CursorGetU8(rec_cursor);
+        BlockPos block_pos = ReadBlockPos(rec_cursor);
+        i32 levels = ReadVarU32(rec_cursor);
+        u8 keep_jigsaws = ReadU8(rec_cursor);
         // @TODO(traks) processing
         break;
     }
     case SBP_KEEP_ALIVE: {
-        u64 id = CursorGetU64(rec_cursor);
+        u64 id = ReadU64(rec_cursor);
         if (player->last_keep_alive_sent_tick == id) {
             entity->flags |= PLAYER_GOT_ALIVE_RESPONSE;
         }
@@ -693,40 +693,40 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
     }
     case SBP_LOCK_DIFFICULTY: {
         LogInfo("Packet lock difficulty");
-        u8 locked = CursorGetU8(rec_cursor);
+        u8 locked = ReadU8(rec_cursor);
         break;
     }
     case SBP_MOVE_PLAYER_POS: {
-        double x = CursorGetF64(rec_cursor);
-        double y = CursorGetF64(rec_cursor);
-        double z = CursorGetF64(rec_cursor);
-        int on_ground = CursorGetU8(rec_cursor);
+        double x = ReadF64(rec_cursor);
+        double y = ReadF64(rec_cursor);
+        double z = ReadF64(rec_cursor);
+        int on_ground = ReadU8(rec_cursor);
         process_move_player_packet(entity, x, y, z,
                 entity->rot_x, entity->rot_y, on_ground);
         break;
     }
     case SBP_MOVE_PLAYER_POS_ROT: {
-        double x = CursorGetF64(rec_cursor);
-        double y = CursorGetF64(rec_cursor);
-        double z = CursorGetF64(rec_cursor);
-        float head_rot_y = CursorGetF32(rec_cursor);
-        float head_rot_x = CursorGetF32(rec_cursor);
-        int on_ground = CursorGetU8(rec_cursor);
+        double x = ReadF64(rec_cursor);
+        double y = ReadF64(rec_cursor);
+        double z = ReadF64(rec_cursor);
+        float head_rot_y = ReadF32(rec_cursor);
+        float head_rot_x = ReadF32(rec_cursor);
+        int on_ground = ReadU8(rec_cursor);
         process_move_player_packet(entity, x, y, z,
                 head_rot_x, head_rot_y, on_ground);
         break;
     }
     case SBP_MOVE_PLAYER_ROT: {
-        float head_rot_y = CursorGetF32(rec_cursor);
-        float head_rot_x = CursorGetF32(rec_cursor);
-        int on_ground = CursorGetU8(rec_cursor);
+        float head_rot_y = ReadF32(rec_cursor);
+        float head_rot_x = ReadF32(rec_cursor);
+        int on_ground = ReadU8(rec_cursor);
         process_move_player_packet(entity,
                 entity->x, entity->y, entity->z,
                 head_rot_x, head_rot_y, on_ground);
         break;
     }
     case SBP_MOVE_PLAYER_STATUS: {
-        int on_ground = CursorGetU8(rec_cursor);
+        int on_ground = ReadU8(rec_cursor);
         process_move_player_packet(entity,
                 entity->x, entity->y, entity->z,
                 entity->rot_x, entity->rot_y, on_ground);
@@ -734,36 +734,36 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
     }
     case SBP_MOVE_VEHICLE: {
         LogInfo("Packet move vehicle");
-        double x = CursorGetF64(rec_cursor);
-        double y = CursorGetF64(rec_cursor);
-        double z = CursorGetF64(rec_cursor);
-        float rot_y = CursorGetF32(rec_cursor);
-        float rot_x = CursorGetF32(rec_cursor);
+        double x = ReadF64(rec_cursor);
+        double y = ReadF64(rec_cursor);
+        double z = ReadF64(rec_cursor);
+        float rot_y = ReadF32(rec_cursor);
+        float rot_x = ReadF32(rec_cursor);
         // @TODO(traks) handle packet
         break;
     }
     case SBP_PADDLE_BOAT: {
         LogInfo("Packet paddle boat");
-        u8 left = CursorGetU8(rec_cursor);
-        u8 right = CursorGetU8(rec_cursor);
+        u8 left = ReadU8(rec_cursor);
+        u8 right = ReadU8(rec_cursor);
         break;
     }
     case SBP_PICK_ITEM: {
         LogInfo("Packet pick item");
-        i32 slot = CursorGetVarU32(rec_cursor);
+        i32 slot = ReadVarU32(rec_cursor);
         break;
     }
     case SBP_PLACE_RECIPE: {
         LogInfo("Packet place recipe");
-        u8 container_id = CursorGetU8(rec_cursor);
-        String recipe = CursorGetVarString(rec_cursor, 32767);
-        u8 shift_down = CursorGetU8(rec_cursor);
+        u8 container_id = ReadU8(rec_cursor);
+        String recipe = ReadVarString(rec_cursor, 32767);
+        u8 shift_down = ReadU8(rec_cursor);
         // @TODO(traks) handle packet
         break;
     }
     case SBP_PLAYER_ABILITIES: {
         LogInfo("Packet player abilities");
-        u8 flags = CursorGetU8(rec_cursor);
+        u8 flags = ReadU8(rec_cursor);
         u8 flying = flags & 0x2;
         // @TODO(traks) validate whether the player can toggle fly
         if (flying) {
@@ -778,11 +778,11 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         break;
     }
     case SBP_PLAYER_ACTION: {
-        i32 action = CursorGetVarU32(rec_cursor);
+        i32 action = ReadVarU32(rec_cursor);
         // @TODO(traks) validate block pos inside world
-        BlockPos block_pos = CursorGetBlockPos(rec_cursor);
-        u8 direction = CursorGetU8(rec_cursor);
-        u32 sequenceNumber = CursorGetVarU32(rec_cursor);
+        BlockPos block_pos = ReadBlockPos(rec_cursor);
+        u8 direction = ReadU8(rec_cursor);
+        u32 sequenceNumber = ReadVarU32(rec_cursor);
 
         // @NOTE(traks) destroying blocks in survival works as follows:
         //
@@ -908,9 +908,9 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         break;
     }
     case SBP_PLAYER_COMMAND: {
-        i32 id = CursorGetVarU32(rec_cursor);
-        i32 action = CursorGetVarU32(rec_cursor);
-        i32 data = CursorGetVarU32(rec_cursor);
+        i32 id = ReadVarU32(rec_cursor);
+        i32 action = ReadVarU32(rec_cursor);
+        i32 data = ReadVarU32(rec_cursor);
 
         switch (action) {
         case 0: // press shift key
@@ -962,7 +962,7 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
     }
     case SBP_PONG: {
         LogInfo("Packet pong");
-        i32 id = CursorGetU32(rec_cursor);
+        i32 id = ReadU32(rec_cursor);
         // @TODO(traks) read packet
         break;
     }
@@ -978,34 +978,34 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
     }
     case SBP_RENAME_ITEM: {
         LogInfo("Packet rename item");
-        String name = CursorGetVarString(rec_cursor, 32767);
+        String name = ReadVarString(rec_cursor, 32767);
         break;
     }
     case SBP_RESOURCE_PACK: {
         LogInfo("Packet resource pack");
-        i32 action = CursorGetVarU32(rec_cursor);
+        i32 action = ReadVarU32(rec_cursor);
         break;
     }
     case SBP_SEEN_ADVANCEMENTS: {
         LogInfo("Packet seen advancements");
-        i32 action = CursorGetVarU32(rec_cursor);
+        i32 action = ReadVarU32(rec_cursor);
         // @TODO(traks) further processing
         break;
     }
     case SBP_SELECT_TRADE: {
         LogInfo("Packet select trade");
-        i32 item = CursorGetVarU32(rec_cursor);
+        i32 item = ReadVarU32(rec_cursor);
         break;
     }
     case SBP_SET_BEACON: {
         LogInfo("Packet set beacon");
-        i32 primary_effect = CursorGetVarU32(rec_cursor);
-        i32 secondary_effect = CursorGetVarU32(rec_cursor);
+        i32 primary_effect = ReadVarU32(rec_cursor);
+        i32 secondary_effect = ReadVarU32(rec_cursor);
         break;
     }
     case SBP_SET_CARRIED_ITEM: {
         LogInfo("Set carried item");
-        u16 slot = CursorGetU16(rec_cursor);
+        u16 slot = ReadU16(rec_cursor);
         if (slot > PLAYER_LAST_HOTBAR_SLOT - PLAYER_FIRST_HOTBAR_SLOT) {
             rec_cursor->error = 1;
             break;
@@ -1015,10 +1015,10 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
     }
     case SBP_SET_COMMAND_BLOCK: {
         LogInfo("Packet set command block");
-        u64 block_pos = CursorGetU64(rec_cursor);
-        String command = CursorGetVarString(rec_cursor, 32767);
-        i32 mode = CursorGetVarU32(rec_cursor);
-        u8 flags = CursorGetU8(rec_cursor);
+        u64 block_pos = ReadU64(rec_cursor);
+        String command = ReadVarString(rec_cursor, 32767);
+        i32 mode = ReadVarU32(rec_cursor);
+        u8 flags = ReadU8(rec_cursor);
         u8 track_output = (flags & 0x1);
         u8 conditional = (flags & 0x2);
         u8 automatic = (flags & 0x4);
@@ -1026,15 +1026,15 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
     }
     case SBP_SET_COMMAND_MINECART: {
         LogInfo("Packet set command minecart");
-        i32 entity_id = CursorGetVarU32(rec_cursor);
-        String command = CursorGetVarString(rec_cursor, 32767);
-        u8 track_output = CursorGetU8(rec_cursor);
+        i32 entity_id = ReadVarU32(rec_cursor);
+        String command = ReadVarString(rec_cursor, 32767);
+        u8 track_output = ReadU8(rec_cursor);
         break;
     }
     case SBP_SET_CREATIVE_MODE_SLOT: {
         LogInfo("Set creative mode slot");
-        u16 slot = CursorGetU16(rec_cursor);
-        u8 has_item = CursorGetU8(rec_cursor);
+        u16 slot = ReadU16(rec_cursor);
+        u8 has_item = ReadU8(rec_cursor);
 
         if (slot >= PLAYER_SLOTS) {
             rec_cursor->error = 1;
@@ -1045,8 +1045,8 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
         *is = (item_stack) {0};
 
         if (has_item) {
-            is->type = CursorGetVarU32(rec_cursor);
-            is->size = CursorGetU8(rec_cursor);
+            is->type = ReadVarU32(rec_cursor);
+            is->size = ReadU8(rec_cursor);
 
             if (is->type < 0 || is->type >= ITEM_TYPE_COUNT || is->size == 0) {
                 is->type = 0;
@@ -1076,66 +1076,66 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
     }
     case SBP_SET_JIGSAW_BLOCK: {
         LogInfo("Packet set jigsaw block");
-        u64 block_pos = CursorGetU64(rec_cursor);
-        String name = CursorGetVarString(rec_cursor, 32767);
-        String target = CursorGetVarString(rec_cursor, 32767);
-        String pool = CursorGetVarString(rec_cursor, 32767);
-        String final_state = CursorGetVarString(rec_cursor, 32767);
-        String joint = CursorGetVarString(rec_cursor, 32767);
+        u64 block_pos = ReadU64(rec_cursor);
+        String name = ReadVarString(rec_cursor, 32767);
+        String target = ReadVarString(rec_cursor, 32767);
+        String pool = ReadVarString(rec_cursor, 32767);
+        String final_state = ReadVarString(rec_cursor, 32767);
+        String joint = ReadVarString(rec_cursor, 32767);
         // @TODO(traks) handle packet
         break;
     }
     case SBP_SET_STRUCTURE_BLOCK: {
         LogInfo("Packet set structure block");
-        u64 block_pos = CursorGetU64(rec_cursor);
-        i32 update_type = CursorGetVarU32(rec_cursor);
-        i32 mode = CursorGetVarU32(rec_cursor);
-        String name = CursorGetVarString(rec_cursor, 32767);
+        u64 block_pos = ReadU64(rec_cursor);
+        i32 update_type = ReadVarU32(rec_cursor);
+        i32 mode = ReadVarU32(rec_cursor);
+        String name = ReadVarString(rec_cursor, 32767);
         // @TODO(traks) read signed bytes instead
-        u8 offset_x = CursorGetU8(rec_cursor);
-        u8 offset_y = CursorGetU8(rec_cursor);
-        u8 offset_z = CursorGetU8(rec_cursor);
-        u8 size_x = CursorGetU8(rec_cursor);
-        u8 size_y = CursorGetU8(rec_cursor);
-        u8 size_z = CursorGetU8(rec_cursor);
-        i32 mirror = CursorGetVarU32(rec_cursor);
-        i32 rotation = CursorGetVarU32(rec_cursor);
-        String data = CursorGetVarString(rec_cursor, 12);
+        u8 offset_x = ReadU8(rec_cursor);
+        u8 offset_y = ReadU8(rec_cursor);
+        u8 offset_z = ReadU8(rec_cursor);
+        u8 size_x = ReadU8(rec_cursor);
+        u8 size_y = ReadU8(rec_cursor);
+        u8 size_z = ReadU8(rec_cursor);
+        i32 mirror = ReadVarU32(rec_cursor);
+        i32 rotation = ReadVarU32(rec_cursor);
+        String data = ReadVarString(rec_cursor, 12);
         // @TODO(traks) further reading
         break;
     }
     case SBP_SIGN_UPDATE: {
         LogInfo("Packet sign update");
-        u64 block_pos = CursorGetU64(rec_cursor);
+        u64 block_pos = ReadU64(rec_cursor);
         String lines[4];
         for (int i = 0; i < ARRAY_SIZE(lines); i++) {
-            lines[i] = CursorGetVarString(rec_cursor, 384);
+            lines[i] = ReadVarString(rec_cursor, 384);
         }
         break;
     }
     case SBP_SWING: {
         // LogInfo("Packet swing");
-        i32 hand = CursorGetVarU32(rec_cursor);
+        i32 hand = ReadVarU32(rec_cursor);
         break;
     }
     case SBP_TELEPORT_TO_ENTITY: {
         LogInfo("Packet teleport to entity");
         // @TODO(traks) read UUID instead
-        u64 uuid_high = CursorGetU64(rec_cursor);
-        u64 uuid_low = CursorGetU64(rec_cursor);
+        u64 uuid_high = ReadU64(rec_cursor);
+        u64 uuid_low = ReadU64(rec_cursor);
         break;
     }
     case SBP_USE_ITEM_ON: {
         LogInfo("Packet use item on");
-        i32 hand = CursorGetVarU32(rec_cursor);
-        BlockPos clicked_pos = CursorGetBlockPos(rec_cursor);
-        i32 clicked_face = CursorGetVarU32(rec_cursor);
-        float click_offset_x = CursorGetF32(rec_cursor);
-        float click_offset_y = CursorGetF32(rec_cursor);
-        float click_offset_z = CursorGetF32(rec_cursor);
+        i32 hand = ReadVarU32(rec_cursor);
+        BlockPos clicked_pos = ReadBlockPos(rec_cursor);
+        i32 clicked_face = ReadVarU32(rec_cursor);
+        float click_offset_x = ReadF32(rec_cursor);
+        float click_offset_y = ReadF32(rec_cursor);
+        float click_offset_z = ReadF32(rec_cursor);
         // @TODO(traks) figure out what this is used for
-        u8 is_inside = CursorGetU8(rec_cursor);
-        u32 sequenceNumber = CursorGetVarU32(rec_cursor);
+        u8 is_inside = ReadU8(rec_cursor);
+        u32 sequenceNumber = ReadVarU32(rec_cursor);
 
         // @TODO(traks) if we cancel at any point and don't kick the
         // client, send some packets to the client to make the
@@ -1168,8 +1168,8 @@ process_packet(entity_base * entity, BufCursor * rec_cursor,
     }
     case SBP_USE_ITEM: {
         LogInfo("Packet use item");
-        i32 hand = CursorGetVarU32(rec_cursor);
-        u32 sequenceNumber = CursorGetVarU32(rec_cursor);
+        i32 hand = ReadVarU32(rec_cursor);
+        u32 sequenceNumber = ReadVarU32(rec_cursor);
 
         AckBlockChange(player, sequenceNumber);
         break;
@@ -1192,7 +1192,7 @@ chunk_cache_index(ChunkPos pos) {
 }
 
 static void
-begin_packet(BufCursor * send_cursor, i32 id) {
+begin_packet(Cursor * send_cursor, i32 id) {
     if (send_cursor->size - send_cursor->index < 6) {
         send_cursor->error = 1;
         return;
@@ -1204,11 +1204,11 @@ begin_packet(BufCursor * send_cursor, i32 id) {
     // NOTE(traks): reserve space for internal header and skip some bytes for
     // packet size varint at the start
     CursorSkip(send_cursor, 1 + 5);
-    CursorPutVarU32(send_cursor, id);
+    WriteVarU32(send_cursor, id);
 }
 
 static void
-finish_packet(BufCursor * send_cursor, entity_base * player) {
+finish_packet(Cursor * send_cursor, entity_base * player) {
     // We use the written data to determine the packet size instead of
     // calculating the packet size up front. The major benefit is that
     // calculating the packet size up front is very error prone and requires a
@@ -1222,7 +1222,7 @@ finish_packet(BufCursor * send_cursor, entity_base * player) {
         // @NOTE(traks) packet ID could be invalid, but print it anyway
         send_cursor->index = send_cursor->mark;
         CursorSkip(send_cursor, 6);
-        i32 maybeId = CursorGetVarU32(send_cursor);
+        i32 maybeId = ReadVarU32(send_cursor);
         LogInfo("Finished invalid packet: %d", maybeId);
         return;
     }
@@ -1239,7 +1239,7 @@ finish_packet(BufCursor * send_cursor, entity_base * player) {
     send_cursor->data[send_cursor->index] = internal_header;
     send_cursor->index += 1 + size_offset;
 
-    CursorPutVarU32(send_cursor, packet_size);
+    WriteVarU32(send_cursor, packet_size);
 
     send_cursor->index = packet_end;
 
@@ -1247,13 +1247,13 @@ finish_packet(BufCursor * send_cursor, entity_base * player) {
 }
 
 void
-send_chunk_fully(BufCursor * send_cursor, Chunk * ch,
+send_chunk_fully(Cursor * send_cursor, Chunk * ch,
         entity_base * entity, MemoryArena * tick_arena) {
     BeginTimings(SendChunkFully);
 
     begin_packet(send_cursor, CBP_LEVEL_CHUNK_WITH_LIGHT);
-    CursorPutU32(send_cursor, ch->pos.x);
-    CursorPutU32(send_cursor, ch->pos.z);
+    WriteU32(send_cursor, ch->pos.x);
+    WriteU32(send_cursor, ch->pos.z);
 
     BeginTimings(WriteHeightMap);
 
@@ -1266,7 +1266,7 @@ send_chunk_fully(BufCursor * send_cursor, Chunk * ch,
         i32 bitsPerValue = CeilLog2U32(WORLD_HEIGHT + 1);
         i32 valuesPerLong = 64 / bitsPerValue;
         i32 longs = (16 * 16  + valuesPerLong - 1) / valuesPerLong;
-        CursorPutU32(send_cursor, longs);
+        WriteU32(send_cursor, longs);
         u64 val = 0;
         int offset = 0;
 
@@ -1276,17 +1276,17 @@ send_chunk_fully(BufCursor * send_cursor, Chunk * ch,
             offset += bitsPerValue;
 
             if (offset > 64 - bitsPerValue) {
-                CursorPutU64(send_cursor, val);
+                WriteU64(send_cursor, val);
                 val = 0;
                 offset = 0;
             }
         }
 
         if (offset != 0) {
-            CursorPutU64(send_cursor, val);
+            WriteU64(send_cursor, val);
         }
 
-        CursorPutU8(send_cursor, NBT_TAG_END);
+        WriteU8(send_cursor, NBT_TAG_END);
     }
 
     EndTimings(WriteHeightMap);
@@ -1321,21 +1321,21 @@ send_chunk_fully(BufCursor * send_cursor, Chunk * ch,
 
     // @NOTE(traks) write block data
 
-    CursorPutVarU32(send_cursor, section_data_size);
+    WriteVarU32(send_cursor, section_data_size);
 
     for (i32 i = 0; i < SECTIONS_PER_CHUNK; i++) {
         ChunkSection * section = ch->sections + i;
-        CursorPutU16(send_cursor, section->nonAirCount); // # of non-air blocks
+        WriteU16(send_cursor, section->nonAirCount); // # of non-air blocks
         if (section->nonAirCount == 0) {
-            CursorPutU8(send_cursor, 0);
-            CursorPutVarU32(send_cursor, 0);
-            CursorPutVarU32(send_cursor, 0);
+            WriteU8(send_cursor, 0);
+            WriteVarU32(send_cursor, 0);
+            WriteVarU32(send_cursor, 0);
         } else {
-            CursorPutU8(send_cursor, bits_per_block);
+            WriteU8(send_cursor, bits_per_block);
 
             // number of longs used for the block states
             int longs = (16 * 16 * 16 + blocks_per_long - 1) / blocks_per_long;
-            CursorPutVarU32(send_cursor, longs);
+            WriteVarU32(send_cursor, longs);
             u64 val = 0;
             int offset = 0;
             assert(blocks_per_long == 4);
@@ -1349,20 +1349,20 @@ send_chunk_fully(BufCursor * send_cursor, Chunk * ch,
                             | ((u64) blockStates[1] << 15)
                             | ((u64) blockStates[2] << 30)
                             | ((u64) blockStates[3] << 45);
-                    BufPutU64(cursorData + (8 * longIndex), longValue);
+                    WriteDirectU64(cursorData + (8 * longIndex), longValue);
                 }
             }
         }
 
         // @NOTE(traks) write biome data. Currently we just write all plains
         // biome -> 0 bit palette
-        CursorPutU8(send_cursor, 0);
-        CursorPutVarU32(send_cursor, 1);
-        CursorPutVarU32(send_cursor, 0);
+        WriteU8(send_cursor, 0);
+        WriteVarU32(send_cursor, 1);
+        WriteVarU32(send_cursor, 0);
     }
 
     // number of block entities
-    CursorPutVarU32(send_cursor, 0);
+    WriteVarU32(send_cursor, 0);
 
     EndTimings(WriteBlocks);
 
@@ -1379,28 +1379,28 @@ send_chunk_fully(BufCursor * send_cursor, Chunk * ch,
     u64 zero_block_light_mask = 0;
 
     // @TODO(traks) figure out what trust edges actually does
-    CursorPutU8(send_cursor, 1); // trust edges
-    CursorPutVarU32(send_cursor, 1);
-    CursorPutU64(send_cursor, sky_light_mask);
-    CursorPutVarU32(send_cursor, 1);
-    CursorPutU64(send_cursor, block_light_mask);
-    CursorPutVarU32(send_cursor, 1);
-    CursorPutU64(send_cursor, zero_sky_light_mask);
-    CursorPutVarU32(send_cursor, 1);
-    CursorPutU64(send_cursor, zero_block_light_mask);
+    WriteU8(send_cursor, 1); // trust edges
+    WriteVarU32(send_cursor, 1);
+    WriteU64(send_cursor, sky_light_mask);
+    WriteVarU32(send_cursor, 1);
+    WriteU64(send_cursor, block_light_mask);
+    WriteVarU32(send_cursor, 1);
+    WriteU64(send_cursor, zero_sky_light_mask);
+    WriteVarU32(send_cursor, 1);
+    WriteU64(send_cursor, zero_block_light_mask);
 
-    CursorPutVarU32(send_cursor, lightSections);
+    WriteVarU32(send_cursor, lightSections);
     for (int sectionIndex = 0; sectionIndex < lightSections; sectionIndex++) {
         LightSection * section = ch->lightSections + sectionIndex;
-        CursorPutVarU32(send_cursor, 2048);
-        CursorPutData(send_cursor, section->skyLight, 2048);
+        WriteVarU32(send_cursor, 2048);
+        WriteData(send_cursor, section->skyLight, 2048);
     }
 
-    CursorPutVarU32(send_cursor, lightSections);
+    WriteVarU32(send_cursor, lightSections);
     for (int sectionIndex = 0; sectionIndex < lightSections; sectionIndex++) {
         LightSection * section = ch->lightSections + sectionIndex;
-        CursorPutVarU32(send_cursor, 2048);
-        CursorPutData(send_cursor, section->blockLight, 2048);
+        WriteVarU32(send_cursor, 2048);
+        WriteData(send_cursor, section->blockLight, 2048);
     }
 
     EndTimings(WriteLight);
@@ -1411,15 +1411,15 @@ send_chunk_fully(BufCursor * send_cursor, Chunk * ch,
 }
 
 static void
-send_light_update(BufCursor * send_cursor, ChunkPos pos, Chunk * ch,
+send_light_update(Cursor * send_cursor, ChunkPos pos, Chunk * ch,
         entity_base * entity, MemoryArena * tick_arena) {
     BeginTimings(SendLightUpdate);
 
     // @TODO(traks) send the real lighting data
 
     begin_packet(send_cursor, CBP_LIGHT_UPDATE);
-    CursorPutVarU32(send_cursor, pos.x);
-    CursorPutVarU32(send_cursor, pos.z);
+    WriteVarU32(send_cursor, pos.x);
+    WriteVarU32(send_cursor, pos.z);
 
     // light sections present as arrays in this packet
     // @NOTE(traks) add 2 for light below the world and light above the world
@@ -1430,31 +1430,31 @@ send_light_update(BufCursor * send_cursor, ChunkPos pos, Chunk * ch,
     u64 zero_sky_light_mask = 0;
     u64 zero_block_light_mask = 0;
 
-    CursorPutU8(send_cursor, 1); // trust edges
-    CursorPutVarU32(send_cursor, 1);
-    CursorPutU64(send_cursor, sky_light_mask);
-    CursorPutVarU32(send_cursor, 1);
-    CursorPutU64(send_cursor, block_light_mask);
-    CursorPutVarU32(send_cursor, 1);
-    CursorPutU64(send_cursor, zero_sky_light_mask);
-    CursorPutVarU32(send_cursor, 1);
-    CursorPutU64(send_cursor, zero_block_light_mask);
+    WriteU8(send_cursor, 1); // trust edges
+    WriteVarU32(send_cursor, 1);
+    WriteU64(send_cursor, sky_light_mask);
+    WriteVarU32(send_cursor, 1);
+    WriteU64(send_cursor, block_light_mask);
+    WriteVarU32(send_cursor, 1);
+    WriteU64(send_cursor, zero_sky_light_mask);
+    WriteVarU32(send_cursor, 1);
+    WriteU64(send_cursor, zero_block_light_mask);
 
-    CursorPutVarU32(send_cursor, lightSections);
+    WriteVarU32(send_cursor, lightSections);
     for (int i = 0; i < lightSections; i++) {
-        CursorPutVarU32(send_cursor, 2048);
+        WriteVarU32(send_cursor, 2048);
         for (int j = 0; j < 4096; j += 2) {
             u8 light = 0xff;
-            CursorPutU8(send_cursor, light);
+            WriteU8(send_cursor, light);
         }
     }
 
-    CursorPutVarU32(send_cursor, lightSections);
+    WriteVarU32(send_cursor, lightSections);
     for (int i = 0; i < lightSections; i++) {
-        CursorPutVarU32(send_cursor, 2048);
+        WriteVarU32(send_cursor, 2048);
         for (int j = 0; j < 4096; j += 2) {
             u8 light = 0;
-            CursorPutU8(send_cursor, light);
+            WriteU8(send_cursor, light);
         }
     }
 
@@ -1463,15 +1463,15 @@ send_light_update(BufCursor * send_cursor, ChunkPos pos, Chunk * ch,
     EndTimings(SendLightUpdate);
 }
 
-static void SendPlayerTeleport(entity_base * player, BufCursor * send_cursor) {
+static void SendPlayerTeleport(entity_base * player, Cursor * send_cursor) {
     begin_packet(send_cursor, CBP_PLAYER_POSITION);
-    CursorPutF64(send_cursor, player->x);
-    CursorPutF64(send_cursor, player->y);
-    CursorPutF64(send_cursor, player->z);
-    CursorPutF32(send_cursor, player->rot_y);
-    CursorPutF32(send_cursor, player->rot_x);
-    CursorPutU8(send_cursor, 0); // relative arguments
-    CursorPutVarU32(send_cursor, player->player.current_teleport_id);
+    WriteF64(send_cursor, player->x);
+    WriteF64(send_cursor, player->y);
+    WriteF64(send_cursor, player->z);
+    WriteF32(send_cursor, player->rot_y);
+    WriteF32(send_cursor, player->rot_x);
+    WriteU8(send_cursor, 0); // relative arguments
+    WriteVarU32(send_cursor, player->player.current_teleport_id);
     finish_packet(send_cursor, player);
 
     player->flags |= PLAYER_SENT_TELEPORT;
@@ -1627,7 +1627,7 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
     } else {
         player->player.rec_cursor += rec_size;
 
-        BufCursor rec_cursor = {
+        Cursor rec_cursor = {
             .data = player->player.rec_buf,
             .size = player->player.rec_cursor
         };
@@ -1635,8 +1635,8 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
         // @TODO(traks) rate limit incoming packets per player
 
         for (;;) {
-            BufCursor packet_cursor = rec_cursor;
-            i32 packet_size = CursorGetVarU32(&packet_cursor);
+            Cursor packet_cursor = rec_cursor;
+            i32 packet_size = ReadVarU32(&packet_cursor);
 
             if (packet_cursor.error != 0) {
                 // packet size not fully received yet
@@ -1658,7 +1658,7 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
             if (player->flags & PLAYER_PACKET_COMPRESSION) {
                 // ignore the uncompressed packet size, since we require all
                 // packets to be compressed
-                CursorGetVarU32(&packet_cursor);
+                ReadVarU32(&packet_cursor);
 
                 // @TODO(traks) move to a zlib alternative that is optimised
                 // for single pass inflate/deflate. If we don't end up doing
@@ -1704,7 +1704,7 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
                     break;
                 }
 
-                packet_cursor = (BufCursor) {
+                packet_cursor = (Cursor) {
                     .data = uncompressed,
                     .size = zstream.total_out,
                 };
@@ -1795,56 +1795,56 @@ bail:
 }
 
 static void
-nbt_write_dimension_type(BufCursor * send_cursor,
+nbt_write_dimension_type(Cursor * send_cursor,
         dimension_type * dim_type) {
     if (dim_type->fixed_time != -1) {
         nbt_write_key(send_cursor, NBT_TAG_INT, STR("fixed_time"));
-        CursorPutU32(send_cursor, dim_type->fixed_time);
+        WriteU32(send_cursor, dim_type->fixed_time);
     }
 
     nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("has_skylight"));
-    CursorPutU8(send_cursor, !!(dim_type->flags & DIMENSION_HAS_SKYLIGHT));
+    WriteU8(send_cursor, !!(dim_type->flags & DIMENSION_HAS_SKYLIGHT));
 
     nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("has_ceiling"));
-    CursorPutU8(send_cursor, !!(dim_type->flags & DIMENSION_HAS_CEILING));
+    WriteU8(send_cursor, !!(dim_type->flags & DIMENSION_HAS_CEILING));
 
     nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("ultrawarm"));
-    CursorPutU8(send_cursor, !!(dim_type->flags & DIMENSION_ULTRAWARM));
+    WriteU8(send_cursor, !!(dim_type->flags & DIMENSION_ULTRAWARM));
 
     nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("natural"));
-    CursorPutU8(send_cursor, !!(dim_type->flags & DIMENSION_NATURAL));
+    WriteU8(send_cursor, !!(dim_type->flags & DIMENSION_NATURAL));
 
     nbt_write_key(send_cursor, NBT_TAG_DOUBLE, STR("coordinate_scale"));
-    CursorPutF64(send_cursor, dim_type->coordinate_scale);
+    WriteF64(send_cursor, dim_type->coordinate_scale);
 
     nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("piglin_safe"));
-    CursorPutU8(send_cursor, !!(dim_type->flags & DIMENSION_PIGLIN_SAFE));
+    WriteU8(send_cursor, !!(dim_type->flags & DIMENSION_PIGLIN_SAFE));
 
     nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("bed_works"));
-    CursorPutU8(send_cursor, !!(dim_type->flags & DIMENSION_BED_WORKS));
+    WriteU8(send_cursor, !!(dim_type->flags & DIMENSION_BED_WORKS));
 
     nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("respawn_anchor_works"));
-    CursorPutU8(send_cursor, !!(dim_type->flags & DIMENSION_RESPAWN_ANCHOR_WORKS));
+    WriteU8(send_cursor, !!(dim_type->flags & DIMENSION_RESPAWN_ANCHOR_WORKS));
 
     nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("has_raids"));
-    CursorPutU8(send_cursor, !!(dim_type->flags & DIMENSION_HAS_RAIDS));
+    WriteU8(send_cursor, !!(dim_type->flags & DIMENSION_HAS_RAIDS));
 
     // TODO(traks): this actually defines a sampler, e.g. an int range.
     // Currently we just do constant 0 for simplicity.
     nbt_write_key(send_cursor, NBT_TAG_INT, STR("monster_spawn_light_level"));
-    CursorPutU32(send_cursor, 0);
+    WriteU32(send_cursor, 0);
 
     nbt_write_key(send_cursor, NBT_TAG_INT, STR("monster_spawn_block_light_limit"));
-    CursorPutU32(send_cursor, dim_type->monsterSpawnMaxBlockLight);
+    WriteU32(send_cursor, dim_type->monsterSpawnMaxBlockLight);
 
     nbt_write_key(send_cursor, NBT_TAG_INT, STR("min_y"));
-    CursorPutU32(send_cursor, dim_type->min_y);
+    WriteU32(send_cursor, dim_type->min_y);
 
     nbt_write_key(send_cursor, NBT_TAG_INT, STR("height"));
-    CursorPutU32(send_cursor, dim_type->height);
+    WriteU32(send_cursor, dim_type->height);
 
     nbt_write_key(send_cursor, NBT_TAG_INT, STR("logical_height"));
-    CursorPutU32(send_cursor, dim_type->logical_height);
+    WriteU32(send_cursor, dim_type->logical_height);
 
     nbt_write_key(send_cursor, NBT_TAG_STRING, STR("infiniburn"));
     String infiniburn = {
@@ -1861,16 +1861,16 @@ nbt_write_dimension_type(BufCursor * send_cursor,
     nbt_write_string(send_cursor, effects);
 
     nbt_write_key(send_cursor, NBT_TAG_FLOAT, STR("ambient_light"));
-    CursorPutF32(send_cursor, dim_type->ambient_light);
+    WriteF32(send_cursor, dim_type->ambient_light);
 }
 
 static void
-nbt_write_biome(BufCursor * send_cursor, biome * b) {
+nbt_write_biome(Cursor * send_cursor, biome * b) {
     nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("has_precipitation"));
-    CursorPutU8(send_cursor, b->has_precipitation);
+    WriteU8(send_cursor, b->has_precipitation);
 
     nbt_write_key(send_cursor, NBT_TAG_FLOAT, STR("temperature"));
-    CursorPutF32(send_cursor, b->temperature);
+    WriteF32(send_cursor, b->temperature);
 
     if (b->temperature_mod != BIOME_TEMPERATURE_MOD_NONE) {
         nbt_write_key(send_cursor, NBT_TAG_STRING, STR("temperature_modifier"));
@@ -1884,7 +1884,7 @@ nbt_write_biome(BufCursor * send_cursor, biome * b) {
     }
 
     nbt_write_key(send_cursor, NBT_TAG_FLOAT, STR("downfall"));
-    CursorPutF32(send_cursor, b->downfall);
+    WriteF32(send_cursor, b->downfall);
 
     // TODO(traks): there are more options for these special effects I think.
     // Just using the required ones for now. Can fill in the optional ones later
@@ -1893,25 +1893,25 @@ nbt_write_biome(BufCursor * send_cursor, biome * b) {
     nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("effects"));
 
     nbt_write_key(send_cursor, NBT_TAG_INT, STR("fog_color"));
-    CursorPutU32(send_cursor, b->fog_colour);
+    WriteU32(send_cursor, b->fog_colour);
 
     nbt_write_key(send_cursor, NBT_TAG_INT, STR("water_color"));
-    CursorPutU32(send_cursor, b->water_colour);
+    WriteU32(send_cursor, b->water_colour);
 
     nbt_write_key(send_cursor, NBT_TAG_INT, STR("water_fog_color"));
-    CursorPutU32(send_cursor, b->water_fog_colour);
+    WriteU32(send_cursor, b->water_fog_colour);
 
     nbt_write_key(send_cursor, NBT_TAG_INT, STR("sky_color"));
-    CursorPutU32(send_cursor, b->sky_colour);
+    WriteU32(send_cursor, b->sky_colour);
 
     if (b->foliage_colour_override != -1) {
         nbt_write_key(send_cursor, NBT_TAG_INT, STR("foliage_color"));
-        CursorPutU32(send_cursor, b->foliage_colour_override);
+        WriteU32(send_cursor, b->foliage_colour_override);
     }
 
     if (b->grass_colour_override != -1) {
         nbt_write_key(send_cursor, NBT_TAG_INT, STR("grass_color"));
-        CursorPutU32(send_cursor, b->grass_colour_override);
+        WriteU32(send_cursor, b->grass_colour_override);
     }
 
     if (b->grass_colour_mod != BIOME_GRASS_COLOUR_MOD_NONE) {
@@ -1951,15 +1951,15 @@ nbt_write_biome(BufCursor * send_cursor, biome * b) {
         nbt_write_string(send_cursor, mood_sound);
 
         nbt_write_key(send_cursor, NBT_TAG_INT, STR("tick_delay"));
-        CursorPutU32(send_cursor, b->mood_sound_tick_delay);
+        WriteU32(send_cursor, b->mood_sound_tick_delay);
 
         nbt_write_key(send_cursor, NBT_TAG_INT, STR("block_search_extent"));
-        CursorPutU32(send_cursor, b->mood_sound_block_search_extent);
+        WriteU32(send_cursor, b->mood_sound_block_search_extent);
 
         nbt_write_key(send_cursor, NBT_TAG_DOUBLE, STR("offset"));
-        CursorPutU32(send_cursor, b->mood_sound_offset);
+        WriteU32(send_cursor, b->mood_sound_offset);
 
-        CursorPutU8(send_cursor, NBT_TAG_END);
+        WriteU8(send_cursor, NBT_TAG_END);
         // mood sound end
     }
 
@@ -1975,9 +1975,9 @@ nbt_write_biome(BufCursor * send_cursor, biome * b) {
         nbt_write_string(send_cursor, additions_sound);
 
         nbt_write_key(send_cursor, NBT_TAG_DOUBLE, STR("tick_chance"));
-        CursorPutU32(send_cursor, b->additions_sound_tick_chance);
+        WriteU32(send_cursor, b->additions_sound_tick_chance);
 
-        CursorPutU8(send_cursor, NBT_TAG_END);
+        WriteU8(send_cursor, NBT_TAG_END);
         // additions sound end
     }
 
@@ -1993,34 +1993,34 @@ nbt_write_biome(BufCursor * send_cursor, biome * b) {
         nbt_write_string(send_cursor, music_sound);
 
         nbt_write_key(send_cursor, NBT_TAG_INT, STR("min_delay"));
-        CursorPutU32(send_cursor, b->music_min_delay);
+        WriteU32(send_cursor, b->music_min_delay);
 
         nbt_write_key(send_cursor, NBT_TAG_INT, STR("max_delay"));
-        CursorPutU32(send_cursor, b->music_max_delay);
+        WriteU32(send_cursor, b->music_max_delay);
 
         nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("replace_current_music"));
-        CursorPutU8(send_cursor, b->music_replace_current_music);
+        WriteU8(send_cursor, b->music_replace_current_music);
 
-        CursorPutU8(send_cursor, NBT_TAG_END);
+        WriteU8(send_cursor, NBT_TAG_END);
         // music end
     }
 
-    CursorPutU8(send_cursor, NBT_TAG_END);
+    WriteU8(send_cursor, NBT_TAG_END);
     // special effects end
 }
 
-static void NbtWriteDamageTypeWithScaling(BufCursor * send_cursor, i32 id, char * name, char * messageId, f32 exhaustion, char * scaling) {
+static void NbtWriteDamageTypeWithScaling(Cursor * send_cursor, i32 id, char * name, char * messageId, f32 exhaustion, char * scaling) {
     {
         nbt_write_key(send_cursor, NBT_TAG_STRING, STR("name"));
         nbt_write_string(send_cursor, STR(name));
 
         nbt_write_key(send_cursor, NBT_TAG_INT, STR("id"));
-        CursorPutU32(send_cursor, id);
+        WriteU32(send_cursor, id);
 
         nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("element"));
         {
             nbt_write_key(send_cursor, NBT_TAG_FLOAT, STR("exhaustion"));
-            CursorPutF32(send_cursor, exhaustion);
+            WriteF32(send_cursor, exhaustion);
 
             nbt_write_key(send_cursor, NBT_TAG_STRING, STR("message_id"));
             nbt_write_string(send_cursor, STR(messageId));
@@ -2028,28 +2028,28 @@ static void NbtWriteDamageTypeWithScaling(BufCursor * send_cursor, i32 id, char 
             nbt_write_key(send_cursor, NBT_TAG_STRING, STR("scaling"));
             nbt_write_string(send_cursor, STR(scaling));
         }
-        CursorPutU8(send_cursor, NBT_TAG_END);
+        WriteU8(send_cursor, NBT_TAG_END);
     }
-    CursorPutU8(send_cursor, NBT_TAG_END);
+    WriteU8(send_cursor, NBT_TAG_END);
 }
 
-static void NbtWriteDamageType(BufCursor * send_cursor, i32 id, char * name, char * messageId, f32 exhaustion) {
+static void NbtWriteDamageType(Cursor * send_cursor, i32 id, char * name, char * messageId, f32 exhaustion) {
     NbtWriteDamageTypeWithScaling(send_cursor, id, name, messageId, exhaustion, "when_caused_by_living_non_player");
 }
 
 static void
-send_changed_entity_data(BufCursor * send_cursor, entity_base * player,
+send_changed_entity_data(Cursor * send_cursor, entity_base * player,
         entity_base * entity, u32 changed_data) {
     if (changed_data == 0) {
         return;
     }
 
     begin_packet(send_cursor, CBP_SET_ENTITY_DATA);
-    CursorPutVarU32(send_cursor, entity->eid);
+    WriteVarU32(send_cursor, entity->eid);
 
     if (changed_data & (1 << ENTITY_DATA_FLAGS)) {
-        CursorPutU8(send_cursor, ENTITY_DATA_FLAGS);
-        CursorPutVarU32(send_cursor, ENTITY_DATA_TYPE_BYTE);
+        WriteU8(send_cursor, ENTITY_DATA_FLAGS);
+        WriteVarU32(send_cursor, ENTITY_DATA_TYPE_BYTE);
         u8 flags = 0;
         // @TODO(traks) shared flags
         flags |= !!(entity->flags & ENTITY_VISUAL_FIRE) << 0;
@@ -2059,40 +2059,40 @@ send_changed_entity_data(BufCursor * send_cursor, entity_base * player,
         flags |= !!(entity->flags & ENTITY_INVISIBLE) << 5;
         flags |= !!(entity->flags & ENTITY_GLOWING) << 6;
         // flags |= !!(entity->flags & ENTITY_FALL_FLYING) << 7;
-        CursorPutU8(send_cursor, flags);
+        WriteU8(send_cursor, flags);
     }
 
     if (changed_data & (1 << ENTITY_DATA_AIR_SUPPLY)) {
-        CursorPutU8(send_cursor, ENTITY_DATA_AIR_SUPPLY);
-        CursorPutVarU32(send_cursor, ENTITY_DATA_TYPE_INT);
-        CursorPutVarU32(send_cursor, entity->air_supply);
+        WriteU8(send_cursor, ENTITY_DATA_AIR_SUPPLY);
+        WriteVarU32(send_cursor, ENTITY_DATA_TYPE_INT);
+        WriteVarU32(send_cursor, entity->air_supply);
     }
 
     // @TODO(traks) custom names
-    // CursorPutU8(send_cursor, ENTITY_BASE_DATA_CUSTOM_NAME);
+    // WriteU8(send_cursor, ENTITY_BASE_DATA_CUSTOM_NAME);
 
     if (changed_data & (1 << ENTITY_DATA_CUSTOM_NAME_VISIBLE)) {
-        CursorPutU8(send_cursor, ENTITY_DATA_CUSTOM_NAME_VISIBLE);
-        CursorPutVarU32(send_cursor, ENTITY_DATA_TYPE_BOOL);
-        CursorPutU8(send_cursor, !!(entity->flags & ENTITY_CUSTOM_NAME_VISIBLE));
+        WriteU8(send_cursor, ENTITY_DATA_CUSTOM_NAME_VISIBLE);
+        WriteVarU32(send_cursor, ENTITY_DATA_TYPE_BOOL);
+        WriteU8(send_cursor, !!(entity->flags & ENTITY_CUSTOM_NAME_VISIBLE));
     }
 
     if (changed_data & (1 << ENTITY_DATA_SILENT)) {
-        CursorPutU8(send_cursor, ENTITY_DATA_SILENT);
-        CursorPutVarU32(send_cursor, ENTITY_DATA_TYPE_BOOL);
-        CursorPutU8(send_cursor, !!(entity->flags & ENTITY_SILENT));
+        WriteU8(send_cursor, ENTITY_DATA_SILENT);
+        WriteVarU32(send_cursor, ENTITY_DATA_TYPE_BOOL);
+        WriteU8(send_cursor, !!(entity->flags & ENTITY_SILENT));
     }
 
     if (changed_data & (1 << ENTITY_DATA_NO_GRAVITY)) {
-        CursorPutU8(send_cursor, ENTITY_DATA_NO_GRAVITY);
-        CursorPutVarU32(send_cursor, ENTITY_DATA_TYPE_BOOL);
-        CursorPutU8(send_cursor, !!(entity->flags & ENTITY_NO_GRAVITY));
+        WriteU8(send_cursor, ENTITY_DATA_NO_GRAVITY);
+        WriteVarU32(send_cursor, ENTITY_DATA_TYPE_BOOL);
+        WriteU8(send_cursor, !!(entity->flags & ENTITY_NO_GRAVITY));
     }
 
     if (changed_data & (1 << ENTITY_DATA_POSE)) {
-        CursorPutU8(send_cursor, ENTITY_DATA_POSE);
-        CursorPutVarU32(send_cursor, ENTITY_DATA_TYPE_POSE);
-        CursorPutVarU32(send_cursor, entity->pose);
+        WriteU8(send_cursor, ENTITY_DATA_POSE);
+        WriteVarU32(send_cursor, ENTITY_DATA_TYPE_POSE);
+        WriteVarU32(send_cursor, entity->pose);
     }
 
     switch (entity->type) {
@@ -2102,36 +2102,36 @@ send_changed_entity_data(BufCursor * send_cursor, entity_base * player,
     }
     case ENTITY_ITEM: {
         if (changed_data & (1 << ENTITY_DATA_ITEM)) {
-            CursorPutU8(send_cursor, ENTITY_DATA_ITEM);
-            CursorPutVarU32(send_cursor, ENTITY_DATA_TYPE_ITEM_STACK);
-            CursorPutU8(send_cursor, 1); // has item
+            WriteU8(send_cursor, ENTITY_DATA_ITEM);
+            WriteVarU32(send_cursor, ENTITY_DATA_TYPE_ITEM_STACK);
+            WriteU8(send_cursor, 1); // has item
             item_stack * is = &entity->item.contents;
-            CursorPutVarU32(send_cursor, is->type);
-            CursorPutU8(send_cursor, is->size);
+            WriteVarU32(send_cursor, is->type);
+            WriteU8(send_cursor, is->size);
             // @TODO(traks) write NBT (currently just a single end tag)
-            CursorPutU8(send_cursor, NBT_TAG_END);
+            WriteU8(send_cursor, NBT_TAG_END);
         }
         break;
     }
     }
 
-    CursorPutU8(send_cursor, 0xff); // end of entity data
+    WriteU8(send_cursor, 0xff); // end of entity data
     finish_packet(send_cursor, player);
 }
 
 static void
-send_take_item_entity_packet(entity_base * player, BufCursor * send_cursor,
+send_take_item_entity_packet(entity_base * player, Cursor * send_cursor,
         entity_id taker_id, entity_id pickup_id, u8 pickup_size) {
     begin_packet(send_cursor, CBP_TAKE_ITEM_ENTITY);
-    CursorPutVarU32(send_cursor, pickup_id);
-    CursorPutVarU32(send_cursor, taker_id);
-    CursorPutVarU32(send_cursor, pickup_size);
+    WriteVarU32(send_cursor, pickup_id);
+    WriteVarU32(send_cursor, taker_id);
+    WriteVarU32(send_cursor, pickup_size);
     finish_packet(send_cursor, player);
 }
 
 static void
 try_update_tracked_entity(entity_base * player,
-        BufCursor * send_cursor, MemoryArena * tick_arena,
+        Cursor * send_cursor, MemoryArena * tick_arena,
         tracked_entity * tracked, entity_base * entity) {
     if (serv->current_tick - tracked->last_update_tick < tracked->update_interval
             && entity->changed_data == 0) {
@@ -2177,28 +2177,28 @@ try_update_tracked_entity(entity_base * player,
 
         if (sent_pos && sent_rot) {
             begin_packet(send_cursor, CBP_MOVE_ENTITY_POS_ROT);
-            CursorPutVarU32(send_cursor, entity->eid);
-            CursorPutU16(send_cursor, encoded_dx);
-            CursorPutU16(send_cursor, encoded_dy);
-            CursorPutU16(send_cursor, encoded_dz);
-            CursorPutU8(send_cursor, encoded_rot_y);
-            CursorPutU8(send_cursor, encoded_rot_x);
-            CursorPutU8(send_cursor, !!(player->flags & ENTITY_ON_GROUND));
+            WriteVarU32(send_cursor, entity->eid);
+            WriteU16(send_cursor, encoded_dx);
+            WriteU16(send_cursor, encoded_dy);
+            WriteU16(send_cursor, encoded_dz);
+            WriteU8(send_cursor, encoded_rot_y);
+            WriteU8(send_cursor, encoded_rot_x);
+            WriteU8(send_cursor, !!(player->flags & ENTITY_ON_GROUND));
             finish_packet(send_cursor, player);
         } else if (sent_pos) {
             begin_packet(send_cursor, CBP_MOVE_ENTITY_POS);
-            CursorPutVarU32(send_cursor, entity->eid);
-            CursorPutU16(send_cursor, encoded_dx);
-            CursorPutU16(send_cursor, encoded_dy);
-            CursorPutU16(send_cursor, encoded_dz);
-            CursorPutU8(send_cursor, !!(player->flags & ENTITY_ON_GROUND));
+            WriteVarU32(send_cursor, entity->eid);
+            WriteU16(send_cursor, encoded_dx);
+            WriteU16(send_cursor, encoded_dy);
+            WriteU16(send_cursor, encoded_dz);
+            WriteU8(send_cursor, !!(player->flags & ENTITY_ON_GROUND));
             finish_packet(send_cursor, player);
         } else if (sent_rot) {
             begin_packet(send_cursor, CBP_MOVE_ENTITY_ROT);
-            CursorPutVarU32(send_cursor, entity->eid);
-            CursorPutU8(send_cursor, encoded_rot_y);
-            CursorPutU8(send_cursor, encoded_rot_x);
-            CursorPutU8(send_cursor, !!(player->flags & ENTITY_ON_GROUND));
+            WriteVarU32(send_cursor, entity->eid);
+            WriteU8(send_cursor, encoded_rot_y);
+            WriteU8(send_cursor, encoded_rot_x);
+            WriteU8(send_cursor, !!(player->flags & ENTITY_ON_GROUND));
             finish_packet(send_cursor, player);
         }
 
@@ -2218,13 +2218,13 @@ try_update_tracked_entity(entity_base * player,
         }
     } else {
         begin_packet(send_cursor, CBP_TELEPORT_ENTITY);
-        CursorPutVarU32(send_cursor, entity->eid);
-        CursorPutF64(send_cursor, entity->x);
-        CursorPutF64(send_cursor, entity->y);
-        CursorPutF64(send_cursor, entity->z);
-        CursorPutU8(send_cursor, encoded_rot_y);
-        CursorPutU8(send_cursor, encoded_rot_x);
-        CursorPutU8(send_cursor, !!(player->flags & ENTITY_ON_GROUND));
+        WriteVarU32(send_cursor, entity->eid);
+        WriteF64(send_cursor, entity->x);
+        WriteF64(send_cursor, entity->y);
+        WriteF64(send_cursor, entity->z);
+        WriteU8(send_cursor, encoded_rot_y);
+        WriteU8(send_cursor, encoded_rot_x);
+        WriteU8(send_cursor, !!(player->flags & ENTITY_ON_GROUND));
         finish_packet(send_cursor, player);
 
         tracked->last_tp_packet_tick = serv->current_tick;
@@ -2239,10 +2239,10 @@ try_update_tracked_entity(entity_base * player,
 
     if (entity->type != ENTITY_PLAYER) {
         begin_packet(send_cursor, CBP_SET_ENTITY_MOTION);
-        CursorPutVarU32(send_cursor, entity->eid);
-        CursorPutU16(send_cursor, CLAMP(entity->vx, -3.9, 3.9) * 8000);
-        CursorPutU16(send_cursor, CLAMP(entity->vy, -3.9, 3.9) * 8000);
-        CursorPutU16(send_cursor, CLAMP(entity->vz, -3.9, 3.9) * 8000);
+        WriteVarU32(send_cursor, entity->eid);
+        WriteU16(send_cursor, CLAMP(entity->vx, -3.9, 3.9) * 8000);
+        WriteU16(send_cursor, CLAMP(entity->vy, -3.9, 3.9) * 8000);
+        WriteU16(send_cursor, CLAMP(entity->vz, -3.9, 3.9) * 8000);
         finish_packet(send_cursor, player);
     }
 
@@ -2252,8 +2252,8 @@ try_update_tracked_entity(entity_base * player,
             tracked->last_sent_head_rot_y = encoded_rot_y;
 
             begin_packet(send_cursor, CBP_ROTATE_HEAD);
-            CursorPutVarU32(send_cursor, entity->eid);
-            CursorPutU8(send_cursor, encoded_rot_y);
+            WriteVarU32(send_cursor, entity->eid);
+            WriteU8(send_cursor, encoded_rot_y);
             finish_packet(send_cursor, player);
         }
 
@@ -2271,7 +2271,7 @@ try_update_tracked_entity(entity_base * player,
 
 static void
 start_tracking_entity(entity_base * player,
-        BufCursor * send_cursor, MemoryArena * tick_arena,
+        Cursor * send_cursor, MemoryArena * tick_arena,
         tracked_entity * tracked, entity_base * entity) {
     *tracked = (tracked_entity) {0};
     tracked->eid = entity->eid;
@@ -2293,22 +2293,22 @@ start_tracking_entity(entity_base * player,
         tracked->update_interval = 2;
 
         begin_packet(send_cursor, CBP_ADD_PLAYER);
-        CursorPutVarU32(send_cursor, entity->eid);
+        WriteVarU32(send_cursor, entity->eid);
         // @TODO(traks) appropriate UUID
-        CursorPutU64(send_cursor, 0);
-        CursorPutU64(send_cursor, entity->eid);
-        CursorPutF64(send_cursor, entity->x);
-        CursorPutF64(send_cursor, entity->y);
-        CursorPutF64(send_cursor, entity->z);
-        CursorPutU8(send_cursor, encoded_rot_y);
-        CursorPutU8(send_cursor, encoded_rot_x);
+        WriteU64(send_cursor, 0);
+        WriteU64(send_cursor, entity->eid);
+        WriteF64(send_cursor, entity->x);
+        WriteF64(send_cursor, entity->y);
+        WriteF64(send_cursor, entity->z);
+        WriteU8(send_cursor, encoded_rot_y);
+        WriteU8(send_cursor, encoded_rot_x);
         finish_packet(send_cursor, player);
 
         tracked->last_sent_head_rot_y = encoded_rot_y;
 
         begin_packet(send_cursor, CBP_ROTATE_HEAD);
-        CursorPutVarU32(send_cursor, entity->eid);
-        CursorPutU8(send_cursor, encoded_rot_y);
+        WriteVarU32(send_cursor, entity->eid);
+        WriteU8(send_cursor, encoded_rot_y);
         finish_packet(send_cursor, player);
         break;
     }
@@ -2316,51 +2316,51 @@ start_tracking_entity(entity_base * player,
         tracked->update_interval = 20;
 
         // begin_packet(send_cursor, CBP_ADD_MOB);
-        // CursorPutVarU32(send_cursor, entity->eid);
+        // WriteVarU32(send_cursor, entity->eid);
         // // @TODO(traks) appropriate UUID
-        // CursorPutU64(send_cursor, 0);
-        // CursorPutU64(send_cursor, 0);
-        // CursorPutVarU32(send_cursor, ENTITY_SQUID);
-        // CursorPutF64(send_cursor, entity->x);
-        // CursorPutF64(send_cursor, entity->y);
-        // CursorPutF64(send_cursor, entity->z);
-        // CursorPutU8(send_cursor, 0);
-        // CursorPutU8(send_cursor, 0);
+        // WriteU64(send_cursor, 0);
+        // WriteU64(send_cursor, 0);
+        // WriteVarU32(send_cursor, ENTITY_SQUID);
+        // WriteF64(send_cursor, entity->x);
+        // WriteF64(send_cursor, entity->y);
+        // WriteF64(send_cursor, entity->z);
+        // WriteU8(send_cursor, 0);
+        // WriteU8(send_cursor, 0);
         // // @TODO(traks) y head rotation (what is that?)
-        // CursorPutU8(send_cursor, 0);
+        // WriteU8(send_cursor, 0);
         // // @TODO(traks) entity velocity
-        // CursorPutU16(send_cursor, 0);
-        // CursorPutU16(send_cursor, 0);
-        // CursorPutU16(send_cursor, 0);
+        // WriteU16(send_cursor, 0);
+        // WriteU16(send_cursor, 0);
+        // WriteU16(send_cursor, 0);
         // finish_packet(send_cursor, player);
         begin_packet(send_cursor, CBP_ADD_ENTITY);
-        CursorPutVarU32(send_cursor, entity->eid);
+        WriteVarU32(send_cursor, entity->eid);
         // @TODO(traks) appropriate UUID
-        CursorPutU64(send_cursor, 0);
-        CursorPutU64(send_cursor, entity->eid);
-        CursorPutVarU32(send_cursor, entity->type);
-        CursorPutF64(send_cursor, entity->x);
-        CursorPutF64(send_cursor, entity->y);
-        CursorPutF64(send_cursor, entity->z);
+        WriteU64(send_cursor, 0);
+        WriteU64(send_cursor, entity->eid);
+        WriteVarU32(send_cursor, entity->type);
+        WriteF64(send_cursor, entity->x);
+        WriteF64(send_cursor, entity->y);
+        WriteF64(send_cursor, entity->z);
         // rotation of items is ignored
-        CursorPutU8(send_cursor, 0); // x rot
-        CursorPutU8(send_cursor, 0); // y rot
-        CursorPutU8(send_cursor, 0); // y head rot
+        WriteU8(send_cursor, 0); // x rot
+        WriteU8(send_cursor, 0); // y rot
+        WriteU8(send_cursor, 0); // y head rot
         // this kind of entity data not used for items
-        CursorPutVarU32(send_cursor, 0);
+        WriteVarU32(send_cursor, 0);
         // @NOTE(traks) for some reason Minecraft ignores the initial velocity
         // and initialises it to random values. To solve this, we send the
         // velocity in a separate packet below.
-        CursorPutU16(send_cursor, 0);
-        CursorPutU16(send_cursor, 0);
-        CursorPutU16(send_cursor, 0);
+        WriteU16(send_cursor, 0);
+        WriteU16(send_cursor, 0);
+        WriteU16(send_cursor, 0);
         finish_packet(send_cursor, player);
 
         begin_packet(send_cursor, CBP_SET_ENTITY_MOTION);
-        CursorPutVarU32(send_cursor, entity->eid);
-        CursorPutU16(send_cursor, CLAMP(entity->vx, -3.9, 3.9) * 8000);
-        CursorPutU16(send_cursor, CLAMP(entity->vy, -3.9, 3.9) * 8000);
-        CursorPutU16(send_cursor, CLAMP(entity->vz, -3.9, 3.9) * 8000);
+        WriteVarU32(send_cursor, entity->eid);
+        WriteU16(send_cursor, CLAMP(entity->vx, -3.9, 3.9) * 8000);
+        WriteU16(send_cursor, CLAMP(entity->vy, -3.9, 3.9) * 8000);
+        WriteU16(send_cursor, CLAMP(entity->vz, -3.9, 3.9) * 8000);
         finish_packet(send_cursor, player);
         break;
     }
@@ -2370,7 +2370,7 @@ start_tracking_entity(entity_base * player,
 }
 
 static void
-send_player_abilities(BufCursor * send_cursor, entity_base * player) {
+send_player_abilities(Cursor * send_cursor, entity_base * player) {
     begin_packet(send_cursor, CBP_PLAYER_ABILITIES);
     u8 ability_flags = 0;
 
@@ -2387,13 +2387,13 @@ send_player_abilities(BufCursor * send_cursor, entity_base * player) {
         ability_flags |= 0x8;
     }
 
-    CursorPutU8(send_cursor, ability_flags);
-    CursorPutF32(send_cursor, 0.05); // flying speed
-    CursorPutF32(send_cursor, 0.1); // walking speed
+    WriteU8(send_cursor, ability_flags);
+    WriteF32(send_cursor, 0.05); // flying speed
+    WriteF32(send_cursor, 0.1); // walking speed
     finish_packet(send_cursor, player);
 }
 
-static void UpdateChunkCache(entity_base * player, BufCursor * sendCursor) {
+static void UpdateChunkCache(entity_base * player, Cursor * sendCursor) {
     i32 chunkCacheMinX = player->player.chunkCacheCentreX - player->player.chunkCacheRadius;
     i32 chunkCacheMinZ = player->player.chunkCacheCentreZ - player->player.chunkCacheRadius;
     i32 chunkCacheMaxX = player->player.chunkCacheCentreX + player->player.chunkCacheRadius;
@@ -2410,15 +2410,15 @@ static void UpdateChunkCache(entity_base * player, BufCursor * sendCursor) {
     if (player->player.chunkCacheCentreX != nextChunkCacheCentreX
             || player->player.chunkCacheCentreZ != nextChunkCacheCentreZ) {
         begin_packet(sendCursor, CBP_SET_CHUNK_CACHE_CENTRE);
-        CursorPutVarU32(sendCursor, nextChunkCacheCentreX);
-        CursorPutVarU32(sendCursor, nextChunkCacheCentreZ);
+        WriteVarU32(sendCursor, nextChunkCacheCentreX);
+        WriteVarU32(sendCursor, nextChunkCacheCentreZ);
         finish_packet(sendCursor, player);
     }
 
     if (player->player.chunkCacheRadius != player->player.nextChunkCacheRadius) {
         // TODO(traks): also send set simulation distance packet?
         begin_packet(sendCursor, CBP_SET_CHUNK_CACHE_RADIUS);
-        CursorPutVarU32(sendCursor, player->player.nextChunkCacheRadius);
+        WriteVarU32(sendCursor, player->player.nextChunkCacheRadius);
         finish_packet(sendCursor, player);
     }
 
@@ -2441,8 +2441,8 @@ static void UpdateChunkCache(entity_base * player, BufCursor * sendCursor) {
 
             if (cacheEntry->flags & PLAYER_CHUNK_SENT) {
                 begin_packet(sendCursor, CBP_FORGET_LEVEL_CHUNK);
-                CursorPutU32(sendCursor, x);
-                CursorPutU32(sendCursor, z);
+                WriteU32(sendCursor, x);
+                WriteU32(sendCursor, z);
                 finish_packet(sendCursor, player);
             }
 
@@ -2455,7 +2455,7 @@ static void UpdateChunkCache(entity_base * player, BufCursor * sendCursor) {
     player->player.chunkCacheCentreZ = nextChunkCacheCentreZ;
 }
 
-static void SendTrackedBlockChanges(entity_base * player, BufCursor * sendCursor, MemoryArena * tickArena) {
+static void SendTrackedBlockChanges(entity_base * player, Cursor * sendCursor, MemoryArena * tickArena) {
     i32 chunkCacheDiam = 2 * player->player.chunkCacheRadius + 1;
     i32 chunkCacheMinX = player->player.chunkCacheCentreX - player->player.chunkCacheRadius;
     i32 chunkCacheMaxX = player->player.chunkCacheCentreX + player->player.chunkCacheRadius;
@@ -2501,17 +2501,17 @@ static void SendTrackedBlockChanges(entity_base * player, BufCursor * sendCursor
             u64 section_pos = ((u64) (pos.x & 0x3fffff) << 42)
                     | ((u64) (pos.z & 0x3fffff) << 20)
                     | (u64) (sectionY & 0xfffff);
-            CursorPutU64(sendCursor, section_pos);
+            WriteU64(sendCursor, section_pos);
             // @TODO(traks) appropriate value for this
-            CursorPutU8(sendCursor, 1); // suppress light updates
-            CursorPutVarU32(sendCursor, section->changedBlockCount);
+            WriteU8(sendCursor, 1); // suppress light updates
+            WriteVarU32(sendCursor, section->changedBlockCount);
 
             for (i32 i = 0; i < section->changedBlockSetMask + 1; i++) {
                 if (section->changedBlockSet[i] != 0) {
                     BlockPos pos = SectionIndexToPos(section->changedBlockSet[i] & 0xfff);
                     i64 block_state = ChunkGetBlockState(ch, (BlockPos) {pos.x, pos.y + sectionY * 16, pos.z});
                     i64 encoded = (block_state << 12) | (pos.x << 8) | (pos.z << 4) | (pos.y & 0xf);
-                    CursorPutVarU64(sendCursor, encoded);
+                    WriteVarU64(sendCursor, encoded);
                 }
             }
 
@@ -2523,10 +2523,10 @@ static void SendTrackedBlockChanges(entity_base * player, BufCursor * sendCursor
                 level_event * event = ch->localEvents + i;
 
                 begin_packet(sendCursor, CBP_LEVEL_EVENT);
-                CursorPutU32(sendCursor, event->type);
-                CursorPutBlockPos(sendCursor, event->pos);
-                CursorPutU32(sendCursor, event->data);
-                CursorPutU8(sendCursor, 0); // is global event
+                WriteU32(sendCursor, event->type);
+                WriteBlockPos(sendCursor, event->pos);
+                WriteU32(sendCursor, event->data);
+                WriteU8(sendCursor, 0); // is global event
                 finish_packet(sendCursor, player);
             }
         }
@@ -2542,11 +2542,11 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     BeginTimings(SendPackets);
 
     size_t max_uncompressed_packet_size = 1 << 20;
-    BufCursor send_cursor_ = {
+    Cursor send_cursor_ = {
         .data = MallocInArena(tick_arena, max_uncompressed_packet_size),
         .size = max_uncompressed_packet_size
     };
-    BufCursor * send_cursor = &send_cursor_;
+    Cursor * send_cursor = &send_cursor_;
 
     if (!(player->flags & PLAYER_DID_INIT_PACKETS)) {
         player->flags |= PLAYER_DID_INIT_PACKETS;
@@ -2554,7 +2554,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         if (PACKET_COMPRESSION_ENABLED) {
             // send login compression packet
             begin_packet(send_cursor, 3);
-            CursorPutVarU32(send_cursor, 0);
+            WriteVarU32(send_cursor, 0);
             finish_packet(send_cursor, player);
 
             player->flags |= PLAYER_PACKET_COMPRESSION;
@@ -2563,31 +2563,31 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         // send game profile packet
         begin_packet(send_cursor, 2);
         // @TODO(traks) send UUID
-        CursorPutU64(send_cursor, 0);
-        CursorPutU64(send_cursor, player->eid);
+        WriteU64(send_cursor, 0);
+        WriteU64(send_cursor, player->eid);
         String username = {
             .size = player->player.username_size,
             .data = player->player.username
         };
-        CursorPutVarString(send_cursor, username);
-        CursorPutVarU32(send_cursor, 0); // no properties for now
+        WriteVarString(send_cursor, username);
+        WriteVarU32(send_cursor, 0); // no properties for now
         finish_packet(send_cursor, player);
 
         String level_name = STR("blaze:main");
 
         begin_packet(send_cursor, CBP_LOGIN);
-        CursorPutU32(send_cursor, player->eid);
-        CursorPutU8(send_cursor, 0); // hardcore
-        CursorPutU8(send_cursor, player->player.gamemode); // current gamemode
-        CursorPutU8(send_cursor, 255); // previous gamemode, -1 = none
+        WriteU32(send_cursor, player->eid);
+        WriteU8(send_cursor, 0); // hardcore
+        WriteU8(send_cursor, player->player.gamemode); // current gamemode
+        WriteU8(send_cursor, 255); // previous gamemode, -1 = none
 
         // all levels/worlds currently available on the server
         // @NOTE(traks) This list is used for tab completions
-        CursorPutVarU32(send_cursor, 1); // number of levels
-        CursorPutVarString(send_cursor, level_name);
+        WriteVarU32(send_cursor, 1); // number of levels
+        WriteVarString(send_cursor, level_name);
 
         // send all synchronised registries
-        BufCursor nbtCursor = *send_cursor;
+        Cursor nbtCursor = *send_cursor;
         nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR(""));
 
         // write dimension types
@@ -2597,8 +2597,8 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             nbt_write_string(send_cursor, STR("minecraft:dimension_type"));
 
             nbt_write_key(send_cursor, NBT_TAG_LIST, STR("value"));
-            CursorPutU8(send_cursor, NBT_TAG_COMPOUND);
-            CursorPutU32(send_cursor, serv->dimension_type_count);
+            WriteU8(send_cursor, NBT_TAG_COMPOUND);
+            WriteU32(send_cursor, serv->dimension_type_count);
             for (int i = 0; i < serv->dimension_type_count; i++) {
                 dimension_type * dim_type = serv->dimension_types + i;
 
@@ -2610,18 +2610,18 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                 nbt_write_string(send_cursor, name);
 
                 nbt_write_key(send_cursor, NBT_TAG_INT, STR("id"));
-                CursorPutU32(send_cursor, i);
+                WriteU32(send_cursor, i);
 
                 nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("element"));
                 {
                     nbt_write_dimension_type(send_cursor, dim_type);
                 }
-                CursorPutU8(send_cursor, NBT_TAG_END);
+                WriteU8(send_cursor, NBT_TAG_END);
 
-                CursorPutU8(send_cursor, NBT_TAG_END);
+                WriteU8(send_cursor, NBT_TAG_END);
             }
         }
-        CursorPutU8(send_cursor, NBT_TAG_END);
+        WriteU8(send_cursor, NBT_TAG_END);
 
         // write biomes
         nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("minecraft:worldgen/biome"));
@@ -2630,8 +2630,8 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             nbt_write_string(send_cursor, STR("minecraft:worldgen/biome"));
 
             nbt_write_key(send_cursor, NBT_TAG_LIST, STR("value"));
-            CursorPutU8(send_cursor, NBT_TAG_COMPOUND);
-            CursorPutU32(send_cursor, serv->biome_count);
+            WriteU8(send_cursor, NBT_TAG_COMPOUND);
+            WriteU32(send_cursor, serv->biome_count);
             for (int i = 0; i < serv->biome_count; i++) {
                 biome * b = serv->biomes + i;
 
@@ -2643,18 +2643,18 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                 nbt_write_string(send_cursor, name);
 
                 nbt_write_key(send_cursor, NBT_TAG_INT, STR("id"));
-                CursorPutU32(send_cursor, i);
+                WriteU32(send_cursor, i);
 
                 nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("element"));
                 {
                     nbt_write_biome(send_cursor, b);
                 }
-                CursorPutU8(send_cursor, NBT_TAG_END);
+                WriteU8(send_cursor, NBT_TAG_END);
 
-                CursorPutU8(send_cursor, NBT_TAG_END);
+                WriteU8(send_cursor, NBT_TAG_END);
             }
         }
-        CursorPutU8(send_cursor, NBT_TAG_END);
+        WriteU8(send_cursor, NBT_TAG_END);
 
         // write chat types
         // TODO(traks): make this whole chat type business neater...
@@ -2664,15 +2664,15 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             nbt_write_string(send_cursor, STR("minecraft:chat_type"));
 
             nbt_write_key(send_cursor, NBT_TAG_LIST, STR("value"));
-            CursorPutU8(send_cursor, NBT_TAG_COMPOUND);
-            CursorPutU32(send_cursor, 1);
+            WriteU8(send_cursor, NBT_TAG_COMPOUND);
+            WriteU32(send_cursor, 1);
 
             // chat
             {
                 nbt_write_key(send_cursor, NBT_TAG_STRING, STR("name"));
                 nbt_write_string(send_cursor, STR("minecraft:chat"));
                 nbt_write_key(send_cursor, NBT_TAG_INT, STR("id"));
-                CursorPutU32(send_cursor, 0);
+                WriteU32(send_cursor, 0);
                 nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("element"));
                 {
                     nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("chat"));
@@ -2681,12 +2681,12 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                         nbt_write_string(send_cursor, STR("chat.type.text"));
 
                         nbt_write_key(send_cursor, NBT_TAG_LIST, STR("parameters"));
-                        CursorPutU8(send_cursor, NBT_TAG_STRING);
-                        CursorPutU32(send_cursor, 2);
+                        WriteU8(send_cursor, NBT_TAG_STRING);
+                        WriteU32(send_cursor, 2);
                         nbt_write_string(send_cursor, STR("sender"));
                         nbt_write_string(send_cursor, STR("content"));
                     }
-                    CursorPutU8(send_cursor, NBT_TAG_END);
+                    WriteU8(send_cursor, NBT_TAG_END);
 
                     nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("narration"));
                     {
@@ -2694,18 +2694,18 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                         nbt_write_string(send_cursor, STR("chat.type.text.narrate"));
 
                         nbt_write_key(send_cursor, NBT_TAG_LIST, STR("parameters"));
-                        CursorPutU8(send_cursor, NBT_TAG_STRING);
-                        CursorPutU32(send_cursor, 2);
+                        WriteU8(send_cursor, NBT_TAG_STRING);
+                        WriteU32(send_cursor, 2);
                         nbt_write_string(send_cursor, STR("sender"));
                         nbt_write_string(send_cursor, STR("content"));
                     }
-                    CursorPutU8(send_cursor, NBT_TAG_END);
+                    WriteU8(send_cursor, NBT_TAG_END);
                 }
-                CursorPutU8(send_cursor, NBT_TAG_END);
+                WriteU8(send_cursor, NBT_TAG_END);
             }
-            CursorPutU8(send_cursor, NBT_TAG_END);
+            WriteU8(send_cursor, NBT_TAG_END);
         }
-        CursorPutU8(send_cursor, NBT_TAG_END);
+        WriteU8(send_cursor, NBT_TAG_END);
 
         // write trim materials
         nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("minecraft:trim_material"));
@@ -2714,10 +2714,10 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             nbt_write_string(send_cursor, STR("minecraft:trim_material"));
 
             nbt_write_key(send_cursor, NBT_TAG_LIST, STR("value"));
-            CursorPutU8(send_cursor, NBT_TAG_COMPOUND);
-            CursorPutU32(send_cursor, 0);
+            WriteU8(send_cursor, NBT_TAG_COMPOUND);
+            WriteU32(send_cursor, 0);
         }
-        CursorPutU8(send_cursor, NBT_TAG_END);
+        WriteU8(send_cursor, NBT_TAG_END);
 
         // write trim patterns
         nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("minecraft:trim_pattern"));
@@ -2726,10 +2726,10 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             nbt_write_string(send_cursor, STR("minecraft:trim_pattern"));
 
             nbt_write_key(send_cursor, NBT_TAG_LIST, STR("value"));
-            CursorPutU8(send_cursor, NBT_TAG_COMPOUND);
-            CursorPutU32(send_cursor, 0);
+            WriteU8(send_cursor, NBT_TAG_COMPOUND);
+            WriteU32(send_cursor, 0);
         }
-        CursorPutU8(send_cursor, NBT_TAG_END);
+        WriteU8(send_cursor, NBT_TAG_END);
 
         // write damage types
         // NOTE(traks): Currently (1.19.4), we must send ALL vanilla damage
@@ -2742,8 +2742,8 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             nbt_write_string(send_cursor, STR("minecraft:damage_type"));
 
             nbt_write_key(send_cursor, NBT_TAG_LIST, STR("value"));
-            CursorPutU8(send_cursor, NBT_TAG_COMPOUND);
-            CursorPutU32(send_cursor, 42);
+            WriteU8(send_cursor, NBT_TAG_COMPOUND);
+            WriteU32(send_cursor, 42);
 
             // TODO(traks): these IDs don't seem to be the same as vanilla. Does
             // that matter? I wouldn't think so
@@ -2790,9 +2790,9 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             NbtWriteDamageTypeWithScaling(send_cursor, 40, "minecraft:sonic_boom", "sonic_boom", 0.0f, "always");
             NbtWriteDamageTypeWithScaling(send_cursor, 41, "minecraft:bad_respawn_point", "badRespawnPoint", 0.1f, "always");
         }
-        CursorPutU8(send_cursor, NBT_TAG_END);
+        WriteU8(send_cursor, NBT_TAG_END);
 
-        CursorPutU8(send_cursor, NBT_TAG_END); // end of registries
+        WriteU8(send_cursor, NBT_TAG_END); // end of registries
 
         nbtCursor.size = send_cursor->size;
         // NOTE(traks): for debugging purposes
@@ -2804,31 +2804,31 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             .data = serv->dimension_types[0].name,
             .size = serv->dimension_types[0].name_size
         };
-        CursorPutVarString(send_cursor, dimTypeName);
+        WriteVarString(send_cursor, dimTypeName);
 
         // level name the player is joining
-        CursorPutVarString(send_cursor, level_name);
+        WriteVarString(send_cursor, level_name);
 
-        CursorPutU64(send_cursor, 0); // hashed seed
-        CursorPutVarU32(send_cursor, 0); // max players (ignored by client)
-        CursorPutVarU32(send_cursor, player->player.nextChunkCacheRadius - 1); // chunk radius
+        WriteU64(send_cursor, 0); // hashed seed
+        WriteVarU32(send_cursor, 0); // max players (ignored by client)
+        WriteVarU32(send_cursor, player->player.nextChunkCacheRadius - 1); // chunk radius
         // @TODO(traks) figure out why the client needs to know the simulation
         // distance and what it uses it for
-        CursorPutVarU32(send_cursor, player->player.nextChunkCacheRadius - 1); // simulation distance
-        CursorPutU8(send_cursor, 0); // reduced debug info
-        CursorPutU8(send_cursor, 1); // show death screen on death
-        CursorPutU8(send_cursor, 0); // is debug
-        CursorPutU8(send_cursor, 0); // is flat
-        CursorPutU8(send_cursor, 0); // has death location, world + block pos after if true
+        WriteVarU32(send_cursor, player->player.nextChunkCacheRadius - 1); // simulation distance
+        WriteU8(send_cursor, 0); // reduced debug info
+        WriteU8(send_cursor, 1); // show death screen on death
+        WriteU8(send_cursor, 0); // is debug
+        WriteU8(send_cursor, 0); // is flat
+        WriteU8(send_cursor, 0); // has death location, world + block pos after if true
         finish_packet(send_cursor, player);
 
         begin_packet(send_cursor, CBP_UPDATE_ENABLE_FEATURES);
-        CursorPutVarU32(send_cursor, 1);
-        CursorPutVarString(send_cursor, STR("minecraft:vanilla"));
+        WriteVarU32(send_cursor, 1);
+        WriteVarString(send_cursor, STR("minecraft:vanilla"));
         finish_packet(send_cursor, player);
 
         begin_packet(send_cursor, CBP_SET_CARRIED_ITEM);
-        CursorPutU8(send_cursor,
+        WriteU8(send_cursor,
                 player->player.selected_slot - PLAYER_FIRST_HOTBAR_SLOT);
         finish_packet(send_cursor, player);
 
@@ -2842,7 +2842,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             &serv->game_event_tags,
         };
 
-        CursorPutVarU32(send_cursor, ARRAY_SIZE(tag_lists));
+        WriteVarU32(send_cursor, ARRAY_SIZE(tag_lists));
         for (int tagsi = 0; tagsi < ARRAY_SIZE(tag_lists); tagsi++) {
             tag_list * tags = tag_lists[tagsi];
 
@@ -2851,8 +2851,8 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                 .data = tags->name
             };
 
-            CursorPutVarString(send_cursor, name);
-            CursorPutVarU32(send_cursor, tags->size);
+            WriteVarString(send_cursor, name);
+            WriteVarU32(send_cursor, tags->size);
 
             for (int i = 0; i < tags->size; i++) {
                 tag_spec * tag = tags->tags + i;
@@ -2862,12 +2862,12 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                     .data = name_size + 1
                 };
 
-                CursorPutVarString(send_cursor, tag_name);
-                CursorPutVarU32(send_cursor, tag->value_count);
+                WriteVarString(send_cursor, tag_name);
+                WriteVarU32(send_cursor, tag->value_count);
 
                 for (int vali = 0; vali < tag->value_count; vali++) {
                     i32 val = serv->tag_value_id_buf[tag->values_index + vali];
-                    CursorPutVarU32(send_cursor, val);
+                    WriteVarU32(send_cursor, val);
                 }
             }
         }
@@ -2876,13 +2876,13 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         begin_packet(send_cursor, CBP_CUSTOM_PAYLOAD);
         String brand_str = STR("minecraft:brand");
         String brand = STR("Blaze");
-        CursorPutVarString(send_cursor, brand_str);
-        CursorPutVarString(send_cursor, brand);
+        WriteVarString(send_cursor, brand_str);
+        WriteVarString(send_cursor, brand);
         finish_packet(send_cursor, player);
 
         begin_packet(send_cursor, CBP_CHANGE_DIFFICULTY);
-        CursorPutU8(send_cursor, 2); // difficulty normal
-        CursorPutU8(send_cursor, 0); // locked
+        WriteU8(send_cursor, 2); // difficulty normal
+        WriteU8(send_cursor, 0); // locked
         finish_packet(send_cursor, player);
 
         send_player_abilities(send_cursor, player);
@@ -2894,13 +2894,13 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         String suffix = STR("\"}");
         // TODO(traks): not sure what this version of the MOTD is used for. But
         // should be the same as server list MOTD probably
-        CursorPutVarString(send_cursor, STR("{\"text\":\"Running Blaze\"}"));
-        CursorPutU8(send_cursor, 0); // no icon data
+        WriteVarString(send_cursor, STR("{\"text\":\"Running Blaze\"}"));
+        WriteU8(send_cursor, 0); // no icon data
         // NOTE(traks): Not sure what this is all used for. In case all chat
         // messages are sent as system chat, setting this to true disables the
         // popup that warns you about secure chat when joining the server.
         u8 enforcesSecureChat = 1;
-        CursorPutU8(send_cursor, enforcesSecureChat);
+        WriteU8(send_cursor, enforcesSecureChat);
         finish_packet(send_cursor, player);
 
         // NOTE(traks): sync the player location, and then send the spawn
@@ -2918,8 +2918,8 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
 
         begin_packet(send_cursor, CBP_SET_DEFAULT_SPAWN_POSITION);
         // TODO(traks): specific value not important for now
-        CursorPutBlockPos(send_cursor, (BlockPos) {0, 0, 0});
-        CursorPutF32(send_cursor, 0); // yaw
+        WriteBlockPos(send_cursor, (BlockPos) {0, 0, 0});
+        WriteF32(send_cursor, 0); // yaw
         finish_packet(send_cursor, player);
 
         // reset changed data, because all data is sent already and we don't
@@ -2933,7 +2933,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     if (serv->current_tick - player->player.last_keep_alive_sent_tick >= KEEP_ALIVE_SPACING
             && (player->flags & PLAYER_GOT_ALIVE_RESPONSE)) {
         begin_packet(send_cursor, CBP_KEEP_ALIVE);
-        CursorPutU64(send_cursor, serv->current_tick);
+        WriteU64(send_cursor, serv->current_tick);
         finish_packet(send_cursor, player);
 
         player->player.last_keep_alive_sent_tick = serv->current_tick;
@@ -2948,8 +2948,8 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
 
     if (player->changed_data & PLAYER_GAMEMODE_CHANGED) {
         begin_packet(send_cursor, CBP_GAME_EVENT);
-        CursorPutU8(send_cursor, PACKET_GAME_EVENT_CHANGE_GAMEMODE);
-        CursorPutF32(send_cursor, player->player.gamemode);
+        WriteU8(send_cursor, PACKET_GAME_EVENT_CHANGE_GAMEMODE);
+        WriteF32(send_cursor, player->player.gamemode);
         finish_packet(send_cursor, player);
     }
 
@@ -2968,7 +2968,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     // NOTE(traks): send block change ack
     if (player->player.lastAckedBlockChange >= 0) {
         begin_packet(send_cursor, CBP_BLOCK_CHANGED_ACK);
-        CursorPutVarU32(send_cursor, player->player.lastAckedBlockChange);
+        WriteVarU32(send_cursor, player->player.lastAckedBlockChange);
         finish_packet(send_cursor, player);
         player->player.lastAckedBlockChange = -1;
     }
@@ -2986,8 +2986,8 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         }
 
         begin_packet(send_cursor, CBP_BLOCK_UPDATE);
-        CursorPutBlockPos(send_cursor, pos.xyz);
-        CursorPutVarU32(send_cursor, block_state);
+        WriteBlockPos(send_cursor, pos.xyz);
+        WriteVarU32(send_cursor, block_state);
         finish_packet(send_cursor, player);
     }
     player->player.changed_block_count = 0;
@@ -3080,19 +3080,19 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         // -1 = item held in cursor
         // 0 = inventory menu
         // 1, 2, ... = other container menus
-        CursorPutU8(send_cursor, 0 ); // container id
+        WriteU8(send_cursor, 0 ); // container id
         // @TODO(traks) figure out what this is used for
-        CursorPutVarU32(send_cursor, 0); // state id
-        CursorPutU16(send_cursor, i);
+        WriteVarU32(send_cursor, 0); // state id
+        WriteU16(send_cursor, i);
 
         if (is->type == 0) {
-            CursorPutU8(send_cursor, 0); // has item
+            WriteU8(send_cursor, 0); // has item
         } else {
-            CursorPutU8(send_cursor, 1); // has item
-            CursorPutVarU32(send_cursor, is->type);
-            CursorPutU8(send_cursor, is->size);
+            WriteU8(send_cursor, 1); // has item
+            WriteVarU32(send_cursor, is->type);
+            WriteU8(send_cursor, is->size);
             // @TODO(traks) write NBT (currently just a single end tag)
-            CursorPutU8(send_cursor, 0);
+            WriteU8(send_cursor, 0);
         }
         finish_packet(send_cursor, player);
     }
@@ -3111,40 +3111,40 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         if (serv->tab_list_size > 0) {
             begin_packet(send_cursor, CBP_PLAYER_INFO_UPDATE);
             u8 actionBits = 0b111111; // everything
-            CursorPutU8(send_cursor, actionBits);
-            CursorPutVarU32(send_cursor, serv->tab_list_size);
+            WriteU8(send_cursor, actionBits);
+            WriteVarU32(send_cursor, serv->tab_list_size);
 
             for (int i = 0; i < serv->tab_list_size; i++) {
                 entity_id eid = serv->tab_list[i];
                 entity_base * player = resolve_entity(eid);
                 assert(player->type == ENTITY_PLAYER);
                 // @TODO(traks) write UUID
-                CursorPutU64(send_cursor, 0);
-                CursorPutU64(send_cursor, eid);
+                WriteU64(send_cursor, 0);
+                WriteU64(send_cursor, eid);
                 String username = {
                     .data = player->player.username,
                     .size = player->player.username_size
                 };
-                CursorPutVarString(send_cursor, username);
-                CursorPutVarU32(send_cursor, 0); // num properties
-                CursorPutU8(send_cursor, 0); // has message signing key
-                CursorPutVarU32(send_cursor, player->player.gamemode);
-                CursorPutU8(send_cursor, 1); // listed
-                CursorPutVarU32(send_cursor, 0); // latency
-                CursorPutU8(send_cursor, 0); // has display name
+                WriteVarString(send_cursor, username);
+                WriteVarU32(send_cursor, 0); // num properties
+                WriteU8(send_cursor, 0); // has message signing key
+                WriteVarU32(send_cursor, player->player.gamemode);
+                WriteU8(send_cursor, 1); // listed
+                WriteVarU32(send_cursor, 0); // latency
+                WriteU8(send_cursor, 0); // has display name
             }
             finish_packet(send_cursor, player);
         }
     } else {
         if (serv->tab_list_removed_count > 0) {
             begin_packet(send_cursor, CBP_PLAYER_INFO_REMOVE);
-            CursorPutVarU32(send_cursor, serv->tab_list_removed_count);
+            WriteVarU32(send_cursor, serv->tab_list_removed_count);
 
             for (int i = 0; i < serv->tab_list_removed_count; i++) {
                 entity_id eid = serv->tab_list_removed[i];
                 // @TODO(traks) write UUID
-                CursorPutU64(send_cursor, 0);
-                CursorPutU64(send_cursor, eid);
+                WriteU64(send_cursor, 0);
+                WriteU64(send_cursor, eid);
             }
             finish_packet(send_cursor, player);
         }
@@ -3162,16 +3162,16 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             // TODO(traks): init chat?
 
             u8 actionBits = 0b111111; // everything
-            CursorPutU8(send_cursor, actionBits);
-            CursorPutVarU32(send_cursor, serv->tab_list_added_count);
+            WriteU8(send_cursor, actionBits);
+            WriteVarU32(send_cursor, serv->tab_list_added_count);
 
             for (int i = 0; i < serv->tab_list_added_count; i++) {
                 entity_id eid = serv->tab_list_added[i];
                 entity_base * player = resolve_entity(eid);
                 assert(player->type == ENTITY_PLAYER);
                 // @TODO(traks) write UUID
-                CursorPutU64(send_cursor, 0);
-                CursorPutU64(send_cursor, eid);
+                WriteU64(send_cursor, 0);
+                WriteU64(send_cursor, eid);
 
                 // NOTE(traks): after the UUID, write all the data of the player
                 // per action, in order
@@ -3180,13 +3180,13 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                     .data = player->player.username,
                     .size = player->player.username_size
                 };
-                CursorPutVarString(send_cursor, username);
-                CursorPutVarU32(send_cursor, 0); // num properties
-                CursorPutU8(send_cursor, 0); // has message signing key
-                CursorPutVarU32(send_cursor, player->player.gamemode);
-                CursorPutU8(send_cursor, 1); // listed
-                CursorPutVarU32(send_cursor, 0); // latency
-                CursorPutU8(send_cursor, 0); // has display name
+                WriteVarString(send_cursor, username);
+                WriteVarU32(send_cursor, 0); // num properties
+                WriteU8(send_cursor, 0); // has message signing key
+                WriteVarU32(send_cursor, player->player.gamemode);
+                WriteU8(send_cursor, 1); // listed
+                WriteVarU32(send_cursor, 0); // latency
+                WriteU8(send_cursor, 0); // has display name
             }
             finish_packet(send_cursor, player);
         }
@@ -3202,12 +3202,12 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
 
             if (entity->changed_data & PLAYER_GAMEMODE_CHANGED) {
                 begin_packet(send_cursor, CBP_PLAYER_INFO_UPDATE);
-                CursorPutVarU32(send_cursor, 0b000100); // action: update gamemode
-                CursorPutVarU32(send_cursor, 1); // changed entries
+                WriteVarU32(send_cursor, 0b000100); // action: update gamemode
+                WriteVarU32(send_cursor, 1); // changed entries
                 // @TODO(traks) write uuid
-                CursorPutU64(send_cursor, 0);
-                CursorPutU64(send_cursor, entity->eid);
-                CursorPutVarU32(send_cursor, entity->player.gamemode);
+                WriteU64(send_cursor, 0);
+                WriteU64(send_cursor, entity->eid);
+                WriteVarU32(send_cursor, entity->player.gamemode);
                 finish_packet(send_cursor, player);
             }
         }
@@ -3278,9 +3278,9 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
 
     if (removed_entity_count > 0) {
         begin_packet(send_cursor, CBP_REMOVE_ENTITIES);
-        CursorPutVarU32(send_cursor, removed_entity_count);
+        WriteVarU32(send_cursor, removed_entity_count);
         for (int i = 0; i < removed_entity_count; i++) {
-            CursorPutVarU32(send_cursor, removed_entities[i]);
+            WriteVarU32(send_cursor, removed_entities[i]);
         }
         finish_packet(send_cursor, player);
     }
@@ -3323,12 +3323,12 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         // Also will make chat narration work properly as "sender says message"
         // (see the chat types we define in the login packet).
         begin_packet(send_cursor, CBP_SYSTEM_CHAT);
-        CursorPutVarString(send_cursor, jsonMessage);
-        CursorPutU8(send_cursor, 0); // action bar or chat log
+        WriteVarString(send_cursor, jsonMessage);
+        WriteU8(send_cursor, 0); // action bar or chat log
         // @TODO(traks) write sender UUID. If UUID equals 0, client displays it
         // regardless of client settings
-        // CursorPutU64(send_cursor, 0);
-        // CursorPutU64(send_cursor, 0);
+        // WriteU64(send_cursor, 0);
+        // WriteU64(send_cursor, 0);
         finish_packet(send_cursor, player);
     }
 
@@ -3345,12 +3345,12 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
 
     BeginTimings(FinalisePackets);
 
-    BufCursor final_cursor_ = {
+    Cursor final_cursor_ = {
         .data = player->player.send_buf,
         .size = player->player.send_buf_size,
         .index = player->player.send_cursor
     };
-    BufCursor * final_cursor = &final_cursor_;
+    Cursor * final_cursor = &final_cursor_;
 
     send_cursor->size = send_cursor->index;
     send_cursor->index = 0;
@@ -3362,7 +3362,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         send_cursor->index += 1 + size_offset;
 
         int packet_start = send_cursor->index;
-        i32 packet_size = CursorGetVarU32(send_cursor);
+        i32 packet_size = ReadVarU32(send_cursor);
         int packet_end = send_cursor->index + packet_size;
 
         if (should_compress) {
@@ -3405,12 +3405,12 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                 break;
             }
 
-            CursorPutVarU32(final_cursor, VarU32Size(packet_size) + zstream.total_out);
-            CursorPutVarU32(final_cursor, packet_size);
-            CursorPutData(final_cursor, compressed, zstream.total_out);
+            WriteVarU32(final_cursor, VarU32Size(packet_size) + zstream.total_out);
+            WriteVarU32(final_cursor, packet_size);
+            WriteData(final_cursor, compressed, zstream.total_out);
         } else {
             // @TODO(traks) should check somewhere that no error occurs
-            CursorPutData(final_cursor, send_cursor->data + packet_start,
+            WriteData(final_cursor, send_cursor->data + packet_start,
                     packet_end - packet_start);
         }
 

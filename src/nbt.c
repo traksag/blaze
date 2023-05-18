@@ -176,12 +176,12 @@ static NbtValue * MakeNbtListEntry(NbtLevel * level, MemoryArena * arena) {
 
 // TODO(traks): improve error reporting for debugging purposes, when we need to
 // write nbt data ourselves
-NbtCompound NbtRead(BufCursor * buf, MemoryArena * arena) {
+NbtCompound NbtRead(Cursor * buf, MemoryArena * arena) {
     BeginTimings(NbtRead);
     DebugPuts("-----");
 
     // process first tag
-    uint8_t tag = CursorGetU8(buf);
+    uint8_t tag = ReadU8(buf);
 
     int error = 0;
     NbtValue * root = NULL;
@@ -197,7 +197,7 @@ NbtCompound NbtRead(BufCursor * buf, MemoryArena * arena) {
 
     // skip key
     unsigned char * key = buf->data + buf->index;
-    uint16_t keySize = CursorGetU16(buf);
+    uint16_t keySize = ReadU16(buf);
     if (buf->size - buf->index < keySize) {
         DebugPuts("Key too large");
         buf->error = 1;
@@ -235,7 +235,7 @@ NbtCompound NbtRead(BufCursor * buf, MemoryArena * arena) {
         NbtValue * entry;
 
         if (curLevel->parent->internalType == NBT_ITYPE_COMPOUND) {
-            tag = CursorGetU8(buf);
+            tag = ReadU8(buf);
 
             if (tag == NBT_TAG_END) {
                 levelIndex--;
@@ -243,7 +243,7 @@ NbtCompound NbtRead(BufCursor * buf, MemoryArena * arena) {
             }
 
             // get key
-            keySize = CursorGetU16(buf);
+            keySize = ReadU16(buf);
 
             if (keySize > buf->size - buf->index) {
                 DebugPuts("Key size invalid");
@@ -283,43 +283,43 @@ NbtCompound NbtRead(BufCursor * buf, MemoryArena * arena) {
         switch (tag) {
         case NBT_TAG_BYTE: {
             entry->internalType = NBT_ITYPE_U8;
-            entry->intValue = CursorGetU8(buf);
+            entry->intValue = ReadU8(buf);
             DebugPrintf("%jd\n", (intmax_t) (i8) entry->intValue);
             break;
         }
         case NBT_TAG_SHORT: {
             entry->internalType = NBT_ITYPE_U16;
-            entry->intValue = CursorGetU16(buf);
+            entry->intValue = ReadU16(buf);
             DebugPrintf("%jd\n", (intmax_t) (i16) entry->intValue);
             break;
         }
         case NBT_TAG_INT: {
             entry->internalType = NBT_ITYPE_U32;
-            entry->intValue = CursorGetU32(buf);
+            entry->intValue = ReadU32(buf);
             DebugPrintf("%jd\n", (intmax_t) (i32) entry->intValue);
             break;
         }
         case NBT_TAG_LONG: {
             entry->internalType = NBT_ITYPE_U64;
-            entry->intValue = CursorGetU64(buf);
+            entry->intValue = ReadU64(buf);
             DebugPrintf("%jd\n", (intmax_t) (i64) entry->intValue);
             break;
         }
         case NBT_TAG_FLOAT: {
             entry->internalType = NBT_ITYPE_FLOAT;
-            entry->floatValue = CursorGetF32(buf);
+            entry->floatValue = ReadF32(buf);
             DebugPrintf("%f\n", entry->floatValue);
             break;
         }
         case NBT_TAG_DOUBLE: {
             entry->internalType = NBT_ITYPE_DOUBLE;
-            entry->doubleValue = CursorGetF64(buf);
+            entry->doubleValue = ReadF64(buf);
             DebugPrintf("%f\n", entry->doubleValue);
             break;
         }
         case NBT_TAG_BYTE_ARRAY: {
             entry->internalType = NBT_ITYPE_ARRAY_U8;
-            entry->valueSize = CursorGetU32(buf);
+            entry->valueSize = ReadU32(buf);
             entry->arrayData = buf->data + buf->index;
 
             DebugPrintf("byte array %ju\n", (uintmax_t) entry->valueSize);
@@ -335,7 +335,7 @@ NbtCompound NbtRead(BufCursor * buf, MemoryArena * arena) {
         }
         case NBT_TAG_INT_ARRAY: {
             entry->internalType = NBT_ITYPE_ARRAY_U32;
-            entry->valueSize = CursorGetU32(buf);
+            entry->valueSize = ReadU32(buf);
             entry->arrayData = buf->data + buf->index;
 
             DebugPrintf("int array %ju\n", (uintmax_t) entry->valueSize);
@@ -351,7 +351,7 @@ NbtCompound NbtRead(BufCursor * buf, MemoryArena * arena) {
         }
         case NBT_TAG_LONG_ARRAY: {
             entry->internalType = NBT_ITYPE_ARRAY_U64;
-            entry->valueSize = CursorGetU32(buf);
+            entry->valueSize = ReadU32(buf);
             entry->arrayData = buf->data + buf->index;
 
             DebugPrintf("long array %ju\n", (uintmax_t) entry->valueSize);
@@ -367,7 +367,7 @@ NbtCompound NbtRead(BufCursor * buf, MemoryArena * arena) {
         }
         case NBT_TAG_STRING: {
             entry->internalType = NBT_ITYPE_STRING;
-            entry->valueSize = CursorGetU16(buf);
+            entry->valueSize = ReadU16(buf);
             entry->stringValue = buf->data + buf->index;
 
             if (entry->valueSize > buf->size - buf->index) {
@@ -382,8 +382,8 @@ NbtCompound NbtRead(BufCursor * buf, MemoryArena * arena) {
             break;
         }
         case NBT_TAG_LIST: {
-            entry->elemTag = CursorGetU8(buf);
-            entry->valueSize = CursorGetU32(buf);
+            entry->elemTag = ReadU8(buf);
+            entry->valueSize = ReadU32(buf);
 
             switch (entry->elemTag) {
             case NBT_TAG_END: {
@@ -971,37 +971,37 @@ i32 NbtIsEmpty(NbtCompound * compound) {
 // listData overlap
 
 u8 NbtNextU8(NbtList * list) {
-    u8 res = BufGetU8(list->listData + 1 * list->index);
+    u8 res = ReadDirectU8(list->listData + 1 * list->index);
     list->index++;
     return res;
 }
 
 u16 NbtNextU16(NbtList * list) {
-    u16 res = BufGetU16(list->listData + 2 * list->index);
+    u16 res = ReadDirectU16(list->listData + 2 * list->index);
     list->index++;
     return res;
 }
 
 u32 NbtNextU32(NbtList * list) {
-    u32 res = BufGetU32(list->listData + 4 * list->index);
+    u32 res = ReadDirectU32(list->listData + 4 * list->index);
     list->index++;
     return res;
 }
 
 u64 NbtNextU64(NbtList * list) {
-    u64 res = BufGetU64(list->listData + 8 * list->index);
+    u64 res = ReadDirectU64(list->listData + 8 * list->index);
     list->index++;
     return res;
 }
 
 float NbtNextFloat(NbtList * list) {
-    float res = BufGetF32(list->listData + 4 * list->index);
+    float res = ReadDirectF32(list->listData + 4 * list->index);
     list->index++;
     return res;
 }
 
 double NbtNextDouble(NbtList * list) {
-    double res = BufGetF64(list->listData + 8 * list->index);
+    double res = ReadDirectF64(list->listData + 8 * list->index);
     list->index++;
     return res;
 }

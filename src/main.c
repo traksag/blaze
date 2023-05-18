@@ -17,7 +17,7 @@
 #include <math.h>
 #include <sys/mman.h>
 #include "shared.h"
-#include "buf.h"
+#include "buffer.h"
 #include "chunk.h"
 
 #if defined(__APPLE__) && defined(__MACH__)
@@ -862,18 +862,18 @@ server_tick(void) {
         } else {
             init_con->rec_cursor += rec_size;
 
-            BufCursor rec_cursor = {
+            Cursor rec_cursor = {
                 .data = init_con->rec_buf,
                 .size = init_con->rec_cursor
             };
-            BufCursor send_cursor = {
+            Cursor send_cursor = {
                 .data = init_con->send_buf,
                 .size = sizeof init_con->send_buf,
                 .index = init_con->send_cursor
             };
 
             for (;;) {
-                i32 packet_size = CursorGetVarU32(&rec_cursor);
+                i32 packet_size = ReadVarU32(&rec_cursor);
 
                 if (rec_cursor.error != 0) {
                     // packet size not fully received yet
@@ -892,7 +892,7 @@ server_tick(void) {
                 }
 
                 int packet_start = rec_cursor.index;
-                i32 packet_id = CursorGetVarU32(&rec_cursor);
+                i32 packet_id = ReadVarU32(&rec_cursor);
                 LogInfo("Initial packet %d", packet_id);
 
                 switch (init_con->protocol_state) {
@@ -902,10 +902,10 @@ server_tick(void) {
                     }
 
                     // read client intention packet
-                    i32 protocol_version = CursorGetVarU32(&rec_cursor);
-                    String address = CursorGetVarString(&rec_cursor, 255);
-                    u16 port = CursorGetU16(&rec_cursor);
-                    i32 next_state = CursorGetVarU32(&rec_cursor);
+                    i32 protocol_version = ReadVarU32(&rec_cursor);
+                    String address = ReadVarString(&rec_cursor, 255);
+                    u16 port = ReadU16(&rec_cursor);
+                    i32 next_state = ReadVarU32(&rec_cursor);
 
                     if (next_state == 1) {
                         init_con->protocol_state = PROTOCOL_AWAIT_STATUS_REQUEST;
@@ -984,10 +984,10 @@ server_tick(void) {
                             + VarU32Size(response_size)
                             + response_size;
                     int start = send_cursor.index;
-                    CursorPutVarU32(&send_cursor, out_size);
-                    CursorPutVarU32(&send_cursor, 0);
-                    CursorPutVarU32(&send_cursor, response_size);
-                    CursorPutData(&send_cursor, response, response_size);
+                    WriteVarU32(&send_cursor, out_size);
+                    WriteVarU32(&send_cursor, 0);
+                    WriteVarU32(&send_cursor, response_size);
+                    WriteData(&send_cursor, response, response_size);
 
                     init_con->protocol_state = PROTOCOL_AWAIT_PING_REQUEST;
                     break;
@@ -998,12 +998,12 @@ server_tick(void) {
                     }
 
                     // read ping request packet
-                    u64 payload = CursorGetU64(&rec_cursor);
+                    u64 payload = ReadU64(&rec_cursor);
 
                     int out_size = VarU32Size(1) + 8;
-                    CursorPutVarU32(&send_cursor, out_size);
-                    CursorPutVarU32(&send_cursor, 1);
-                    CursorPutU64(&send_cursor, payload);
+                    WriteVarU32(&send_cursor, out_size);
+                    WriteVarU32(&send_cursor, 1);
+                    WriteU64(&send_cursor, payload);
                     break;
                 }
                 case PROTOCOL_AWAIT_HELLO: {
@@ -1012,7 +1012,7 @@ server_tick(void) {
                     }
 
                     // read hello packet
-                    String username = CursorGetVarString(&rec_cursor, 16);
+                    String username = ReadVarString(&rec_cursor, 16);
                     // @TODO(traks) more username validation
                     if (username.size == 0) {
                         rec_cursor.error = 1;
@@ -1021,10 +1021,10 @@ server_tick(void) {
                     memcpy(init_con->username, username.data, username.size);
                     init_con->username_size = username.size;
 
-                    i32 hasUuid = CursorGetU8(&rec_cursor);
+                    i32 hasUuid = ReadU8(&rec_cursor);
                     if (hasUuid) {
-                        u64 uuid_high = CursorGetU64(&rec_cursor);
-                        u64 uuid_low = CursorGetU64(&rec_cursor);
+                        u64 uuid_high = ReadU64(&rec_cursor);
+                        u64 uuid_low = ReadU64(&rec_cursor);
                         // TODO(traks): do something with the UUID
                     }
 
@@ -1276,7 +1276,7 @@ server_tick(void) {
 }
 
 static int
-parse_database_line(BufCursor * cursor, String * args) {
+parse_database_line(Cursor * cursor, String * args) {
     int arg_count = 0;
     int cur_size = 0;
     int i;
@@ -1305,7 +1305,7 @@ parse_database_line(BufCursor * cursor, String * args) {
     return arg_count;
 }
 
-static BufCursor
+static Cursor
 read_file(MemoryArena * arena, char * file_name) {
     int fd = open(file_name, O_RDONLY);
     if (fd == -1) {
@@ -1342,7 +1342,7 @@ read_file(MemoryArena * arena, char * file_name) {
 
     close(fd);
 
-    BufCursor res = {
+    Cursor res = {
         .data = buf,
         .size = file_size
     };
@@ -1574,7 +1574,7 @@ load_tags(char * file_name, char * list_name, tag_list * tags, resource_loc_tabl
         .data = serv->short_lived_scratch,
         .size = serv->short_lived_scratch_size,
     };
-    BufCursor cursor = read_file(&arena, file_name);
+    Cursor cursor = read_file(&arena, file_name);
 
     tags->name_size = strlen(list_name);
     memcpy(tags->name, list_name, strlen(list_name));
