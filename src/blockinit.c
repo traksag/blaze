@@ -32,6 +32,7 @@ register_property_v(int id, char * name, int value_count, ...) {
     va_list ap;
     va_start(ap, value_count);
 
+    // TODO(traks): get rid of VLA?
     char * values[value_count];
     for (int i = 0; i < value_count; i++) {
         values[i] = va_arg(ap, char *);
@@ -45,6 +46,7 @@ register_property_v(int id, char * name, int value_count, ...) {
 static void
 register_range_property(int id, char * name, int min, int max) {
     int value_count = max - min + 1;
+    // TODO(traks): get rid of VLA?
     char * values[value_count];
     char buf[256];
     char * cursor = buf;
@@ -330,7 +332,7 @@ init_bed(char * resource_loc) {
         if (info.bed_part == BED_PART_HEAD) {
             facing = get_opposite_direction(facing);
         }
-        int model_index;
+        int model_index = 0;
         switch (info.horizontal_facing) {
         case DIRECTION_POS_X: model_index = BLOCK_MODEL_BED_FOOT_POS_X; break;
         case DIRECTION_POS_Z: model_index = BLOCK_MODEL_BED_FOOT_POS_Z; break;
@@ -354,7 +356,7 @@ init_slab(char * resource_loc) {
     for (int i = 0; i < count_block_states(props); i++) {
         u16 block_state = props->base_state + i;
         block_state_info info = describe_block_state(block_state);
-        int model_index;
+        int model_index = 0;
         switch (info.slab_type) {
         case SLAB_TOP: model_index = BLOCK_MODEL_TOP_SLAB; break;
         case SLAB_BOTTOM: model_index = BLOCK_MODEL_Y_8; break;
@@ -831,6 +833,7 @@ block_boxes_contain_face(int box_count, BoundingBox * boxes,
         BoundingBox slice, int direction) {
     // intersect boxes with 1x1x1 cube and get the faces
     int face_count = 0;
+    // TODO(traks): get rid of VLA?
     block_box_face faces[box_count];
     // @NOTE(traks) All block models are currently aligned to the pixel grid, so
     // the epsilon can be fairly large. Bamboo is aligned to a quarter of a
@@ -1135,11 +1138,11 @@ init_block_data(void) {
     BoundingBox lily_pad_box = {1, 0, 1, 15, 1.5f, 15};
     register_block_model(BLOCK_MODEL_LILY_PAD, 1, &lily_pad_box);
     BoundingBox scaffoldingBoxes[] = {
-        0, 14, 0, 16, 16, 16, // top part
-        0, 0, 0, 2, 16, 2, // leg 1
-        14, 0, 0, 16, 16, 2, // leg 2
-        0, 0, 14, 2, 16, 16, // leg 3
-        14, 0, 14, 16, 16, 16, // leg 4
+        {0, 14, 0, 16, 16, 16}, // top part
+        {0, 0, 0, 2, 16, 2}, // leg 1
+        {14, 0, 0, 16, 16, 2}, // leg 2
+        {0, 0, 14, 2, 16, 16}, // leg 3
+        {14, 0, 14, 16, 16, 16}, // leg 4
     };
     register_block_model(BLOCK_MODEL_SCAFFOLDING, 5, scaffoldingBoxes);
 

@@ -2508,9 +2508,9 @@ static void SendTrackedBlockChanges(entity_base * player, Cursor * sendCursor, M
 
             for (i32 i = 0; i < section->changedBlockSetMask + 1; i++) {
                 if (section->changedBlockSet[i] != 0) {
-                    BlockPos pos = SectionIndexToPos(section->changedBlockSet[i] & 0xfff);
-                    i64 block_state = ChunkGetBlockState(ch, (BlockPos) {pos.x, pos.y + sectionY * 16, pos.z});
-                    i64 encoded = (block_state << 12) | (pos.x << 8) | (pos.z << 4) | (pos.y & 0xf);
+                    BlockPos posInSection = SectionIndexToPos(section->changedBlockSet[i] & 0xfff);
+                    i64 block_state = ChunkGetBlockState(ch, (BlockPos) {posInSection.x, posInSection.y + sectionY * 16, posInSection.z});
+                    i64 encoded = (block_state << 12) | (posInSection.x << 8) | (posInSection.z << 4) | (posInSection.y & 0xf);
                     WriteVarU64(sendCursor, encoded);
                 }
             }
@@ -3116,19 +3116,19 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
 
             for (int i = 0; i < serv->tab_list_size; i++) {
                 entity_id eid = serv->tab_list[i];
-                entity_base * player = resolve_entity(eid);
-                assert(player->type == ENTITY_PLAYER);
+                entity_base * tabListPlayer = resolve_entity(eid);
+                assert(tabListPlayer->type == ENTITY_PLAYER);
                 // @TODO(traks) write UUID
                 WriteU64(send_cursor, 0);
                 WriteU64(send_cursor, eid);
                 String username = {
-                    .data = player->player.username,
-                    .size = player->player.username_size
+                    .data = tabListPlayer->player.username,
+                    .size = tabListPlayer->player.username_size
                 };
                 WriteVarString(send_cursor, username);
                 WriteVarU32(send_cursor, 0); // num properties
                 WriteU8(send_cursor, 0); // has message signing key
-                WriteVarU32(send_cursor, player->player.gamemode);
+                WriteVarU32(send_cursor, tabListPlayer->player.gamemode);
                 WriteU8(send_cursor, 1); // listed
                 WriteVarU32(send_cursor, 0); // latency
                 WriteU8(send_cursor, 0); // has display name
@@ -3167,8 +3167,8 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
 
             for (int i = 0; i < serv->tab_list_added_count; i++) {
                 entity_id eid = serv->tab_list_added[i];
-                entity_base * player = resolve_entity(eid);
-                assert(player->type == ENTITY_PLAYER);
+                entity_base * tabListPlayer = resolve_entity(eid);
+                assert(tabListPlayer->type == ENTITY_PLAYER);
                 // @TODO(traks) write UUID
                 WriteU64(send_cursor, 0);
                 WriteU64(send_cursor, eid);
@@ -3177,13 +3177,13 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                 // per action, in order
 
                 String username = {
-                    .data = player->player.username,
-                    .size = player->player.username_size
+                    .data = tabListPlayer->player.username,
+                    .size = tabListPlayer->player.username_size
                 };
                 WriteVarString(send_cursor, username);
                 WriteVarU32(send_cursor, 0); // num properties
                 WriteU8(send_cursor, 0); // has message signing key
-                WriteVarU32(send_cursor, player->player.gamemode);
+                WriteVarU32(send_cursor, tabListPlayer->player.gamemode);
                 WriteU8(send_cursor, 1); // listed
                 WriteVarU32(send_cursor, 0); // latency
                 WriteU8(send_cursor, 0); // has display name
@@ -3290,8 +3290,8 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     // send chat messages
     BeginTimings(SendChat);
 
-    for (int i = 0; i < serv->global_msg_count; i++) {
-        global_msg * msg = serv->global_msgs + i;
+    for (int msgIndex = 0; msgIndex < serv->global_msg_count; msgIndex++) {
+        global_msg * msg = serv->global_msgs + msgIndex;
 
         // @TODO(traks) formatted messages and such
         unsigned char buf[1024];

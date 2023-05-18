@@ -113,7 +113,8 @@ describe_block_state(u16 block_state) {
         mark_block_state_property(&res, id);
 
         // decode value index for easier use
-        int value;
+        // TODO(traks): is this a good default value???
+        int value = 0;
         switch (id) {
         case BLOCK_PROPERTY_ATTACHED:
         case BLOCK_PROPERTY_BOTTOM:
@@ -277,7 +278,7 @@ make_block_state(block_state_info * info) {
         int id = props->property_specs[i];
 
         int value = info->values[id];
-        int value_index;
+        int value_index = 0;
         // convert value to value index
         switch (id) {
         case BLOCK_PROPERTY_ATTACHED:
@@ -392,7 +393,7 @@ make_block_state(block_state_info * info) {
             }
             break;
         case BLOCK_PROPERTY_VERTICAL_DIRECTION:
-            switch (value_index) {
+            switch (value) {
             case DIRECTION_POS_Y: value_index = 0; break;
             case DIRECTION_NEG_Y: value_index = 1; break;
             }
@@ -1818,8 +1819,8 @@ update_redstone_line(WorldBlockPos start_pos) {
         u16 new_start_state = make_block_state(&start_info);
         WorldSetBlockState(start_pos, new_start_state);
 
-        for (int i = 0; i < wire_count; i++) {
-            WorldBlockPos wire_pos = wires[i];
+        for (int wireIndex = 0; wireIndex < wire_count; wireIndex++) {
+            WorldBlockPos wire_pos = wires[wireIndex];
             u16 state = WorldGetBlockState(wire_pos);
             block_state_info info = describe_block_state(state);
             redstone_wire_env env = calculate_redstone_wire_env(
@@ -1864,9 +1865,9 @@ update_redstone_line(WorldBlockPos start_pos) {
             source_count++;
         }
 
-        for (int i = 0; i < wire_count; i++) {
-            WorldBlockPos wire_pos = wires[i].pos;
-            int distance = wires[i].distance;
+        for (int wireIndex = 0; wireIndex < wire_count; wireIndex++) {
+            WorldBlockPos wire_pos = wires[wireIndex].pos;
+            int distance = wires[wireIndex].distance;
             u16 state = WorldGetBlockState(wire_pos);
             block_state_info info = describe_block_state(state);
             redstone_wire_env env = calculate_redstone_wire_env(
@@ -1905,9 +1906,9 @@ update_redstone_line(WorldBlockPos start_pos) {
             }
         }
 
-        for (int i = 0; i < wire_count; i++) {
-            WorldBlockPos wire_pos = wires[i].pos;
-            int distance = wires[i].distance;
+        for (int wireIndex = 0; wireIndex < wire_count; wireIndex++) {
+            WorldBlockPos wire_pos = wires[wireIndex].pos;
+            int distance = wires[wireIndex].distance;
             u16 state = WorldGetBlockState(wire_pos);
             block_state_info info = describe_block_state(state);
             int cur_power = info.power;
@@ -2494,7 +2495,7 @@ static i32 DoBlockBehaviour(WorldBlockPos pos, int from_direction, int is_delaye
         }
         return 0;
     }
-    case BLOCK_BEHAVIOUR_NEED_SOIL_OR_NETHER_SOIL_BELOW:
+    case BLOCK_BEHAVIOUR_NEED_SOIL_OR_NETHER_SOIL_BELOW: {
         if (from_direction != DIRECTION_NEG_Y) {
             return 0;
         }
@@ -2506,6 +2507,7 @@ static i32 DoBlockBehaviour(WorldBlockPos pos, int from_direction, int is_delaye
         break_block(pos);
         push_direct_neighbour_block_updates(pos, buc);
         return 1;
+    }
     case BLOCK_BEHAVIOUR_NEED_FULL_SUPPORT_BEHIND: {
         if (from_direction != get_opposite_direction(cur_info.facing)) {
             return 0;

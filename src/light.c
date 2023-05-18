@@ -54,7 +54,7 @@ typedef struct {
 } PropagationTest;
 
 static PropagationTest BoxToPropagationTest(BoundingBox box, i32 dir) {
-    PropagationTest res;
+    PropagationTest res = {0};
     switch (dir) {
     case DIRECTION_NEG_Y: res = (PropagationTest) {1 - box.minY, box.minX, box.minZ, box.maxX, box.maxZ};
     case DIRECTION_POS_Y: res = (PropagationTest) {box.maxY, box.minX, box.minZ, box.maxX, box.maxZ};
@@ -428,7 +428,7 @@ void LightChunkAndExchangeWithNeighbours(Chunk * targetChunk) {
     EndTimings(LightChunk);
 }
 
-void UpdateLighting() {
+void UpdateLighting(void) {
     // @TODO(traks) further implementation
     /*
     for (i32 bucketIndex = 0; bucketIndex < ARRAY_SIZE(chunk_map); bucketIndex++) {

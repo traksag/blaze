@@ -139,8 +139,8 @@ void LightChunkAndExchangeWithNeighbours(Chunk * targetChunk);
 
 void ChunkRecalculateMotionBlockingHeightMap(Chunk * ch);
 
-void LoadChunks();
+void LoadChunks(void);
 
-void InitChunkSystem();
+void InitChunkSystem(void);
 
 #endif

@@ -251,7 +251,7 @@ void FreeInPool(MemoryPool * pool, MemoryPoolAllocation alloc) {
         return;
     }
 
-    i32 itemIndex = (alloc.data - (void *) alloc.block) / pool->itemSize;
+    i32 itemIndex = ((u8 *) alloc.data - (u8 *) alloc.block) / pool->itemSize;
     i32 longIndex = itemIndex / 64;
     i32 bitIndex = itemIndex % 64;
     u64 * usage = (void *) (alloc.block + 1);
@@ -555,7 +555,7 @@ move_entity(entity_base * entity) {
         i32 iter_max_z = floor(max_z);
 
         u16 hit_state = 0;
-        int hit_face;
+        int hit_face = 0;
 
         double dt = 1;
 
@@ -951,11 +951,11 @@ server_tick(void) {
                             SERVER_GAME_VERSION, SERVER_PROTOCOL_VERSION,
                             (int) MAX_PLAYERS, (int) list_size);
 
-                    for (int i = 0; i < sample_size; i++) {
-                        int target = i + (rand() % (list_size - i));
+                    for (int sampleIndex = 0; sampleIndex < sample_size; sampleIndex++) {
+                        int target = sampleIndex + (rand() % (list_size - sampleIndex));
                         entity_id * sampled = list + target;
 
-                        if (i > 0) {
+                        if (sampleIndex > 0) {
                             response[response_size] = ',';
                             response_size += 1;
                         }
@@ -973,7 +973,7 @@ server_tick(void) {
                                 (int) entity->player.username_size,
                                 entity->player.username);
 
-                        *sampled = list[i];
+                        *sampled = list[sampleIndex];
                     }
 
                     // TODO(traks): implement chat previewing
@@ -1580,7 +1580,7 @@ load_tags(char * file_name, char * list_name, tag_list * tags, resource_loc_tabl
     memcpy(tags->name, list_name, strlen(list_name));
 
     String args[16];
-    tag_spec * tag;
+    tag_spec * tag = NULL;
 
     for (;;) {
         int arg_count = parse_database_line(&cursor, args);

@@ -703,13 +703,13 @@ void AddChunkInterest(WorldChunkPos pos, i32 interest) {
 }
 
 void PushChunksFinishedLoading(i32 worldId, Chunk * * chunkArray, i32 chunkCount) {
-    i32 chunkIndex = 0;
+    i32 chunkArrayIndex = 0;
     for (;;) {
-        if (chunkIndex >= chunkCount) {
+        if (chunkArrayIndex >= chunkCount) {
             break;
         }
 
-        Chunk * chunk = chunkArray[chunkIndex];
+        Chunk * chunk = chunkArray[chunkArrayIndex];
         // NOTE(traks): claim our slot
         // TODO(traks): make sure new writer index never equals reader index
         // (limit how many chunks can be in flight at a time)
@@ -720,7 +720,7 @@ void PushChunksFinishedLoading(i32 worldId, Chunk * * chunkArray, i32 chunkCount
                 break;
             }
         }
-        chunkIndex++;
+        chunkArrayIndex++;
     }
 }
 
