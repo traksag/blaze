@@ -174,6 +174,8 @@ static NbtValue * MakeNbtListEntry(NbtLevel * level, MemoryArena * arena) {
     return res;
 }
 
+// TODO(traks): improve error reporting for debugging purposes, when we need to
+// write nbt data ourselves
 NbtCompound NbtRead(BufCursor * buf, MemoryArena * arena) {
     BeginTimings(NbtRead);
     DebugPuts("-----");
@@ -785,6 +787,7 @@ void NbtPrint(NbtCompound * compound) {
                     elem = elem->linkedValue;
                 }
                 printf("\"%.*s\"", elem->valueSize, elem->stringValue);
+                elem++;
             }
             printf("]");
             break;

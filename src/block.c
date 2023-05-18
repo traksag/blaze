@@ -144,7 +144,6 @@ describe_block_state(u16 block_state) {
         case BLOCK_PROPERTY_TRIGGERED:
         case BLOCK_PROPERTY_UNSTABLE:
         case BLOCK_PROPERTY_WATERLOGGED:
-        case BLOCK_PROPERTY_VINE_END:
         case BLOCK_PROPERTY_BERRIES:
         case BLOCK_PROPERTY_BLOOM:
         case BLOCK_PROPERTY_SHRIEKING:
@@ -155,6 +154,12 @@ describe_block_state(u16 block_state) {
         case BLOCK_PROPERTY_POS_Z:
         case BLOCK_PROPERTY_NEG_X:
         case BLOCK_PROPERTY_POS_X:
+        case BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_0_OCCUPIED:
+        case BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_1_OCCUPIED:
+        case BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_2_OCCUPIED:
+        case BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_3_OCCUPIED:
+        case BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_4_OCCUPIED:
+        case BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_5_OCCUPIED:
             value = !value_index;
             break;
         case BLOCK_PROPERTY_HORIZONTAL_AXIS:
@@ -194,6 +199,8 @@ describe_block_state(u16 block_state) {
         case BLOCK_PROPERTY_LAYERS:
         case BLOCK_PROPERTY_PICKLES:
         case BLOCK_PROPERTY_ROTATION_16:
+        case BLOCK_PROPERTY_FLOWER_AMOUNT:
+        case BLOCK_PROPERTY_DUSTED:
             value = value_index + 1;
             break;
         case BLOCK_PROPERTY_LEVEL:
@@ -302,7 +309,6 @@ make_block_state(block_state_info * info) {
         case BLOCK_PROPERTY_TRIGGERED:
         case BLOCK_PROPERTY_UNSTABLE:
         case BLOCK_PROPERTY_WATERLOGGED:
-        case BLOCK_PROPERTY_VINE_END:
         case BLOCK_PROPERTY_BERRIES:
         case BLOCK_PROPERTY_BLOOM:
         case BLOCK_PROPERTY_SHRIEKING:
@@ -313,6 +319,12 @@ make_block_state(block_state_info * info) {
         case BLOCK_PROPERTY_POS_Z:
         case BLOCK_PROPERTY_NEG_X:
         case BLOCK_PROPERTY_POS_X:
+        case BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_0_OCCUPIED:
+        case BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_1_OCCUPIED:
+        case BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_2_OCCUPIED:
+        case BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_3_OCCUPIED:
+        case BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_4_OCCUPIED:
+        case BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_5_OCCUPIED:
             value_index = !value;
             break;
         case BLOCK_PROPERTY_HORIZONTAL_AXIS:
@@ -352,6 +364,8 @@ make_block_state(block_state_info * info) {
         case BLOCK_PROPERTY_LAYERS:
         case BLOCK_PROPERTY_PICKLES:
         case BLOCK_PROPERTY_ROTATION_16:
+        case BLOCK_PROPERTY_FLOWER_AMOUNT:
+        case BLOCK_PROPERTY_DUSTED:
             value_index = value - 1;
             break;
         case BLOCK_PROPERTY_LEVEL:

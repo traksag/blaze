@@ -52,6 +52,20 @@ value minecraft:trident
 value minecraft:dragon_fireball
 value minecraft:wither_skull
 
+key minecraft:dismounts_underwater
+value minecraft:camel
+value minecraft:chicken
+value minecraft:donkey
+value minecraft:horse
+value minecraft:llama
+value minecraft:mule
+value minecraft:pig
+value minecraft:ravager
+value minecraft:spider
+value minecraft:strider
+value minecraft:trader_llama
+value minecraft:zombie_horse
+
 key minecraft:axolotl_always_hostiles
 value minecraft:drowned
 value minecraft:guardian
@@ -59,6 +73,23 @@ value minecraft:elder_guardian
 
 key minecraft:beehive_inhabitors
 value minecraft:bee
+
+key minecraft:fall_damage_immune
+value minecraft:iron_golem
+value minecraft:snow_golem
+value minecraft:shulker
+value minecraft:allay
+value minecraft:bat
+value minecraft:bee
+value minecraft:blaze
+value minecraft:cat
+value minecraft:chicken
+value minecraft:ghast
+value minecraft:phantom
+value minecraft:magma_cube
+value minecraft:ocelot
+value minecraft:parrot
+value minecraft:wither
 
 key minecraft:arrows
 value minecraft:arrow

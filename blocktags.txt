@@ -126,6 +126,10 @@ value minecraft:potted_warped_fungus
 value minecraft:nether_portal
 value minecraft:respawn_anchor
 
+key minecraft:smelts_to_glass
+value minecraft:sand
+value minecraft:red_sand
+
 key minecraft:sand
 value minecraft:sand
 value minecraft:red_sand
@@ -167,6 +171,29 @@ key minecraft:inside_step_sound_blocks
 value minecraft:snow
 value minecraft:powder_snow
 value minecraft:sculk_vein
+value minecraft:lily_pad
+value minecraft:nether_sprouts
+value minecraft:warped_roots
+value minecraft:crimson_roots
+value minecraft:glow_lichen
+value minecraft:small_amethyst_bud
+value minecraft:moss_carpet
+value minecraft:white_carpet
+value minecraft:orange_carpet
+value minecraft:magenta_carpet
+value minecraft:light_blue_carpet
+value minecraft:yellow_carpet
+value minecraft:lime_carpet
+value minecraft:pink_carpet
+value minecraft:gray_carpet
+value minecraft:light_gray_carpet
+value minecraft:cyan_carpet
+value minecraft:purple_carpet
+value minecraft:blue_carpet
+value minecraft:brown_carpet
+value minecraft:green_carpet
+value minecraft:red_carpet
+value minecraft:black_carpet
 
 key minecraft:climbable
 value minecraft:ladder
@@ -741,44 +768,16 @@ value minecraft:gold_ore
 value minecraft:nether_gold_ore
 value minecraft:deepslate_gold_ore
 
+key minecraft:invalid_spawn_inside
+value minecraft:end_portal
+value minecraft:end_gateway
+
 key minecraft:coral_blocks
 value minecraft:tube_coral_block
 value minecraft:brain_coral_block
 value minecraft:bubble_coral_block
 value minecraft:fire_coral_block
 value minecraft:horn_coral_block
-
-key minecraft:non_flammable_wood
-value minecraft:warped_stem
-value minecraft:stripped_warped_stem
-value minecraft:warped_hyphae
-value minecraft:stripped_warped_hyphae
-value minecraft:crimson_stem
-value minecraft:stripped_crimson_stem
-value minecraft:crimson_hyphae
-value minecraft:stripped_crimson_hyphae
-value minecraft:crimson_planks
-value minecraft:warped_planks
-value minecraft:crimson_slab
-value minecraft:warped_slab
-value minecraft:crimson_pressure_plate
-value minecraft:warped_pressure_plate
-value minecraft:crimson_fence
-value minecraft:warped_fence
-value minecraft:crimson_trapdoor
-value minecraft:warped_trapdoor
-value minecraft:crimson_fence_gate
-value minecraft:warped_fence_gate
-value minecraft:crimson_stairs
-value minecraft:warped_stairs
-value minecraft:crimson_button
-value minecraft:warped_button
-value minecraft:crimson_door
-value minecraft:warped_door
-value minecraft:crimson_sign
-value minecraft:warped_sign
-value minecraft:crimson_wall_sign
-value minecraft:warped_wall_sign
 
 key minecraft:stairs
 value minecraft:oak_stairs
@@ -1177,6 +1176,7 @@ value minecraft:end_portal
 value minecraft:end_gateway
 
 key minecraft:goats_spawnable_on
+value minecraft:grass_block
 value minecraft:stone
 value minecraft:snow
 value minecraft:snow_block
@@ -1542,6 +1542,26 @@ value minecraft:powder_snow
 key minecraft:redstone_ores
 value minecraft:redstone_ore
 value minecraft:deepslate_redstone_ore
+
+key minecraft:all_signs
+value minecraft:oak_sign
+value minecraft:spruce_sign
+value minecraft:birch_sign
+value minecraft:acacia_sign
+value minecraft:jungle_sign
+value minecraft:dark_oak_sign
+value minecraft:crimson_sign
+value minecraft:warped_sign
+value minecraft:mangrove_sign
+value minecraft:oak_wall_sign
+value minecraft:spruce_wall_sign
+value minecraft:birch_wall_sign
+value minecraft:acacia_wall_sign
+value minecraft:jungle_wall_sign
+value minecraft:dark_oak_wall_sign
+value minecraft:crimson_wall_sign
+value minecraft:warped_wall_sign
+value minecraft:mangrove_wall_sign
 
 key minecraft:dirt
 value minecraft:dirt

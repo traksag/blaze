@@ -27,7 +27,9 @@ value minecraft:eat
 value minecraft:elytra_glide
 value minecraft:entity_damage
 value minecraft:entity_die
+value minecraft:entity_dismount
 value minecraft:entity_interact
+value minecraft:entity_mount
 value minecraft:entity_place
 value minecraft:entity_roar
 value minecraft:entity_shake
@@ -73,7 +75,9 @@ value minecraft:eat
 value minecraft:elytra_glide
 value minecraft:entity_damage
 value minecraft:entity_die
+value minecraft:entity_dismount
 value minecraft:entity_interact
+value minecraft:entity_mount
 value minecraft:entity_place
 value minecraft:entity_roar
 value minecraft:entity_shake

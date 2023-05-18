@@ -978,8 +978,7 @@ server_tick(void) {
 
                     // TODO(traks): implement chat previewing
                     response_size += sprintf((char *) response + response_size,
-                            "]},\"description\":{\"text\":\"Running Blaze\"},"
-                            "\"previewsChat\":false}");
+                            "]},\"description\":{\"text\":\"Running Blaze\"}}");
 
                     int out_size = VarU32Size(0)
                             + VarU32Size(response_size)
@@ -1022,8 +1021,12 @@ server_tick(void) {
                     memcpy(init_con->username, username.data, username.size);
                     init_con->username_size = username.size;
 
-                    // @TODO(traks) read player public key for chat signing
-                    rec_cursor.index = packet_start + packet_size;
+                    i32 hasUuid = CursorGetU8(&rec_cursor);
+                    if (hasUuid) {
+                        u64 uuid_high = CursorGetU64(&rec_cursor);
+                        u64 uuid_low = CursorGetU64(&rec_cursor);
+                        // TODO(traks): do something with the UUID
+                    }
 
                     // @TODO(traks) online mode
                     // @TODO(traks) enable compression
@@ -1365,31 +1368,39 @@ init_entity_data(void) {
     register_entity_type(ENTITY_BAT, "minecraft:bat");
     register_entity_type(ENTITY_BEE, "minecraft:bee");
     register_entity_type(ENTITY_BLAZE, "minecraft:blaze");
+    register_entity_type(ENTITY_BLOCK_DISPLAY, "minecraft:block_display");
     register_entity_type(ENTITY_BOAT, "minecraft:boat");
-    register_entity_type(ENTITY_CHEST_BOAT, "minecraft:chest_boat");
+    register_entity_type(ENTITY_CAMEL, "minecraft:camel");
     register_entity_type(ENTITY_CAT, "minecraft:cat");
     register_entity_type(ENTITY_CAVE_SPIDER, "minecraft:cave_spider");
+    register_entity_type(ENTITY_CHEST_BOAT, "minecraft:chest_boat");
+    register_entity_type(ENTITY_CHEST_MINECART, "minecraft:chest_minecart");
     register_entity_type(ENTITY_CHICKEN, "minecraft:chicken");
     register_entity_type(ENTITY_COD, "minecraft:cod");
+    register_entity_type(ENTITY_COMMAND_BLOCK_MINECART, "minecraft:command_block_minecart");
     register_entity_type(ENTITY_COW, "minecraft:cow");
     register_entity_type(ENTITY_CREEPER, "minecraft:creeper");
     register_entity_type(ENTITY_DOLPHIN, "minecraft:dolphin");
     register_entity_type(ENTITY_DONKEY, "minecraft:donkey");
     register_entity_type(ENTITY_DRAGON_FIREBALL, "minecraft:dragon_fireball");
     register_entity_type(ENTITY_DROWNED, "minecraft:drowned");
+    register_entity_type(ENTITY_EGG, "minecraft:egg");
     register_entity_type(ENTITY_ELDER_GUARDIAN, "minecraft:elder_guardian");
     register_entity_type(ENTITY_END_CRYSTAL, "minecraft:end_crystal");
     register_entity_type(ENTITY_ENDER_DRAGON, "minecraft:ender_dragon");
+    register_entity_type(ENTITY_ENDER_PEARL, "minecraft:ender_pearl");
     register_entity_type(ENTITY_ENDERMAN, "minecraft:enderman");
     register_entity_type(ENTITY_ENDERMITE, "minecraft:endermite");
     register_entity_type(ENTITY_EVOKER, "minecraft:evoker");
     register_entity_type(ENTITY_EVOKER_FANGS, "minecraft:evoker_fangs");
+    register_entity_type(ENTITY_EXPERIENCE_BOTTLE, "minecraft:experience_bottle");
     register_entity_type(ENTITY_EXPERIENCE_ORB, "minecraft:experience_orb");
     register_entity_type(ENTITY_EYE_OF_ENDER, "minecraft:eye_of_ender");
     register_entity_type(ENTITY_FALLING_BLOCK, "minecraft:falling_block");
     register_entity_type(ENTITY_FIREWORK_ROCKET, "minecraft:firework_rocket");
     register_entity_type(ENTITY_FOX, "minecraft:fox");
     register_entity_type(ENTITY_FROG, "minecraft:frog");
+    register_entity_type(ENTITY_FURNACE_MINECART, "minecraft:furnace_minecart");
     register_entity_type(ENTITY_GHAST, "minecraft:ghast");
     register_entity_type(ENTITY_GIANT, "minecraft:giant");
     register_entity_type(ENTITY_GLOW_ITEM_FRAME, "minecraft:glow_item_frame");
@@ -1397,11 +1408,14 @@ init_entity_data(void) {
     register_entity_type(ENTITY_GOAT, "minecraft:goat");
     register_entity_type(ENTITY_GUARDIAN, "minecraft:guardian");
     register_entity_type(ENTITY_HOGLIN, "minecraft:hoglin");
+    register_entity_type(ENTITY_HOPPER_MINECART, "minecraft:hopper_minecart");
     register_entity_type(ENTITY_HORSE, "minecraft:horse");
     register_entity_type(ENTITY_HUSK, "minecraft:husk");
     register_entity_type(ENTITY_ILLUSIONER, "minecraft:illusioner");
+    register_entity_type(ENTITY_INTERACTION, "minecraft:interaction");
     register_entity_type(ENTITY_IRON_GOLEM, "minecraft:iron_golem");
     register_entity_type(ENTITY_ITEM, "minecraft:item");
+    register_entity_type(ENTITY_ITEM_DISPLAY, "minecraft:item_display");
     register_entity_type(ENTITY_ITEM_FRAME, "minecraft:item_frame");
     register_entity_type(ENTITY_FIREBALL, "minecraft:fireball");
     register_entity_type(ENTITY_LEASH_KNOT, "minecraft:leash_knot");
@@ -1411,14 +1425,8 @@ init_entity_data(void) {
     register_entity_type(ENTITY_MAGMA_CUBE, "minecraft:magma_cube");
     register_entity_type(ENTITY_MARKER, "minecraft:marker");
     register_entity_type(ENTITY_MINECART, "minecraft:minecart");
-    register_entity_type(ENTITY_CHEST_MINECART, "minecraft:chest_minecart");
-    register_entity_type(ENTITY_COMMAND_BLOCK_MINECART, "minecraft:command_block_minecart");
-    register_entity_type(ENTITY_FURNACE_MINECART, "minecraft:furnace_minecart");
-    register_entity_type(ENTITY_HOPPER_MINECART, "minecraft:hopper_minecart");
-    register_entity_type(ENTITY_SPAWNER_MINECART, "minecraft:spawner_minecart");
-    register_entity_type(ENTITY_TNT_MINECART, "minecraft:tnt_minecart");
-    register_entity_type(ENTITY_MULE, "minecraft:mule");
     register_entity_type(ENTITY_MOOSHROOM, "minecraft:mooshroom");
+    register_entity_type(ENTITY_MULE, "minecraft:mule");
     register_entity_type(ENTITY_OCELOT, "minecraft:ocelot");
     register_entity_type(ENTITY_PAINTING, "minecraft:painting");
     register_entity_type(ENTITY_PANDA, "minecraft:panda");
@@ -1430,6 +1438,7 @@ init_entity_data(void) {
     register_entity_type(ENTITY_PILLAGER, "minecraft:pillager");
     register_entity_type(ENTITY_POLAR_BEAR, "minecraft:polar_bear");
     register_entity_type(ENTITY_TNT, "minecraft:tnt");
+    register_entity_type(ENTITY_POTION, "minecraft:potion");
     register_entity_type(ENTITY_PUFFERFISH, "minecraft:pufferfish");
     register_entity_type(ENTITY_RABBIT, "minecraft:rabbit");
     register_entity_type(ENTITY_RAVAGER, "minecraft:ravager");
@@ -1442,20 +1451,21 @@ init_entity_data(void) {
     register_entity_type(ENTITY_SKELETON_HORSE, "minecraft:skeleton_horse");
     register_entity_type(ENTITY_SLIME, "minecraft:slime");
     register_entity_type(ENTITY_SMALL_FIREBALL, "minecraft:small_fireball");
+    register_entity_type(ENTITY_SNIFFER, "minecraft:sniffer");
     register_entity_type(ENTITY_SNOW_GOLEM, "minecraft:snow_golem");
     register_entity_type(ENTITY_SNOWBALL, "minecraft:snowball");
+    register_entity_type(ENTITY_SPAWNER_MINECART, "minecraft:spawner_minecart");
     register_entity_type(ENTITY_SPECTRAL_ARROW, "minecraft:spectral_arrow");
     register_entity_type(ENTITY_SPIDER, "minecraft:spider");
     register_entity_type(ENTITY_SQUID, "minecraft:squid");
     register_entity_type(ENTITY_STRAY, "minecraft:stray");
     register_entity_type(ENTITY_STRIDER, "minecraft:strider");
     register_entity_type(ENTITY_TADPOLE, "minecraft:tadpole");
-    register_entity_type(ENTITY_EGG, "minecraft:egg");
-    register_entity_type(ENTITY_ENDER_PEARL, "minecraft:ender_pearl");
-    register_entity_type(ENTITY_EXPERIENCE_BOTTLE, "minecraft:experience_bottle");
-    register_entity_type(ENTITY_POTION, "minecraft:potion");
-    register_entity_type(ENTITY_TRIDENT, "minecraft:trident");
+    register_entity_type(ENTITY_TEXT_DISPLAY, "minecraft:text_display");
+    register_entity_type(ENTITY_TNT, "minecraft:tnt");
+    register_entity_type(ENTITY_TNT_MINECART, "minecraft:tnt_minecart");
     register_entity_type(ENTITY_TRADER_LLAMA, "minecraft:trader_llama");
+    register_entity_type(ENTITY_TRIDENT, "minecraft:trident");
     register_entity_type(ENTITY_TROPICAL_FISH, "minecraft:tropical_fish");
     register_entity_type(ENTITY_TURTLE, "minecraft:turtle");
     register_entity_type(ENTITY_VEX, "minecraft:vex");
@@ -1524,7 +1534,9 @@ init_game_event_data(void) {
     register_game_event_type(GAME_EVENT_ELYTRA_GLIDE, "minecraft:elytra_glide");
     register_game_event_type(GAME_EVENT_ENTITY_DAMAGE, "minecraft:entity_damage");
     register_game_event_type(GAME_EVENT_ENTITY_DIE, "minecraft:entity_die");
+    register_game_event_type(GAME_EVENT_ENTITY_DISMOUNT, "minecraft:entity_dismount");
     register_game_event_type(GAME_EVENT_ENTITY_INTERACT, "minecraft:entity_interact");
+    register_game_event_type(GAME_EVENT_ENTITY_MOUNT, "minecraft:entity_mount");
     register_game_event_type(GAME_EVENT_ENTITY_PLACE, "minecraft:entity_place");
     register_game_event_type(GAME_EVENT_ENTITY_ROAR, "minecraft:entity_roar");
     register_game_event_type(GAME_EVENT_ENTITY_SHAKE, "minecraft:entity_shake");
@@ -1537,6 +1549,8 @@ init_game_event_data(void) {
     register_game_event_type(GAME_EVENT_INSTRUMENT_PLAY, "minecraft:instrument_play");
     register_game_event_type(GAME_EVENT_ITEM_INTERACT_FINISH, "minecraft:item_interact_finish");
     register_game_event_type(GAME_EVENT_ITEM_INTERACT_START, "minecraft:item_interact_start");
+    register_game_event_type(GAME_EVENT_JUKEBOX_PLAY, "minecraft:jukebox_play");
+    register_game_event_type(GAME_EVENT_JUKEBOX_STOP_PLAY, "minecraft:jukebox_stop_play");
     register_game_event_type(GAME_EVENT_LIGHTNING_STRIKE, "minecraft:lightning_strike");
     register_game_event_type(GAME_EVENT_NOTE_BLOCK_PLAY, "minecraft:note_block_play");
     register_game_event_type(GAME_EVENT_PISTON_CONTRACT, "minecraft:piston_contract");
@@ -1555,6 +1569,7 @@ init_game_event_data(void) {
 
 static void
 load_tags(char * file_name, char * list_name, tag_list * tags, resource_loc_table * table) {
+    LogInfo("Loading tags: %s", list_name);
     MemoryArena arena = {
         .data = serv->short_lived_scratch,
         .size = serv->short_lived_scratch_size,
@@ -1596,7 +1611,10 @@ load_tags(char * file_name, char * list_name, tag_list * tags, resource_loc_tabl
             serv->tag_name_count += name_size;
         } else if (net_string_equal(args[0], STR("value"))) {
             i16 id = resolve_resource_loc_id(args[1], table);
-            assert(id != -1);
+            if (id == -1) {
+                LogInfo("Failed to resolve \"%.*s\"", args[1].size, args[1].data);
+                assert(0);
+            }
 
             assert(tag->values_index + tag->value_count
                     <= ARRAY_SIZE(serv->tag_value_id_buf));
@@ -1646,13 +1664,10 @@ init_biomes(void) {
     serv->biome_count++;
 
     *ocean = (biome) {
-        .precipitation = BIOME_PRECIPITATION_RAIN,
-        .category = BIOME_CATEGORY_OCEAN,
+        .has_precipitation = 1,
         .temperature = 0.5,
         .downfall = 0.5,
         .temperature_mod = BIOME_TEMPERATURE_MOD_NONE,
-        .depth = -1,
-        .scale = 0.1,
 
         .fog_colour = 12638463,
         .water_colour = 4159204,
@@ -1671,13 +1686,10 @@ init_biomes(void) {
     serv->biome_count++;
 
     *plains = (biome) {
-        .precipitation = BIOME_PRECIPITATION_RAIN,
-        .category = BIOME_CATEGORY_PLAINS,
+        .has_precipitation = 1,
         .temperature = 0.8,
         .downfall = 0.4,
         .temperature_mod = BIOME_TEMPERATURE_MOD_NONE,
-        .depth = 0.125,
-        .scale = 0.05,
 
         .fog_colour = 12638463,
         .water_colour = 4159204,

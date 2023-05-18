@@ -70,6 +70,10 @@ value minecraft:crimson_fence
 value minecraft:warped_fence
 value minecraft:mangrove_fence
 
+key minecraft:smelts_to_glass
+value minecraft:sand
+value minecraft:red_sand
+
 key minecraft:sand
 value minecraft:sand
 value minecraft:red_sand
@@ -236,6 +240,10 @@ value minecraft:crimson_button
 value minecraft:warped_button
 value minecraft:mangrove_button
 
+key minecraft:creeper_igniters
+value minecraft:flint_and_steel
+value minecraft:fire_charge
+
 key minecraft:coal_ores
 value minecraft:coal_ore
 value minecraft:deepslate_coal_ore
@@ -250,6 +258,55 @@ value minecraft:dark_oak_sapling
 value minecraft:azalea
 value minecraft:flowering_azalea
 value minecraft:mangrove_propagule
+
+key minecraft:tools
+value minecraft:diamond_sword
+value minecraft:stone_sword
+value minecraft:golden_sword
+value minecraft:netherite_sword
+value minecraft:wooden_sword
+value minecraft:iron_sword
+value minecraft:diamond_axe
+value minecraft:stone_axe
+value minecraft:golden_axe
+value minecraft:netherite_axe
+value minecraft:wooden_axe
+value minecraft:iron_axe
+value minecraft:diamond_pickaxe
+value minecraft:stone_pickaxe
+value minecraft:golden_pickaxe
+value minecraft:netherite_pickaxe
+value minecraft:wooden_pickaxe
+value minecraft:iron_pickaxe
+value minecraft:diamond_shovel
+value minecraft:stone_shovel
+value minecraft:golden_shovel
+value minecraft:netherite_shovel
+value minecraft:wooden_shovel
+value minecraft:iron_shovel
+value minecraft:diamond_hoe
+value minecraft:stone_hoe
+value minecraft:golden_hoe
+value minecraft:netherite_hoe
+value minecraft:wooden_hoe
+value minecraft:iron_hoe
+value minecraft:trident
+
+key minecraft:axes
+value minecraft:diamond_axe
+value minecraft:stone_axe
+value minecraft:golden_axe
+value minecraft:netherite_axe
+value minecraft:wooden_axe
+value minecraft:iron_axe
+
+key minecraft:pickaxes
+value minecraft:diamond_pickaxe
+value minecraft:stone_pickaxe
+value minecraft:golden_pickaxe
+value minecraft:netherite_pickaxe
+value minecraft:wooden_pickaxe
+value minecraft:iron_pickaxe
 
 key minecraft:logs_that_burn
 value minecraft:dark_oak_log
@@ -286,6 +343,14 @@ value minecraft:spruce_log
 value minecraft:spruce_wood
 value minecraft:stripped_spruce_log
 value minecraft:stripped_spruce_wood
+
+key minecraft:swords
+value minecraft:diamond_sword
+value minecraft:stone_sword
+value minecraft:golden_sword
+value minecraft:netherite_sword
+value minecraft:wooden_sword
+value minecraft:iron_sword
 
 key minecraft:stone_tool_materials
 value minecraft:cobblestone
@@ -389,15 +454,6 @@ key minecraft:wart_blocks
 value minecraft:nether_wart_block
 value minecraft:warped_wart_block
 
-key minecraft:overworld_natural_logs
-value minecraft:acacia_log
-value minecraft:birch_log
-value minecraft:oak_log
-value minecraft:jungle_log
-value minecraft:spruce_log
-value minecraft:dark_oak_log
-value minecraft:mangrove_log
-
 key minecraft:fences
 value minecraft:oak_fence
 value minecraft:acacia_fence
@@ -437,6 +493,14 @@ value minecraft:brown_carpet
 value minecraft:green_carpet
 value minecraft:red_carpet
 value minecraft:black_carpet
+
+key minecraft:shovels
+value minecraft:diamond_shovel
+value minecraft:stone_shovel
+value minecraft:golden_shovel
+value minecraft:netherite_shovel
+value minecraft:wooden_shovel
+value minecraft:iron_shovel
 
 key minecraft:small_flowers
 value minecraft:dandelion
@@ -561,6 +625,17 @@ value minecraft:pink_bed
 value minecraft:purple_bed
 value minecraft:white_bed
 value minecraft:yellow_bed
+
+key minecraft:fence_gates
+value minecraft:acacia_fence_gate
+value minecraft:birch_fence_gate
+value minecraft:dark_oak_fence_gate
+value minecraft:jungle_fence_gate
+value minecraft:oak_fence_gate
+value minecraft:spruce_fence_gate
+value minecraft:crimson_fence_gate
+value minecraft:warped_fence_gate
+value minecraft:mangrove_fence_gate
 
 key minecraft:wooden_slabs
 value minecraft:oak_slab
@@ -786,6 +861,14 @@ value minecraft:soul_campfire
 key minecraft:coals
 value minecraft:coal
 value minecraft:charcoal
+
+key minecraft:hoes
+value minecraft:diamond_hoe
+value minecraft:stone_hoe
+value minecraft:golden_hoe
+value minecraft:netherite_hoe
+value minecraft:wooden_hoe
+value minecraft:iron_hoe
 
 key minecraft:wooden_trapdoors
 value minecraft:acacia_trapdoor

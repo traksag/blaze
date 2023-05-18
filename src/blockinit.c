@@ -389,6 +389,23 @@ init_wall_sign(char * resource_loc) {
 }
 
 static void
+InitHangingSign(char * resource_loc) {
+    // TODO(traks): models, light reduction, block behaviour, etc.
+    block_properties * props = BeginNextBlock(resource_loc);
+    add_block_property(props, BLOCK_PROPERTY_ROTATION_16, "0");
+    add_block_property(props, BLOCK_PROPERTY_ATTACHED, "false");
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
+}
+
+static void
+InitWallHangingSign(char * resource_loc) {
+    // TODO(traks): models, light reduction, block behaviour, etc.
+    block_properties * props = BeginNextBlock(resource_loc);
+    add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
+}
+
+static void
 init_stair_props(char * resource_loc) {
     block_properties * props = BeginNextBlock(resource_loc);
     props->type_tags |= (u32) 1 << BLOCK_TAG_STAIRS;
@@ -1155,7 +1172,6 @@ init_block_data(void) {
     register_bool_property(BLOCK_PROPERTY_TRIGGERED, "triggered");
     register_bool_property(BLOCK_PROPERTY_UNSTABLE, "unstable");
     register_bool_property(BLOCK_PROPERTY_WATERLOGGED, "waterlogged");
-    register_bool_property(BLOCK_PROPERTY_VINE_END, "vine_end");
     register_bool_property(BLOCK_PROPERTY_BERRIES, "berries");
     register_bool_property(BLOCK_PROPERTY_BLOOM, "bloom");
     register_bool_property(BLOCK_PROPERTY_SHRIEKING, "shrieking");
@@ -1171,6 +1187,7 @@ init_block_data(void) {
     register_property_v(BLOCK_PROPERTY_FACING, "facing", 6, "north", "east", "south", "west", "up", "down");
     register_property_v(BLOCK_PROPERTY_FACING_HOPPER, "facing", 5, "down", "north", "south", "west", "east");
     register_property_v(BLOCK_PROPERTY_HORIZONTAL_FACING, "facing", 4, "north", "south", "west", "east");
+    register_range_property(BLOCK_PROPERTY_FLOWER_AMOUNT, "flower_amount", 1, 4);
     register_property_v(BLOCK_PROPERTY_JIGSAW_ORIENTATION, "orientation", 12, "down_east", "down_north", "down_south", "down_west", "up_east", "up_north", "up_south", "up_west", "west_up", "east_up", "north_up", "south_up");
     register_property_v(BLOCK_PROPERTY_ATTACH_FACE, "face", 3, "floor", "wall", "ceiling");
     register_property_v(BLOCK_PROPERTY_BELL_ATTACHMENT, "attachment", 4, "floor", "ceiling", "single_wall", "double_wall");
@@ -1218,7 +1235,7 @@ init_block_data(void) {
     register_property_v(BLOCK_PROPERTY_CHEST_TYPE, "type", 3, "single", "left", "right");
     register_property_v(BLOCK_PROPERTY_MODE_COMPARATOR, "mode", 2, "compare", "subtract");
     register_property_v(BLOCK_PROPERTY_DOOR_HINGE, "hinge", 2, "left", "right");
-    register_property_v(BLOCK_PROPERTY_NOTEBLOCK_INSTRUMENT, "instrument", 16, "harp", "basedrum", "snare", "hat", "bass", "flute", "bell", "guitar", "chime", "xylophone", "iron_xylophone", "cow_bell", "didgeridoo", "bit", "banjo", "pling");
+    register_property_v(BLOCK_PROPERTY_NOTEBLOCK_INSTRUMENT, "instrument", 23, "harp", "basedrum", "snare", "hat", "bass", "flute", "bell", "guitar", "chime", "xylophone", "iron_xylophone", "cow_bell", "didgeridoo", "bit", "banjo", "pling", "zombie", "skeleton", "creeper", "dragon", "wither_skeleton", "piglin", "custom_head");
     register_property_v(BLOCK_PROPERTY_PISTON_TYPE, "type", 2, "normal", "sticky");
     register_property_v(BLOCK_PROPERTY_SLAB_TYPE, "type", 3, "top", "bottom", "double");
     register_property_v(BLOCK_PROPERTY_STAIRS_SHAPE, "shape", 5, "straight", "inner_left", "inner_right", "outer_left", "outer_right");
@@ -1228,6 +1245,13 @@ init_block_data(void) {
     register_property_v(BLOCK_PROPERTY_VERTICAL_DIRECTION, "vertical_direction", 2, "up", "down");
     register_property_v(BLOCK_PROPERTY_DRIPSTONE_THICKNESS, "thickness", 5, "tip_merge", "tip", "frustum", "middle", "base");
     register_property_v(BLOCK_PROPERTY_SCULK_SENSOR_PHASE, "sculk_sensor_phase", 3, "inactive", "active", "cooldown");
+    register_bool_property(BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_0_OCCUPIED, "slot_0_occupied");
+    register_bool_property(BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_1_OCCUPIED, "slot_1_occupied");
+    register_bool_property(BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_2_OCCUPIED, "slot_2_occupied");
+    register_bool_property(BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_3_OCCUPIED, "slot_3_occupied");
+    register_bool_property(BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_4_OCCUPIED, "slot_4_occupied");
+    register_bool_property(BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_5_OCCUPIED, "slot_5_occupied");
+    register_range_property(BLOCK_PROPERTY_DUSTED, "dusted", 0, 3);
 
     block_properties * props;
 
@@ -1249,13 +1273,17 @@ init_block_data(void) {
     InitSimpleFullBlock("minecraft:birch_planks");
     InitSimpleFullBlock("minecraft:jungle_planks");
     InitSimpleFullBlock("minecraft:acacia_planks");
+    InitSimpleFullBlock("minecraft:cherry_planks");
     InitSimpleFullBlock("minecraft:dark_oak_planks");
     InitSimpleFullBlock("minecraft:mangrove_planks");
+    InitSimpleFullBlock("minecraft:bamboo_planks");
+    InitSimpleFullBlock("minecraft:bamboo_mosaic");
     init_sapling("minecraft:oak_sapling");
     init_sapling("minecraft:spruce_sapling");
     init_sapling("minecraft:birch_sapling");
     init_sapling("minecraft:jungle_sapling");
     init_sapling("minecraft:acacia_sapling");
+    init_sapling("minecraft:cherry_sapling");
     init_sapling("minecraft:dark_oak_sapling");
     init_propagule("minecraft:mangrove_propagule");
     InitSimpleFullBlock("minecraft:bedrock");
@@ -1276,6 +1304,11 @@ init_block_data(void) {
     AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
     InitSimpleFullBlock("minecraft:sand");
+
+    // TODO(traks): block models, light reduction, etc. This is a block entity
+    props = BeginNextBlock("minecraft:suspicious_sand");
+    add_block_property(props, BLOCK_PROPERTY_DUSTED, "0");
+
     InitSimpleFullBlock("minecraft:red_sand");
     InitSimpleFullBlock("minecraft:gravel");
     InitSimpleFullBlock("minecraft:gold_ore");
@@ -1290,6 +1323,7 @@ init_block_data(void) {
     init_pillar("minecraft:birch_log", 0);
     init_pillar("minecraft:jungle_log", 0);
     init_pillar("minecraft:acacia_log", 0);
+    init_pillar("minecraft:cherry_log", 0);
     init_pillar("minecraft:dark_oak_log", 0);
     init_pillar("minecraft:mangrove_log", 0);
 
@@ -1300,18 +1334,22 @@ init_block_data(void) {
     AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
     init_pillar("minecraft:muddy_mangrove_roots", 0);
+    init_pillar("minecraft:bamboo_block", 0);
     init_pillar("minecraft:stripped_spruce_log", 0);
     init_pillar("minecraft:stripped_birch_log", 0);
     init_pillar("minecraft:stripped_jungle_log", 0);
     init_pillar("minecraft:stripped_acacia_log", 0);
+    init_pillar("minecraft:stripped_cherry_log", 0);
     init_pillar("minecraft:stripped_dark_oak_log", 0);
     init_pillar("minecraft:stripped_oak_log", 0);
     init_pillar("minecraft:stripped_mangrove_log", 0);
+    init_pillar("minecraft:stripped_bamboo_block", 0);
     init_pillar("minecraft:oak_wood", 0);
     init_pillar("minecraft:spruce_wood", 0);
     init_pillar("minecraft:birch_wood", 0);
     init_pillar("minecraft:jungle_wood", 0);
     init_pillar("minecraft:acacia_wood", 0);
+    init_pillar("minecraft:cherry_wood", 0);
     init_pillar("minecraft:dark_oak_wood", 0);
     init_pillar("minecraft:mangrove_wood", 0);
     init_pillar("minecraft:stripped_oak_wood", 0);
@@ -1319,6 +1357,7 @@ init_block_data(void) {
     init_pillar("minecraft:stripped_birch_wood", 0);
     init_pillar("minecraft:stripped_jungle_wood", 0);
     init_pillar("minecraft:stripped_acacia_wood", 0);
+    init_pillar("minecraft:stripped_cherry_wood", 0);
     init_pillar("minecraft:stripped_dark_oak_wood", 0);
     init_pillar("minecraft:stripped_mangrove_wood", 0);
     init_leaves("minecraft:oak_leaves");
@@ -1326,6 +1365,7 @@ init_block_data(void) {
     init_leaves("minecraft:birch_leaves");
     init_leaves("minecraft:jungle_leaves");
     init_leaves("minecraft:acacia_leaves");
+    init_leaves("minecraft:cherry_leaves");
     init_leaves("minecraft:dark_oak_leaves");
     init_leaves("minecraft:mangrove_leaves");
     init_leaves("minecraft:azalea_leaves");
@@ -1442,6 +1482,7 @@ init_block_data(void) {
     add_block_property(props, BLOCK_PROPERTY_PISTON_TYPE, "normal");
 
     InitSimplePlant("minecraft:dandelion");
+    InitSimplePlant("minecraft:torchflower");
     InitSimplePlant("minecraft:poppy");
     InitSimplePlant("minecraft:blue_orchid");
     InitSimplePlant("minecraft:allium");
@@ -1470,6 +1511,17 @@ init_block_data(void) {
     SetLightReductionForAllStates(props, 15);
 
     InitSimpleFullBlock("minecraft:bookshelf");
+
+    // TODO(traks): block model, light reduction, etc. This is a block entity
+    props = BeginNextBlock("minecraft:chiseled_bookshelf");
+    add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
+    add_block_property(props, BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_0_OCCUPIED, "false");
+    add_block_property(props, BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_1_OCCUPIED, "false");
+    add_block_property(props, BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_2_OCCUPIED, "false");
+    add_block_property(props, BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_3_OCCUPIED, "false");
+    add_block_property(props, BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_4_OCCUPIED, "false");
+    add_block_property(props, BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_5_OCCUPIED, "false");
+
     InitSimpleFullBlock("minecraft:mossy_cobblestone");
     InitSimpleFullBlock("minecraft:obsidian");
 
@@ -1536,9 +1588,11 @@ init_block_data(void) {
     init_sign("minecraft:spruce_sign");
     init_sign("minecraft:birch_sign");
     init_sign("minecraft:acacia_sign");
+    init_sign("minecraft:cherry_sign");
     init_sign("minecraft:jungle_sign");
     init_sign("minecraft:dark_oak_sign");
     init_sign("minecraft:mangrove_sign");
+    init_sign("minecraft:bamboo_sign");
 
     // TODO(traks): block models + light reduction
     init_door_props("minecraft:oak_door");
@@ -1563,9 +1617,35 @@ init_block_data(void) {
     init_wall_sign("minecraft:spruce_wall_sign");
     init_wall_sign("minecraft:birch_wall_sign");
     init_wall_sign("minecraft:acacia_wall_sign");
+    init_wall_sign("minecraft:cherry_wall_sign");
     init_wall_sign("minecraft:jungle_wall_sign");
     init_wall_sign("minecraft:dark_oak_wall_sign");
     init_wall_sign("minecraft:mangrove_wall_sign");
+    init_wall_sign("minecraft:bamboo_wall_sign");
+
+    InitHangingSign("minecraft:oak_hanging_sign");
+    InitHangingSign("minecraft:spruce_hanging_sign");
+    InitHangingSign("minecraft:birch_hanging_sign");
+    InitHangingSign("minecraft:acacia_hanging_sign");
+    InitHangingSign("minecraft:cherry_hanging_sign");
+    InitHangingSign("minecraft:jungle_hanging_sign");
+    InitHangingSign("minecraft:dark_oak_hanging_sign");
+    InitHangingSign("minecraft:crimson_hanging_sign");
+    InitHangingSign("minecraft:warped_hanging_sign");
+    InitHangingSign("minecraft:mangrove_hanging_sign");
+    InitHangingSign("minecraft:bamboo_hanging_sign");
+
+    InitWallHangingSign("minecraft:oak_wall_hanging_sign");
+    InitWallHangingSign("minecraft:spruce_wall_hanging_sign");
+    InitWallHangingSign("minecraft:birch_wall_hanging_sign");
+    InitWallHangingSign("minecraft:acacia_wall_hanging_sign");
+    InitWallHangingSign("minecraft:cherry_wall_hanging_sign");
+    InitWallHangingSign("minecraft:jungle_wall_hanging_sign");
+    InitWallHangingSign("minecraft:dark_oak_wall_hanging_sign");
+    InitWallHangingSign("minecraft:mangrove_wall_hanging_sign");
+    InitWallHangingSign("minecraft:crimson_wall_hanging_sign");
+    InitWallHangingSign("minecraft:warped_wall_hanging_sign");
+    InitWallHangingSign("minecraft:bamboo_wall_hanging_sign");
 
     props = BeginNextBlock("minecraft:lever");
     add_block_property(props, BLOCK_PROPERTY_ATTACH_FACE, "wall");
@@ -1583,8 +1663,10 @@ init_block_data(void) {
     init_pressure_plate("minecraft:birch_pressure_plate");
     init_pressure_plate("minecraft:jungle_pressure_plate");
     init_pressure_plate("minecraft:acacia_pressure_plate");
+    init_pressure_plate("minecraft:cherry_pressure_plate");
     init_pressure_plate("minecraft:dark_oak_pressure_plate");
     init_pressure_plate("minecraft:mangrove_pressure_plate");
+    init_pressure_plate("minecraft:bamboo_pressure_plate");
 
     init_redstone_ore("minecraft:redstone_ore");
     init_redstone_ore("minecraft:deepslate_redstone_ore");
@@ -1703,8 +1785,10 @@ init_block_data(void) {
     init_trapdoor_props("minecraft:birch_trapdoor");
     init_trapdoor_props("minecraft:jungle_trapdoor");
     init_trapdoor_props("minecraft:acacia_trapdoor");
+    init_trapdoor_props("minecraft:cherry_trapdoor");
     init_trapdoor_props("minecraft:dark_oak_trapdoor");
     init_trapdoor_props("minecraft:mangrove_trapdoor");
+    init_trapdoor_props("minecraft:bamboo_trapdoor");
 
     InitSimpleFullBlock("minecraft:stone_bricks");
     InitSimpleFullBlock("minecraft:mossy_stone_bricks");
@@ -1874,11 +1958,13 @@ init_block_data(void) {
     init_wall_props("minecraft:mossy_cobblestone_wall");
 
     InitFlowerPot("minecraft:flower_pot");
+    InitFlowerPot("minecraft:potted_torchflower");
     InitFlowerPot("minecraft:potted_oak_sapling");
     InitFlowerPot("minecraft:potted_spruce_sapling");
     InitFlowerPot("minecraft:potted_birch_sapling");
     InitFlowerPot("minecraft:potted_jungle_sapling");
     InitFlowerPot("minecraft:potted_acacia_sapling");
+    InitFlowerPot("minecraft:potted_cherry_sapling");
     InitFlowerPot("minecraft:potted_dark_oak_sapling");
     InitFlowerPot("minecraft:potted_mangrove_propagule");
     InitFlowerPot("minecraft:potted_fern");
@@ -1915,8 +2001,10 @@ init_block_data(void) {
     init_button("minecraft:birch_button");
     init_button("minecraft:jungle_button");
     init_button("minecraft:acacia_button");
+    init_button("minecraft:cherry_button");
     init_button("minecraft:dark_oak_button");
     init_button("minecraft:mangrove_button");
+    init_button("minecraft:bamboo_button");
 
     // @TODO(traks) collision models
     init_skull_props("minecraft:skeleton_skull");
@@ -1931,6 +2019,8 @@ init_block_data(void) {
     init_wall_skull_props("minecraft:creeper_wall_head");
     init_skull_props("minecraft:dragon_head");
     init_wall_skull_props("minecraft:dragon_wall_head");
+    init_skull_props("minecraft:piglin_head");
+    init_wall_skull_props("minecraft:piglin_wall_head");
 
     // @TODO(traks) collision models
     init_anvil_props("minecraft:anvil");
@@ -2033,8 +2123,11 @@ init_block_data(void) {
     init_pane("minecraft:black_stained_glass_pane");
 
     init_stair_props("minecraft:acacia_stairs");
+    init_stair_props("minecraft:cherry_stairs");
     init_stair_props("minecraft:dark_oak_stairs");
     init_stair_props("minecraft:mangrove_stairs");
+    init_stair_props("minecraft:bamboo_stairs");
+    init_stair_props("minecraft:bamboo_mosaic_stairs");
 
     InitSimpleBlockWithModels("minecraft:slime_block", BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY, 1, 0);
     InitSimpleBlockWithModels("minecraft:barrier", BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY, 0, 0);
@@ -2141,8 +2234,11 @@ init_block_data(void) {
     init_slab("minecraft:birch_slab");
     init_slab("minecraft:jungle_slab");
     init_slab("minecraft:acacia_slab");
+    init_slab("minecraft:cherry_slab");
     init_slab("minecraft:dark_oak_slab");
     init_slab("minecraft:mangrove_slab");
+    init_slab("minecraft:bamboo_slab");
+    init_slab("minecraft:bamboo_mosaic_slab");
     init_slab("minecraft:stone_slab");
     init_slab("minecraft:smooth_stone_slab");
     init_slab("minecraft:sandstone_slab");
@@ -2167,22 +2263,28 @@ init_block_data(void) {
     init_fence_gate("minecraft:birch_fence_gate");
     init_fence_gate("minecraft:jungle_fence_gate");
     init_fence_gate("minecraft:acacia_fence_gate");
+    init_fence_gate("minecraft:cherry_fence_gate");
     init_fence_gate("minecraft:dark_oak_fence_gate");
     init_fence_gate("minecraft:mangrove_fence_gate");
+    init_fence_gate("minecraft:bamboo_fence_gate");
 
     init_fence("minecraft:spruce_fence", 1);
     init_fence("minecraft:birch_fence", 1);
     init_fence("minecraft:jungle_fence", 1);
     init_fence("minecraft:acacia_fence", 1);
+    init_fence("minecraft:cherry_fence", 1);
     init_fence("minecraft:dark_oak_fence", 1);
     init_fence("minecraft:mangrove_fence", 1);
+    init_fence("minecraft:bamboo_fence", 1);
 
     init_door_props("minecraft:spruce_door");
     init_door_props("minecraft:birch_door");
     init_door_props("minecraft:jungle_door");
     init_door_props("minecraft:acacia_door");
+    init_door_props("minecraft:cherry_door");
     init_door_props("minecraft:dark_oak_door");
     init_door_props("minecraft:mangrove_door");
+    init_door_props("minecraft:bamboo_door");
 
     // TODO(traks): block models + light reduction
     props = BeginNextBlock("minecraft:end_rod");
@@ -2209,6 +2311,11 @@ init_block_data(void) {
     init_stair_props("minecraft:purpur_stairs");
 
     InitSimpleFullBlock("minecraft:end_stone_bricks");
+
+    props = BeginNextBlock("minecraft:torchflower_crop");
+    add_block_property(props, BLOCK_PROPERTY_AGE_2, "0");
+    SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_FARMLAND_BELOW);
 
     props = BeginNextBlock("minecraft:beetroots");
     add_block_property(props, BLOCK_PROPERTY_AGE_3, "0");
@@ -2878,6 +2985,12 @@ init_block_data(void) {
     InitAzalea("minecraft:flowering_azalea");
 
     InitCarpet("minecraft:moss_carpet");
+
+    // TODO(traks): block models, light reduction, behaviour, etc.
+    props = BeginNextBlock("minecraft:pink_petals");
+    add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
+    add_block_property(props, BLOCK_PROPERTY_FLOWER_AMOUNT, "1");
+
     InitSimpleFullBlock("minecraft:moss_block");
 
     // TODO(traks): block models + light reduction
@@ -2953,10 +3066,16 @@ init_block_data(void) {
     InitSimpleEmptyBlock("minecraft:frogspawn");
     InitSimpleFullBlock("minecraft:reinforced_deepslate");
 
+    // TODO(traks): block models, behaviours, light behaviour, etc. This is a
+    // block entity
+    props = BeginNextBlock("minecraft:decorated_pot");
+    add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
+
     serv->vanilla_block_state_count = serv->actual_block_state_count;
 
     InitSimpleFullBlock("blaze:unknown");
 
     assert(MAX_BLOCK_STATES >= serv->actual_block_state_count);
-    LogInfo("block state count: %d\n", serv->actual_block_state_count);
+    LogInfo("Block state count: %d", serv->actual_block_state_count);
 }
