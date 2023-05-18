@@ -85,36 +85,77 @@ static void UpdateGlobalBlockReferences(block_properties * props) {
     }
 }
 
+// NOTE(traks): returns < 0 or == 0 or > 0 depending on whether a < b, a == b or
+// a > b respectively.
+static i32 CompareBlockProperty(String a, String b) {
+    i32 minSize = MIN(a.size, b.size);
+    for (i32 charIndex = 0; charIndex < minSize; charIndex++) {
+        if (a.data[charIndex] != b.data[charIndex]) {
+            return (i32) a.data[charIndex] - (i32) b.data[charIndex];
+        }
+    }
+    return a.size - b.size;
+}
+
 static void
-add_block_property(block_properties * props, int id, char * default_value) {
+add_block_property(block_properties * props, int propertyId, char * defaultValue) {
+    block_property_spec * spec = serv->block_property_specs + propertyId;
+    String propName = {
+        .size = spec->tape[0],
+        .data = spec->tape + 1,
+    };
+    String defaultValueString = STR(defaultValue);
     i32 oldStateCount = count_block_states(props);
 
     // NOTE(traks): figure out index of default value
-    block_property_spec * spec = serv->block_property_specs + id;
-    int default_value_index = spec->value_count;
-    int tape_index = 1 + spec->tape[0];
+    // NOTE(traks): tape starts with name size, then name string, and then
+    // repeated value size + value string. Skip the name part
+    int curTapeIndex = 1 + spec->tape[0];
+    int defaultValueIndex = spec->value_count;
 
-    String default_string = STR(default_value);
-
-    for (int i = 0; i < spec->value_count; i++) {
+    for (i32 valueIndex = 0; valueIndex < spec->value_count; valueIndex++) {
         String value = {
-            .size = spec->tape[tape_index],
-            .data = spec->tape + tape_index + 1
+            .size = spec->tape[curTapeIndex],
+            .data = spec->tape + curTapeIndex + 1
         };
-        if (net_string_equal(default_string, value)) {
-            default_value_index = i;
+        if (net_string_equal(defaultValueString, value)) {
+            defaultValueIndex = valueIndex;
             break;
         }
 
-        tape_index += value.size + 1;
+        curTapeIndex += value.size + 1;
     }
-    assert(default_value_index < spec->value_count);
 
-    // NOTE(traks): register new property for the block and set the default
-    // value for it
-    int prop_index = props->property_count;
-    props->property_specs[prop_index] = id;
-    props->default_value_indices[prop_index] = default_value_index;
+    assert(defaultValueIndex < spec->value_count);
+
+    // NOTE(traks): Minecraft sorts block properties using the natural sorting
+    // order for Java strings. Since all properties have ascii characters, this
+    // comes down to ASCII sorting based on character values
+
+    assert(props->property_count < ARRAY_SIZE(props->property_specs));
+
+    // NOTE(traks): grab the index we should register the new property at
+    i32 newPropIndex;
+    for (newPropIndex = 0; newPropIndex < props->property_count; newPropIndex++) {
+        block_property_spec * otherSpec = serv->block_property_specs + props->property_specs[newPropIndex];
+        String otherPropName = {
+            .size = otherSpec->tape[0],
+            .data = otherSpec->tape + 1,
+        };
+        if (CompareBlockProperty(propName, otherPropName) < 0) {
+            break;
+        }
+    }
+
+    // NOTE(traks): make space for the new property
+    for (i32 propIndex = props->property_count; propIndex > newPropIndex; propIndex--) {
+        props->property_specs[propIndex] = props->property_specs[propIndex - 1];
+        props->default_value_indices[propIndex] = props->default_value_indices[propIndex - 1];
+    }
+
+    // NOTE(traks): register the new property for the block
+    props->property_specs[newPropIndex] = propertyId;
+    props->default_value_indices[newPropIndex] = defaultValueIndex;
     props->property_count++;
 
     // NOTE(traks): update global info
