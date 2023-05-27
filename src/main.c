@@ -1149,11 +1149,6 @@ server_tick(void) {
 
     EndTimings(ClearEntityChanges);
 
-    // load chunks from requests
-    BeginTimings(LoadChunks);
-    LoadChunks();
-    EndTimings(LoadChunks);
-
     BeginTimings(TickChunkSystem);
     TickChunkSystem();
     EndTimings(TickChunkSystem);

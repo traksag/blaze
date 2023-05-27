@@ -111,7 +111,6 @@ static inline WorldChunkPos UnpackWorldChunkPos(PackedWorldChunkPos pos) {
 
 void AddChunkInterest(WorldChunkPos pos, i32 interest);
 i32 PopChunksToLoad(i32 worldId, Chunk * * chunkArray, i32 maxChunks);
-void PushChunksFinishedLoading(i32 worldId, Chunk * * chunkArray, i32 chunkCount);
 Chunk * GetChunkIfLoaded(WorldChunkPos pos);
 Chunk * GetChunkInternal(WorldChunkPos pos);
 // NOTE(traks): chunkArray will hold the data, may need to zero-initialise it.
@@ -134,9 +133,6 @@ SetBlockResult WorldSetBlockState(WorldBlockPos pos, i32 blockState);
 i32 WorldGetBlockState(WorldBlockPos pos);
 void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena);
 
-ChunkSection * AllocChunkSection(void);
-void FreeChunkSection(ChunkSection * section);
-
 static inline u8 GetSectionLight(u8 * lightArray, i32 posIndex) {
     i32 byteIndex = posIndex / 2;
     i32 shift = (posIndex & 0x1) * 4;
@@ -156,8 +152,6 @@ void LightChunk(Chunk * ch);
 void LightChunkAndExchangeWithNeighbours(Chunk * targetChunk);
 
 void ChunkRecalculateMotionBlockingHeightMap(Chunk * ch);
-
-void LoadChunks(void);
 
 void InitChunkSystem(void);
 void TickChunkSystem(void);
