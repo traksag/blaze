@@ -7,7 +7,6 @@ typedef struct {
     // @NOTE(traks) index as yzx
     // @NOTE(traks) NULL if section is air
     u16 * blockStates;
-    MemoryPoolBlock * blockStatesBlock;
     u16 * changedBlockSet;
     i32 changedBlockSetMask;
     i32 changedBlockCount;
@@ -19,9 +18,7 @@ typedef struct {
     // never NULL, even if all light is 0.
     // @NOTE(traks) index as yzx
     u8 * skyLight;
-    MemoryPoolBlock * skyLightBlock;
     u8 * blockLight;
-    MemoryPoolBlock * blockLightBlock;
 } LightSection;
 
 #define CHUNK_FINISHED_LOADING (0x1 << 0)

@@ -3009,6 +3009,12 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     // received by the client? Or is there no way to tell if a chunk is still
     // buffered by the OS or TCP?
 
+    // TODO(traks): would also be really cool if we could dynamically adjust the
+    // chunk send rate based on the client's bandwidth. For example, send ping
+    // packet then chunk packet, see how long it takes until we get the pong
+    // packet. In case of low bandwidth, we should send chunks less frequently.
+    // In case of high bandwidth, we can send chunks more rapidly.
+
     // We iterate in a spiral around the player, so chunks near the player
     // are processed first. This shortens server join times (since players
     // don't need to wait for the chunk they are in to load) and allows

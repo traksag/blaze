@@ -2265,9 +2265,6 @@ typedef struct {
     MemoryArena * tickArena;
     MemoryArena * permanentArena;
 
-    MemoryPool * sectionPool;
-    MemoryPool * lightingPool;
-
     TaskQueue * backgroundQueue;
 } server;
 

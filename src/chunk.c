@@ -546,9 +546,7 @@ SetBlockResult ChunkSetBlockState(Chunk * ch, BlockPos pos, i32 blockState) {
 
     if (section->nonAirCount == 0) {
         // TODO(traks): return error if can't allocate chunk
-        MemoryPoolAllocation alloc = CallocInPool(serv->sectionPool);
-        section->blockStates = alloc.data;
-        section->blockStatesBlock = alloc.block;
+        section->blockStates = calloc(1, 4096 * sizeof *section->blockStates);
     }
 
     i32 index = SectionPosToIndex((BlockPos) {pos.x & 0xf, pos.y & 0xf, pos.z & 0xf});
@@ -568,10 +566,8 @@ SetBlockResult ChunkSetBlockState(Chunk * ch, BlockPos pos, i32 blockState) {
     section->blockStates[index] = blockState;
 
     if (section->nonAirCount == 0) {
-        MemoryPoolAllocation alloc = {.data = section->blockStates, .block = section->blockStatesBlock};
+        free(section->blockStates);
         section->blockStates = NULL;
-        section->blockStatesBlock = NULL;
-        FreeInPool(serv->sectionPool, alloc);
     }
 
     // @NOTE(traks) update height map
@@ -792,17 +788,12 @@ clean_up_unused_chunks(void) {
         // NOTE(traks): remove the chunk
         for (int sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
             ChunkSection * section = chunk->sections + sectionIndex;
-            if (section->blockStates) {
-                MemoryPoolAllocation alloc = {.data = section->blockStates, .block = section->blockStatesBlock};
-                FreeInPool(serv->sectionPool, alloc);
-            }
+            free(section->blockStates);
         }
         for (int sectionIndex = 0; sectionIndex < LIGHT_SECTIONS_PER_CHUNK; sectionIndex++) {
             LightSection * section = chunk->lightSections + sectionIndex;
-            MemoryPoolAllocation skyAlloc = {.data = section->skyLight, .block = section->skyLightBlock};
-            FreeInPool(serv->lightingPool, skyAlloc);
-            MemoryPoolAllocation blockAlloc = {.data = section->blockLight, .block = section->blockLightBlock};
-            FreeInPool(serv->lightingPool, blockAlloc);
+            free(section->skyLight);
+            free(section->blockLight);
         }
 
         FreeChunk(chunk->pos);
@@ -838,19 +829,13 @@ static void ScheduleLoadTasks() {
 
         for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
             ChunkSection * section = chunk->sections + sectionIndex;
-            MemoryPoolAllocation alloc = CallocInPool(serv->sectionPool);
-            section->blockStates = alloc.data;
-            section->blockStatesBlock = alloc.block;
+            section->blockStates = calloc(1, 4096 * sizeof *section->blockStates);
         }
 
         for (i32 sectionIndex = 0; sectionIndex < LIGHT_SECTIONS_PER_CHUNK; sectionIndex++) {
             LightSection * section = chunk->lightSections + sectionIndex;
-            MemoryPoolAllocation alloc = CallocInPool(serv->lightingPool);
-            section->skyLight = alloc.data;
-            section->skyLightBlock = alloc.block;
-            alloc = CallocInPool(serv->lightingPool);
-            section->blockLight = alloc.data;
-            section->blockLightBlock = alloc.block;
+            section->skyLight = calloc(1, 2048);
+            section->blockLight = calloc(1, 2048);
         }
 
         if (!PushTaskToQueue(serv->backgroundQueue, LoadChunkAsync, chunk)) {
@@ -880,10 +865,8 @@ void LoadChunks() {
         for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
             ChunkSection * section = chunk->sections + sectionIndex;
             if (section->nonAirCount == 0) {
-                MemoryPoolAllocation alloc = {.data = section->blockStates, .block = section->blockStatesBlock};
+                free(section->blockStates);
                 section->blockStates = NULL;
-                section->blockStatesBlock = NULL;
-                FreeInPool(serv->sectionPool, alloc);
             }
         }
 

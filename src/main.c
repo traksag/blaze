@@ -160,116 +160,6 @@ LogErrno(void * format) {
     LogInfo(format, error_msg);
 }
 
-static inline void UnlinkPoolBlock(MemoryPoolBlock * target) {
-    target->next->prev = target->prev;
-    target->prev->next = target->next;
-}
-
-static inline void LinkPoolBlockBehind(MemoryPoolBlock * target, MemoryPoolBlock * newParent) {
-    target->next = newParent->next;
-    target->prev = newParent;
-    newParent->next->prev = target;
-    newParent->next = target;
-}
-
-static inline void RelinkPoolBlockBehind(MemoryPoolBlock * target, MemoryPoolBlock * newParent) {
-    UnlinkPoolBlock(target);
-    LinkPoolBlockBehind(target, newParent);
-}
-
-MemoryPoolAllocation MallocInPool(MemoryPool * pool) {
-    MemoryPoolAllocation res = {0};
-
-    if (pool->nonFullList.next == &pool->nonFullList) {
-        if (pool->emptyList.next != &pool->emptyList) {
-            RelinkPoolBlockBehind(pool->emptyList.next, &pool->nonFullList);
-        } else {
-            // @NOTE(traks) initialises all memory to 0
-            i32 blockSize = pool->itemSize * pool->itemsPerBlock;
-            void * newData = mmap(NULL, blockSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-            if (newData == MAP_FAILED) {
-                // @TODO(traks) error code
-                exit(0);
-            }
-
-            i32 headerSize = sizeof (MemoryPoolBlock) + sizeof (u64) * (pool->itemsPerBlock / 64);
-            i32 headerItems = (headerSize + pool->itemSize - 1) / pool->itemSize;
-            assert(headerItems < pool->itemsPerBlock);
-            MemoryPoolBlock * newBlock = newData;
-            newBlock->useCount += headerItems;
-            u64 * usage = (void *) (newBlock + 1);
-            for (i32 i = 0; i < headerItems; i++) {
-                usage[i / 64] |= (u64) 1 << (i % 64);
-            }
-            LinkPoolBlockBehind(newBlock, &pool->nonFullList);
-        }
-    }
-
-    MemoryPoolBlock * curBlock = pool->nonFullList.next;
-    assert(curBlock != &pool->nonFullList);
-    res.block = curBlock;
-
-    u64 * usage = (void *) (curBlock + 1);
-    assert((pool->itemsPerBlock % 64) == 0);
-    i32 usageSize = pool->itemsPerBlock / 64;
-    assert(usageSize > 0);
-    for (i32 i = 0; i < usageSize; i++) {
-        if (usage[i] != 0xffffffffffffffff) {
-            i32 foundBit = -1;
-            for (i32 bitIndex = 0; bitIndex < 64; bitIndex++) {
-                if ((usage[i] & ((u64) 1 << bitIndex)) == 0) {
-                    foundBit = bitIndex;
-                    break;
-                }
-            }
-
-            if (foundBit != -1) {
-                usage[i] |= (u64) 1 << foundBit;
-                res.data = ((u8 *) curBlock) + (i * 64 * pool->itemSize) + foundBit * pool->itemSize;
-                break;
-            }
-        }
-    }
-
-    assert(res.data != NULL);
-    curBlock->useCount++;
-
-    if (curBlock->useCount >= pool->itemsPerBlock) {
-        RelinkPoolBlockBehind(curBlock, &pool->fullList);
-    }
-    return res;
-}
-
-MemoryPoolAllocation CallocInPool(MemoryPool * pool) {
-    MemoryPoolAllocation res = MallocInPool(pool);
-    memset(res.data, 0, pool->itemSize);
-    return res;
-}
-
-void FreeInPool(MemoryPool * pool, MemoryPoolAllocation alloc) {
-    if (alloc.block == NULL) {
-        return;
-    }
-
-    i32 itemIndex = ((u8 *) alloc.data - (u8 *) alloc.block) / pool->itemSize;
-    i32 longIndex = itemIndex / 64;
-    i32 bitIndex = itemIndex % 64;
-    u64 * usage = (void *) (alloc.block + 1);
-    assert(usage[longIndex] & ((u64) 1 << bitIndex));
-    usage[longIndex] &= ~((u64) 1 << bitIndex);
-
-    if (alloc.block->useCount == pool->itemsPerBlock) {
-        RelinkPoolBlockBehind(alloc.block, &pool->nonFullList);
-    }
-
-    alloc.block->useCount--;
-
-    if (alloc.block->useCount == 0) {
-        // @TODO(traks) release empty blocks back to the OS
-        RelinkPoolBlockBehind(alloc.block, &pool->emptyList);
-    }
-}
-
 static void
 handle_sigint(int sig) {
     got_sigint = 1;
@@ -1822,11 +1712,6 @@ main(void) {
     };
     serv->permanentArena = &permanentArena;
 
-    serv->sectionPool = MallocInArena(serv->permanentArena, sizeof *serv->sectionPool);
-    InitPool(serv->sectionPool, sizeof (u16) * 16 * 16 * 16, 256);
-    serv->lightingPool = MallocInArena(serv->permanentArena, sizeof *serv->lightingPool);
-    InitPool(serv->lightingPool, 2048, 256);
-
     // @TODO(traks) better sizes
     alloc_resource_loc_table(&serv->block_resource_table, 1 << 11, 1 << 16, ACTUAL_BLOCK_TYPE_COUNT);
     alloc_resource_loc_table(&serv->item_resource_table, 1 << 11, 1 << 16, ITEM_TYPE_COUNT);
@@ -1884,6 +1769,8 @@ main(void) {
                 struct timespec sleepTime = {
                     .tv_nsec = timeRemaining
                 };
+                // TODO(traks): on macOS this has a pretty signiciant drift. Can
+                // be off by 1 millisecond!
                 nanosleep(&sleepTime, NULL);
             } else {
                 tickStart = nextTickStart;

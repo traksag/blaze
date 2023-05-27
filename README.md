@@ -1,6 +1,6 @@
 # Blaze
 
-Handmade game server for Minecraft Java Edition 1.19.
+Handmade game server for Minecraft Java Edition 1.19.4.
 
 Currently a principal goal of this project is to make it easy to update it to newer versions of the game. Other goals are speed and stability: the server shouldn't have CPU spikes, memory spikes, a very slow and expensive start up, and should contain as little failure cases as possible (i.e. stuff Java can't). Users should be able to determine and control the maximum memory usage easily in advance.
 

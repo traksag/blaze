@@ -248,6 +248,8 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
 
     i32 lightIsStored = NbtGetU8(&chunkNbt, STR("isLightOn"));
     // @TODO(traks) remove; just used for testing lighting engine
+    // TODO(traks): figure out how we want to handle stored light and how we
+    // want to propagate it to other chunks, etc.
     lightIsStored = 0;
 
     NbtList sectionList = NbtGetList(&chunkNbt, STR("sections"), NBT_COMPOUND);
