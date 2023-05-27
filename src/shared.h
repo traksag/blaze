@@ -2282,9 +2282,6 @@ find_property_value_index(block_property_spec * prop_spec, String val);
 block_entity_base *
 try_get_block_entity(WorldBlockPos pos);
 
-void
-clean_up_unused_chunks(void);
-
 entity_base *
 resolve_entity(entity_id eid);
 

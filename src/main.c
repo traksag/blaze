@@ -1151,15 +1151,17 @@ server_tick(void) {
 
     // load chunks from requests
     BeginTimings(LoadChunks);
-
     LoadChunks();
-
     EndTimings(LoadChunks);
 
+    BeginTimings(TickChunkSystem);
+    TickChunkSystem();
+    EndTimings(TickChunkSystem);
+
     // update chunks
-    BeginTimings(UpdateChunks);
-    clean_up_unused_chunks();
-    EndTimings(UpdateChunks);
+    BeginTimings(TickChunkLoader);
+    TickChunkLoader();
+    EndTimings(TickChunkLoader);
 
     serv->current_tick++;
     EndTimings(ServerTick);
@@ -1741,6 +1743,7 @@ main(void) {
     CreateTaskQueue(backgroundQueue, 2);
     serv->backgroundQueue = backgroundQueue;
 
+    InitChunkLoader();
     InitChunkSystem();
 
     i64 tickStart = NanoTime();

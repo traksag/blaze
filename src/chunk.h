@@ -88,6 +88,27 @@ static inline WorldChunkPos WorldBlockPosChunk(WorldBlockPos pos) {
     return res;
 }
 
+typedef struct {
+    u64 packed;
+} PackedWorldChunkPos;
+
+static inline PackedWorldChunkPos PackWorldChunkPos(WorldChunkPos pos) {
+    u64 packed = ((u64) (pos.worldId & 0xfff) << 44)
+            | ((u64) (pos.x & 0x3fffff) << 22)
+            | ((u64) (pos.z & 0x3fffff) << 0);
+    PackedWorldChunkPos res = {.packed = packed};
+    return res;
+}
+
+static inline WorldChunkPos UnpackWorldChunkPos(PackedWorldChunkPos pos) {
+    WorldChunkPos res = {
+        .worldId = pos.packed >> 44,
+        .x = ((i32) (pos.packed >> 22) << 10) >> 10,
+        .z = ((i32) (pos.packed >> 0) << 10) >> 10,
+    };
+    return res;
+}
+
 void AddChunkInterest(WorldChunkPos pos, i32 interest);
 i32 PopChunksToLoad(i32 worldId, Chunk * * chunkArray, i32 maxChunks);
 void PushChunksFinishedLoading(i32 worldId, Chunk * * chunkArray, i32 chunkCount);
@@ -139,5 +160,9 @@ void ChunkRecalculateMotionBlockingHeightMap(Chunk * ch);
 void LoadChunks(void);
 
 void InitChunkSystem(void);
+void TickChunkSystem(void);
+
+void InitChunkLoader(void);
+void TickChunkLoader(void);
 
 #endif
