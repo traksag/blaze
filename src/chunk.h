@@ -162,7 +162,6 @@ void LoadChunks(void);
 void InitChunkSystem(void);
 void TickChunkSystem(void);
 
-void InitChunkLoader(void);
 void TickChunkLoader(void);
 
 #endif

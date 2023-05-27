@@ -16,8 +16,6 @@
 // appropriate way, we can ensure there are at most 1000 entries per bucket.
 // Not sure if that's any good.
 
-#define MAX_LOADED_CHUNKS (1024)
-
 // TODO(traks): we could also include the ID of the one with interest into the
 // chunk hash. Then we can't really run into issues where someone over-releasing
 // their interest frees up chunks that others are still interested in. Though to
@@ -40,8 +38,6 @@
 // We could also add salt to whatever ID system we use, so it's harder for
 // players to force hash collisions.
 
-#define CHUNK_HASH_IN_USE ((u32) 0x1 << 0)
-
 // TODO(traks): may be worthwhile to store multiple chunks under one hash. E.g.
 // a 4x4 per hash seems good (or even 8x8 so we can fit array of 16-bit
 // interestCounts into 1 cache lane). That adds a border of waste around player
@@ -50,9 +46,38 @@
 //
 // Might also be a bit more cache friendly, since if you access 1 chunk, you
 // probably also want to access some neighbouring chunks.
+
+// TODO(traks): Here's yet another idea. Instead of storing interest per chunk,
+// let actors register rectangular regions they have interest in. The chunk
+// system will take care of loading all the chunks in all the provided regions.
+//
+// There are several benefits to such a system. Actors don't need to rate limit
+// themselves to prevent overflowing the system. Actors also don't need to track
+// which chunks they have loaded to unload them once they lose interest. The
+// chunk system knows can be smarter about the load order (e.g. load chunks
+// region by region). Storing interest per chunk feels very heavy on the
+// management side: if 1000 players load roughly the same set of chunks, that's
+// 441 sets player interest with 1000 entries each. Though I'm not sure how the
+// proposed alternative would fare in this scenario.
+//
+// It may be complicated to do specific load orders with such a system though.
+// For example, currently we load chunks in a spiral around players. This could
+// get painful to implement unless the chunk system has special code for it.
+// Perhaps players could expand their region of interest as soon as their
+// previous interest region finished loading. Might get a bit hectic though, not
+// sure.
+
+#define MAX_LOADED_CHUNKS (1024)
+
+#define CHUNK_HASH_IN_USE ((u32) 0x1 << 0)
+
+typedef struct {
+    Chunk chunk;
+} ChunkHolder;
+
 typedef struct {
     PackedWorldChunkPos pos;
-    u32 tableIndex;
+    ChunkHolder * holder;
     u32 flags;
 } ChunkHashEntry;
 
@@ -61,29 +86,10 @@ typedef struct {
     // NOTE(traks): must be power of 2
     u32 arraySize;
     u32 sizeMask;
-    u32 sizeToStartGrow;
     u32 useCount;
 } ChunkHashMap;
 
-typedef struct ChunkHolder ChunkHolder;
-
-struct ChunkHolder {
-    union {
-        Chunk chunk;
-        ChunkHolder * nextFreeListEntry;
-    };
-    i32 used;
-};
-
-typedef struct {
-    ChunkHolder * entries;
-    ChunkHolder * freeList;
-    u32 arraySize;
-    u32 upperBoundSize;
-} ChunkTable;
-
 static ChunkHashMap chunkIndex;
-static ChunkTable chunkTable;
 
 typedef struct {
     Chunk * chunk;
@@ -148,58 +154,50 @@ static ChunkHashEntry * FindChunkHashEntryOrEmpty(PackedWorldChunkPos pos, u32 s
     return res;
 }
 
-static void RemoveHashEntryAt(u32 entryIndex) {
-    assert(!ChunkHashEntryIsEmpty(chunkIndex.entries + entryIndex));
+static void GrowChunkHashMap() {
+    // NOTE(traks): need a bit of wiggle room for reindexing and so on
+    assert(chunkIndex.arraySize < (1 << 28));
+
+    u32 oldSize = chunkIndex.arraySize;
+    ChunkHashEntry * oldEntries = chunkIndex.entries;
+    chunkIndex.arraySize = MAX(2 * oldSize, 128);
+    chunkIndex.sizeMask = chunkIndex.arraySize - 1;
+    chunkIndex.entries = calloc(1, chunkIndex.arraySize * sizeof *chunkIndex.entries);
+
+    for (i32 entryIndex = 0; entryIndex < oldSize; entryIndex++) {
+        ChunkHashEntry * oldEntry = oldEntries + entryIndex;
+        if (!ChunkHashEntryIsEmpty(oldEntry)) {
+            ChunkHashEntry * freeEntry = FindChunkHashEntryOrEmpty(oldEntry->pos, HashWorldChunkPos(oldEntry->pos));
+            *freeEntry = *oldEntry;
+        }
+    }
+
+    free(oldEntries);
+}
+
+static void RemoveHashEntry(ChunkHashEntry * entryToRemove) {
+    assert(!ChunkHashEntryIsEmpty(entryToRemove));
     chunkIndex.useCount--;
-    u32 chainStart = entryIndex;
-    u32 lastSlotToFill = chainStart;
-    chunkIndex.entries[entryIndex] = (ChunkHashEntry) {0};
+    u32 chainStart = entryToRemove - chunkIndex.entries;
+    u32 indexToFill = chainStart;
+    chunkIndex.entries[chainStart] = (ChunkHashEntry) {0};
     for (u32 offset = 1; offset < chunkIndex.arraySize; offset++) {
-        u32 index = (chainStart + offset) & chunkIndex.sizeMask;
-        ChunkHashEntry * chained = chunkIndex.entries + index;
+        u32 curIndex = (chainStart + offset) & chunkIndex.sizeMask;
+        ChunkHashEntry * chained = chunkIndex.entries + curIndex;
         if (ChunkHashEntryIsEmpty(chained)) {
             break;
         }
-        u32 desiredSlotIndex = HashWorldChunkPos(chained->pos) & chunkIndex.sizeMask;
-        // NOTE(traks): handle cases
-        // ... lastSlotToFill ... index ...
-        // and
-        // ... index ... lastSlotToFill ...
-        // separately
-        i32 isBetween = (lastSlotToFill < index ?
-                (lastSlotToFill < desiredSlotIndex && desiredSlotIndex <= index)
-                : (lastSlotToFill < desiredSlotIndex || desiredSlotIndex <= index));
-        if (!isBetween) {
-            // NOTE(traks): move current item to last empty slot
-            chunkIndex.entries[lastSlotToFill] = *chained;
+        u32 desiredIndex = HashWorldChunkPos(chained->pos) & chunkIndex.sizeMask;
+        i32 shouldFill = (indexToFill < curIndex ?
+                (desiredIndex <= indexToFill || curIndex < desiredIndex)
+                : (desiredIndex <= indexToFill && curIndex < desiredIndex));
+        if (shouldFill) {
+            // NOTE(traks): move current item to the slot we need to fill
+            chunkIndex.entries[indexToFill] = *chained;
             *chained = (ChunkHashEntry) {0};
-            lastSlotToFill = index;
+            indexToFill = curIndex;
         }
     }
-}
-
-static ChunkHolder * ReserveChunkHolder() {
-    ChunkHolder * res = NULL;
-    if (chunkTable.freeList) {
-        res = chunkTable.freeList;
-        chunkTable.freeList = chunkTable.freeList->nextFreeListEntry;
-        res->chunk = (Chunk) {0};
-    } else {
-        if (chunkTable.upperBoundSize == chunkTable.arraySize) {
-            chunkTable.arraySize *= 2;
-        }
-        res = chunkTable.entries + chunkTable.upperBoundSize;
-        chunkTable.upperBoundSize++;
-    }
-    res->used = 1;
-    return res;
-}
-
-static void FreeChunkHolder(ChunkHolder * holder) {
-    assert(holder->used);
-    holder->used = 0;
-    holder->nextFreeListEntry = chunkTable.freeList;
-    chunkTable.freeList = holder;
 }
 
 static void FreeChunk(WorldChunkPos pos) {
@@ -209,31 +207,12 @@ static void FreeChunk(WorldChunkPos pos) {
     if (entry == NULL || ChunkHashEntryIsEmpty(entry)) {
         return;
     }
-    FreeChunkHolder(chunkTable.entries + entry->tableIndex);
-    RemoveHashEntryAt(entry - chunkIndex.entries);
-}
-
-static void GrowChunkHashMap() {
-    u32 oldSize = chunkIndex.arraySize;
-    u32 newSize = MAX(2 * oldSize, 32);
-    chunkIndex.arraySize = newSize;
-    chunkIndex.sizeMask = newSize - 1;
-    chunkIndex.sizeToStartGrow = newSize * 7 / 10;
-
-    for (u32 index = 0; index < chunkIndex.arraySize; index++) {
-        ChunkHashEntry * entry = chunkIndex.entries + index;
-        if (!ChunkHashEntryIsEmpty(entry)) {
-            u32 desiredSlotIndex = HashWorldChunkPos(entry->pos) & chunkIndex.sizeMask;
-            ChunkHashEntry copy = *entry;
-            *entry = (ChunkHashEntry) {0};
-            ChunkHashEntry * freeEntry = FindChunkHashEntryOrEmpty(copy.pos, desiredSlotIndex);
-            *freeEntry = copy;
-        }
-    }
+    free(entry->holder);
+    RemoveHashEntry(entry);
 }
 
 static Chunk * GetOrCreateChunk(WorldChunkPos pos) {
-    if (chunkIndex.useCount >= chunkIndex.sizeToStartGrow) {
+    if (chunkIndex.useCount >= chunkIndex.arraySize / 2) {
         GrowChunkHashMap();
     }
 
@@ -242,36 +221,19 @@ static Chunk * GetOrCreateChunk(WorldChunkPos pos) {
     u32 hash = HashWorldChunkPos(packedPos);
     ChunkHashEntry * entry = FindChunkHashEntryOrEmpty(packedPos, hash);
     if (ChunkHashEntryIsEmpty(entry)) {
-        ChunkHolder * holder = ReserveChunkHolder();
+        ChunkHolder * holder = calloc(1, sizeof *holder);
         *entry = (ChunkHashEntry) {
             .pos = packedPos,
-            .tableIndex = holder - chunkTable.entries,
+            .holder = holder,
             .flags = CHUNK_HASH_IN_USE
         };
         chunkIndex.useCount++;
         res = &holder->chunk;
         res->pos = pos;
     } else {
-        res = &chunkTable.entries[entry->tableIndex].chunk;
+        res = &entry->holder->chunk;
     }
     return res;
-}
-
-void InitChunkLoader(void) {
-    void * indexMem = mmap(NULL, 32 * (1 << 20), PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, 0, 0);
-    if (indexMem == MAP_FAILED) {
-        LogInfo("Failed to map memory for chunks");
-        exit(1);
-    }
-    chunkIndex.entries = indexMem;
-    GrowChunkHashMap();
-
-    void * tableMem = mmap(NULL, (1 << 30), PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, 0, 0);
-    if (tableMem == MAP_FAILED) {
-        LogInfo("Failed to map memory for chunks");
-        exit(1);
-    }
-    chunkTable.entries = tableMem;
 }
 
 static void ScheduleLoad(Chunk * chunk) {
@@ -344,7 +306,7 @@ Chunk * GetChunkIfLoaded(WorldChunkPos pos) {
     u32 hash = HashWorldChunkPos(packedPos);
     ChunkHashEntry * entry = FindChunkHashEntryOrEmpty(packedPos, hash);
     if (!ChunkHashEntryIsEmpty(entry)) {
-        Chunk * found = &chunkTable.entries[entry->tableIndex].chunk;
+        Chunk * found = &entry->holder->chunk;
         if (found->flags & CHUNK_FINISHED_LOADING) {
             res = found;
         }
@@ -358,7 +320,7 @@ Chunk * GetChunkInternal(WorldChunkPos pos) {
     u32 hash = HashWorldChunkPos(packedPos);
     ChunkHashEntry * entry = FindChunkHashEntryOrEmpty(packedPos, hash);
     if (!ChunkHashEntryIsEmpty(entry)) {
-        res = &chunkTable.entries[entry->tableIndex].chunk;
+        res = &entry->holder->chunk;
     }
     return res;
 }
@@ -389,8 +351,6 @@ void TickChunkLoader(void) {
         i32 nextReaderIndex = (readerIndex + 1) % ARRAY_SIZE(chunkUnloadRequests);
         ChunkUnloadRequest unloadRequest = chunkUnloadRequests[readerIndex];
         Chunk * chunk = unloadRequest.chunk;
-
-        assert(((ChunkHolder *) chunk)->used);
 
         chunkUnloadRequestReaderIndex = nextReaderIndex;
 

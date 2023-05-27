@@ -1743,7 +1743,6 @@ main(void) {
     CreateTaskQueue(backgroundQueue, 2);
     serv->backgroundQueue = backgroundQueue;
 
-    InitChunkLoader();
     InitChunkSystem();
 
     i64 tickStart = NanoTime();
