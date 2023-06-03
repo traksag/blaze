@@ -262,7 +262,10 @@ static void MarkLightExchanged(Chunk * * chunkGrid) {
                 target->exchangeLightWithNeighbours |= ((u16) 1 << index);
                 neighbour->exchangeLightWithNeighbours |= ((u16) 1 << oppositeIndex);
 
-                // TODO(traks): kinda weird we set finished loading here
+                // TODO(traks): REALLY weird we set the finished loading flag
+                // here. Should be taken care of by the chunk loader. The
+                // lighting engine should just light and inform others of the
+                // current lighting state.
                 if (target->exchangeLightWithNeighbours == 0b1011000010111011) {
                     target->flags |= CHUNK_FULLY_LIT | CHUNK_FINISHED_LOADING;
                 }

@@ -1251,6 +1251,11 @@ send_chunk_fully(Cursor * send_cursor, Chunk * ch,
         entity_base * entity, MemoryArena * tick_arena) {
     BeginTimings(SendChunkFully);
 
+    // TODO(traks): make uncompressed data as compact as possible, so the
+    // compressor doesn't choke on these packets. As of writing this, these
+    // packets are ~170KiB, and take ~2ms to compress. If we send a chunk to
+    // 1000 players every tick, that's 2 seconds in a tick of 50ms, so we need
+    // 40 CPU cores for that.
     begin_packet(send_cursor, CBP_LEVEL_CHUNK_WITH_LIGHT);
     WriteU32(send_cursor, ch->pos.x);
     WriteU32(send_cursor, ch->pos.z);
@@ -1367,6 +1372,11 @@ send_chunk_fully(Cursor * send_cursor, Chunk * ch,
     EndTimings(WriteBlocks);
 
     // @NOTE(traks) now write lighting data
+
+    // NOTE(traks): not sure why the server is even sending light values to the
+    // client. The client can calculate it itself. It almost takes longer to
+    // compress these packets than to compute the light. Also is a waste of
+    // bandwidth.
 
     BeginTimings(WriteLight);
 
@@ -3371,6 +3381,10 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         i32 packet_size = ReadVarU32(send_cursor);
         int packet_end = send_cursor->index + packet_size;
 
+        // TODO(traks): these 2 lines are debugging code
+        i32 packetId = ReadVarU32(send_cursor);
+        send_cursor->index = packet_end - packet_size;
+
         if (should_compress) {
             // @TODO(traks) handle errors properly
 
@@ -3396,10 +3410,18 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             zstream.next_out = compressed;
             zstream.avail_out = max_compressed_size;
 
+            BeginTimings(Deflate);
+            // i64 deflateTimeStart = NanoTime();
             if (deflate(&zstream, Z_FINISH) != Z_STREAM_END) {
+                EndTimings(Deflate);
                 final_cursor->error = 1;
                 break;
             }
+            // i64 deflateTimeEnd = NanoTime();
+            // if (packetId == CBP_LEVEL_CHUNK_WITH_LIGHT) {
+            //     LogInfo("Deflate took %jdµs for size %jd of packet %d", (intmax_t) (deflateTimeEnd - deflateTimeStart) / 1000, (intmax_t) packet_size, packetId);
+            // }
+            EndTimings(Deflate);
 
             if (deflateEnd(&zstream) != Z_OK) {
                 final_cursor->error = 1;

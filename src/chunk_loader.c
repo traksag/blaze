@@ -279,6 +279,10 @@ static ChunkHashEntry * GetOrCreateChunk(WorldChunkPos pos) {
     return entry;
 }
 
+// TODO(traks): adding interest to a chunk should load the 3x3 around it, so we
+// can do lighting properly. The chunks that get loaded but have 0 interest
+// should not be known to the game code. The game code only cares about fully
+// loaded chunks.
 void AddChunkInterest(WorldChunkPos pos, i32 interest) {
     ChunkHashEntry * entry = GetOrCreateChunk(pos);
     Chunk * chunk = &entry->holder->chunk;
