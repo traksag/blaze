@@ -10,6 +10,9 @@
 #include "shared.h"
 #include "buffer.h"
 
+#define CLIENT_SHOULD_TERMINATE ((u32) 1 << 0)
+#define CLIENT_DID_TRANSFER_TO_PLAYER ((u32) 1 << 1)
+
 enum ProtocolState {
     PROTOCOL_HANDSHAKE,
     PROTOCOL_AWAIT_STATUS_REQUEST,
@@ -19,27 +22,21 @@ enum ProtocolState {
 };
 
 typedef struct {
+    u8 * data;
+    i32 cursor;
+    i32 size;
+} Buffer;
+
+typedef struct {
     int socket;
-    unsigned flags;
+    u32 flags;
 
-    // Should be large enough to:
-    //
-    //  1. Receive a client intention (handshake) packet, status request and
-    //     ping request packet all in one go and store them together in the
-    //     buffer.
-    //
-    //  2. Receive a client intention packet and hello packet and store them
-    //     together inside the receive buffer.
-    unsigned char rec_buf[1024];
-    int rec_cursor;
+    Buffer recBuf;
+    Buffer sendBuf;
 
-    // @TODO(traks) figure out appropriate size
-    unsigned char send_buf[2048];
-    int send_cursor;
-
-    int protocol_state;
+    int protocolState;
     unsigned char username[16];
-    int username_size;
+    int usernameSize;
 } Client;
 
 typedef struct {
@@ -95,6 +92,26 @@ static void CreateClient(int clientSocket) {
     Client * client = calloc(1, sizeof *client);
     client->socket = clientSocket;
 
+    // TODO(traks): Should be large enough to:
+    //
+    //  1. Receive a client intention (handshake) packet, status request and
+    //     ping request packet all in one go and store them together in the
+    //     buffer.
+    //
+    //  2. Receive a client intention packet and hello packet and store them
+    //     together inside the receive buffer.
+    i32 receiveBufferSize = 1024;
+    // TODO(traks): figure out appropriate size
+    i32 sendBufferSize = 2048;
+    client->recBuf = (Buffer) {
+        .data = malloc(receiveBufferSize),
+        .size = receiveBufferSize,
+    };
+    client->sendBuf = (Buffer) {
+        .data = malloc(sendBufferSize),
+        .size = sendBufferSize,
+    };
+
     network.clientArray[clientIndex] = client;
     // LogInfo("Created client");
 }
@@ -102,6 +119,8 @@ static void CreateClient(int clientSocket) {
 static void FreeClientNoClose(i32 clientIndex) {
     Client * client = network.clientArray[clientIndex];
     assert(client != NULL);
+    free(client->recBuf.data);
+    free(client->sendBuf.data);
     free(client);
     network.clientArray[clientIndex] = NULL;
 }
@@ -113,38 +132,49 @@ static void DeleteClient(i32 clientIndex) {
     FreeClientNoClose(clientIndex);
 }
 
-static void ReadClient(i32 clientIndex) {
-    Client * client = network.clientArray[clientIndex];
-    assert(client != NULL);
+static void ClientMarkTerminate(Client * client) {
+    client->flags |= CLIENT_SHOULD_TERMINATE;
+}
 
-    ssize_t rec_size = recv(client->socket, client->rec_buf + client->rec_cursor, sizeof client->rec_buf - client->rec_cursor, 0);
+static void ReadClient(Client * client) {
+    if (client->recBuf.cursor == client->recBuf.size) {
+        // NOTE(traks): this means the receive buffer wasn't drained during the
+        // last read cycle. So the packet in the buffer couldn't be parsed for
+        // some reason. Just kick the client
+        LogInfo("Client read buffer full");
+        ClientMarkTerminate(client);
+        return;
+    }
+
+    ssize_t rec_size = recv(client->socket, client->recBuf.data + client->recBuf.cursor, client->recBuf.size - client->recBuf.cursor, 0);
 
     if (rec_size == 0) {
         // NOTE(traks): client closed its end of the connection
         LogInfo("Client disconnected itself");
-        DeleteClient(clientIndex);
+        ClientMarkTerminate(client);
         return;
     } else if (rec_size == -1) {
-        // EAGAIN means no data received
-        if (errno != EAGAIN) {
-            LogErrno("Couldn't receive protocol data: %s");
-            DeleteClient(clientIndex);
+        if (errno == EAGAIN) {
+            // NOTE(traks): EAGAIN means there was no new data in the socket's
+            // internal receive buffer
             return;
         } else {
+            LogErrno("Couldn't receive protocol data: %s");
+            ClientMarkTerminate(client);
             return;
         }
     }
 
-    client->rec_cursor += rec_size;
+    client->recBuf.cursor += rec_size;
 
     Cursor rec_cursor = {
-        .data = client->rec_buf,
-        .size = client->rec_cursor
+        .data = client->recBuf.data,
+        .size = client->recBuf.cursor,
     };
     Cursor send_cursor = {
-        .data = client->send_buf,
-        .size = sizeof client->send_buf,
-        .index = client->send_cursor
+        .data = client->sendBuf.data,
+        .size = client->sendBuf.size,
+        .index = client->sendBuf.cursor,
     };
 
     for (;;) {
@@ -154,9 +184,9 @@ static void ReadClient(i32 clientIndex) {
             // packet size not fully received yet
             break;
         }
-        if (packet_size <= 0 || packet_size > sizeof client->rec_buf) {
+        if (packet_size <= 0 || packet_size > client->recBuf.size) {
             LogInfo("Packet size error: %d", packet_size);
-            DeleteClient(clientIndex);
+            ClientMarkTerminate(client);
             return;
         }
         if (packet_size > rec_cursor.size) {
@@ -168,7 +198,7 @@ static void ReadClient(i32 clientIndex) {
         i32 packet_id = ReadVarU32(&rec_cursor);
         // LogInfo("Initial packet %d", packet_id);
 
-        switch (client->protocol_state) {
+        switch (client->protocolState) {
         case PROTOCOL_HANDSHAKE: {
             if (packet_id != 0) {
                 rec_cursor.error = 1;
@@ -181,13 +211,13 @@ static void ReadClient(i32 clientIndex) {
             i32 next_state = ReadVarU32(&rec_cursor);
 
             if (next_state == 1) {
-                client->protocol_state = PROTOCOL_AWAIT_STATUS_REQUEST;
+                client->protocolState = PROTOCOL_AWAIT_STATUS_REQUEST;
             } else if (next_state == 2) {
                 if (protocol_version != SERVER_PROTOCOL_VERSION) {
                     LogInfo("Client protocol version %jd != %jd", (intmax_t) protocol_version, (intmax_t) SERVER_PROTOCOL_VERSION);
                     rec_cursor.error = 1;
                 } else {
-                    client->protocol_state = PROTOCOL_AWAIT_HELLO;
+                    client->protocolState = PROTOCOL_AWAIT_HELLO;
                 }
             } else {
                 rec_cursor.error = 1;
@@ -258,7 +288,7 @@ static void ReadClient(i32 clientIndex) {
             WriteVarU32(&send_cursor, response_size);
             WriteData(&send_cursor, response, response_size);
 
-            client->protocol_state = PROTOCOL_AWAIT_PING_REQUEST;
+            client->protocolState = PROTOCOL_AWAIT_PING_REQUEST;
             break;
         }
         case PROTOCOL_AWAIT_PING_REQUEST: {
@@ -288,7 +318,7 @@ static void ReadClient(i32 clientIndex) {
                 break;
             }
             memcpy(client->username, username.data, username.size);
-            client->username_size = username.size;
+            client->usernameSize = username.size;
 
             i32 hasUuid = ReadU8(&rec_cursor);
             if (hasUuid) {
@@ -300,11 +330,11 @@ static void ReadClient(i32 clientIndex) {
             // @TODO(traks) online mode
             // @TODO(traks) enable compression
 
-            client->protocol_state = PROTOCOL_JOIN_WHEN_SENT;
+            client->protocolState = PROTOCOL_JOIN_WHEN_SENT;
             break;
         }
         default:
-            LogInfo("Protocol state %d not accepting packets", client->protocol_state);
+            LogInfo("Protocol state %d not accepting packets", client->protocolState);
             rec_cursor.error = 1;
             break;
         }
@@ -317,19 +347,108 @@ static void ReadClient(i32 clientIndex) {
 
         if (rec_cursor.error != 0) {
             LogInfo("Initial connection protocol error occurred");
-            DeleteClient(clientIndex);
+            ClientMarkTerminate(client);
             return;
         }
     }
 
     memmove(rec_cursor.data, rec_cursor.data + rec_cursor.index, rec_cursor.size - rec_cursor.index);
-    client->rec_cursor = rec_cursor.size - rec_cursor.index;
+    client->recBuf.cursor = rec_cursor.size - rec_cursor.index;
 
-    client->send_cursor = send_cursor.index;
+    client->sendBuf.cursor = send_cursor.index;
+}
+
+static void ClientTick(Client * client) {
+    assert(client != NULL);
+
+    // NOTE(traks): read and process incoming packets
+    ReadClient(client);
+
+    // NOTE(traks): send outgoing packets
+
+    ssize_t send_size = send(client->socket, client->sendBuf.data, client->sendBuf.cursor, 0);
+
+    if (send_size == -1) {
+        if (errno == EAGAIN) {
+            // NOTE(traks): The socket's internal send buffer is full
+            // TODO(traks): If this error keeps happening, we should probably
+            // kick the client
+            return;
+        } else {
+            LogErrno("Couldn't send protocol data: %s");
+            ClientMarkTerminate(client);
+            return;
+        }
+    }
+
+    memmove(client->sendBuf.data, client->sendBuf.data + send_size, client->sendBuf.cursor - send_size);
+    client->sendBuf.cursor -= send_size;
+
+    // NOTE(traks): start the PLAY state and transfer the connection to the
+    // player entity
+
+    if (client->sendBuf.cursor == 0 && client->protocolState == PROTOCOL_JOIN_WHEN_SENT) {
+        entity_base * entity = try_reserve_entity(ENTITY_PLAYER);
+
+        if (entity->type == ENTITY_NULL) {
+            // @TODO(traks) send some message and disconnect
+            ClientMarkTerminate(client);
+            return;
+        }
+
+        entity_player * player = &entity->player;
+
+        // @TODO(traks) don't malloc this much when a player joins. AAA
+        // games send a lot less than 1MB/tick. For example, according
+        // to some website, Fortnite sends about 1.5KB/tick. Although we
+        // sometimes have to send a bunch of chunk data, which can be
+        // tens of KB. Minecraft even allows up to 2MB of chunk data.
+        player->rec_buf_size = 1 << 16;
+        player->rec_buf = malloc(player->rec_buf_size);
+
+        player->send_buf_size = 1 << 20;
+        player->send_buf = malloc(player->send_buf_size);
+
+        if (player->rec_buf == NULL || player->send_buf == NULL) {
+            // @TODO(traks) send some message on disconnect
+            free(player->send_buf);
+            free(player->rec_buf);
+            evict_entity(entity->eid);
+            ClientMarkTerminate(client);
+            return;
+        }
+
+        player->sock = client->socket;
+        memcpy(player->username, client->username, client->usernameSize);
+        player->username_size = client->usernameSize;
+        player->chunkCacheRadius = -1;
+        // @TODO(traks) configurable server-wide global
+        player->nextChunkCacheRadius = MAX_CHUNK_CACHE_RADIUS;
+        player->last_keep_alive_sent_tick = serv->current_tick;
+        entity->flags |= PLAYER_GOT_ALIVE_RESPONSE;
+        player->selected_slot = PLAYER_FIRST_HOTBAR_SLOT;
+        // @TODO(traks) collision width and height of player depending
+        // on player pose
+        entity->collision_width = 0.6;
+        entity->collision_height = 1.8;
+        set_player_gamemode(entity, GAMEMODE_CREATIVE);
+
+        // teleport_player(entity, 88, 70, 73, 0, 0);
+        teleport_player(entity, 0.5, 140, 0.5, 0, 0);
+
+        // @TODO(traks) ensure this can never happen instead of assering
+        // it never will hopefully happen
+        assert(serv->tab_list_added_count < ARRAY_SIZE(serv->tab_list_added));
+        serv->tab_list_added[serv->tab_list_added_count] = entity->eid;
+        serv->tab_list_added_count++;
+
+        client->flags |= CLIENT_DID_TRANSFER_TO_PLAYER;
+
+        LogInfo("Player '%.*s' joined", (int) client->usernameSize, client->username);
+    }
 }
 
 void TickInitialConnections(void) {
-    // accept new connections
     BeginTimings(AcceptInitialConnections);
 
     for (;;) {
@@ -342,102 +461,21 @@ void TickInitialConnections(void) {
 
     EndTimings(AcceptInitialConnections);
 
-    // update initial connections
-    BeginTimings(UpdateInitialConnections);
-
-    for (i32 clientIndex = 0; clientIndex < network.clientArraySize; clientIndex++) {
-        if (network.clientArray[clientIndex] != NULL) {
-            ReadClient(clientIndex);
-        }
-    }
-
-    EndTimings(UpdateInitialConnections);
-
-    BeginTimings(SendInitialConnections);
+    BeginTimings(TickClients);
 
     for (i32 clientIndex = 0; clientIndex < network.clientArraySize; clientIndex++) {
         Client * client = network.clientArray[clientIndex];
-        if (client == NULL) {
-            continue;
-        }
-
-        ssize_t send_size = send(client->socket, client->send_buf, client->send_cursor, 0);
-
-        if (send_size == -1) {
-            // EAGAIN means no data sent
-            if (errno != EAGAIN) {
-                LogErrno("Couldn't send protocol data: %s");
+        if (client != NULL) {
+            ClientTick(client);
+            if (client->flags & CLIENT_SHOULD_TERMINATE) {
                 DeleteClient(clientIndex);
-                continue;
-            }
-        } else {
-            memmove(client->send_buf, client->send_buf + send_size, client->send_cursor - send_size);
-            client->send_cursor -= send_size;
-
-            if (client->send_cursor == 0 && client->protocol_state == PROTOCOL_JOIN_WHEN_SENT) {
-                int clientSocket = client->socket;
+            } else if (client->flags & CLIENT_DID_TRANSFER_TO_PLAYER) {
                 FreeClientNoClose(clientIndex);
-
-                entity_base * entity = try_reserve_entity(ENTITY_PLAYER);
-
-                if (entity->type == ENTITY_NULL) {
-                    // @TODO(traks) send some message and disconnect
-                    close(clientSocket);
-                    continue;
-                }
-
-                entity_player * player = &entity->player;
-
-                // @TODO(traks) don't malloc this much when a player joins. AAA
-                // games send a lot less than 1MB/tick. For example, according
-                // to some website, Fortnite sends about 1.5KB/tick. Although we
-                // sometimes have to send a bunch of chunk data, which can be
-                // tens of KB. Minecraft even allows up to 2MB of chunk data.
-                player->rec_buf_size = 1 << 16;
-                player->rec_buf = malloc(player->rec_buf_size);
-
-                player->send_buf_size = 1 << 20;
-                player->send_buf = malloc(player->send_buf_size);
-
-                if (player->rec_buf == NULL || player->send_buf == NULL) {
-                    // @TODO(traks) send some message on disconnect
-                    free(player->send_buf);
-                    free(player->rec_buf);
-                    evict_entity(entity->eid);
-                    close(clientSocket);
-                    continue;
-                }
-
-                player->sock = clientSocket;
-                memcpy(player->username, client->username, client->username_size);
-                player->username_size = client->username_size;
-                player->chunkCacheRadius = -1;
-                // @TODO(traks) configurable server-wide global
-                player->nextChunkCacheRadius = MAX_CHUNK_CACHE_RADIUS;
-                player->last_keep_alive_sent_tick = serv->current_tick;
-                entity->flags |= PLAYER_GOT_ALIVE_RESPONSE;
-                player->selected_slot = PLAYER_FIRST_HOTBAR_SLOT;
-                // @TODO(traks) collision width and height of player depending
-                // on player pose
-                entity->collision_width = 0.6;
-                entity->collision_height = 1.8;
-                set_player_gamemode(entity, GAMEMODE_CREATIVE);
-
-                // teleport_player(entity, 88, 70, 73, 0, 0);
-                teleport_player(entity, 0.5, 140, 0.5, 0, 0);
-
-                // @TODO(traks) ensure this can never happen instead of assering
-                // it never will hopefully happen
-                assert(serv->tab_list_added_count < ARRAY_SIZE(serv->tab_list_added));
-                serv->tab_list_added[serv->tab_list_added_count] = entity->eid;
-                serv->tab_list_added_count++;
-
-                LogInfo("Player '%.*s' joined", (int) client->username_size, client->username);
             }
         }
     }
 
-    EndTimings(SendInitialConnections);
+    EndTimings(TickClients);
 }
 
 void InitNetwork(void) {
