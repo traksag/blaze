@@ -1487,6 +1487,16 @@ static void SendPlayerTeleport(entity_base * player, Cursor * send_cursor) {
     player->flags |= PLAYER_SENT_TELEPORT;
 }
 
+// TODO(traks): Perhaps we shouldn't remove players mid-tick. As of writing
+// this, this is causing some issues. If a network error occurs, the player will
+// be disconnected immediately. But they might still be in the tab list
+// (live/added/removed). If another player updates its tablist then, it will try
+// to resolve the disconnected player and will fail, because the player entity
+// has already been removed. The entire tab list system is written to be only
+// updated once per tick, so this causes issues.
+//
+// It's probably fine to remove players mid tick. The tab list system should be
+// changed so you don't need to resolve entities to send tab list data.
 static void
 disconnect_player_now(entity_base * entity) {
     entity_player * player = &entity->player;
@@ -1631,7 +1641,7 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
     } else if (rec_size == -1) {
         // EAGAIN means no data received
         if (errno != EAGAIN) {
-            LogErrno("Couldn't receive protocol data: %s");
+            LogErrno("Couldn't receive protocol data from player: %s");
             disconnect_player_now(player);
         }
     } else {
@@ -2143,6 +2153,19 @@ static void
 try_update_tracked_entity(entity_base * player,
         Cursor * send_cursor, MemoryArena * tick_arena,
         tracked_entity * tracked, entity_base * entity) {
+    // TODO(traks): There are a bunch of timers in play here. The update
+    // interval timer, the TP packet timer, the position packet timer, etc. If
+    // these happen to line up at the same tick for a bunch of players (e.g. if
+    // a bunch of players join during the same tick), that'll be bad times.
+    //
+    // We should spread out these timers among multiple ticks based on the
+    // player count. This spreading out should be done dynamically. There
+    // shouldn't be any fixed interval timers.
+    //
+    // Ideally the packets for the tracked entities for a single player would
+    // also be spread out among multiple ticks. It's better to spread out
+    // network bandwidth than to flood it every so often. Flooding will result
+    // in temporary network lag, spreading out won't.
     if (serv->current_tick - tracked->last_update_tick < tracked->update_interval
             && entity->changed_data == 0) {
         return;
@@ -3133,7 +3156,12 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             for (int i = 0; i < serv->tab_list_size; i++) {
                 entity_id eid = serv->tab_list[i];
                 entity_base * tabListPlayer = resolve_entity(eid);
-                assert(tabListPlayer->type == ENTITY_PLAYER);
+                // TODO(traks): If a player disconnects mid tick (e.g. due to a
+                // networking error), this assert can fail, because the player
+                // entity will be gone. Fix this. For example by storing all
+                // required data in the tab list array, so we don't need to
+                // resolve entities.
+                // assert(tabListPlayer->type == ENTITY_PLAYER);
                 // @TODO(traks) write UUID
                 WriteU64(send_cursor, 0);
                 WriteU64(send_cursor, eid);
@@ -3184,7 +3212,12 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             for (int i = 0; i < serv->tab_list_added_count; i++) {
                 entity_id eid = serv->tab_list_added[i];
                 entity_base * tabListPlayer = resolve_entity(eid);
-                assert(tabListPlayer->type == ENTITY_PLAYER);
+                // TODO(traks): If a player disconnects mid tick (e.g. due to a
+                // networking error), this assert can fail, because the player
+                // entity will be gone. Fix this. For example by storing all
+                // required data in the tab list array, so we don't need to
+                // resolve entities.
+                // assert(tabListPlayer->type == ENTITY_PLAYER);
                 // @TODO(traks) write UUID
                 WriteU64(send_cursor, 0);
                 WriteU64(send_cursor, eid);
@@ -3462,7 +3495,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     if (send_size == -1) {
         // EAGAIN means no data sent
         if (errno != EAGAIN) {
-            LogErrno("Couldn't send protocol data: %s");
+            LogErrno("Couldn't send protocol data to player: %s");
             disconnect_player_now(player);
         }
     } else {

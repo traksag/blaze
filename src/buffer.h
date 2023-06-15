@@ -115,6 +115,14 @@ typedef struct {
     i32 mark;
 } Cursor;
 
+static inline void CursorSetMark(Cursor * cursor) {
+    cursor->mark = cursor->index;
+}
+
+static inline void CursorRewind(Cursor * cursor) {
+    cursor->index = cursor->mark;
+}
+
 static inline i32 CursorRemaining(Cursor * cursor) {
     i32 res = cursor->size - cursor->index;
     return res;

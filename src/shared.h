@@ -23,7 +23,10 @@
 
 #define KEEP_ALIVE_TIMEOUT (30 * 20)
 
-// @TODO(traks) Currently chunks sometimes don't want to render when spring
+// TODO(traks): these values shouldn't only be configurable per player, but
+// there should be global limits too
+
+// @TODO(traks) Currently chunks sometimes don't want to render when sprint
 // flying around in gamemode creative. Increasing this to 4 seems to fix this.
 // Why? What is a good value? Should we base it on player network bandwidth?
 #define MAX_CHUNK_SENDS_PER_TICK (2)
@@ -33,7 +36,7 @@
 // must be power of 2
 #define MAX_ENTITIES (1024)
 
-#define MAX_PLAYERS (100)
+#define MAX_PLAYERS (1024)
 
 // whether all play packets should be compressed or not
 #define PACKET_COMPRESSION_ENABLED (1)
@@ -2203,9 +2206,11 @@ typedef struct {
     void * short_lived_scratch;
     i32 short_lived_scratch_size;
 
-    entity_id tab_list_added[64];
+    // TODO(traks): make sure we don't overflow these and choose good defaults.
+    // How many tab list changes do we want to allow per tick?
+    entity_id tab_list_added[1024];
     int tab_list_added_count;
-    entity_id tab_list_removed[64];
+    entity_id tab_list_removed[1024];
     int tab_list_removed_count;
     entity_id tab_list[MAX_PLAYERS];
     int tab_list_size;

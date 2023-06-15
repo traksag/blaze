@@ -24,7 +24,7 @@
 #include <time.h>
 #endif
 
-static volatile sig_atomic_t got_sigint;
+static volatile sig_atomic_t interruptCount;
 
 server * serv;
 
@@ -120,9 +120,8 @@ LogErrno(void * format) {
     LogInfo(format, error_msg);
 }
 
-static void
-handle_sigint(int sig) {
-    got_sigint = 1;
+static void OnSigInt(int sig) {
+    interruptCount++;
 }
 
 int
@@ -1195,7 +1194,7 @@ main(void) {
 
     // @TODO(traks) ctrl+c is useful for debugging if the program ends up inside
     // an infinite loop
-    // signal(SIGINT, handle_sigint);
+    // signal(SIGINT, OnSigInt);
 
     InitNetwork();
 
@@ -1264,7 +1263,7 @@ main(void) {
 
     InitChunkSystem();
 
-    i64 tickStart = NanoTime();
+    i64 desiredTickStart = NanoTime();
 
     for (;;) {
 #ifdef PROFILE
@@ -1274,18 +1273,29 @@ main(void) {
         serv->tickArena->index = 0;
         server_tick();
 
-        if (got_sigint) {
+        if (interruptCount > 0) {
             LogInfo("Interrupted");
             break;
         }
 
+        i64 actualTickEnd = NanoTime();
+
         // NOTE(traks): update tick starts this way to avoid time drift
-        i64 nextTickStart = tickStart + 50000000LL;
+        i64 nextDesiredTickStart = desiredTickStart + 50000000LL;
+
+        // NOTE(traks): if the tick is taking longer than expected, accept the
+        // lag and update the desired tick start appropriately. Without this,
+        // the server will run a bunch of short ticks after a period of lag, to
+        // catch up with the desired tick start. That could be desirable for a
+        // small period of lag, but not for prolonged periods of lag.
+        if (actualTickEnd > nextDesiredTickStart) {
+            nextDesiredTickStart = actualTickEnd;
+        }
 
         // NOTE(traks): nanosleep can exit early due to interrupts, so we need
         // to sleep again in such cases
         for (;;) {
-            i64 timeRemaining = nextTickStart - NanoTime();
+            i64 timeRemaining = nextDesiredTickStart - NanoTime();
             if (timeRemaining >= 10000) {
                 struct timespec sleepTime = {
                     .tv_nsec = timeRemaining
@@ -1294,7 +1304,7 @@ main(void) {
                 // be off by 1 millisecond!
                 nanosleep(&sleepTime, NULL);
             } else {
-                tickStart = nextTickStart;
+                desiredTickStart = nextDesiredTickStart;
                 break;
             }
         }
