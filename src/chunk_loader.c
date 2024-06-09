@@ -67,6 +67,34 @@
 // previous interest region finished loading. Might get a bit hectic though, not
 // sure.
 
+// TODO(traks): Ideally we want something like the following:
+// - Instead of seeking and reading 1 chunk at a time, it's much much better on
+//   HDDs to merge chunk reads into one big sequential read. On my HDD a block
+//   size of 8KiB (2 chunk sectors, chunks barely get larger than this in
+//   survival world) has a throughput of about 3MiB/s. If I increase the block
+//   size by a factor n, the throughput increases roughly by a factor sqrt(n).
+//   Thus sqrt(n) times as much data can be read in the same time. This provides
+//   a way to determine whether it's faster to merge multiple chunks into a
+//   single read vs. reading them all separately.
+// - Loading chunks near players is much more important than loading chunks that
+//   are further away. Nearby chunks should therefore have a higher priority in
+//   case chunk loading can't keep up with the demand. Moreover, progress should
+//   always be made in reasonable time for every player in terms of nearby chunk
+//   loads. It shouldn't be the case that a player with missing nearby chunks is
+//   waiting for chunk loads because another player has faraway chunks that are
+//   being loaded.
+// - If you're flying around with elytra or in gamemode spectator or ice boat
+//   racing, we might need to load chunks preemptively, to decrease the load
+//   latency. This can also have the additional benefit that preemptively read
+//   chunks can be merged with normally read chunks, which could increase
+//   throughput.
+// - To allow for all of this to happen, the only solution I see is to supply
+//   the chunk loading system with all available information: every player
+//   entity should tell the system what chunks it wants and which ones it might
+//   require in the future, along with some priority.
+// - Based on memory available and configured limits, things like preemtive
+//   chunk loads can be restricted to a certain amount of memory.
+
 #define MAX_LOADED_CHUNKS (1024)
 
 #define CHUNK_HASH_IN_USE ((u32) 0x1 << 0)
