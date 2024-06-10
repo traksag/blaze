@@ -29,6 +29,8 @@ typedef struct {
 #define CHUNK_LOAD_SUCCESS (0x1 << 5)
 #define CHUNK_BLOCKS_LOADED (0x1 << 7)
 
+#define CHUNK_ATOMIC_LOAD_DONE (0x1 << 0)
+
 typedef struct {
     ChunkSection sections[SECTIONS_PER_CHUNK];
     LightSection lightSections[LIGHT_SECTIONS_PER_CHUNK];
@@ -64,6 +66,8 @@ typedef struct {
     level_event localEvents[64];
     i64 lastLocalEventTick;
     u8 localEventCount;
+
+    _Atomic u32 atomicFlags;
 } Chunk;
 
 static inline i32 SectionPosToIndex(BlockPos pos) {

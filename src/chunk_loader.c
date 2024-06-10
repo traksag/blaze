@@ -95,21 +95,14 @@
 // - Based on memory available and configured limits, things like preemtive
 //   chunk loads can be restricted to a certain amount of memory.
 
-#define MAX_LOADED_CHUNKS (1024)
-
 #define CHUNK_HASH_IN_USE ((u32) 0x1 << 0)
 #define CHUNK_REQUESTING_UPDATE ((u32) 0x1 << 1)
 #define CHUNK_LOADED_FROM_STORAGE ((u32) 0x1 << 2)
 #define CHUNK_STARTED_LOADING_FROM_STORAGE ((u32) 0x1 << 3)
 
 typedef struct {
-    Chunk chunk;
-    _Atomic i32 asyncLoadDone;
-} ChunkHolder;
-
-typedef struct {
     PackedWorldChunkPos packedPos;
-    ChunkHolder * holder;
+    Chunk * chunk;
     u32 flags;
 } ChunkHashEntry;
 
@@ -232,7 +225,7 @@ static void FreeChunk(WorldChunkPos pos) {
     assert(!ChunkHashEntryIsEmpty(entry));
     assert(!(entry->flags & CHUNK_REQUESTING_UPDATE));
 
-    Chunk * chunk = &entry->holder->chunk;
+    Chunk * chunk = entry->chunk;
     for (int sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
         ChunkSection * section = chunk->sections + sectionIndex;
         free(section->blockStates);
@@ -243,7 +236,7 @@ static void FreeChunk(WorldChunkPos pos) {
         free(section->blockLight);
     }
 
-    free(entry->holder);
+    free(chunk);
     RemoveHashEntry(entry);
 }
 
@@ -295,14 +288,14 @@ static ChunkHashEntry * GetOrCreateChunk(WorldChunkPos pos) {
     u32 hash = HashWorldChunkPos(packedPos);
     ChunkHashEntry * entry = FindChunkHashEntryOrEmpty(packedPos, hash);
     if (ChunkHashEntryIsEmpty(entry)) {
-        ChunkHolder * holder = calloc(1, sizeof *holder);
+        Chunk * chunk = calloc(1, sizeof *chunk);
         *entry = (ChunkHashEntry) {
             .packedPos = packedPos,
-            .holder = holder,
+            .chunk = chunk,
             .flags = CHUNK_HASH_IN_USE
         };
         chunkIndex.useCount++;
-        holder->chunk.pos = pos;
+        chunk->pos = pos;
     }
     return entry;
 }
@@ -313,7 +306,7 @@ static ChunkHashEntry * GetOrCreateChunk(WorldChunkPos pos) {
 // loaded chunks.
 void AddChunkInterest(WorldChunkPos pos, i32 interest) {
     ChunkHashEntry * entry = GetOrCreateChunk(pos);
-    Chunk * chunk = &entry->holder->chunk;
+    Chunk * chunk = entry->chunk;
     chunk->interestCount += interest;
     assert(chunk->interestCount >= 0);
     PushUpdateRequest(entry);
@@ -325,7 +318,7 @@ Chunk * GetChunkIfLoaded(WorldChunkPos pos) {
     u32 hash = HashWorldChunkPos(packedPos);
     ChunkHashEntry * entry = FindChunkHashEntryOrEmpty(packedPos, hash);
     if (!ChunkHashEntryIsEmpty(entry)) {
-        Chunk * found = &entry->holder->chunk;
+        Chunk * found = entry->chunk;
         if (found->flags & CHUNK_FINISHED_LOADING) {
             res = found;
         }
@@ -339,7 +332,7 @@ Chunk * GetChunkInternal(WorldChunkPos pos) {
     u32 hash = HashWorldChunkPos(packedPos);
     ChunkHashEntry * entry = FindChunkHashEntryOrEmpty(packedPos, hash);
     if (!ChunkHashEntryIsEmpty(entry)) {
-        res = &entry->holder->chunk;
+        res = entry->chunk;
     }
     return res;
 }
@@ -360,8 +353,7 @@ void CollectLoadedChunks(WorldChunkPos from, WorldChunkPos to, Chunk * * chunkAr
 }
 
 static void LoadChunkAsync(void * arg) {
-    ChunkHolder * holder = arg;
-    Chunk * chunk = &holder->chunk;
+    Chunk * chunk = arg;
 
     // TODO(traks): turn this into thread local or something?
     i32 scratchSize = 4 * (1 << 20);
@@ -392,11 +384,11 @@ static void LoadChunkAsync(void * arg) {
 
     free(scratchArena.data);
 
-    atomic_store_explicit(&holder->asyncLoadDone, 1, memory_order_release);
+    atomic_fetch_or_explicit(&chunk->atomicFlags, CHUNK_ATOMIC_LOAD_DONE, memory_order_release);
 }
 
 static void UpdateChunk(ChunkHashEntry * entry) {
-    Chunk * chunk = &entry->holder->chunk;
+    Chunk * chunk = entry->chunk;
     if (chunk->interestCount == 0) {
         // TODO(traks): might want to keep the entry around for a little while
         // instead of aggressively unloading
@@ -413,11 +405,11 @@ static void UpdateChunk(ChunkHashEntry * entry) {
 
     if (chunk->interestCount > 0 && !(entry->flags & CHUNK_STARTED_LOADING_FROM_STORAGE)) {
         entry->flags |= CHUNK_STARTED_LOADING_FROM_STORAGE;
-        PushTaskToQueue(serv->backgroundQueue, LoadChunkAsync, entry->holder);
+        PushTaskToQueue(serv->backgroundQueue, LoadChunkAsync, chunk);
     }
 
     if ((entry->flags & CHUNK_STARTED_LOADING_FROM_STORAGE) && !(entry->flags & CHUNK_LOADED_FROM_STORAGE)) {
-        if (atomic_load_explicit(&entry->holder->asyncLoadDone, memory_order_acquire)) {
+        if (atomic_load_explicit(&chunk->atomicFlags, memory_order_acquire) & CHUNK_ATOMIC_LOAD_DONE) {
             entry->flags |= CHUNK_LOADED_FROM_STORAGE;
             if (chunk->flags & CHUNK_LOAD_SUCCESS) {
                 // TODO(traks): consider force loading a 3x3 around this chunk before
@@ -429,7 +421,7 @@ static void UpdateChunk(ChunkHashEntry * entry) {
                 // NOTE(traks): will set the chunk flags to finished loading
                 // when the light of the 8 neighbours was propagated to this
                 // chunk
-                LightChunkAndExchangeWithNeighbours(&entry->holder->chunk);
+                LightChunkAndExchangeWithNeighbours(entry->chunk);
             } else {
                 // TODO(traks): what to do with the chunk??
                 LogInfo("Failed to load chunk");
