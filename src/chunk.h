@@ -21,15 +21,18 @@ typedef struct {
     u8 * blockLight;
 } LightSection;
 
-#define CHUNK_FINISHED_LOADING (0x1 << 0)
-#define CHUNK_WAS_ON_LOAD_REQUEST_LIST (0x1 << 1)
-#define CHUNK_WAS_ON_UNLOAD_REQUEST_LIST (0x1 << 2)
-#define CHUNK_FORCE_KEEP (0x1 << 3)
-#define CHUNK_FULLY_LIT (0x1 << 4)
-#define CHUNK_LOAD_SUCCESS (0x1 << 5)
-#define CHUNK_BLOCKS_LOADED (0x1 << 7)
+#define CHUNK_FINISHED_LOADING ((u32) 0x1 << 0)
+#define CHUNK_WAS_ON_LOAD_REQUEST_LIST ((u32) 0x1 << 1)
+#define CHUNK_WAS_ON_UNLOAD_REQUEST_LIST ((u32) 0x1 << 2)
+#define CHUNK_FORCE_KEEP ((u32) 0x1 << 3)
+#define CHUNK_FULLY_LIT ((u32) 0x1 << 4)
+#define CHUNK_LOAD_SUCCESS ((u32) 0x1 << 5)
+#define CHUNK_BLOCKS_LOADED ((u32) 0x1 << 7)
+#define CHUNK_REQUESTING_UPDATE ((u32) 0x1 << 8)
+#define CHUNK_LOADED_FROM_STORAGE ((u32) 0x1 << 9)
+#define CHUNK_STARTED_LOADING_FROM_STORAGE ((u32) 0x1 << 10)
 
-#define CHUNK_ATOMIC_LOAD_DONE (0x1 << 0)
+#define CHUNK_ATOMIC_LOAD_DONE ((u32) 0x1 << 0)
 
 typedef struct {
     ChunkSection sections[SECTIONS_PER_CHUNK];

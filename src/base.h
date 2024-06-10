@@ -76,6 +76,7 @@ typedef struct {
 } BlockPos;
 
 typedef struct {
+    // NOTE(traks): world ID of 0 is an invalid world
     i32 worldId;
     union {
         BlockPos xyz;

@@ -48,16 +48,26 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
     // @TODO(traks) error handling and/or error messages for all failure cases
     // in this entire function?
 
+    int region_fd = -1;
     WorldChunkPos chunkPos = chunk->pos;
 
     int region_x = chunkPos.x >> 5;
     int region_z = chunkPos.z >> 5;
 
-    unsigned char file_name[64];
-    int file_name_size = sprintf((void *) file_name,
-            "world/region/r.%d.%d.mca", region_x, region_z);
+    char * worldName = NULL;
+    if (chunkPos.worldId == 1) {
+        worldName = "world";
+    }
 
-    int region_fd = open((void *) file_name, O_RDONLY);
+    if (worldName == NULL) {
+        LogInfo("Unknown world ID: %lld", (i64) chunkPos.worldId);
+        goto bail;
+    }
+
+    unsigned char file_name[64];
+    int file_name_size = sprintf((void *) file_name, "%s/region/r.%d.%d.mca", worldName, region_x, region_z);
+
+    region_fd = open((void *) file_name, O_RDONLY);
     if (region_fd == -1) {
         LogErrno("Failed to open region file: %s");
         goto bail;

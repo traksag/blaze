@@ -539,6 +539,7 @@ static void ClientTick(Client * client) {
         entity->collision_height = 1.8;
         set_player_gamemode(entity, GAMEMODE_CREATIVE);
 
+        entity->worldId = 1;
         // teleport_player(entity, 88, 70, 73, 0, 0);
         teleport_player(entity, 0.5, 140, 0.5, 0, 0);
 

@@ -95,15 +95,9 @@
 // - Based on memory available and configured limits, things like preemtive
 //   chunk loads can be restricted to a certain amount of memory.
 
-#define CHUNK_HASH_IN_USE ((u32) 0x1 << 0)
-#define CHUNK_REQUESTING_UPDATE ((u32) 0x1 << 1)
-#define CHUNK_LOADED_FROM_STORAGE ((u32) 0x1 << 2)
-#define CHUNK_STARTED_LOADING_FROM_STORAGE ((u32) 0x1 << 3)
-
 typedef struct {
     PackedWorldChunkPos packedPos;
     Chunk * chunk;
-    u32 flags;
 } ChunkHashEntry;
 
 typedef struct {
@@ -154,7 +148,7 @@ static u32 HashWorldChunkPos(PackedWorldChunkPos pos) {
 }
 
 static i32 ChunkHashEntryIsEmpty(ChunkHashEntry * entry) {
-    return !(entry->flags & CHUNK_HASH_IN_USE);
+    return entry->packedPos.packed == 0;
 }
 
 static ChunkHashEntry * FindChunkHashEntryOrEmpty(PackedWorldChunkPos packedPos, u32 startIndex) {
@@ -223,9 +217,9 @@ static void FreeChunk(WorldChunkPos pos) {
     u32 hash = HashWorldChunkPos(packedPos);
     ChunkHashEntry * entry = FindChunkHashEntryOrEmpty(packedPos, hash);
     assert(!ChunkHashEntryIsEmpty(entry));
-    assert(!(entry->flags & CHUNK_REQUESTING_UPDATE));
-
     Chunk * chunk = entry->chunk;
+    assert(!(chunk->flags & CHUNK_REQUESTING_UPDATE));
+
     for (int sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
         ChunkSection * section = chunk->sections + sectionIndex;
         free(section->blockStates);
@@ -243,11 +237,13 @@ static void FreeChunk(WorldChunkPos pos) {
 static void PushUpdateRequest(ChunkHashEntry * entry) {
     assert(!ChunkHashEntryIsEmpty(entry));
 
-    if (entry->flags & CHUNK_REQUESTING_UPDATE) {
+    Chunk * chunk = entry->chunk;
+
+    if (chunk->flags & CHUNK_REQUESTING_UPDATE) {
         return;
     }
 
-    entry->flags |= CHUNK_REQUESTING_UPDATE;
+    chunk->flags |= CHUNK_REQUESTING_UPDATE;
 
     if (updateRequests.useCount >= updateRequests.arraySize) {
         // NOTE(traks): need a bit of wiggle room for integer operations
@@ -275,7 +271,8 @@ static ChunkHashEntry * PopUpdateRequest(void) {
 
     ChunkHashEntry * entry = FindChunkHashEntryOrEmpty(request.packedPos, HashWorldChunkPos(request.packedPos));
     assert(!ChunkHashEntryIsEmpty(entry));
-    entry->flags &= ~CHUNK_REQUESTING_UPDATE;
+    Chunk * chunk = entry->chunk;
+    chunk->flags &= ~CHUNK_REQUESTING_UPDATE;
     return entry;
 }
 
@@ -288,11 +285,11 @@ static ChunkHashEntry * GetOrCreateChunk(WorldChunkPos pos) {
     u32 hash = HashWorldChunkPos(packedPos);
     ChunkHashEntry * entry = FindChunkHashEntryOrEmpty(packedPos, hash);
     if (ChunkHashEntryIsEmpty(entry)) {
+        assert(pos.worldId != 0);
         Chunk * chunk = calloc(1, sizeof *chunk);
         *entry = (ChunkHashEntry) {
             .packedPos = packedPos,
             .chunk = chunk,
-            .flags = CHUNK_HASH_IN_USE
         };
         chunkIndex.useCount++;
         chunk->pos = pos;
@@ -392,7 +389,7 @@ static void UpdateChunk(ChunkHashEntry * entry) {
     if (chunk->interestCount == 0) {
         // TODO(traks): might want to keep the entry around for a little while
         // instead of aggressively unloading
-        i32 chunkLoading = (entry->flags & CHUNK_STARTED_LOADING_FROM_STORAGE) && !(entry->flags & CHUNK_LOADED_FROM_STORAGE);
+        i32 chunkLoading = (chunk->flags & CHUNK_STARTED_LOADING_FROM_STORAGE) && !(chunk->flags & CHUNK_LOADED_FROM_STORAGE);
 
         if (!chunkLoading) {
             FreeChunk(UnpackWorldChunkPos(entry->packedPos));
@@ -403,14 +400,14 @@ static void UpdateChunk(ChunkHashEntry * entry) {
         PushUpdateRequest(entry);
     }
 
-    if (chunk->interestCount > 0 && !(entry->flags & CHUNK_STARTED_LOADING_FROM_STORAGE)) {
-        entry->flags |= CHUNK_STARTED_LOADING_FROM_STORAGE;
+    if (chunk->interestCount > 0 && !(chunk->flags & CHUNK_STARTED_LOADING_FROM_STORAGE)) {
+        chunk->flags |= CHUNK_STARTED_LOADING_FROM_STORAGE;
         PushTaskToQueue(serv->backgroundQueue, LoadChunkAsync, chunk);
     }
 
-    if ((entry->flags & CHUNK_STARTED_LOADING_FROM_STORAGE) && !(entry->flags & CHUNK_LOADED_FROM_STORAGE)) {
+    if ((chunk->flags & CHUNK_STARTED_LOADING_FROM_STORAGE) && !(chunk->flags & CHUNK_LOADED_FROM_STORAGE)) {
         if (atomic_load_explicit(&chunk->atomicFlags, memory_order_acquire) & CHUNK_ATOMIC_LOAD_DONE) {
-            entry->flags |= CHUNK_LOADED_FROM_STORAGE;
+            chunk->flags |= CHUNK_LOADED_FROM_STORAGE;
             if (chunk->flags & CHUNK_LOAD_SUCCESS) {
                 // TODO(traks): consider force loading a 3x3 around this chunk before
                 // marking this chunk as fully loaded. And also keep the 3x3 loaded!

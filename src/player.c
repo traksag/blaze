@@ -323,6 +323,7 @@ drop_item(entity_base * player, item_stack * is, unsigned char drop_size) {
     // @TODO(traks) this has to depend on player's current pose
     double eye_y = player->y + 1.62;
 
+    item->worldId = player->worldId;
     item->x = player->x;
     item->y = eye_y - 0.3;
     item->z = player->z;
@@ -1765,6 +1766,9 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
             continue;
         }
         if (entity->type != ENTITY_ITEM) {
+            continue;
+        }
+        if (entity->worldId != player->worldId) {
             continue;
         }
         if (entity->item.pickup_timeout != 0) {
@@ -3281,7 +3285,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             double dx = candidate->x - player->x;
             double dy = candidate->y - player->y;
             double dz = candidate->z - player->z;
-            if (dx * dx + dy * dy + dz * dz < 45 * 45) {
+            if (candidate->worldId == player->worldId && dx * dx + dy * dy + dz * dz < 45 * 45) {
                 try_update_tracked_entity(player,
                         send_cursor, tick_arena, tracked, candidate);
                 continue;
@@ -3311,7 +3315,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             double dy = candidate->y - player->y;
             double dz = candidate->z - player->z;
 
-            if (dx * dx + dy * dy + dz * dz > 40 * 40) {
+            if (candidate->worldId != player->worldId || dx * dx + dy * dy + dz * dz > 40 * 40) {
                 // @NOTE(traks) Don't start tracking until close enough. This
                 // radius should be lower than the untrack radius: if the track
                 // radius is larger than the untrack radius, then there's a zone
