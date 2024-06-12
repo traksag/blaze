@@ -249,7 +249,7 @@ SetBlockResult ChunkSetBlockState(Chunk * ch, BlockPos pos, i32 blockState) {
 
     // TODO(traks): should we really be checking this? If so, might want to move
     // this to the if-check above
-    assert(ch->flags & CHUNK_FINISHED_LOADING);
+    assert(ch->loaderFlags & CHUNK_LOADER_READY);
 
     // @TODO(traks) somehow ensure this never fails even with tons of players,
     // or make sure we appropriate handle cases in which too many changes occur

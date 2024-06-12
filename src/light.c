@@ -161,8 +161,8 @@ static void PropagateLightFromNeighbour(LightQueue * queue, Chunk * * chunkGrid,
 
     i32 startY = LIGHT_SECTIONS_PER_CHUNK * 16 - 1;
     for (i32 y = startY; y >= 0; y--) {
-        i32 x = 16 * chunkDx + baseX;
-        i32 z = 16 * chunkDz + baseZ;
+        i32 x = baseX;
+        i32 z = baseZ;
         for (i32 h = 0; h < 16; h++) {
             i32 sectionIndex = ((y & 0x1f0) >> 0) | ((z & 0x30) >> 2) | ((x & 0x30) >> 4);
             i32 posIndex = ((y & 0xf) << 8) | ((z & 0xf) << 4) | (x & 0xf);
@@ -238,40 +238,10 @@ static void LoadChunkGrid(Chunk * targetChunk, Chunk * * chunkGrid) {
             pos.z += dz;
             i32 index = GetNeighbourIndex(dx, dz);
             Chunk * neighbour = GetChunkInternal(pos);
-            if (neighbour != NULL && neighbour->exchangeLightWithNeighbours & 1) {
+            if (neighbour != NULL && (neighbour->loaderFlags & CHUNK_LOADER_LIT_SELF)) {
                 // NOTE(traks): the neighbouring chunk lit itself, so we can
                 // exchange light with it
                 chunkGrid[index] = neighbour;
-            }
-        }
-    }
-}
-
-static void MarkLightExchanged(Chunk * * chunkGrid) {
-    // TODO(traks): this isn't entirely correct. If a corner chunk loads, and
-    // then unloads before the side chunks do, we don't actually have its
-    // lighting. Also if a corner chunk loads and one side chunk loads, then the
-    // corner unloads and the other side chunk unloads.
-    for (i32 dz = -1; dz <= 1; dz++) {
-        for (i32 dx = -1; dx <= 1; dx++) {
-            i32 index = GetNeighbourIndex(dx, dz);
-            i32 oppositeIndex = GetNeighbourIndex(-dx, -dz);
-            Chunk * neighbour = chunkGrid[index];
-            if (neighbour != NULL) {
-                Chunk * target = chunkGrid[0];
-                target->exchangeLightWithNeighbours |= ((u16) 1 << index);
-                neighbour->exchangeLightWithNeighbours |= ((u16) 1 << oppositeIndex);
-
-                // TODO(traks): REALLY weird we set the finished loading flag
-                // here. Should be taken care of by the chunk loader. The
-                // lighting engine should just light and inform others of the
-                // current lighting state.
-                if (target->exchangeLightWithNeighbours == 0b1011000010111011) {
-                    target->flags |= CHUNK_FULLY_LIT | CHUNK_FINISHED_LOADING;
-                }
-                if (neighbour->exchangeLightWithNeighbours == 0b1011000010111011) {
-                    neighbour->flags |= CHUNK_FULLY_LIT | CHUNK_FINISHED_LOADING;
-                }
             }
         }
     }
@@ -372,10 +342,10 @@ void LightChunkAndExchangeWithNeighbours(Chunk * targetChunk) {
 
     BeginTimings(PropagateNeighbourSkyLight);
 
-    PropagateLightFromNeighbour(&lightQueue, chunkGrid, 15, 0, 0, 1, -1, 0, DIRECTION_NEG_X);
-    PropagateLightFromNeighbour(&lightQueue, chunkGrid, 0, 0, 0, 1, 1, 0, DIRECTION_POS_X);
-    PropagateLightFromNeighbour(&lightQueue, chunkGrid, 0, 15, 1, 0, 0, -1, DIRECTION_NEG_Z);
-    PropagateLightFromNeighbour(&lightQueue, chunkGrid, 0, 0, 1, 0, 0, 1, DIRECTION_POS_Z);
+    PropagateLightFromNeighbour(&lightQueue, chunkGrid, -1, 0, 0, 1, -1, 0, DIRECTION_NEG_X);
+    PropagateLightFromNeighbour(&lightQueue, chunkGrid, 16, 0, 0, 1, 1, 0, DIRECTION_POS_X);
+    PropagateLightFromNeighbour(&lightQueue, chunkGrid, 0, -1, 1, 0, 0, -1, DIRECTION_NEG_Z);
+    PropagateLightFromNeighbour(&lightQueue, chunkGrid, 0, 16, 1, 0, 0, 1, DIRECTION_POS_Z);
     PropagateSkyLightFully(&lightQueue);
 
     EndTimings(PropagateNeighbourSkyLight);
@@ -416,17 +386,13 @@ void LightChunkAndExchangeWithNeighbours(Chunk * targetChunk) {
 
     BeginTimings(PropagateNeighbourBlockLight);
 
-    PropagateLightFromNeighbour(&lightQueue, chunkGrid, 15, 0, 0, 1, -1, 0, DIRECTION_NEG_X);
-    PropagateLightFromNeighbour(&lightQueue, chunkGrid, 0, 0, 0, 1, 1, 0, DIRECTION_POS_X);
-    PropagateLightFromNeighbour(&lightQueue, chunkGrid, 0, 15, 1, 0, 0, -1, DIRECTION_NEG_Z);
-    PropagateLightFromNeighbour(&lightQueue, chunkGrid, 0, 0, 1, 0, 0, 1, DIRECTION_POS_Z);
+    PropagateLightFromNeighbour(&lightQueue, chunkGrid, -1, 0, 0, 1, -1, 0, DIRECTION_NEG_X);
+    PropagateLightFromNeighbour(&lightQueue, chunkGrid, 16, 0, 0, 1, 1, 0, DIRECTION_POS_X);
+    PropagateLightFromNeighbour(&lightQueue, chunkGrid, 0, -1, 1, 0, 0, -1, DIRECTION_NEG_Z);
+    PropagateLightFromNeighbour(&lightQueue, chunkGrid, 0, 16, 1, 0, 0, 1, DIRECTION_POS_Z);
     PropagateBlockLightFully(&lightQueue);
 
     EndTimings(PropagateNeighbourBlockLight);
-
-    BeginTimings(MarkLightExchanged);
-    MarkLightExchanged(chunkGrid);
-    EndTimings(MarkLightExchanged);
 
     EndTimings(LightChunk);
 }

@@ -21,32 +21,23 @@ typedef struct {
     u8 * blockLight;
 } LightSection;
 
-#define CHUNK_FINISHED_LOADING ((u32) 0x1 << 0)
-#define CHUNK_WAS_ON_LOAD_REQUEST_LIST ((u32) 0x1 << 1)
-#define CHUNK_WAS_ON_UNLOAD_REQUEST_LIST ((u32) 0x1 << 2)
-#define CHUNK_FORCE_KEEP ((u32) 0x1 << 3)
-#define CHUNK_FULLY_LIT ((u32) 0x1 << 4)
-#define CHUNK_LOAD_SUCCESS ((u32) 0x1 << 5)
-#define CHUNK_BLOCKS_LOADED ((u32) 0x1 << 7)
-#define CHUNK_REQUESTING_UPDATE ((u32) 0x1 << 8)
-#define CHUNK_LOADED_FROM_STORAGE ((u32) 0x1 << 9)
-#define CHUNK_STARTED_LOADING_FROM_STORAGE ((u32) 0x1 << 10)
+#define CHUNK_ATOMIC_FINISHED_LOAD ((u32) 0x1 << 0)
+#define CHUNK_ATOMIC_LOAD_SUCCESS ((u32) 0x1 << 1)
 
-#define CHUNK_ATOMIC_LOAD_DONE ((u32) 0x1 << 0)
+#define CHUNK_LOADER_REQUESTING_UPDATE ((u32) 0x1 << 0)
+#define CHUNK_LOADER_FINISHED_LOAD ((u32) 0x1 << 1)
+#define CHUNK_LOADER_STARTED_LOAD ((u32) 0x1 << 2)
+#define CHUNK_LOADER_GOT_LIGHT ((u32) 0x1 << 3)
+#define CHUNK_LOADER_LOAD_SUCCESS ((u32) 0x1 << 4)
+#define CHUNK_LOADER_READY ((u32) 0x1 << 5)
+#define CHUNK_LOADER_LIT_SELF ((u32) 0x1 << 6)
+#define CHUNK_LOADER_FULLY_LIT ((u32) 0x1 << 7)
 
 typedef struct {
     ChunkSection sections[SECTIONS_PER_CHUNK];
     LightSection lightSections[LIGHT_SECTIONS_PER_CHUNK];
     // @NOTE(traks) index as zx
     i16 motion_blocking_height_map[256];
-
-    // increment if you want to keep a chunk available in the map, decrement
-    // if you no longer care for the chunk.
-    // If = 0 the chunk will be removed from the map at some point.
-    i32 interestCount;
-    i32 chunkStatus;
-    unsigned flags;
-    u16 exchangeLightWithNeighbours;
 
     WorldChunkPos pos;
 
@@ -70,7 +61,18 @@ typedef struct {
     i64 lastLocalEventTick;
     u8 localEventCount;
 
+    // NOTE(traks): Modified by the thread that populates the chunk data
+    // asynchronously to communicate with the main thread
     _Atomic u32 atomicFlags;
+    // NOTE(traks): This protects access to the chunk while its data is being
+    // populated asynchronously. At the moment this should only be touched
+    // (read/write) from the main thread.
+    u32 loaderFlags;
+    // increment if you want to keep a chunk available in the map, decrement
+    // if you no longer care for the chunk.
+    // If = 0 the chunk will be removed from the map at some point.
+    i32 interestCount;
+    i32 neighbourInterestCount;
 } Chunk;
 
 static inline i32 SectionPosToIndex(BlockPos pos) {
@@ -119,6 +121,9 @@ static inline WorldChunkPos UnpackWorldChunkPos(PackedWorldChunkPos pos) {
 void AddChunkInterest(WorldChunkPos pos, i32 interest);
 i32 PopChunksToLoad(i32 worldId, Chunk * * chunkArray, i32 maxChunks);
 Chunk * GetChunkIfLoaded(WorldChunkPos pos);
+// NOTE(traks): Before accessing the chunk data, be sure to check the chunk's
+// flags to see if the chunk data is already available! The data could be in the
+// process of being loaded, which will not be fun :(
 Chunk * GetChunkInternal(WorldChunkPos pos);
 // NOTE(traks): chunkArray will hold the data, may need to zero-initialise it.
 // It is indexed as zx

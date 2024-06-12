@@ -390,7 +390,12 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
             }
         }
 
-        if (lightIsStored) {
+        // TODO(traks): for now we don't load stored light, because we need to
+        // invalidate it if any of the surrounding chunks got light updates
+        // while this chunk was unloaded. Not sure if stuff like that is even
+        // fixable? How would we detect if this chunk got unloaded before the
+        // most recent light updates to neighbour chunk got saved to disk.
+        if (lightIsStored && 0) {
             if (sectionY < MIN_SECTION - 1 || sectionY > MAX_SECTION + 1) {
                 LogInfo("Section Y %d with light", (int) sectionY);
                 goto bail;
@@ -419,11 +424,13 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
         goto bail;
     }
 
-    if (lightIsStored) {
-        chunk->flags |= CHUNK_FULLY_LIT;
+    // TODO(traks): not used at the moment
+    if (lightIsStored && 0) {
+        // NOTE(traks): can't set flags async at the moment, not thread safe!
+        // chunk->statusFlags |= CHUNK_GOT_LIGHT;
     }
 
-    chunk->flags |= CHUNK_LOAD_SUCCESS;
+    atomic_fetch_or_explicit(&chunk->atomicFlags, CHUNK_ATOMIC_LOAD_SUCCESS, memory_order_relaxed);
 
 bail:
     EndTimings(ReadChunk);

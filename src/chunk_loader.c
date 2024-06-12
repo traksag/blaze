@@ -75,7 +75,8 @@
 //   size by a factor n, the throughput increases roughly by a factor sqrt(n).
 //   Thus sqrt(n) times as much data can be read in the same time. This provides
 //   a way to determine whether it's faster to merge multiple chunks into a
-//   single read vs. reading them all separately.
+//   single read vs. reading them all separately. Maybe 500-5000 chunks per tick
+//   is reasonable depending on HDD/SDD (if chunks are 2 sectors each).
 // - Loading chunks near players is much more important than loading chunks that
 //   are further away. Nearby chunks should therefore have a higher priority in
 //   case chunk loading can't keep up with the demand. Moreover, progress should
@@ -218,7 +219,7 @@ static void FreeChunk(WorldChunkPos pos) {
     ChunkHashEntry * entry = FindChunkHashEntryOrEmpty(packedPos, hash);
     assert(!ChunkHashEntryIsEmpty(entry));
     Chunk * chunk = entry->chunk;
-    assert(!(chunk->flags & CHUNK_REQUESTING_UPDATE));
+    assert(!(chunk->loaderFlags & CHUNK_LOADER_REQUESTING_UPDATE));
 
     for (int sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
         ChunkSection * section = chunk->sections + sectionIndex;
@@ -239,11 +240,11 @@ static void PushUpdateRequest(ChunkHashEntry * entry) {
 
     Chunk * chunk = entry->chunk;
 
-    if (chunk->flags & CHUNK_REQUESTING_UPDATE) {
+    if (chunk->loaderFlags & CHUNK_LOADER_REQUESTING_UPDATE) {
         return;
     }
 
-    chunk->flags |= CHUNK_REQUESTING_UPDATE;
+    chunk->loaderFlags |= CHUNK_LOADER_REQUESTING_UPDATE;
 
     if (updateRequests.useCount >= updateRequests.arraySize) {
         // NOTE(traks): need a bit of wiggle room for integer operations
@@ -272,7 +273,7 @@ static ChunkHashEntry * PopUpdateRequest(void) {
     ChunkHashEntry * entry = FindChunkHashEntryOrEmpty(request.packedPos, HashWorldChunkPos(request.packedPos));
     assert(!ChunkHashEntryIsEmpty(entry));
     Chunk * chunk = entry->chunk;
-    chunk->flags &= ~CHUNK_REQUESTING_UPDATE;
+    chunk->loaderFlags &= ~CHUNK_LOADER_REQUESTING_UPDATE;
     return entry;
 }
 
@@ -297,16 +298,24 @@ static ChunkHashEntry * GetOrCreateChunk(WorldChunkPos pos) {
     return entry;
 }
 
-// TODO(traks): adding interest to a chunk should load the 3x3 around it, so we
-// can do lighting properly. The chunks that get loaded but have 0 interest
-// should not be known to the game code. The game code only cares about fully
-// loaded chunks.
 void AddChunkInterest(WorldChunkPos pos, i32 interest) {
-    ChunkHashEntry * entry = GetOrCreateChunk(pos);
-    Chunk * chunk = entry->chunk;
-    chunk->interestCount += interest;
-    assert(chunk->interestCount >= 0);
-    PushUpdateRequest(entry);
+    for (i32 dx = -1; dx <= 1; dx++) {
+        for (i32 dz = -1; dz <= 1; dz++) {
+            WorldChunkPos actualPos = pos;
+            actualPos.x += dx;
+            actualPos.z += dz;
+            ChunkHashEntry * entry = GetOrCreateChunk(actualPos);
+            Chunk * chunk = entry->chunk;
+            if (dx == 0 && dz == 0) {
+                chunk->interestCount += interest;
+                assert(chunk->interestCount >= 0);
+            } else {
+                chunk->neighbourInterestCount += interest;
+                assert(chunk->neighbourInterestCount >= 0);
+            }
+            PushUpdateRequest(entry);
+        }
+    }
 }
 
 Chunk * GetChunkIfLoaded(WorldChunkPos pos) {
@@ -316,7 +325,7 @@ Chunk * GetChunkIfLoaded(WorldChunkPos pos) {
     ChunkHashEntry * entry = FindChunkHashEntryOrEmpty(packedPos, hash);
     if (!ChunkHashEntryIsEmpty(entry)) {
         Chunk * found = entry->chunk;
-        if (found->flags & CHUNK_FINISHED_LOADING) {
+        if (found->loaderFlags & CHUNK_LOADER_READY) {
             res = found;
         }
     }
@@ -341,9 +350,7 @@ void CollectLoadedChunks(WorldChunkPos from, WorldChunkPos to, Chunk * * chunkAr
             WorldChunkPos pos = {.worldId = from.worldId, .x = x, .z = z};
             if (from.x <= x && x <= to.x && from.z <= z && z <= to.z) {
                 Chunk * chunk = GetChunkIfLoaded(pos);
-                if (chunk != NULL && (chunk->flags & CHUNK_FINISHED_LOADING)) {
-                    chunkArray[(z - from.z) * jumpZ + (x - from.x)] = chunk;
-                }
+                chunkArray[(z - from.z) * jumpZ + (x - from.x)] = chunk;
             }
         }
     }
@@ -381,15 +388,15 @@ static void LoadChunkAsync(void * arg) {
 
     free(scratchArena.data);
 
-    atomic_fetch_or_explicit(&chunk->atomicFlags, CHUNK_ATOMIC_LOAD_DONE, memory_order_release);
+    atomic_fetch_or_explicit(&chunk->atomicFlags, CHUNK_ATOMIC_FINISHED_LOAD, memory_order_release);
 }
 
 static void UpdateChunk(ChunkHashEntry * entry) {
     Chunk * chunk = entry->chunk;
-    if (chunk->interestCount == 0) {
+    if (chunk->interestCount == 0 && chunk->neighbourInterestCount == 0) {
         // TODO(traks): might want to keep the entry around for a little while
         // instead of aggressively unloading
-        i32 chunkLoading = (chunk->flags & CHUNK_STARTED_LOADING_FROM_STORAGE) && !(chunk->flags & CHUNK_LOADED_FROM_STORAGE);
+        i32 chunkLoading = (chunk->loaderFlags & CHUNK_LOADER_STARTED_LOAD) && !(chunk->loaderFlags & CHUNK_LOADER_FINISHED_LOAD);
 
         if (!chunkLoading) {
             FreeChunk(UnpackWorldChunkPos(entry->packedPos));
@@ -400,25 +407,17 @@ static void UpdateChunk(ChunkHashEntry * entry) {
         PushUpdateRequest(entry);
     }
 
-    if (chunk->interestCount > 0 && !(chunk->flags & CHUNK_STARTED_LOADING_FROM_STORAGE)) {
-        chunk->flags |= CHUNK_STARTED_LOADING_FROM_STORAGE;
+    if ((chunk->interestCount > 0 || chunk->neighbourInterestCount > 0) && !(chunk->loaderFlags & CHUNK_LOADER_STARTED_LOAD)) {
+        chunk->loaderFlags |= CHUNK_LOADER_STARTED_LOAD;
         PushTaskToQueue(serv->backgroundQueue, LoadChunkAsync, chunk);
     }
 
-    if ((chunk->flags & CHUNK_STARTED_LOADING_FROM_STORAGE) && !(chunk->flags & CHUNK_LOADED_FROM_STORAGE)) {
-        if (atomic_load_explicit(&chunk->atomicFlags, memory_order_acquire) & CHUNK_ATOMIC_LOAD_DONE) {
-            chunk->flags |= CHUNK_LOADED_FROM_STORAGE;
-            if (chunk->flags & CHUNK_LOAD_SUCCESS) {
-                // TODO(traks): consider force loading a 3x3 around this chunk before
-                // marking this chunk as fully loaded. And also keep the 3x3 loaded!
-                // Keep the 3x3 "invisibly" loaded. The majority of the server code only
-                // cares  about chunks that are fully loaded, not chunks that are
-                // partially loaded.
-
-                // NOTE(traks): will set the chunk flags to finished loading
-                // when the light of the 8 neighbours was propagated to this
-                // chunk
-                LightChunkAndExchangeWithNeighbours(entry->chunk);
+    if ((chunk->loaderFlags & CHUNK_LOADER_STARTED_LOAD) && !(chunk->loaderFlags & CHUNK_LOADER_FINISHED_LOAD)) {
+        u32 atomicFlags = atomic_load_explicit(&chunk->atomicFlags, memory_order_acquire);
+        if (atomicFlags & CHUNK_ATOMIC_FINISHED_LOAD) {
+            chunk->loaderFlags |= CHUNK_LOADER_FINISHED_LOAD;
+            if (atomicFlags & CHUNK_ATOMIC_LOAD_SUCCESS) {
+                chunk->loaderFlags |= CHUNK_LOADER_LOAD_SUCCESS;
             } else {
                 // TODO(traks): what to do with the chunk??
                 LogInfo("Failed to load chunk");
@@ -426,6 +425,50 @@ static void UpdateChunk(ChunkHashEntry * entry) {
         } else {
             // NOTE(traks): not yet loaded, poll again later
             PushUpdateRequest(entry);
+        }
+    }
+
+    if ((chunk->loaderFlags & CHUNK_LOADER_LOAD_SUCCESS) && !(chunk->loaderFlags & CHUNK_LOADER_LIT_SELF)) {
+        LightChunkAndExchangeWithNeighbours(chunk);
+        chunk->loaderFlags |= CHUNK_LOADER_LIT_SELF;
+        // NOTE(traks): Update neighbours and the chunk itself, to check if
+        // any are fully ready (fully lit by all neighbours)
+        for (i32 dx = -1; dx <= 1; dx++) {
+            for (i32 dz = -1; dz <= 1; dz++) {
+                WorldChunkPos neighbourPos = UnpackWorldChunkPos(entry->packedPos);
+                neighbourPos.x += dx;
+                neighbourPos.z += dz;
+                PackedWorldChunkPos packedNeighbourPos = PackWorldChunkPos(neighbourPos);
+                u32 neighbourHash = HashWorldChunkPos(packedNeighbourPos);
+                ChunkHashEntry * neighbourEntry = FindChunkHashEntryOrEmpty(packedNeighbourPos, neighbourHash);
+                if (!ChunkHashEntryIsEmpty(neighbourEntry)) {
+                    PushUpdateRequest(neighbourEntry);
+                }
+            }
+        }
+    }
+
+    if ((chunk->loaderFlags & CHUNK_LOADER_LIT_SELF) && !(chunk->loaderFlags & CHUNK_LOADER_FULLY_LIT)) {
+        // NOTE(traks): check if all neighbours have been lit too
+        i32 allNeighboursLit = 1;
+        for (i32 dx = -1; dx <= 1; dx++) {
+            for (i32 dz = -1; dz <= 1; dz++) {
+                WorldChunkPos neighbourPos = UnpackWorldChunkPos(entry->packedPos);
+                neighbourPos.x += dx;
+                neighbourPos.z += dz;
+                Chunk * neighbour = GetChunkInternal(neighbourPos);
+                if (neighbour == NULL || !(neighbour->loaderFlags & CHUNK_LOADER_LIT_SELF)) {
+                    allNeighboursLit = 0;
+                    goto checkNeighboursLitEnd;
+                }
+            }
+        }
+checkNeighboursLitEnd:
+        if (allNeighboursLit) {
+            chunk->loaderFlags |= CHUNK_LOADER_FULLY_LIT;
+            // TODO(traks): Should we be marking chunks with no interest (only
+            // neighbour interest) also as ready?
+            chunk->loaderFlags |= CHUNK_LOADER_READY;
         }
     }
 }
