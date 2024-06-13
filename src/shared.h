@@ -2194,6 +2194,7 @@ typedef struct {
 
 typedef struct {
     i64 current_tick;
+    i64 currentTickStartNanos;
 
     entity_base entities[MAX_ENTITIES];
     u16 next_entity_generations[MAX_ENTITIES];

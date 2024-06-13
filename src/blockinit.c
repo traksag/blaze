@@ -1110,6 +1110,11 @@ static void DivideOutCollisionModelPixels(BlockModel * model) {
 }
 
 void
+// NOTE(traks): This function takes 6 seconds to compile under Clang's O3 for
+// me, disable optimisations for now. This function only runs once anyway
+#if defined(__clang__)
+__attribute__ ((optnone))
+#endif
 init_block_data(void) {
     register_block_model(BLOCK_MODEL_EMPTY, 0, NULL);
     // @NOTE(traks) this initialises the full block model

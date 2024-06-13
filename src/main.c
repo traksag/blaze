@@ -1271,6 +1271,7 @@ main(void) {
 #endif
 
         serv->tickArena->index = 0;
+        serv->currentTickStartNanos = desiredTickStart;
         server_tick();
 
         if (interruptCount > 0) {
@@ -1289,6 +1290,7 @@ main(void) {
         // catch up with the desired tick start. That could be desirable for a
         // small period of lag, but not for prolonged periods of lag.
         if (actualTickEnd > nextDesiredTickStart) {
+            LogInfo("Tick took too long: %lldms", (actualTickEnd - desiredTickStart) / 1000000);
             nextDesiredTickStart = actualTickEnd;
         }
 

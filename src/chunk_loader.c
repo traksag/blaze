@@ -479,6 +479,12 @@ void TickChunkLoader(void) {
         ChunkHashEntry * entry = PopUpdateRequest();
         UpdateChunk(entry);
         maxRemainingChunkUpdates--;
+
+        // TODO(traks): Not ideal, but currently we need this because lighting
+        // chunks is very laggy
+        if (NanoTime() >= serv->currentTickStartNanos + 40000000LL) {
+            break;
+        }
     }
 }
 
