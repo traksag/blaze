@@ -13,9 +13,7 @@
 typedef struct {
     // NOTE(traks): position is the offset from y = min sky light level
     // (i.e. min world height - 16) in the lowest corner of the centre chunk
-    i16 y;
-    i8 z;
-    i8 x;
+    u32 data;
 } LightQueueEntry;
 
 typedef struct {
@@ -27,6 +25,33 @@ typedef struct {
     u8 * lightSections[4 * 4 * 32];
     u16 * blockSections[4 * 4 * 32];
 } LightQueue;
+
+static inline u32 PosFromXYZ(i32 x, i32 y, i32 z) {
+    u32 res = (0x0e00c0c0) | ((y & 0x1ff) << 16) | ((z & 0x3f) << 8) | (x & 0x3f);
+    return res;
+}
+
+static inline i32 PosToSectionIndex(u32 pos) {
+    i32 res = ((pos & 0x1f00000) >> 16) | ((pos & 0x3000) >> 10) | ((pos & 0x30) >> 4);
+    return res;
+}
+
+static inline i32 PosToSectionPosIndex(u32 pos) {
+    i32 res = ((pos & 0xf0000) >> 8) | ((pos & 0xf00) >> 4) | (pos & 0xf);
+    return res;
+}
+
+static inline i32 PosToX(u32 pos) {
+    return pos & 0x3f;
+}
+
+static inline i32 PosToZ(u32 pos) {
+    return (pos >> 8) & 0x3f;
+}
+
+static inline i32 PosToY(u32 pos) {
+    return (pos >> 16) & 0x1ff;
+}
 
 static inline void LightQueuePush(LightQueue * queue, LightQueueEntry entry) {
     i32 writeIndex = queue->writeIndex;
@@ -112,13 +137,9 @@ static i32 BlockLightCanPropagate(i32 fromState, i32 toState, i32 dir) {
 
 // NOTE(traks): update a neighbour's light and push the neighbour to the
 // queue if further propagation is necessary
-static inline void PropagateLight(LightQueue * queue, i32 fromX, i32 fromY, i32 fromZ, i32 dx, i32 dy, i32 dz, i32 dir, i32 fromState, i32 fromValue, i32 lightReduction) {
-    i32 toX = (fromX + dx) & 0x3f;
-    i32 toY = (fromY + dy) & 0x1ff;
-    i32 toZ = (fromZ + dz) & 0x3f;
-
-    i32 sectionIndex = ((toY & 0x1f0) >> 0) | ((toZ & 0x30) >> 2) | ((toX & 0x30) >> 4);
-    i32 posIndex = ((toY & 0xf) << 8) | ((toZ & 0xf) << 4) | (toX & 0xf);
+static inline void PropagateLight(LightQueue * queue, u32 toPos, i32 dir, i32 fromState, i32 fromValue, i32 lightReduction) {
+    i32 sectionIndex = PosToSectionIndex(toPos);
+    i32 posIndex = PosToSectionPosIndex(toPos);
     i32 storedValue = GetSectionLight(queue->lightSections[sectionIndex], posIndex);
     i32 spreadValue = fromValue - lightReduction;
     // NOTE(traks): final value is only going to be less than the spread value.
@@ -143,7 +164,7 @@ static inline void PropagateLight(LightQueue * queue, i32 fromX, i32 fromY, i32 
 
     SetSectionLight(queue->lightSections[sectionIndex], posIndex, spreadValue);
 
-    LightQueuePush(queue, (LightQueueEntry) {.x = toX, .y = toY, .z = toZ});
+    LightQueuePush(queue, (LightQueueEntry) {.data = toPos});
 }
 
 static i32 GetNeighbourIndex(i32 dx, i32 dz) {
@@ -168,7 +189,8 @@ static void PropagateLightFromNeighbour(LightQueue * queue, Chunk * * chunkGrid,
             i32 posIndex = ((y & 0xf) << 8) | ((z & 0xf) << 4) | (x & 0xf);
             i32 value = GetSectionLight(queue->lightSections[sectionIndex], posIndex);
             i32 fromState = queue->blockSections[sectionIndex][posIndex];
-            PropagateLight(queue, x, y, z, -chunkDx, 0, -chunkDz, get_opposite_direction(chunkDir), fromState, value, 1);
+            u32 toPos = PosFromXYZ(x - chunkDx, y, z - chunkDz);
+            PropagateLight(queue, toPos, get_opposite_direction(chunkDir), fromState, value, 1);
             x += addX;
             z += addZ;
         }
@@ -182,21 +204,19 @@ static void PropagateSkyLightFully(LightQueue * queue) {
         }
 
         LightQueueEntry entry = LightQueuePop(queue);
-        i32 x = entry.x;
-        i32 y = entry.y;
-        i32 z = entry.z;
 
-        i32 sectionIndex = ((y & 0x1f0) >> 0) | ((z & 0x30) >> 2) | ((x & 0x30) >> 4);
-        i32 posIndex = ((y & 0xf) << 8) | ((z & 0xf) << 4) | (x & 0xf);
+        i32 sectionIndex = PosToSectionIndex(entry.data);
+        i32 posIndex = PosToSectionPosIndex(entry.data);
         i32 fromState = queue->blockSections[sectionIndex][posIndex];
         i32 value = GetSectionLight(queue->lightSections[sectionIndex], posIndex);
 
-        PropagateLight(queue, x, y, z, -1, 0, 0, DIRECTION_NEG_X, fromState, value, 1);
-        PropagateLight(queue, x, y, z, 1, 0, 0, DIRECTION_POS_X, fromState, value, 1);
-        PropagateLight(queue, x, y, z, 0, 0, -1, DIRECTION_NEG_Z, fromState, value, 1);
-        PropagateLight(queue, x, y, z, 0, 0, 1, DIRECTION_POS_Z, fromState, value, 1);
-        PropagateLight(queue, x, y, z, 0, -1, 0, DIRECTION_NEG_Y, fromState, value, value == 15 ? 0 : 1);
-        PropagateLight(queue, x, y, z, 0, 1, 0, DIRECTION_POS_Y, fromState, value, 1);
+        u32 pos = entry.data & 0xfffffff;
+        PropagateLight(queue, pos - 0x1, DIRECTION_NEG_X, fromState, value, 1);
+        PropagateLight(queue, pos + 0x1, DIRECTION_POS_X, fromState, value, 1);
+        PropagateLight(queue, pos - 0x100, DIRECTION_NEG_Z, fromState, value, 1);
+        PropagateLight(queue, pos + 0x100, DIRECTION_POS_Z, fromState, value, 1);
+        PropagateLight(queue, pos - 0x10000, DIRECTION_NEG_Y, fromState, value, value == 15 ? 0 : 1);
+        PropagateLight(queue, pos + 0x10000, DIRECTION_POS_Y, fromState, value, 1);
     }
 }
 
@@ -207,21 +227,19 @@ static void PropagateBlockLightFully(LightQueue * queue) {
         }
 
         LightQueueEntry entry = LightQueuePop(queue);
-        i32 x = entry.x;
-        i32 y = entry.y;
-        i32 z = entry.z;
 
-        i32 sectionIndex = ((y & 0x1f0) >> 0) | ((z & 0x30) >> 2) | ((x & 0x30) >> 4);
-        i32 posIndex = ((y & 0xf) << 8) | ((z & 0xf) << 4) | (x & 0xf);
+        i32 sectionIndex = PosToSectionIndex(entry.data);
+        i32 posIndex = PosToSectionPosIndex(entry.data);
         i32 fromState = queue->blockSections[sectionIndex][posIndex];
         i32 value = GetSectionLight(queue->lightSections[sectionIndex], posIndex);
 
-        PropagateLight(queue, x, y, z, -1, 0, 0, DIRECTION_NEG_X, fromState, value, 1);
-        PropagateLight(queue, x, y, z, 1, 0, 0, DIRECTION_POS_X, fromState, value, 1);
-        PropagateLight(queue, x, y, z, 0, 0, -1, DIRECTION_NEG_Z, fromState, value, 1);
-        PropagateLight(queue, x, y, z, 0, 0, 1, DIRECTION_POS_Z, fromState, value, 1);
-        PropagateLight(queue, x, y, z, 0, -1, 0, DIRECTION_NEG_Y, fromState, value, 1);
-        PropagateLight(queue, x, y, z, 0, 1, 0, DIRECTION_POS_Y, fromState, value, 1);
+        u32 pos = entry.data & 0xfffffff;
+        PropagateLight(queue, pos - 0x1, DIRECTION_NEG_X, fromState, value, 1);
+        PropagateLight(queue, pos + 0x1, DIRECTION_POS_X, fromState, value, 1);
+        PropagateLight(queue, pos - 0x100, DIRECTION_NEG_Z, fromState, value, 1);
+        PropagateLight(queue, pos + 0x100, DIRECTION_POS_Z, fromState, value, 1);
+        PropagateLight(queue, pos - 0x10000, DIRECTION_NEG_Y, fromState, value, 1);
+        PropagateLight(queue, pos + 0x10000, DIRECTION_POS_Y, fromState, value, 1);
     }
 }
 
@@ -333,7 +351,8 @@ void LightChunkAndExchangeWithNeighbours(Chunk * targetChunk) {
     // NOTE(traks): prepare sky light sources for propagation
     for (i32 zx = 0; zx < 16 * 16; zx++) {
         i32 y = (MAX_WORLD_Y - MIN_WORLD_Y + 1) + 16 + 16;
-        LightQueuePush(&lightQueue, (LightQueueEntry) {.x = zx & 0xf, .y = y, .z = zx >> 4});
+        u32 pos = PosFromXYZ(zx & 0xf, y, zx >> 4);
+        LightQueuePush(&lightQueue, (LightQueueEntry) {.data = pos});
     }
 
     PropagateSkyLightFully(&lightQueue);
@@ -375,7 +394,8 @@ void LightChunkAndExchangeWithNeighbours(Chunk * targetChunk) {
             i32 emitted = serv->emittedLightByState[blockState];
             if (emitted > 0) {
                 SetSectionLight(lightQueue.lightSections[sectionIndex], posIndex, emitted);
-                LightQueuePush(&lightQueue, (LightQueueEntry) {.x = zx & 0xf, .y = y, .z = zx >> 4});
+                u32 pos = PosFromXYZ(zx & 0xf, y, zx >> 4);
+                LightQueuePush(&lightQueue, (LightQueueEntry) {.data = pos});
             }
         }
     }
