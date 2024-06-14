@@ -12,7 +12,10 @@
 
 typedef struct {
     // NOTE(traks): position is the offset from y = min sky light level
-    // (i.e. min world height - 16) in the lowest corner of the centre chunk
+    // (i.e. min world height - 16) in the lowest x,z corner of the centre
+    // chunk. See conversion functions below for how positions are encoded in
+    // the bottom 7 hex digits. The top hex digit holds the direction this entry
+    // got propagated from.
     u32 data;
 } LightQueueEntry;
 
@@ -27,7 +30,13 @@ typedef struct {
 } LightQueue;
 
 static inline u32 PosFromXYZ(i32 x, i32 y, i32 z) {
-    u32 res = (0x0e00c0c0) | ((y & 0x1ff) << 16) | ((z & 0x3f) << 8) | (x & 0x3f);
+    // NOTE(traks): We encode positions this way, because it allows us to
+    // subtract and add offsets easily. Subtracts borrow bits from the 1's in
+    // the special bit mask. We XOR so a negative input coordinate borrows.
+    // TODO(traks): We really only need 1 borrow bit per coordinate, though the
+    // shifts and bit masks become less nice. Does free up the top byte, instead
+    // of just the top hex digit!
+    u32 res = (0x0e00c0c0) ^ ((y & 0x3ff) << 16) ^ ((z & 0x7f) << 8) ^ (x & 0x7f);
     return res;
 }
 
@@ -164,7 +173,8 @@ static inline void PropagateLight(LightQueue * queue, u32 toPos, i32 dir, i32 fr
 
     SetSectionLight(queue->lightSections[sectionIndex], posIndex, spreadValue);
 
-    LightQueuePush(queue, (LightQueueEntry) {.data = toPos});
+    u32 toData = toPos | (get_opposite_direction(dir) << 28);
+    LightQueuePush(queue, (LightQueueEntry) {.data = toData});
 }
 
 static i32 GetNeighbourIndex(i32 dx, i32 dz) {
@@ -210,13 +220,18 @@ static void PropagateSkyLightFully(LightQueue * queue) {
         i32 fromState = queue->blockSections[sectionIndex][posIndex];
         i32 value = GetSectionLight(queue->lightSections[sectionIndex], posIndex);
 
+        // TODO(traks): The order in which we propagate light may be important
+        // for performance. It shouldn't depend on whatever the order of the
+        // direction enum is.
+        i32 lightReduction[] = {(value == 15 ? 0 : 1), 1, 1, 1, 1, 1};
+        i32 shift[] = {-0x10000, 0x10000, -0x100, 0x100, -0x1, 0x1};
         u32 pos = entry.data & 0xfffffff;
-        PropagateLight(queue, pos - 0x1, DIRECTION_NEG_X, fromState, value, 1);
-        PropagateLight(queue, pos + 0x1, DIRECTION_POS_X, fromState, value, 1);
-        PropagateLight(queue, pos - 0x100, DIRECTION_NEG_Z, fromState, value, 1);
-        PropagateLight(queue, pos + 0x100, DIRECTION_POS_Z, fromState, value, 1);
-        PropagateLight(queue, pos - 0x10000, DIRECTION_NEG_Y, fromState, value, value == 15 ? 0 : 1);
-        PropagateLight(queue, pos + 0x10000, DIRECTION_POS_Y, fromState, value, 1);
+        u32 fromDir = entry.data >> 28;
+        for (i32 dir = 0; dir < 6; dir++) {
+            if (dir != fromDir) {
+                PropagateLight(queue, pos + shift[dir], dir, fromState, value, lightReduction[dir]);
+            }
+        }
     }
 }
 
@@ -233,13 +248,17 @@ static void PropagateBlockLightFully(LightQueue * queue) {
         i32 fromState = queue->blockSections[sectionIndex][posIndex];
         i32 value = GetSectionLight(queue->lightSections[sectionIndex], posIndex);
 
+        // TODO(traks): The order in which we propagate light may be important
+        // for performance. It shouldn't depend on whatever the order of the
+        // direction enum is.
+        i32 shift[] = {-0x10000, 0x10000, -0x100, 0x100, -0x1, 0x1};
         u32 pos = entry.data & 0xfffffff;
-        PropagateLight(queue, pos - 0x1, DIRECTION_NEG_X, fromState, value, 1);
-        PropagateLight(queue, pos + 0x1, DIRECTION_POS_X, fromState, value, 1);
-        PropagateLight(queue, pos - 0x100, DIRECTION_NEG_Z, fromState, value, 1);
-        PropagateLight(queue, pos + 0x100, DIRECTION_POS_Z, fromState, value, 1);
-        PropagateLight(queue, pos - 0x10000, DIRECTION_NEG_Y, fromState, value, 1);
-        PropagateLight(queue, pos + 0x10000, DIRECTION_POS_Y, fromState, value, 1);
+        u32 fromDir = entry.data >> 28;
+        for (i32 dir = 0; dir < 6; dir++) {
+            if (dir != fromDir) {
+                PropagateLight(queue, pos + shift[dir], dir, fromState, value, 1);
+            }
+        }
     }
 }
 
@@ -352,7 +371,7 @@ void LightChunkAndExchangeWithNeighbours(Chunk * targetChunk) {
     for (i32 zx = 0; zx < 16 * 16; zx++) {
         i32 y = (MAX_WORLD_Y - MIN_WORLD_Y + 1) + 16 + 16;
         u32 pos = PosFromXYZ(zx & 0xf, y, zx >> 4);
-        LightQueuePush(&lightQueue, (LightQueueEntry) {.data = pos});
+        LightQueuePush(&lightQueue, (LightQueueEntry) {.data = pos | ((u32) DIRECTION_POS_Y << 28)});
     }
 
     PropagateSkyLightFully(&lightQueue);
@@ -395,7 +414,7 @@ void LightChunkAndExchangeWithNeighbours(Chunk * targetChunk) {
             if (emitted > 0) {
                 SetSectionLight(lightQueue.lightSections[sectionIndex], posIndex, emitted);
                 u32 pos = PosFromXYZ(zx & 0xf, y, zx >> 4);
-                LightQueuePush(&lightQueue, (LightQueueEntry) {.data = pos});
+                LightQueuePush(&lightQueue, (LightQueueEntry) {.data = pos | ((u32) DIRECTION_ZERO << 28)});
             }
         }
     }
