@@ -29,7 +29,7 @@ typedef struct {
     i32 writeIndex;
     // NOTE(traks): index as yzx
     u8 * lightSections[4 * 4 * 32];
-    u64 * blockSections[4 * 4 * 32];
+    SectionBlocks blockSections[4 * 4 * 32];
 } LightQueue;
 
 static inline u32 PosFromXYZ(i32 x, i32 y, i32 z) {
@@ -340,7 +340,8 @@ void LightChunkAndExchangeWithNeighbours(Chunk * targetChunk) {
     lightQueue.entries = allEntries;
 
     // NOTE(traks): set up section references for easy access
-    u64 sectionAir[4096 / 4] = {0};
+    u64 sectionAirData[4096 / 4] = {0};
+    SectionBlocks sectionAir = {.blockData = sectionAirData};
     u8 sectionFullLight[2048];
     memset(sectionFullLight, 0xff, 2048);
 
@@ -356,12 +357,12 @@ void LightChunkAndExchangeWithNeighbours(Chunk * targetChunk) {
         }
 
         for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
-            u64 * blockData = chunk->sections[sectionIndex].blockData;
-            if (blockData == NULL) {
+            SectionBlocks blocks = chunk->sections[sectionIndex].blocks;
+            if (blocks.blockData == NULL) {
                 continue;
             }
             i32 gridIndex = ((sectionIndex + 1) << 4) | zx;
-            lightQueue.blockSections[gridIndex] = blockData;
+            lightQueue.blockSections[gridIndex] = blocks;
         }
     }
 

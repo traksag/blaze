@@ -225,7 +225,7 @@ static void FreeChunk(WorldChunkPos pos) {
 
     for (int sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
         ChunkSection * section = chunk->sections + sectionIndex;
-        FreeSectionBlocks(section->blockData);
+        FreeSectionBlocks(section->blocks);
     }
     for (int sectionIndex = 0; sectionIndex < LIGHT_SECTIONS_PER_CHUNK; sectionIndex++) {
         LightSection * section = chunk->lightSections + sectionIndex;
@@ -370,7 +370,7 @@ static void LoadChunkAsync(void * arg) {
 
     for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
         ChunkSection * section = chunk->sections + sectionIndex;
-        section->blockData = CallocSectionBlocks();
+        section->blocks = CallocSectionBlocks();
     }
     for (i32 sectionIndex = 0; sectionIndex < LIGHT_SECTIONS_PER_CHUNK; sectionIndex++) {
         LightSection * section = chunk->lightSections + sectionIndex;
@@ -383,8 +383,8 @@ static void LoadChunkAsync(void * arg) {
     for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
         ChunkSection * section = chunk->sections + sectionIndex;
         if (section->nonAirCount == 0) {
-            FreeSectionBlocks(section->blockData);
-            section->blockData = NULL;
+            FreeSectionBlocks(section->blocks);
+            section->blocks.blockData = NULL;
         }
     }
 
@@ -496,17 +496,30 @@ void TickChunkLoader(void) {
     }
 }
 
-void * CallocSectionBlocks() {
+static u64 CalculateFastDivMultiplier(u32 n, u32 shift) {
+    u64 multiplier = ((u64) 1 << shift) / n;
+    // NOTE(traks): Often with the above multiplier, (n * multiplier) >> shift
+    // is going to yield 0 instead of 1. Correct the multiplier so we obtain 1
+    // instead.
+    multiplier++;
+    return multiplier;
+}
+
+SectionBlocks CallocSectionBlocks() {
+    SectionBlocks res = {0};
     i32 size = 2 * 4096;
-    void * res = calloc(1, size);
+    res.blockData = calloc(1, size);
+    res.bitsPerBlock = 15;
+    res.blocksPerLane = 64 / res.bitsPerBlock;
+    res.blocksPerLaneDivMultiplier = CalculateFastDivMultiplier(res.blocksPerLane, SECTION_BLOCKS_PER_LANE_DIV_SHIFT);
     atomic_fetch_add_explicit(&sectionBlocksMemoryUsage, size, memory_order_relaxed);
     return res;
 }
 
-void FreeSectionBlocks(void * data) {
+void FreeSectionBlocks(SectionBlocks blocks) {
     i32 size = 2 * 4096;
-    free(data);
-    if (data != NULL) {
+    free(blocks.blockData);
+    if (blocks.blockData != NULL) {
         atomic_fetch_add_explicit(&sectionBlocksMemoryUsage, -size, memory_order_relaxed);
     }
 }

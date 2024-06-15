@@ -13,6 +13,11 @@
 
 #define MAX_BLOCK_STATES (24000)
 
+// NOTE(traks): For now we assume that block states can have at most this number
+// of bits. Don't change this! Parts of the code might break if the number of
+// bits is larger.
+#define MAX_BITS_PER_BLOCK_STATE (16)
+
 #define MAX_CHUNK_CACHE_RADIUS (10)
 
 #define MAX_CHUNK_CACHE_DIAM (2 * MAX_CHUNK_CACHE_RADIUS + 1)

@@ -3,11 +3,23 @@
 
 #include "shared.h"
 
+// NOTE(traks): important this is 31, so the multiplier fits in a u32. This
+// shift yields multipliers that work for dividing by n = 1,...,144. In our case
+// n is the number of blocks per lane, so that's always far less than 144.
+#define SECTION_BLOCKS_PER_LANE_DIV_SHIFT (31)
+
 typedef struct {
     // NOTE(traks): Can possibly be NULL if the entire section is air
     // NOTE(traks): Following vanilla's block state encoding into longs, so we
     // can easily transfer all data over the wire.
     u64 * blockData;
+    u32 blocksPerLaneDivMultiplier;
+    u16 blocksPerLane;
+    u16 bitsPerBlock;
+} SectionBlocks;
+
+typedef struct {
+    SectionBlocks blocks;
     u16 * changedBlockSet;
     i32 changedBlockSetMask;
     i32 changedBlockCount;
@@ -89,19 +101,34 @@ static inline BlockPos SectionIndexToPos(u32 index) {
     return res;
 }
 
-static inline u32 SectionGetBlockState(u64 * blockData, i32 index) {
-    u32 outerIndex = index >> 2;
-    u32 shift = 15 * (index & 0x3);
-    u64 mask = 0x7fff;
-    i32 res = (blockData[outerIndex] >> shift) & mask;
+static inline u32 SectionGetBlockState(SectionBlocks blocks, u32 index) {
+    assert(index <= 0xffffff);
+    u32 blocksPerLane = blocks.blocksPerLane;
+    u32 divMultiplier = blocks.blocksPerLaneDivMultiplier;
+    u32 divShift = SECTION_BLOCKS_PER_LANE_DIV_SHIFT;
+    u32 bitsPerBlock = blocks.bitsPerBlock;
+    u64 mask = ((u64) 1 << bitsPerBlock) - 1;
+    // u32 laneIndex = index / blocksPerLane;
+    // u32 shift = bitsPerBlock * (index % blocksPerLane);
+    u32 laneIndex = ((u64) index * divMultiplier) >> divShift;
+    u32 shift = bitsPerBlock * (index - blocksPerLane * laneIndex);
+    i32 res = (blocks.blockData[laneIndex] >> shift) & mask;
     return res;
 }
 
-static inline void SectionSetBlockState(u64 * blockData, i32 index, u32 blockState) {
-    u32 outerIndex = index >> 2;
-    u32 shift = 15 * (index & 0x3);
-    u64 mask = ~((u64) 0x7fff << shift);
-    blockData[outerIndex] = (blockData[outerIndex] & mask) | ((u64) blockState << shift);
+static inline void SectionSetBlockState(SectionBlocks blocks, u32 index, u32 blockState) {
+    assert(index <= 0xffffff);
+    assert(blockState < serv->vanilla_block_state_count);
+    u32 blocksPerLane = blocks.blocksPerLane;
+    u32 divMultiplier = blocks.blocksPerLaneDivMultiplier;
+    u32 divShift = SECTION_BLOCKS_PER_LANE_DIV_SHIFT;
+    u32 bitsPerBlock = blocks.bitsPerBlock;
+    u64 mask = ((u64) 1 << bitsPerBlock) - 1;
+    // u32 laneIndex = index / blocksPerLane;
+    // u32 shift = bitsPerBlock * (index % blocksPerLane);
+    u32 laneIndex = ((u64) index * divMultiplier) >> divShift;
+    u32 shift = bitsPerBlock * (index - blocksPerLane * laneIndex);
+    blocks.blockData[laneIndex] = (blocks.blockData[laneIndex] & ~(mask << shift)) | (((u64) blockState & mask) << shift);
 }
 
 static inline WorldChunkPos WorldBlockPosChunk(WorldBlockPos pos) {
@@ -186,8 +213,8 @@ void TickChunkSystem(void);
 
 void TickChunkLoader(void);
 
-void * CallocSectionBlocks(void);
-void FreeSectionBlocks(void * data);
+SectionBlocks CallocSectionBlocks(void);
+void FreeSectionBlocks(SectionBlocks blocks);
 void * CallocSectionLight(void);
 void FreeSectionLight(void * data);
 

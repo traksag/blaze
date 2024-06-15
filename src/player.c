@@ -1350,10 +1350,10 @@ send_chunk_fully(Cursor * send_cursor, Chunk * ch,
             if (CursorSkip(send_cursor, longs * 8)) {
                 for (i32 longIndex = 0; longIndex < longs; longIndex++) {
                     u16 blockStates[4];
-                    blockStates[0] = SectionGetBlockState(section->blockData, 4 * longIndex + 0);
-                    blockStates[1] = SectionGetBlockState(section->blockData, 4 * longIndex + 1);
-                    blockStates[2] = SectionGetBlockState(section->blockData, 4 * longIndex + 2);
-                    blockStates[3] = SectionGetBlockState(section->blockData, 4 * longIndex + 3);
+                    blockStates[0] = SectionGetBlockState(section->blocks, 4 * longIndex + 0);
+                    blockStates[1] = SectionGetBlockState(section->blocks, 4 * longIndex + 1);
+                    blockStates[2] = SectionGetBlockState(section->blocks, 4 * longIndex + 2);
+                    blockStates[3] = SectionGetBlockState(section->blocks, 4 * longIndex + 3);
                     u64 longValue = ((u64) blockStates[0])
                             | ((u64) blockStates[1] << 15)
                             | ((u64) blockStates[2] << 30)
