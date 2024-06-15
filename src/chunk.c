@@ -260,7 +260,7 @@ SetBlockResult ChunkSetBlockState(Chunk * ch, BlockPos pos, i32 blockState) {
 
     if (section->nonAirCount == 0) {
         // TODO(traks): return error if can't allocate chunk
-        section->blockStates = calloc(1, 4096 * sizeof *section->blockStates);
+        section->blockStates = CallocSectionBlocks();
     }
 
     i32 index = SectionPosToIndex((BlockPos) {pos.x & 0xf, pos.y & 0xf, pos.z & 0xf});
@@ -280,7 +280,7 @@ SetBlockResult ChunkSetBlockState(Chunk * ch, BlockPos pos, i32 blockState) {
     section->blockStates[index] = blockState;
 
     if (section->nonAirCount == 0) {
-        free(section->blockStates);
+        FreeSectionBlocks(section->blockStates);
         section->blockStates = NULL;
     }
 

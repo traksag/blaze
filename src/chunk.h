@@ -4,8 +4,8 @@
 #include "shared.h"
 
 typedef struct {
-    // @NOTE(traks) index as yzx
-    // @NOTE(traks) NULL if section is air
+    // NOTE(traks): index as yzx
+    // NOTE(traks): Can possibly be NULL if the entire section is air
     u16 * blockStates;
     u16 * changedBlockSet;
     i32 changedBlockSetMask;
@@ -14,9 +14,9 @@ typedef struct {
 } ChunkSection;
 
 typedef struct {
-    // @NOTE(traks) sky light and block light are 4 bits per entry. Currently
+    // @OTE(traks): sky light and block light are 4 bits per entry. Currently
     // never NULL, even if all light is 0.
-    // @NOTE(traks) index as yzx
+    // NOTE(traks): index as yzx
     u8 * skyLight;
     u8 * blockLight;
 } LightSection;
@@ -169,5 +169,10 @@ void InitChunkSystem(void);
 void TickChunkSystem(void);
 
 void TickChunkLoader(void);
+
+void * CallocSectionBlocks(void);
+void FreeSectionBlocks(void * data);
+void * CallocSectionLight(void);
+void FreeSectionLight(void * data);
 
 #endif

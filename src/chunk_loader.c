@@ -125,6 +125,7 @@ typedef struct {
 
 static ChunkHashMap chunkIndex;
 static ChunkUpdateRequestList updateRequests;
+static _Atomic i64 sectionMemoryUsage;
 
 // NOTE(traks): jenkins one at a time
 static inline u32 HashU64(u64 key) {
@@ -223,12 +224,12 @@ static void FreeChunk(WorldChunkPos pos) {
 
     for (int sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
         ChunkSection * section = chunk->sections + sectionIndex;
-        free(section->blockStates);
+        FreeSectionBlocks(section->blockStates);
     }
     for (int sectionIndex = 0; sectionIndex < LIGHT_SECTIONS_PER_CHUNK; sectionIndex++) {
         LightSection * section = chunk->lightSections + sectionIndex;
-        free(section->skyLight);
-        free(section->blockLight);
+        FreeSectionLight(section->skyLight);
+        FreeSectionLight(section->blockLight);
     }
 
     free(chunk);
@@ -368,12 +369,12 @@ static void LoadChunkAsync(void * arg) {
 
     for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
         ChunkSection * section = chunk->sections + sectionIndex;
-        section->blockStates = calloc(1, 4096 * sizeof *section->blockStates);
+        section->blockStates = CallocSectionBlocks();
     }
     for (i32 sectionIndex = 0; sectionIndex < LIGHT_SECTIONS_PER_CHUNK; sectionIndex++) {
         LightSection * section = chunk->lightSections + sectionIndex;
-        section->skyLight = calloc(1, 2048);
-        section->blockLight = calloc(1, 2048);
+        section->skyLight = CallocSectionLight();
+        section->blockLight = CallocSectionLight();
     }
 
     WorldLoadChunk(chunk, &scratchArena);
@@ -381,7 +382,7 @@ static void LoadChunkAsync(void * arg) {
     for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
         ChunkSection * section = chunk->sections + sectionIndex;
         if (section->nonAirCount == 0) {
-            free(section->blockStates);
+            FreeSectionBlocks(section->blockStates);
             section->blockStates = NULL;
         }
     }
@@ -485,6 +486,41 @@ void TickChunkLoader(void) {
         if (NanoTime() >= serv->currentTickStartNanos + 40000000LL) {
             break;
         }
+    }
+
+    if ((serv->current_tick % (10 * 20)) == 0) {
+        i64 memory = atomic_load_explicit(&sectionMemoryUsage, memory_order_relaxed);
+        LogInfo("Section memory usage: %.0fMB", memory / 1000000.0);
+    }
+}
+
+void * CallocSectionBlocks() {
+    i32 size = 2 * 4096;
+    void * res = calloc(1, size);
+    atomic_fetch_add_explicit(&sectionMemoryUsage, size, memory_order_relaxed);
+    return res;
+}
+
+void FreeSectionBlocks(void * data) {
+    i32 size = 2 * 4096;
+    free(data);
+    if (data != NULL) {
+        atomic_fetch_add_explicit(&sectionMemoryUsage, -size, memory_order_relaxed);
+    }
+}
+
+void * CallocSectionLight() {
+    i32 size = 2048;
+    void * res = calloc(1, size);
+    atomic_fetch_add_explicit(&sectionMemoryUsage, size, memory_order_relaxed);
+    return res;
+}
+
+void FreeSectionLight(void * data) {
+    i32 size = 2048;
+    free(data);
+    if (data != NULL) {
+        atomic_fetch_add_explicit(&sectionMemoryUsage, -size, memory_order_relaxed);
     }
 }
 
