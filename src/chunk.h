@@ -4,9 +4,10 @@
 #include "shared.h"
 
 typedef struct {
-    // NOTE(traks): index as yzx
     // NOTE(traks): Can possibly be NULL if the entire section is air
-    u16 * blockStates;
+    // NOTE(traks): Following vanilla's block state encoding into longs, so we
+    // can easily transfer all data over the wire.
+    u64 * blockData;
     u16 * changedBlockSet;
     i32 changedBlockSetMask;
     i32 changedBlockCount;
@@ -79,13 +80,28 @@ static inline i32 SectionPosToIndex(BlockPos pos) {
     return (pos.y << 8) | (pos.z << 4) | pos.x;
 }
 
-static inline BlockPos SectionIndexToPos(i32 index) {
+static inline BlockPos SectionIndexToPos(u32 index) {
     BlockPos res = {
         index & 0xf,
         (index >> 8),
         (index >> 4) & 0xf
     };
     return res;
+}
+
+static inline u32 SectionGetBlockState(u64 * blockData, i32 index) {
+    u32 outerIndex = index >> 2;
+    u32 shift = 15 * (index & 0x3);
+    u64 mask = 0x7fff;
+    i32 res = (blockData[outerIndex] >> shift) & mask;
+    return res;
+}
+
+static inline void SectionSetBlockState(u64 * blockData, i32 index, u32 blockState) {
+    u32 outerIndex = index >> 2;
+    u32 shift = 15 * (index & 0x3);
+    u64 mask = ~((u64) 0x7fff << shift);
+    blockData[outerIndex] = (blockData[outerIndex] & mask) | ((u64) blockState << shift);
 }
 
 static inline WorldChunkPos WorldBlockPosChunk(WorldBlockPos pos) {

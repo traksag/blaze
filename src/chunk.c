@@ -133,8 +133,9 @@ i32 ChunkGetBlockState(Chunk * ch, BlockPos pos) {
         return get_default_block_state(BLOCK_AIR);
     }
 
+    assert(section->blockData != NULL);
     i32 index = SectionPosToIndex((BlockPos) {pos.x & 0xf, pos.y & 0xf, pos.z & 0xf});
-    return section->blockStates[index];
+    return SectionGetBlockState(section->blockData, index);
 }
 
 void ChunkRecalculateMotionBlockingHeightMap(Chunk * ch) {
@@ -168,9 +169,10 @@ void ChunkRecalculateMotionBlockingHeightMap(Chunk * ch) {
             if (section->nonAirCount == 0) {
                 continue;
             }
+            assert(section->blockData != NULL);
 
             for (i32 y = 15; y >= 0; y--) {
-                i32 blockState = section->blockStates[(y << 8) | zx];
+                i32 blockState = SectionGetBlockState(section->blockData, (y << 8) | zx);
                 // @TODO(traks) other airs
                 if (blockState != 0) {
                     ch->motion_blocking_height_map[zx] = MIN_WORLD_Y + (sectionIndex << 4) + y + 1;
@@ -260,28 +262,29 @@ SetBlockResult ChunkSetBlockState(Chunk * ch, BlockPos pos, i32 blockState) {
 
     if (section->nonAirCount == 0) {
         // TODO(traks): return error if can't allocate chunk
-        section->blockStates = CallocSectionBlocks();
+        section->blockData = CallocSectionBlocks();
     }
 
     i32 index = SectionPosToIndex((BlockPos) {pos.x & 0xf, pos.y & 0xf, pos.z & 0xf});
 
     // @TODO(traks) also check for cave air and void air? Should probably avoid
     // the == 0 check either way and use block type lookup or property check
-    if (section->blockStates[index] == 0) {
+    i32 oldBlockState = SectionGetBlockState(section->blockData, index);
+    if (oldBlockState == 0) {
         section->nonAirCount++;
     }
     if (blockState == 0) {
         section->nonAirCount--;
     }
 
-    res.oldState = section->blockStates[index];
+    res.oldState = oldBlockState;
     res.newState = blockState;
 
-    section->blockStates[index] = blockState;
+    SectionSetBlockState(section->blockData, index, blockState);
 
     if (section->nonAirCount == 0) {
-        FreeSectionBlocks(section->blockStates);
-        section->blockStates = NULL;
+        FreeSectionBlocks(section->blockData);
+        section->blockData = NULL;
     }
 
     // @NOTE(traks) update height map

@@ -239,7 +239,7 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
     // NbtPrint(&chunkNbt);
 
     for (int section_y = 0; section_y < SECTIONS_PER_CHUNK; section_y++) {
-        assert(chunk->sections[section_y].blockStates != NULL);
+        assert(chunk->sections[section_y].blockData != NULL);
     }
 
     i32 dataVersion = NbtGetU32(&chunkNbt, STR("DataVersion"));
@@ -345,7 +345,7 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
                 // some special handling.
                 u16 block_state = palette_map[0];
                 for (i32 j = 0; j < 4096; j++) {
-                    section->blockStates[j] = block_state;
+                    SectionSetBlockState(section->blockData, j, block_state);
                     // @TODO(traks) handle cave air and void air
                     if (block_state != 0) {
                         section->nonAirCount++;
@@ -380,7 +380,7 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
                     }
 
                     u16 block_state = palette_map[id];
-                    section->blockStates[j] = block_state;
+                    SectionSetBlockState(section->blockData, j, block_state);
 
                     // @TODO(traks) handle cave air and void air
                     if (block_state != 0) {

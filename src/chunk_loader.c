@@ -125,7 +125,8 @@ typedef struct {
 
 static ChunkHashMap chunkIndex;
 static ChunkUpdateRequestList updateRequests;
-static _Atomic i64 sectionMemoryUsage;
+static _Atomic i64 sectionBlocksMemoryUsage;
+static _Atomic i64 sectionLightMemoryUsage;
 
 // NOTE(traks): jenkins one at a time
 static inline u32 HashU64(u64 key) {
@@ -224,7 +225,7 @@ static void FreeChunk(WorldChunkPos pos) {
 
     for (int sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
         ChunkSection * section = chunk->sections + sectionIndex;
-        FreeSectionBlocks(section->blockStates);
+        FreeSectionBlocks(section->blockData);
     }
     for (int sectionIndex = 0; sectionIndex < LIGHT_SECTIONS_PER_CHUNK; sectionIndex++) {
         LightSection * section = chunk->lightSections + sectionIndex;
@@ -369,7 +370,7 @@ static void LoadChunkAsync(void * arg) {
 
     for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
         ChunkSection * section = chunk->sections + sectionIndex;
-        section->blockStates = CallocSectionBlocks();
+        section->blockData = CallocSectionBlocks();
     }
     for (i32 sectionIndex = 0; sectionIndex < LIGHT_SECTIONS_PER_CHUNK; sectionIndex++) {
         LightSection * section = chunk->lightSections + sectionIndex;
@@ -382,8 +383,8 @@ static void LoadChunkAsync(void * arg) {
     for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
         ChunkSection * section = chunk->sections + sectionIndex;
         if (section->nonAirCount == 0) {
-            FreeSectionBlocks(section->blockStates);
-            section->blockStates = NULL;
+            FreeSectionBlocks(section->blockData);
+            section->blockData = NULL;
         }
     }
 
@@ -489,15 +490,16 @@ void TickChunkLoader(void) {
     }
 
     if ((serv->current_tick % (10 * 20)) == 0) {
-        i64 memory = atomic_load_explicit(&sectionMemoryUsage, memory_order_relaxed);
-        LogInfo("Section memory usage: %.0fMB", memory / 1000000.0);
+        i64 blocksMemory = atomic_load_explicit(&sectionBlocksMemoryUsage, memory_order_relaxed);
+        i64 lightMemory = atomic_load_explicit(&sectionLightMemoryUsage, memory_order_relaxed);
+        LogInfo("Section memory usage: %.0fMB (blocks), %.0fMB (light)", blocksMemory / 1000000.0, lightMemory / 1000000.0);
     }
 }
 
 void * CallocSectionBlocks() {
     i32 size = 2 * 4096;
     void * res = calloc(1, size);
-    atomic_fetch_add_explicit(&sectionMemoryUsage, size, memory_order_relaxed);
+    atomic_fetch_add_explicit(&sectionBlocksMemoryUsage, size, memory_order_relaxed);
     return res;
 }
 
@@ -505,14 +507,14 @@ void FreeSectionBlocks(void * data) {
     i32 size = 2 * 4096;
     free(data);
     if (data != NULL) {
-        atomic_fetch_add_explicit(&sectionMemoryUsage, -size, memory_order_relaxed);
+        atomic_fetch_add_explicit(&sectionBlocksMemoryUsage, -size, memory_order_relaxed);
     }
 }
 
 void * CallocSectionLight() {
     i32 size = 2048;
     void * res = calloc(1, size);
-    atomic_fetch_add_explicit(&sectionMemoryUsage, size, memory_order_relaxed);
+    atomic_fetch_add_explicit(&sectionLightMemoryUsage, size, memory_order_relaxed);
     return res;
 }
 
@@ -520,7 +522,7 @@ void FreeSectionLight(void * data) {
     i32 size = 2048;
     free(data);
     if (data != NULL) {
-        atomic_fetch_add_explicit(&sectionMemoryUsage, -size, memory_order_relaxed);
+        atomic_fetch_add_explicit(&sectionLightMemoryUsage, -size, memory_order_relaxed);
     }
 }
 
