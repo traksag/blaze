@@ -176,7 +176,7 @@ static inline void PropagateLight(LightQueue * queue, u32 toPos, i32 dir, i32 fr
         return;
     }
 
-    i32 toState = SectionGetBlockState(queue->blockSections[sectionIndex], posIndex);
+    i32 toState = SectionGetBlockState(&queue->blockSections[sectionIndex], posIndex);
     i32 reductionOfState = serv->lightReductionByState[toState];
     spreadValue = fromValue - MAX(lightReduction, reductionOfState);
 
@@ -214,7 +214,7 @@ static void PropagateLightFromNeighbour(LightQueue * queue, Chunk * * chunkGrid,
             i32 sectionIndex = ((y & 0x1f0) >> 0) | ((z & 0x30) >> 2) | ((x & 0x30) >> 4);
             i32 posIndex = ((y & 0xf) << 8) | ((z & 0xf) << 4) | (x & 0xf);
             i32 value = GetSectionLight(queue->lightSections[sectionIndex], posIndex);
-            i32 fromState = SectionGetBlockState(queue->blockSections[sectionIndex], posIndex);
+            i32 fromState = SectionGetBlockState(&queue->blockSections[sectionIndex], posIndex);
             u32 toPos = PosFromXYZ(x - chunkDx, y, z - chunkDz);
             PropagateLight(queue, toPos, get_opposite_direction(chunkDir), fromState, value, 1);
             x += addX;
@@ -233,7 +233,7 @@ static void PropagateSkyLightFully(LightQueue * queue) {
 
         i32 sectionIndex = PosToSectionIndex(entry.data);
         i32 posIndex = PosToSectionPosIndex(entry.data);
-        i32 fromState = SectionGetBlockState(queue->blockSections[sectionIndex], posIndex);
+        i32 fromState = SectionGetBlockState(&queue->blockSections[sectionIndex], posIndex);
         i32 value = GetSectionLight(queue->lightSections[sectionIndex], posIndex);
 
         // TODO(traks): The order in which we propagate light may be important
@@ -261,7 +261,7 @@ static void PropagateBlockLightFully(LightQueue * queue) {
 
         i32 sectionIndex = PosToSectionIndex(entry.data);
         i32 posIndex = PosToSectionPosIndex(entry.data);
-        i32 fromState = SectionGetBlockState(queue->blockSections[sectionIndex], posIndex);
+        i32 fromState = SectionGetBlockState(&queue->blockSections[sectionIndex], posIndex);
         i32 value = GetSectionLight(queue->lightSections[sectionIndex], posIndex);
 
         // TODO(traks): The order in which we propagate light may be important
@@ -340,8 +340,7 @@ void LightChunkAndExchangeWithNeighbours(Chunk * targetChunk) {
     lightQueue.entries = allEntries;
 
     // NOTE(traks): set up section references for easy access
-    u64 sectionAirData[4096 / 4] = {0};
-    SectionBlocks sectionAir = {.blockData = sectionAirData};
+    SectionBlocks sectionAir = {0};
     u8 sectionFullLight[2048];
     memset(sectionFullLight, 0xff, 2048);
 
@@ -358,9 +357,6 @@ void LightChunkAndExchangeWithNeighbours(Chunk * targetChunk) {
 
         for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
             SectionBlocks blocks = chunk->sections[sectionIndex].blocks;
-            if (blocks.blockData == NULL) {
-                continue;
-            }
             i32 gridIndex = ((sectionIndex + 1) << 4) | zx;
             lightQueue.blockSections[gridIndex] = blocks;
         }
@@ -426,7 +422,7 @@ void LightChunkAndExchangeWithNeighbours(Chunk * targetChunk) {
         for (i32 zx = 0; zx < 16 * 16; zx++) {
             i32 sectionIndex = (y & 0xff0) | 0;
             i32 posIndex = ((y & 0xf) << 8) | zx;
-            i32 blockState = SectionGetBlockState(lightQueue.blockSections[sectionIndex], posIndex);
+            i32 blockState = SectionGetBlockState(&lightQueue.blockSections[sectionIndex], posIndex);
             i32 emitted = serv->emittedLightByState[blockState];
             if (emitted > 0) {
                 SetSectionLight(lightQueue.lightSections[sectionIndex], posIndex, emitted);

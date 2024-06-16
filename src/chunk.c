@@ -91,6 +91,122 @@ try_get_block_entity(WorldBlockPos pos) {
     return NULL;
 }
 
+u32 SectionGetBlockState(SectionBlocks * blocks, u32 index) {
+    assert(index <= 0xffffff);
+
+    if (blocks->paletteCount == 0) {
+        return 0;
+    }
+    if (blocks->bitsPerBlock == 0) {
+        return blocks->singleBlockState;
+    }
+
+    u32 blocksPerLane = blocks->blocksPerLane;
+    u32 divMultiplier = blocks->blocksPerLaneDivMultiplier;
+    u32 divShift = SECTION_BLOCKS_PER_LANE_DIV_SHIFT;
+    u32 bitsPerBlock = blocks->bitsPerBlock;
+    u64 mask = ((u64) 1 << bitsPerBlock) - 1;
+    // u32 laneIndex = index / blocksPerLane;
+    // u32 shift = bitsPerBlock * (index % blocksPerLane);
+    u32 laneIndex = ((u64) index * divMultiplier) >> divShift;
+    u32 shift = bitsPerBlock * (index - blocksPerLane * laneIndex);
+    u64 * lanes = SectionGetLanes(blocks);
+    u32 paletteIndex = (lanes[laneIndex] >> shift) & mask;
+
+    if (blocks->bitsPerBlock == BITS_PER_BLOCK_STATE) {
+        // NOTE(traks): global palette
+        return paletteIndex;
+    }
+
+    u16 * palette = SectionGetPalette(blocks);
+    assert(paletteIndex < blocks->paletteCount);
+    u32 res = palette[paletteIndex];
+    return res;
+}
+
+void SectionSetBlockState(SectionBlocks * blocks, u32 index, u32 blockState) {
+    assert(index <= 0xffffff);
+    assert(blockState < serv->vanilla_block_state_count);
+
+    if (blocks->bitsPerBlock == 0) {
+        if (blockState == blocks->singleBlockState) {
+            return;
+        }
+
+        // NOTE(traks): grow!
+        // TODO(traks): What to do if allocation fails?
+        SectionBlocks newBlocks = CallocSectionBlocks(1);
+        u16 * newPalette = SectionGetPalette(&newBlocks);
+        newPalette[0] = blocks->singleBlockState;
+        // NOTE(traks): the old palette size can be 0 in case of an empty
+        // section, watch out for that!
+        newBlocks.paletteCount = 1;
+        SectionSetBlockState(&newBlocks, index, blockState);
+        FreeAndClearSectionBlocks(blocks);
+        *blocks = newBlocks;
+        return;
+    }
+
+    u32 blocksPerLane = blocks->blocksPerLane;
+    u32 divMultiplier = blocks->blocksPerLaneDivMultiplier;
+    u32 divShift = SECTION_BLOCKS_PER_LANE_DIV_SHIFT;
+    u32 bitsPerBlock = blocks->bitsPerBlock;
+    u64 mask = ((u64) 1 << bitsPerBlock) - 1;
+    // u32 laneIndex = index / blocksPerLane;
+    // u32 shift = bitsPerBlock * (index % blocksPerLane);
+    u32 laneIndex = ((u64) index * divMultiplier) >> divShift;
+    u32 shift = bitsPerBlock * (index - blocksPerLane * laneIndex);
+    u64 * lanes = SectionGetLanes(blocks);
+
+    if (bitsPerBlock == BITS_PER_BLOCK_STATE) {
+        lanes[laneIndex] = (lanes[laneIndex] & ~(mask << shift)) | (((u64) blockState & mask) << shift);
+        return;
+    }
+
+    // NOTE(traks): the old palette size can be 0 in case of an empty
+    // section, watch out for that!
+    if (blocks->paletteCount == 0) {
+        blocks->paletteCount = 1;
+    }
+
+    u16 * palette = SectionGetPalette(blocks);
+    u32 paletteIndex = 0;
+    while (paletteIndex < blocks->paletteCount) {
+        if (palette[paletteIndex] == blockState) {
+            break;
+        }
+        paletteIndex++;
+    }
+
+    u32 paletteSize = (u32) 1 << blocks->bitsPerBlock;
+
+    if (paletteIndex >= paletteSize) {
+        // NOTE(traks): grow!
+        // TODO(traks): What to do if allocation fails?
+        SectionBlocks newBlocks = CallocSectionBlocks(blocks->bitsPerBlock + 1);
+        u16 * newPalette = SectionGetPalette(&newBlocks);
+        newPalette[0] = SectionGetBlockState(blocks, 0);
+        newBlocks.paletteCount = 1;
+
+        // TODO(traks): I hate this so much
+        for (u32 newIndex = 0; newIndex <= 4096; newIndex++) {
+            SectionSetBlockState(&newBlocks, newIndex, SectionGetBlockState(blocks, newIndex));
+        }
+
+        SectionSetBlockState(&newBlocks, index, blockState);
+        FreeAndClearSectionBlocks(blocks);
+        *blocks = newBlocks;
+        return;
+    }
+
+    if (paletteIndex == blocks->paletteCount) {
+        palette[paletteIndex] = blockState;
+        blocks->paletteCount++;
+    }
+
+    lanes[laneIndex] = (lanes[laneIndex] & ~(mask << shift)) | (((u64) paletteIndex & mask) << shift);
+}
+
 i32 WorldGetBlockState(WorldBlockPos pos) {
     WorldChunkPos ch_pos = WorldBlockPosChunk(pos);
     Chunk * ch = GetChunkIfLoaded(ch_pos);
@@ -125,17 +241,9 @@ i32 ChunkGetBlockState(Chunk * ch, BlockPos pos) {
     }
 
     int sectionIndex = (pos.y - MIN_WORLD_Y) >> 4;
-    ChunkSection * section = ch->sections + sectionIndex;
-
-    if (section->nonAirCount == 0) {
-        // @TODO(traks) Any way to expand this to a constant at compile time?
-        // (Similar for other uses across the entire project.)
-        return get_default_block_state(BLOCK_AIR);
-    }
-
-    assert(section->blocks.blockData != NULL);
+    SectionBlocks * blocks = &ch->sections[sectionIndex].blocks;
     i32 index = SectionPosToIndex((BlockPos) {pos.x & 0xf, pos.y & 0xf, pos.z & 0xf});
-    return SectionGetBlockState(section->blocks, index);
+    return SectionGetBlockState(blocks, index);
 }
 
 void ChunkRecalculateMotionBlockingHeightMap(Chunk * ch) {
@@ -169,10 +277,9 @@ void ChunkRecalculateMotionBlockingHeightMap(Chunk * ch) {
             if (section->nonAirCount == 0) {
                 continue;
             }
-            assert(section->blocks.blockData != NULL);
 
             for (i32 y = 15; y >= 0; y--) {
-                i32 blockState = SectionGetBlockState(section->blocks, (y << 8) | zx);
+                i32 blockState = SectionGetBlockState(&section->blocks, (y << 8) | zx);
                 // @TODO(traks) other airs
                 if (blockState != 0) {
                     ch->motion_blocking_height_map[zx] = MIN_WORLD_Y + (sectionIndex << 4) + y + 1;
@@ -259,17 +366,11 @@ SetBlockResult ChunkSetBlockState(Chunk * ch, BlockPos pos, i32 blockState) {
 
     i32 sectionIndex = (pos.y - MIN_WORLD_Y) >> 4;
     ChunkSection * section = ch->sections + sectionIndex;
-
-    if (section->nonAirCount == 0) {
-        // TODO(traks): return error if can't allocate chunk
-        section->blocks = CallocSectionBlocks();
-    }
-
     i32 index = SectionPosToIndex((BlockPos) {pos.x & 0xf, pos.y & 0xf, pos.z & 0xf});
 
     // @TODO(traks) also check for cave air and void air? Should probably avoid
     // the == 0 check either way and use block type lookup or property check
-    i32 oldBlockState = SectionGetBlockState(section->blocks, index);
+    i32 oldBlockState = SectionGetBlockState(&section->blocks, index);
     if (oldBlockState == 0) {
         section->nonAirCount++;
     }
@@ -280,11 +381,10 @@ SetBlockResult ChunkSetBlockState(Chunk * ch, BlockPos pos, i32 blockState) {
     res.oldState = oldBlockState;
     res.newState = blockState;
 
-    SectionSetBlockState(section->blocks, index, blockState);
+    SectionSetBlockState(&section->blocks, index, blockState);
 
     if (section->nonAirCount == 0) {
-        FreeSectionBlocks(section->blocks);
-        section->blocks.blockData = NULL;
+        FreeAndClearSectionBlocks(&section->blocks);
     }
 
     // @NOTE(traks) update height map

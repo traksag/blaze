@@ -238,10 +238,6 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
 
     // NbtPrint(&chunkNbt);
 
-    for (int section_y = 0; section_y < SECTIONS_PER_CHUNK; section_y++) {
-        assert(chunk->sections[section_y].blocks.blockData != NULL);
-    }
-
     i32 dataVersion = NbtGetU32(&chunkNbt, STR("DataVersion"));
     if (dataVersion != SERVER_WORLD_VERSION) {
         LogInfo("Data version %jd != %jd", (intmax_t) dataVersion, (intmax_t) SERVER_WORLD_VERSION);
@@ -265,9 +261,9 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
     NbtList sectionList = NbtGetList(&chunkNbt, STR("sections"), NBT_COMPOUND);
     i32 numSections = sectionList.size;
 
-    // maximum amount of memory the palette will ever use
-    int max_palette_map_size = 4096;
-    u16 * palette_map = MallocInArena(scratchArena, max_palette_map_size * sizeof (u16));
+    u32 maxPaletteEntries = 4096;
+    u16 * paletteMap = MallocInArena(scratchArena, maxPaletteEntries * sizeof (u16));
+    i32 foundBlockSections[MAX_SECTION - MIN_SECTION + 1] = {0};
 
     if (numSections > LIGHT_SECTIONS_PER_CHUNK) {
         LogInfo("Too many chunk sections: %ju", (uintmax_t) numSections);
@@ -284,25 +280,30 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
 
         if (palette.size > 0) {
             if (sectionY < MIN_SECTION || sectionY > MAX_SECTION) {
-                LogInfo("Section Y %d with palette", (int) sectionY);
+                LogInfo("Invalid section Y %d with palette", (int) sectionY);
                 goto bail;
             }
 
             i32 sectionIndex = sectionY - MIN_SECTION;
-            ChunkSection * section = chunk->sections + sectionIndex;
+
+            if (foundBlockSections[sectionIndex]) {
+                LogInfo("Duplicate block section for Y %d", (int) sectionY);
+                goto bail;
+            }
+
+            foundBlockSections[sectionIndex] = 1;
 
             u32 paletteSize = palette.size;
 
-            if (paletteSize == 0 || paletteSize > max_palette_map_size) {
+            if (paletteSize <= 0 || paletteSize > maxPaletteEntries) {
                 LogInfo("Invalid palette size %ju", (uintmax_t) paletteSize);
                 goto bail;
             }
 
-            for (uint palettei = 0; palettei < paletteSize; palettei++) {
+            for (u32 paletteIndex = 0; paletteIndex < paletteSize; paletteIndex++) {
                 NbtCompound paletteEntryNbt = NbtNextCompound(&palette);
                 String resource_loc = NbtGetString(&paletteEntryNbt, STR("Name"));
-                i16 type_id = resolve_resource_loc_id(resource_loc,
-                        &serv->block_resource_table);
+                i16 type_id = resolve_resource_loc_id(resource_loc, &serv->block_resource_table);
                 if (type_id == -1) {
                     // @TODO(traks) should probably just error out
                     type_id = 2;
@@ -331,59 +332,62 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
                     stride = stride * prop_spec->value_count + val_index;
                 }
 
-                palette_map[palettei] = props->base_state + stride;
+                // TODO(traks): validate the block state and such
+                paletteMap[paletteIndex] = props->base_state + stride;
             }
 
-            i32 palette_size_ceil_log2 = CeilLog2U32(paletteSize);
-            i32 bits_per_id = MAX(4, palette_size_ceil_log2);
-            u32 id_mask = (1 << bits_per_id) - 1;
-            i32 offset = 0;
+            ChunkSection * section = chunk->sections + sectionIndex;
+            SectionBlocks * blocks = &section->blocks;
+            *blocks = CallocSectionBlocks(CeilLog2U32(paletteSize));
 
-            if (paletteSize == 1) {
-                // NOTE(traks): if the palette size is 1, the block data may be
-                // missing! The code below won't work in that case, so we need
-                // some special handling.
-                u16 block_state = palette_map[0];
-                for (i32 j = 0; j < 4096; j++) {
-                    SectionSetBlockState(section->blocks, j, block_state);
-                    // @TODO(traks) handle cave air and void air
-                    if (block_state != 0) {
-                        section->nonAirCount++;
-                    }
+            if (paletteSize > (1 << blocks->bitsPerBlock)) {
+                LogInfo("Palette size is larger than expected");
+                goto bail;
+            }
+
+            if (blocks->bitsPerBlock == 0) {
+                // NOTE(traks): Block data may be missing! The code below won't
+                // work in that case, so we need some special handling.
+                u32 blockState = paletteMap[0];
+                blocks->singleBlockState = blockState;
+
+                // @TODO(traks) handle cave air and void air
+                if (blockState != 0) {
+                    section->nonAirCount = 4096;
                 }
             } else {
-                if (blockData.size > 4096) {
-                    LogInfo("Too many entries: %ju", (uintmax_t) blockData.size);
+                if (blockData.size != blocks->numberOfLanes) {
+                    LogInfo("Palette size %lu", (u32) paletteSize);
+                    LogInfo("Invalid number of lanes in block section, got %lu, expected %lu", (u32) blockData.size, (u32) blocks->numberOfLanes);
                     goto bail;
                 }
 
-                i32 idsPerLong = 64 / bits_per_id;
-                if (idsPerLong * blockData.size < 4096) {
-                    LogInfo("Not enough entries %jd with bits per ID %jd",
-                            (intmax_t) blockData.size, (intmax_t) bits_per_id);
-                    goto bail;
+                for (u32 paletteIndex = 0; paletteIndex < paletteSize; paletteIndex++) {
+                    u16 * blocksPalette = SectionGetPalette(blocks);
+                    blocksPalette[paletteIndex] = paletteMap[paletteIndex];
                 }
 
-                u64 entry = NbtNextU64(&blockData);
+                blocks->paletteCount = paletteSize;
+                u64 * lanes = SectionGetLanes(blocks);
+                // NOTE(traks): bit weird, but left shifting by 64 bits is UB
+                // (and actually produces weird results), so we need to pull
+                // these shenanigans to ensure correct behaviour
+                u64 laneMask = (0xffffffffffffffff >> (64 - blocks->blocksPerLane * blocks->bitsPerBlock));
 
-                for (i32 j = 0; j < 4096; j++) {
-                    u32 id = (entry >> offset) & id_mask;
-                    offset += bits_per_id;
-                    if (offset > 64 - bits_per_id) {
-                        entry = NbtNextU64(&blockData);
-                        offset = 0;
-                    }
+                for (u32 laneIndex = 0; laneIndex < blocks->numberOfLanes; laneIndex++) {
+                    // NOTE(traks): ensure unused top bits are 0 to be safe,
+                    // maybe a bit overkill
+                    lanes[laneIndex] = NbtNextU64(&blockData) & laneMask;
+                }
 
-                    if (id >= paletteSize) {
-                        LogInfo("Out of bounds palette ID");
-                        goto bail;
-                    }
-
-                    u16 block_state = palette_map[id];
-                    SectionSetBlockState(section->blocks, j, block_state);
+                // TODO(traks): surely there's a better/faster way to do this
+                for (i32 blockIndex = 0; blockIndex < 4096; blockIndex++) {
+                    // TODO(traks): Should ensure the pallete indices of the
+                    // blocks don't lie outside the palette count
+                    u32 blockState = SectionGetBlockState(blocks, blockIndex);
 
                     // @TODO(traks) handle cave air and void air
-                    if (block_state != 0) {
+                    if (blockState != 0) {
                         section->nonAirCount++;
                     }
                 }

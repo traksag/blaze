@@ -18,6 +18,9 @@
 // bits is larger.
 #define MAX_BITS_PER_BLOCK_STATE (16)
 
+#define BITS_PER_BLOCK_STATE (15)
+static_assert(BITS_PER_BLOCK_STATE <= MAX_BITS_PER_BLOCK_STATE, "Unsupported bits per block state");
+
 #define MAX_CHUNK_CACHE_RADIUS (10)
 
 #define MAX_CHUNK_CACHE_DIAM (2 * MAX_CHUNK_CACHE_RADIUS + 1)
@@ -2400,33 +2403,9 @@ push_direct_neighbour_block_updates(WorldBlockPos pos,
 
 static i32 CeilLog2U32(u32 x) {
     assert(x != 0);
-    // @TODO(traks) use lzcnt if available. Maybe not necessary with -O3.
-    // @NOTE(traks) based on floor log2 from
-    // https://graphics.stanford.edu/~seander/bithacks.html
-    x--;
-
-    i32 res;
-    i32 shift;
-
-    res = (x > 0xffff) << 4;
-    x >>= res;
-
-    shift = (x > 0xff) << 3;
-    x >>= shift;
-    res |= shift;
-
-    shift = (x > 0xf) << 2;
-    x >>= shift;
-    res |= shift;
-
-    shift = (x > 0x3) << 1;
-    x >>= shift;
-    res |= shift;
-
-    res |= (x >> 1);
-
-    res++;
-
+    u64 y = x;
+    y = 2 * y - 1;
+    i32 res = 63 - __builtin_clzll(y);
     return res;
 }
 

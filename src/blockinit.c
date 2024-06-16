@@ -3126,6 +3126,6 @@ init_block_data(void) {
     InitSimpleFullBlock("blaze:unknown");
 
     assert(MAX_BLOCK_STATES >= serv->actual_block_state_count);
-    assert(CeilLog2U32(serv->vanilla_block_state_count) <= MAX_BITS_PER_BLOCK_STATE);
+    assert(CeilLog2U32(serv->vanilla_block_state_count) == BITS_PER_BLOCK_STATE);
     LogInfo("Block state count: %d (ceillog2 = %d)", serv->vanilla_block_state_count, CeilLog2U32(serv->vanilla_block_state_count));
 }

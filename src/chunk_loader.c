@@ -225,7 +225,7 @@ static void FreeChunk(WorldChunkPos pos) {
 
     for (int sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
         ChunkSection * section = chunk->sections + sectionIndex;
-        FreeSectionBlocks(section->blocks);
+        FreeAndClearSectionBlocks(&section->blocks);
     }
     for (int sectionIndex = 0; sectionIndex < LIGHT_SECTIONS_PER_CHUNK; sectionIndex++) {
         LightSection * section = chunk->lightSections + sectionIndex;
@@ -368,10 +368,6 @@ static void LoadChunkAsync(void * arg) {
         .data = malloc(scratchSize)
     };
 
-    for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
-        ChunkSection * section = chunk->sections + sectionIndex;
-        section->blocks = CallocSectionBlocks();
-    }
     for (i32 sectionIndex = 0; sectionIndex < LIGHT_SECTIONS_PER_CHUNK; sectionIndex++) {
         LightSection * section = chunk->lightSections + sectionIndex;
         section->skyLight = CallocSectionLight();
@@ -379,14 +375,6 @@ static void LoadChunkAsync(void * arg) {
     }
 
     WorldLoadChunk(chunk, &scratchArena);
-
-    for (i32 sectionIndex = 0; sectionIndex < SECTIONS_PER_CHUNK; sectionIndex++) {
-        ChunkSection * section = chunk->sections + sectionIndex;
-        if (section->nonAirCount == 0) {
-            FreeSectionBlocks(section->blocks);
-            section->blocks.blockData = NULL;
-        }
-    }
 
     free(scratchArena.data);
 
@@ -505,23 +493,51 @@ static u64 CalculateFastDivMultiplier(u32 n, u32 shift) {
     return multiplier;
 }
 
-SectionBlocks CallocSectionBlocks() {
-    SectionBlocks res = {0};
-    i32 size = 2 * 4096;
-    res.blockData = calloc(1, size);
-    res.bitsPerBlock = 15;
-    res.blocksPerLane = 64 / res.bitsPerBlock;
-    res.blocksPerLaneDivMultiplier = CalculateFastDivMultiplier(res.blocksPerLane, SECTION_BLOCKS_PER_LANE_DIV_SHIFT);
-    atomic_fetch_add_explicit(&sectionBlocksMemoryUsage, size, memory_order_relaxed);
+static i32 CalculateAllocSize(SectionBlocks * blocks) {
+    i32 res = 0;
+    if (blocks->bitsPerBlock > 0) {
+        res += 8 * blocks->numberOfLanes;
+        if (blocks->bitsPerBlock < BITS_PER_BLOCK_STATE) {
+            i32 paletteSize = (1 << blocks->bitsPerBlock);
+            res += 2 * paletteSize;
+        }
+    }
     return res;
 }
 
-void FreeSectionBlocks(SectionBlocks blocks) {
-    i32 size = 2 * 4096;
-    free(blocks.blockData);
-    if (blocks.blockData != NULL) {
-        atomic_fetch_add_explicit(&sectionBlocksMemoryUsage, -size, memory_order_relaxed);
+SectionBlocks CallocSectionBlocks(u32 bitsPerBlock) {
+    assert(0 <= bitsPerBlock && bitsPerBlock <= MAX_BITS_PER_BLOCK_STATE);
+
+    SectionBlocks res = {0};
+
+    if (bitsPerBlock == 0) {
+        return res;
     }
+
+    if (bitsPerBlock <= 4) {
+        bitsPerBlock = 4;
+    } else if (bitsPerBlock >= 9) {
+        bitsPerBlock = BITS_PER_BLOCK_STATE;
+    }
+
+    res.bitsPerBlock = bitsPerBlock;
+    res.blocksPerLane = 64 / res.bitsPerBlock;
+    res.numberOfLanes = (4096 + res.blocksPerLane - 1) / res.blocksPerLane;
+    res.blocksPerLaneDivMultiplier = CalculateFastDivMultiplier(res.blocksPerLane, SECTION_BLOCKS_PER_LANE_DIV_SHIFT);
+
+    i32 allocSize = CalculateAllocSize(&res);
+    res.data = calloc(1, allocSize);
+    atomic_fetch_add_explicit(&sectionBlocksMemoryUsage, allocSize, memory_order_relaxed);
+    return res;
+}
+
+void FreeAndClearSectionBlocks(SectionBlocks * blocks) {
+    if (blocks->bitsPerBlock > 0) {
+        i32 allocSize = CalculateAllocSize(blocks);
+        atomic_fetch_add_explicit(&sectionBlocksMemoryUsage, -allocSize, memory_order_relaxed);
+        free(blocks->data);
+    }
+    *blocks = (SectionBlocks) {0};
 }
 
 void * CallocSectionLight() {
