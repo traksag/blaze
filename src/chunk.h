@@ -4,15 +4,7 @@
 #include "shared.h"
 
 typedef struct {
-    union {
-        // NOTE(traks): Holds both the block data and the palette.
-        void * data;
-        u32 singleBlockState;
-    };
-    // NOTE(traks): A value of 0 means that this section only consists of a
-    // single block state. There are no lanes and no palette in that case.
-    u32 blocksPerLaneLog2;
-    u32 paletteUseCount;
+    u16 * blockStates;
 } SectionBlocks;
 
 typedef struct {
@@ -98,52 +90,15 @@ static inline BlockPos SectionIndexToPos(u32 index) {
     return res;
 }
 
-static i32 SectionIsSingleBlock(SectionBlocks * blocks) {
-    return (blocks->blocksPerLaneLog2 == 0);
-}
-
-static u64 * SectionGetLanes(SectionBlocks * blocks) {
-    if (SectionIsSingleBlock(blocks)) {
-        return NULL;
-    }
-    return blocks->data;
-}
-
-static i32 SectionUsesGlobalPalette(SectionBlocks * blocks) {
-    return (blocks->blocksPerLaneLog2 == 2);
-}
-
-static u16 * SectionGetPalette(SectionBlocks * blocks) {
-    if (SectionIsSingleBlock(blocks) || SectionUsesGlobalPalette(blocks)) {
-        return NULL;
-    }
-    u16 numberOfLanes = (4096 >> blocks->blocksPerLaneLog2);
-    return ((u16 *) blocks->data) + (4 * numberOfLanes);
+static inline i32 SectionIsNull(SectionBlocks * blocks) {
+    return (blocks->blockStates == NULL);
 }
 
 static inline u32 SectionGetBlockState(SectionBlocks * blocks, u32 index) {
-    assert(index <= 0xffffff);
-
-    if (SectionIsSingleBlock(blocks)) {
-        return blocks->singleBlockState;
+    if (SectionIsNull(blocks)) {
+        return 0;
     }
-
-    u32 blocksPerLaneLog2 = blocks->blocksPerLaneLog2;
-    u32 laneIndex = index >> blocksPerLaneLog2;
-    u64 indexMask = ((u32) 1 << blocksPerLaneLog2) - 1;
-    u32 bitsPerBlock = 64 >> blocksPerLaneLog2;
-    u32 bitOffset = bitsPerBlock * (index & indexMask);
-    u64 mask = ((u32) 1 << bitsPerBlock) - 1;
-
-    u64 * lanes = SectionGetLanes(blocks);
-    u32 paletteIndex = (lanes[laneIndex] >> bitOffset) & mask;
-
-    if (SectionUsesGlobalPalette(blocks)) {
-        return paletteIndex;
-    }
-
-    u16 * palette = SectionGetPalette(blocks);
-    return palette[paletteIndex];
+    return blocks->blockStates[index];
 }
 
 static inline WorldChunkPos WorldBlockPosChunk(WorldBlockPos pos) {
@@ -231,7 +186,7 @@ void TickChunkSystem(void);
 
 void TickChunkLoader(void);
 
-SectionBlocks CallocSectionBlocks(u32 bitsPerBlock);
+SectionBlocks CallocSectionBlocks(void);
 void FreeAndClearSectionBlocks(SectionBlocks * blocks);
 void * CallocSectionLight(void);
 void FreeSectionLight(void * data);

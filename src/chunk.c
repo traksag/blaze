@@ -95,84 +95,13 @@ void SectionSetBlockState(SectionBlocks * blocks, u32 index, u32 blockState) {
     assert(index <= 0xffffff);
     assert(blockState < serv->vanilla_block_state_count);
 
-    if (SectionIsSingleBlock(blocks)) {
-        if (blockState == blocks->singleBlockState) {
+    if (SectionIsNull(blocks)) {
+        if (blockState == 0) {
             return;
         }
-
-        // NOTE(traks): grow!
-        // TODO(traks): What to do if allocation fails?
-        SectionBlocks newBlocks = CallocSectionBlocks(1);
-        u16 * newPalette = SectionGetPalette(&newBlocks);
-        newPalette[0] = blocks->singleBlockState;
-        newBlocks.paletteUseCount = 1;
-        SectionSetBlockState(&newBlocks, index, blockState);
-        *blocks = newBlocks;
-    } else if (SectionUsesGlobalPalette(blocks)) {
-        u32 blocksPerLaneLog2 = blocks->blocksPerLaneLog2;
-        u32 laneIndex = index >> blocksPerLaneLog2;
-        u64 indexMask = ((u32) 1 << blocksPerLaneLog2) - 1;
-        u32 bitsPerBlock = 64 >> blocksPerLaneLog2;
-        u32 bitOffset = bitsPerBlock * (index & indexMask);
-        u64 mask = ((u32) 1 << bitsPerBlock) - 1;
-
-        u64 * lanes = SectionGetLanes(blocks);
-        lanes[laneIndex] = (lanes[laneIndex] & ~(mask << bitOffset)) | (((u64) blockState & mask) << bitOffset);
-    } else {
-        u16 * palette = SectionGetPalette(blocks);
-        u32 paletteIndex = 0;
-
-        // TODO(traks): it's possible to create SectionBlocks structs with no
-        // palette entries. Should we treat those as air sections?
-        assert(blocks->paletteUseCount > 0);
-
-        while (paletteIndex < blocks->paletteUseCount) {
-            if (palette[paletteIndex] == blockState) {
-                break;
-            }
-            paletteIndex++;
-        }
-
-        u32 blocksPerLaneLog2 = blocks->blocksPerLaneLog2;
-        u32 bitsPerBlock = 64 >> blocksPerLaneLog2;
-        u32 paletteSize = 1 << bitsPerBlock;
-
-        if (paletteIndex >= paletteSize) {
-            // NOTE(traks): grow!
-            // TODO(traks): What to do if allocation fails?
-            SectionBlocks newBlocks = CallocSectionBlocks(bitsPerBlock + 1);
-
-            // NOTE(traks): We need to initialise the palette of the new section
-            if (!SectionUsesGlobalPalette(&newBlocks)) {
-                u16 * newPalette = SectionGetPalette(&newBlocks);
-                newPalette[0] = palette[0];
-                newBlocks.paletteUseCount = 1;
-            }
-
-            // TODO(traks): I hate this so much
-            for (u32 newIndex = 0; newIndex < 4096; newIndex++) {
-                SectionSetBlockState(&newBlocks, newIndex, SectionGetBlockState(blocks, newIndex));
-            }
-
-            SectionSetBlockState(&newBlocks, index, blockState);
-            FreeAndClearSectionBlocks(blocks);
-            *blocks = newBlocks;
-            return;
-        }
-
-        if (paletteIndex >= blocks->paletteUseCount) {
-            palette[paletteIndex] = blockState;
-            blocks->paletteUseCount++;
-        }
-
-        u32 laneIndex = index >> blocksPerLaneLog2;
-        u64 indexMask = ((u32) 1 << blocksPerLaneLog2) - 1;
-        u32 bitOffset = bitsPerBlock * (index & indexMask);
-        u64 mask = ((u32) 1 << bitsPerBlock) - 1;
-
-        u64 * lanes = SectionGetLanes(blocks);
-        lanes[laneIndex] = (lanes[laneIndex] & ~(mask << bitOffset)) | ((u64) paletteIndex << bitOffset);
+        *blocks = CallocSectionBlocks();
     }
+    blocks->blockStates[index] = blockState;
 }
 
 i32 WorldGetBlockState(WorldBlockPos pos) {

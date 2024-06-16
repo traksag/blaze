@@ -127,7 +127,6 @@ static ChunkHashMap chunkIndex;
 static ChunkUpdateRequestList updateRequests;
 static _Atomic i64 sectionBlocksMemoryUsage;
 static _Atomic i64 sectionLightMemoryUsage;
-static _Atomic i64 sectionBlocksByWidth[MAX_BITS_PER_BLOCK_STATE + 1];
 
 // NOTE(traks): jenkins one at a time
 static inline u32 HashU64(u64 key) {
@@ -482,73 +481,22 @@ void TickChunkLoader(void) {
         i64 blocksMemory = atomic_load_explicit(&sectionBlocksMemoryUsage, memory_order_relaxed);
         i64 lightMemory = atomic_load_explicit(&sectionLightMemoryUsage, memory_order_relaxed);
         LogInfo("Section memory usage: %.0fMB (blocks), %.0fMB (light)", blocksMemory / 1000000.0, lightMemory / 1000000.0);
-        for (i32 i = 0; i < MAX_BITS_PER_BLOCK_STATE + 1; i++) {
-            i64 count = atomic_load_explicit(sectionBlocksByWidth + i, memory_order_relaxed);
-            if (count != 0) {
-                LogInfo("[%d-bit] %lld block sections", i, count);
-            }
-        }
     }
 }
 
-static u64 CalculateFastDivMultiplier(u32 n, u32 shift) {
-    u64 multiplier = ((u64) 1 << shift) / n;
-    // NOTE(traks): Often with the above multiplier, (n * multiplier) >> shift
-    // is going to yield 0 instead of 1. Correct the multiplier so we obtain 1
-    // instead.
-    multiplier++;
-    return multiplier;
-}
-
-static i32 CalculateAllocSize(SectionBlocks * blocks) {
-    i32 res = 0;
-    if (!SectionIsSingleBlock(blocks)) {
-        u32 numberOfLanes = 4096 >> blocks->blocksPerLaneLog2;
-        res += 8 * numberOfLanes;
-        if (!SectionUsesGlobalPalette(blocks)) {
-            u32 bitsPerBlock = 64 >> blocks->blocksPerLaneLog2;
-            u32 paletteSize = 1 << bitsPerBlock;
-            res += 2 * paletteSize;
-        }
-    }
-    return res;
-}
-
-SectionBlocks CallocSectionBlocks(u32 bitsPerBlock) {
-    assert(0 <= bitsPerBlock && bitsPerBlock <= MAX_BITS_PER_BLOCK_STATE);
-
+SectionBlocks CallocSectionBlocks() {
     SectionBlocks res = {0};
-
-    if (bitsPerBlock == 0) {
-        return res;
-    }
-
-    if (bitsPerBlock <= 4) {
-        bitsPerBlock = 4;
-    } else if (bitsPerBlock <= 8) {
-        bitsPerBlock = 8;
-    } else {
-        bitsPerBlock = 16;
-    }
-
-    res.blocksPerLaneLog2 = CeilLog2U32(64 / bitsPerBlock);
-
-    i32 allocSize = CalculateAllocSize(&res);
-    if (allocSize > 0) {
-        res.data = calloc(1, allocSize);
-        atomic_fetch_add_explicit(&sectionBlocksMemoryUsage, allocSize, memory_order_relaxed);
-    }
-    atomic_fetch_add_explicit(sectionBlocksByWidth + bitsPerBlock, 1, memory_order_relaxed);
+    i32 allocSize = 2 * 4096;
+    res.blockStates = calloc(1, allocSize);
+    atomic_fetch_add_explicit(&sectionBlocksMemoryUsage, allocSize, memory_order_relaxed);
     return res;
 }
 
 void FreeAndClearSectionBlocks(SectionBlocks * blocks) {
-    u32 bitsPerBlock = 64 >> blocks->blocksPerLaneLog2;
-    atomic_fetch_add_explicit(sectionBlocksByWidth + bitsPerBlock, -1, memory_order_relaxed);
-    i32 allocSize = CalculateAllocSize(blocks);
-    if (allocSize > 0) {
+    if (!SectionIsNull(blocks)) {
+        i32 allocSize = 2 * 4096;
         atomic_fetch_add_explicit(&sectionBlocksMemoryUsage, -allocSize, memory_order_relaxed);
-        free(blocks->data);
+        free(blocks->blockStates);
     }
     *blocks = (SectionBlocks) {0};
 }

@@ -263,6 +263,7 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
 
     u32 maxPaletteEntries = 4096;
     u16 * paletteMap = MallocInArena(scratchArena, maxPaletteEntries * sizeof (u16));
+    u8 sectionsWithBlocks[MAX_SECTION - MIN_SECTION + 1] = {0};
 
     if (numSections > LIGHT_SECTIONS_PER_CHUNK) {
         LogInfo("Too many chunk sections: %ju", (uintmax_t) numSections);
@@ -289,10 +290,11 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
             ChunkSection * section = chunk->sections + sectionIndex;
             SectionBlocks * blocks = &section->blocks;
 
-            if (blocks->paletteUseCount > 0) {
+            if (sectionsWithBlocks[sectionIndex]) {
                 LogInfo("Duplicate block section for Y %d", (i32) sectionY);
                 goto bail;
             }
+            sectionsWithBlocks[sectionIndex] = 1;
 
             u32 paletteSize = palette.size;
 
@@ -345,8 +347,9 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
                 // NOTE(traks): Block data may be missing! The code below won't
                 // work in that case, so we need some special handling.
                 u32 blockState = paletteMap[0];
-                blocks->singleBlockState = blockState;
-                blocks->paletteUseCount = 1;
+                for (i32 posIndex = 0; posIndex < 4096; posIndex++) {
+                    SectionSetBlockState(blocks, posIndex, blockState);
+                }
 
                 // TODO(traks): handle cave air and void air
                 if (blockState != 0) {
@@ -369,12 +372,6 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
                     LogInfo("Expected %d longs, but got %d", (i32) expectedNumberOfLongs, (i32) blockData.size);
                     goto bail;
                 }
-
-                // NOTE(traks): initialise the section with the first block in
-                // the palette, otherwise it'll think the entire section is air
-                // and always add air to the palette
-                blocks->singleBlockState = paletteMap[0];
-                blocks->paletteUseCount = 1;
 
                 u64 entry = NbtNextU64(&blockData);
 
