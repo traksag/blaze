@@ -48,17 +48,21 @@ enum NbtTag {
 NbtCompound NbtRead(Cursor * buf, MemoryArena * arena);
 void NbtPrint(NbtCompound * compound);
 
+// TODO(traks): It would be nice if these functions did some sort of error
+// reporting if the lookup failed or if the lookup succeeded but the value had
+// the wrong type.
 u8 NbtGetU8(NbtCompound * compound, String key);
 u16 NbtGetU16(NbtCompound * compound, String key);
 u32 NbtGetU32(NbtCompound * compound, String key);
 u64 NbtGetU64(NbtCompound * compound, String key);
+u64 NbtGetUAny(NbtCompound * compound, String key);
 float NbtGetFloat(NbtCompound * compound, String key);
 double NbtGetDouble(NbtCompound * compound, String key);
 String NbtGetString(NbtCompound * compound, String key);
 NbtList NbtGetArrayU8(NbtCompound * compound, String key);
 NbtList NbtGetArrayU32(NbtCompound * compound, String key);
 NbtList NbtGetArrayU64(NbtCompound * compound, String key);
-NbtList NbtGetList(NbtCompound * compound, String key, int elemType);
+NbtList NbtGetList(NbtCompound * compound, String key, i32 elemType);
 NbtCompound NbtGetCompound(NbtCompound * compound, String key);
 i32 NbtIsEmpty(NbtCompound * compound);
 
@@ -72,7 +76,7 @@ String NbtNextString(NbtList * list);
 NbtList NbtNextArrayU8(NbtList * list);
 NbtList NbtNextArrayU32(NbtList * list);
 NbtList NbtNextArrayU64(NbtList * list);
-NbtList NbtNextList(NbtList * list, int elemType);
+NbtList NbtNextList(NbtList * list, i32 elemType);
 NbtCompound NbtNextCompound(NbtList * list);
 
 #endif

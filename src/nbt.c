@@ -881,6 +881,17 @@ u64 NbtGetU64(NbtCompound * compound, String key) {
     return found->intValue;
 }
 
+u64 NbtGetUAny(NbtCompound * compound, String key) {
+    NbtValue * found = NbtSearch(compound, key);
+    if (found->internalType != NBT_ITYPE_U8
+            && found->internalType != NBT_ITYPE_U16
+            && found->internalType != NBT_ITYPE_U32
+            && found->internalType != NBT_ITYPE_U64) {
+        return 0;
+    }
+    return found->intValue;
+}
+
 float NbtGetFloat(NbtCompound * compound, String key) {
     NbtValue * found = NbtSearch(compound, key);
     if (found->internalType != NBT_ITYPE_FLOAT) return 0;
@@ -933,7 +944,7 @@ NbtList NbtGetArrayU64(NbtCompound * compound, String key) {
     return res;
 }
 
-NbtList NbtGetList(NbtCompound * compound, String key, int elemType) {
+NbtList NbtGetList(NbtCompound * compound, String key, i32 elemType) {
     NbtValue * found = NbtSearch(compound, key);
     if (found->internalType != NBT_ITYPE_LIST_EMPTY + 1 + elemType
             && found->internalType != NBT_ITYPE_LIST_EMPTY) {
@@ -1066,7 +1077,7 @@ NbtList NbtNextArrayU64(NbtList * list) {
     return res;
 }
 
-NbtList NbtNextList(NbtList * list, int elemType) {
+NbtList NbtNextList(NbtList * list, i32 elemType) {
     NbtValue * value = list->curComplexValue;
     if (value->isLink) {
         value = value->linkedValue;

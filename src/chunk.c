@@ -91,44 +91,11 @@ try_get_block_entity(WorldBlockPos pos) {
     return NULL;
 }
 
-u32 SectionGetBlockState(SectionBlocks * blocks, u32 index) {
-    assert(index <= 0xffffff);
-
-    if (blocks->paletteCount == 0) {
-        return 0;
-    }
-    if (blocks->bitsPerBlock == 0) {
-        return blocks->singleBlockState;
-    }
-
-    u32 blocksPerLane = blocks->blocksPerLane;
-    u32 divMultiplier = blocks->blocksPerLaneDivMultiplier;
-    u32 divShift = SECTION_BLOCKS_PER_LANE_DIV_SHIFT;
-    u32 bitsPerBlock = blocks->bitsPerBlock;
-    u64 mask = ((u64) 1 << bitsPerBlock) - 1;
-    // u32 laneIndex = index / blocksPerLane;
-    // u32 shift = bitsPerBlock * (index % blocksPerLane);
-    u32 laneIndex = ((u64) index * divMultiplier) >> divShift;
-    u32 shift = bitsPerBlock * (index - blocksPerLane * laneIndex);
-    u64 * lanes = SectionGetLanes(blocks);
-    u32 paletteIndex = (lanes[laneIndex] >> shift) & mask;
-
-    if (blocks->bitsPerBlock == BITS_PER_BLOCK_STATE) {
-        // NOTE(traks): global palette
-        return paletteIndex;
-    }
-
-    u16 * palette = SectionGetPalette(blocks);
-    assert(paletteIndex < blocks->paletteCount);
-    u32 res = palette[paletteIndex];
-    return res;
-}
-
 void SectionSetBlockState(SectionBlocks * blocks, u32 index, u32 blockState) {
     assert(index <= 0xffffff);
     assert(blockState < serv->vanilla_block_state_count);
 
-    if (blocks->bitsPerBlock == 0) {
+    if (SectionIsSingleBlock(blocks)) {
         if (blockState == blocks->singleBlockState) {
             return;
         }
@@ -138,73 +105,74 @@ void SectionSetBlockState(SectionBlocks * blocks, u32 index, u32 blockState) {
         SectionBlocks newBlocks = CallocSectionBlocks(1);
         u16 * newPalette = SectionGetPalette(&newBlocks);
         newPalette[0] = blocks->singleBlockState;
-        // NOTE(traks): the old palette size can be 0 in case of an empty
-        // section, watch out for that!
-        newBlocks.paletteCount = 1;
+        newBlocks.paletteUseCount = 1;
         SectionSetBlockState(&newBlocks, index, blockState);
-        FreeAndClearSectionBlocks(blocks);
         *blocks = newBlocks;
-        return;
-    }
+    } else if (SectionUsesGlobalPalette(blocks)) {
+        u32 blocksPerLaneLog2 = blocks->blocksPerLaneLog2;
+        u32 laneIndex = index >> blocksPerLaneLog2;
+        u64 indexMask = ((u32) 1 << blocksPerLaneLog2) - 1;
+        u32 bitsPerBlock = 64 >> blocksPerLaneLog2;
+        u32 bitOffset = bitsPerBlock * (index & indexMask);
+        u64 mask = ((u32) 1 << bitsPerBlock) - 1;
 
-    u32 blocksPerLane = blocks->blocksPerLane;
-    u32 divMultiplier = blocks->blocksPerLaneDivMultiplier;
-    u32 divShift = SECTION_BLOCKS_PER_LANE_DIV_SHIFT;
-    u32 bitsPerBlock = blocks->bitsPerBlock;
-    u64 mask = ((u64) 1 << bitsPerBlock) - 1;
-    // u32 laneIndex = index / blocksPerLane;
-    // u32 shift = bitsPerBlock * (index % blocksPerLane);
-    u32 laneIndex = ((u64) index * divMultiplier) >> divShift;
-    u32 shift = bitsPerBlock * (index - blocksPerLane * laneIndex);
-    u64 * lanes = SectionGetLanes(blocks);
+        u64 * lanes = SectionGetLanes(blocks);
+        lanes[laneIndex] = (lanes[laneIndex] & ~(mask << bitOffset)) | (((u64) blockState & mask) << bitOffset);
+    } else {
+        u16 * palette = SectionGetPalette(blocks);
+        u32 paletteIndex = 0;
 
-    if (bitsPerBlock == BITS_PER_BLOCK_STATE) {
-        lanes[laneIndex] = (lanes[laneIndex] & ~(mask << shift)) | (((u64) blockState & mask) << shift);
-        return;
-    }
+        // TODO(traks): it's possible to create SectionBlocks structs with no
+        // palette entries. Should we treat those as air sections?
+        assert(blocks->paletteUseCount > 0);
 
-    // NOTE(traks): the old palette size can be 0 in case of an empty
-    // section, watch out for that!
-    if (blocks->paletteCount == 0) {
-        blocks->paletteCount = 1;
-    }
-
-    u16 * palette = SectionGetPalette(blocks);
-    u32 paletteIndex = 0;
-    while (paletteIndex < blocks->paletteCount) {
-        if (palette[paletteIndex] == blockState) {
-            break;
-        }
-        paletteIndex++;
-    }
-
-    u32 paletteSize = (u32) 1 << blocks->bitsPerBlock;
-
-    if (paletteIndex >= paletteSize) {
-        // NOTE(traks): grow!
-        // TODO(traks): What to do if allocation fails?
-        SectionBlocks newBlocks = CallocSectionBlocks(blocks->bitsPerBlock + 1);
-        u16 * newPalette = SectionGetPalette(&newBlocks);
-        newPalette[0] = SectionGetBlockState(blocks, 0);
-        newBlocks.paletteCount = 1;
-
-        // TODO(traks): I hate this so much
-        for (u32 newIndex = 0; newIndex <= 4096; newIndex++) {
-            SectionSetBlockState(&newBlocks, newIndex, SectionGetBlockState(blocks, newIndex));
+        while (paletteIndex < blocks->paletteUseCount) {
+            if (palette[paletteIndex] == blockState) {
+                break;
+            }
+            paletteIndex++;
         }
 
-        SectionSetBlockState(&newBlocks, index, blockState);
-        FreeAndClearSectionBlocks(blocks);
-        *blocks = newBlocks;
-        return;
-    }
+        u32 blocksPerLaneLog2 = blocks->blocksPerLaneLog2;
+        u32 bitsPerBlock = 64 >> blocksPerLaneLog2;
+        u32 paletteSize = 1 << bitsPerBlock;
 
-    if (paletteIndex == blocks->paletteCount) {
-        palette[paletteIndex] = blockState;
-        blocks->paletteCount++;
-    }
+        if (paletteIndex >= paletteSize) {
+            // NOTE(traks): grow!
+            // TODO(traks): What to do if allocation fails?
+            SectionBlocks newBlocks = CallocSectionBlocks(bitsPerBlock + 1);
 
-    lanes[laneIndex] = (lanes[laneIndex] & ~(mask << shift)) | (((u64) paletteIndex & mask) << shift);
+            // NOTE(traks): We need to initialise the palette of the new section
+            if (!SectionUsesGlobalPalette(&newBlocks)) {
+                u16 * newPalette = SectionGetPalette(&newBlocks);
+                newPalette[0] = palette[0];
+                newBlocks.paletteUseCount = 1;
+            }
+
+            // TODO(traks): I hate this so much
+            for (u32 newIndex = 0; newIndex < 4096; newIndex++) {
+                SectionSetBlockState(&newBlocks, newIndex, SectionGetBlockState(blocks, newIndex));
+            }
+
+            SectionSetBlockState(&newBlocks, index, blockState);
+            FreeAndClearSectionBlocks(blocks);
+            *blocks = newBlocks;
+            return;
+        }
+
+        if (paletteIndex >= blocks->paletteUseCount) {
+            palette[paletteIndex] = blockState;
+            blocks->paletteUseCount++;
+        }
+
+        u32 laneIndex = index >> blocksPerLaneLog2;
+        u64 indexMask = ((u32) 1 << blocksPerLaneLog2) - 1;
+        u32 bitOffset = bitsPerBlock * (index & indexMask);
+        u64 mask = ((u32) 1 << bitsPerBlock) - 1;
+
+        u64 * lanes = SectionGetLanes(blocks);
+        lanes[laneIndex] = (lanes[laneIndex] & ~(mask << bitOffset)) | ((u64) paletteIndex << bitOffset);
+    }
 }
 
 i32 WorldGetBlockState(WorldBlockPos pos) {
