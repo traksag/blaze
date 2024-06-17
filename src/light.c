@@ -10,6 +10,9 @@
 // exceeded?).
 #define LIGHT_QUEUE_SIZE (9 * 16 * 16 * 16 * LIGHT_SECTIONS_PER_CHUNK + 8)
 
+// #define OLD_METHOD
+// #define MEASURE_BANDWIDTH
+
 typedef struct {
     // NOTE(traks): Holds:
     // - The position we want to propagate further from. It is represented as
@@ -30,6 +33,10 @@ typedef struct {
     // NOTE(traks): index as yzx
     u8 * lightSections[4 * 4 * 32];
     SectionBlocks blockSections[4 * 4 * 32];
+#ifdef MEASURE_BANDWIDTH
+    i64 blockAccessCount;
+    i64 lightAccessCount;
+#endif
 } LightQueue;
 
 static inline u32 PosFromXYZ(i32 x, i32 y, i32 z) {
@@ -40,6 +47,11 @@ static inline u32 PosFromXYZ(i32 x, i32 y, i32 z) {
     // shifts and bit masks become less nice. Does free up the top byte, instead
     // of just the top hex digit!
     u32 res = (0x0e00c0c0) ^ ((y & 0x3ff) << 16) ^ ((z & 0x7f) << 8) ^ (x & 0x7f);
+    return res;
+}
+
+static inline i32 XYZToSectionIndex(i32 x, i32 y, i32 z) {
+    i32 res = (y & 0x1f0) | ((z & 0x30) >> 2) | ((x & 0x30) >> 4);
     return res;
 }
 
@@ -167,6 +179,9 @@ static inline void PropagateLight(LightQueue * queue, u32 toPos, i32 dir, i32 fr
     i32 sectionIndex = PosToSectionIndex(toPos);
     i32 posIndex = PosToSectionPosIndex(toPos);
     i32 storedValue = GetSectionLight(queue->lightSections[sectionIndex], posIndex);
+#ifdef MEASURE_BANDWIDTH
+    queue->lightAccessCount++;
+#endif
     i32 spreadValue = fromValue - lightReduction;
     // NOTE(traks): final value is only going to be less than the spread value.
     // Early exit to avoid the block lookup (likely cache miss).
@@ -179,6 +194,9 @@ static inline void PropagateLight(LightQueue * queue, u32 toPos, i32 dir, i32 fr
     i32 toState = SectionGetBlockState(&queue->blockSections[sectionIndex], posIndex);
     i32 reductionOfState = serv->lightReductionByState[toState];
     spreadValue = fromValue - MAX(lightReduction, reductionOfState);
+#ifdef MEASURE_BANDWIDTH
+    queue->blockAccessCount++;
+#endif
 
     if (storedValue >= spreadValue) {
         return;
@@ -223,6 +241,43 @@ static void PropagateLightFromNeighbour(LightQueue * queue, Chunk * * chunkGrid,
     }
 }
 
+static void PropagateMaxSkyLightDown(LightQueue * queue) {
+#ifdef OLD_METHOD
+    // NOTE(traks): prepare sky light sources for propagation
+    for (i32 zx = 0; zx < 16 * 16; zx++) {
+        i32 y = (MAX_WORLD_Y - MIN_WORLD_Y + 1) + 16 + 16;
+        u32 pos = PosFromXYZ(zx & 0xf, y, zx >> 4);
+        LightQueuePush(queue, PackEntry(pos, DIRECTION_POS_Y));
+    }
+#else
+    for (i32 z = 0; z < 16; z++) {
+        for (i32 x = 0; x < 16; x++) {
+            i32 fromState = 0;
+            for (i32 y = 16 * LIGHT_SECTIONS_PER_CHUNK - 1; y >= 0; y--) {
+                i32 sectionIndex = XYZToSectionIndex(x, y, z);
+                i32 posIndex = ((y & 0xf) << 8) | ((z & 0xf) << 4) | (x & 0xf);
+                i32 toState = SectionGetBlockState(&queue->blockSections[sectionIndex], posIndex);
+#ifdef MEASURE_BANDWIDTH
+                queue->blockAccessCount++;
+#endif
+                i32 reductionOfState = serv->lightReductionByState[toState];
+                if (reductionOfState > 0) {
+                    break;
+                }
+                if (!BlockLightCanPropagate(fromState, toState, DIRECTION_NEG_Y)) {
+                    break;
+                }
+
+                SetSectionLight(queue->lightSections[sectionIndex], posIndex, 15);
+                u32 toPos = PosFromXYZ(x, y, z);
+                LightQueuePush(queue, PackEntry(toPos, DIRECTION_POS_Y));
+                fromState = toState;
+            }
+        }
+    }
+#endif
+}
+
 static void PropagateSkyLightFully(LightQueue * queue) {
     for (;;) {
         if (queue->readIndex == queue->writeIndex) {
@@ -235,6 +290,10 @@ static void PropagateSkyLightFully(LightQueue * queue) {
         i32 posIndex = PosToSectionPosIndex(entry.data);
         i32 fromState = SectionGetBlockState(&queue->blockSections[sectionIndex], posIndex);
         i32 value = GetSectionLight(queue->lightSections[sectionIndex], posIndex);
+#ifdef MEASURE_BANDWIDTH
+        queue->blockAccessCount++;
+        queue->lightAccessCount++;
+#endif
 
         // TODO(traks): The order in which we propagate light may be important
         // for performance. It shouldn't depend on whatever the order of the
@@ -251,7 +310,7 @@ static void PropagateSkyLightFully(LightQueue * queue) {
     }
 }
 
-static void PropagateBlockLightFully(LightQueue * queue) {
+static void PropagateLightFully(LightQueue * queue) {
     for (;;) {
         if (queue->readIndex == queue->writeIndex) {
             break;
@@ -263,6 +322,10 @@ static void PropagateBlockLightFully(LightQueue * queue) {
         i32 posIndex = PosToSectionPosIndex(entry.data);
         i32 fromState = SectionGetBlockState(&queue->blockSections[sectionIndex], posIndex);
         i32 value = GetSectionLight(queue->lightSections[sectionIndex], posIndex);
+#ifdef MEASURE_BANDWIDTH
+        queue->blockAccessCount++;
+        queue->lightAccessCount++;
+#endif
 
         // TODO(traks): The order in which we propagate light may be important
         // for performance. It shouldn't depend on whatever the order of the
@@ -278,8 +341,127 @@ static void PropagateBlockLightFully(LightQueue * queue) {
     }
 }
 
+static void DoSkyLight(LightQueue * queue, Chunk * * chunkGrid) {
+    BeginTimings(InitSkyLightReferences);
+
+    for (i32 zx = 0; zx < 16; zx++) {
+        Chunk * chunk = chunkGrid[zx];
+        if (chunk == NULL) {
+            continue;
+        }
+        for (i32 sectionIndex = 0; sectionIndex < LIGHT_SECTIONS_PER_CHUNK; sectionIndex++) {
+            queue->lightSections[(sectionIndex << 4) | zx] = chunk->lightSections[sectionIndex].skyLight;
+        }
+    }
+
+    EndTimings(InitSkyLightReferences);
+
+    BeginTimings(PrepareSkyLightSources);
+    i64 skyStartTime = NanoTime();
+    PropagateMaxSkyLightDown(queue);
+    EndTimings(PrepareSkyLightSources);
+
+    BeginTimings(PropagateOwnSkyLight);
+#ifdef OLD_METHOD
+    PropagateSkyLightFully(queue);
+#else
+    PropagateLightFully(queue);
+#endif
+    EndTimings(PropagateOwnSkyLight);
+
+    BeginTimings(PrepareNeighbourSkyLightSources);
+    PropagateLightFromNeighbour(queue, chunkGrid, -1, 0, 0, 1, -1, 0, DIRECTION_NEG_X);
+    PropagateLightFromNeighbour(queue, chunkGrid, 16, 0, 0, 1, 1, 0, DIRECTION_POS_X);
+    PropagateLightFromNeighbour(queue, chunkGrid, 0, -1, 1, 0, 0, -1, DIRECTION_NEG_Z);
+    PropagateLightFromNeighbour(queue, chunkGrid, 0, 16, 1, 0, 0, 1, DIRECTION_POS_Z);
+    EndTimings(PrepareNeighbourSkyLightSources);
+
+    BeginTimings(PropagateNeighbourSkyLight);
+#ifdef OLD_METHOD
+    PropagateSkyLightFully(queue);
+#else
+    PropagateLightFully(queue);
+#endif
+    i64 skyEndTime = NanoTime();
+    EndTimings(PropagateNeighbourSkyLight);
+
+#ifdef MEASURE_BANDWIDTH
+    LogInfo("[Sky] Bw: %.0fMB/s, Dedup: %.0fMB/s (+Block = %.0f%%, +Light = %.0f%%)",
+            (queue->blockAccessCount * 2.0 + queue->lightAccessCount / 2.0) / (f64) (skyEndTime - skyStartTime) * 1000.0,
+            (2 * 4096 * 24 + 2048 * 26) / (f64) (skyEndTime - skyStartTime) * 1000.0,
+            100 * queue->blockAccessCount / (f64) (4096 * 24),
+            100 * queue->lightAccessCount / (f64) (4096 * 26));
+#endif
+}
+
+static void DoBlockLight(LightQueue * queue, Chunk * * chunkGrid) {
+    BeginTimings(InitBlockLightReferences);
+
+    for (i32 zx = 0; zx < 16; zx++) {
+        Chunk * chunk = chunkGrid[zx];
+        if (chunk == NULL) {
+            continue;
+        }
+        for (i32 sectionIndex = 0; sectionIndex < LIGHT_SECTIONS_PER_CHUNK; sectionIndex++) {
+            queue->lightSections[(sectionIndex << 4) | zx] = chunk->lightSections[sectionIndex].blockLight;
+        }
+    }
+
+    EndTimings(InitBlockLightReferences);
+
+    BeginTimings(PrepareBlockLightSources);
+    i64 blockStartTime = NanoTime();
+
+    // NOTE(traks): prepare block light sources for propagation
+    for (i32 y = 16; y < 16 + WORLD_HEIGHT; y++) {
+        for (i32 zx = 0; zx < 16 * 16; zx++) {
+            i32 sectionIndex = (y & 0xff0) | 0;
+            i32 posIndex = ((y & 0xf) << 8) | zx;
+            i32 blockState = SectionGetBlockState(&queue->blockSections[sectionIndex], posIndex);
+#ifdef MEASURE_BANDWIDTH
+            queue->blockAccessCount++;
+#endif
+            i32 emitted = serv->emittedLightByState[blockState];
+            if (emitted > 0) {
+                SetSectionLight(queue->lightSections[sectionIndex], posIndex, emitted);
+                u32 pos = PosFromXYZ(zx & 0xf, y, zx >> 4);
+                LightQueuePush(queue, PackEntry(pos, DIRECTION_ZERO));
+            }
+        }
+    }
+
+    EndTimings(PrepareBlockLightSources);
+
+    BeginTimings(PropagateOwnBlockLight);
+    PropagateLightFully(queue);
+    EndTimings(PropagateOwnBlockLight);
+
+    BeginTimings(PrepareNeighbourBlockLightSources);
+    PropagateLightFromNeighbour(queue, chunkGrid, -1, 0, 0, 1, -1, 0, DIRECTION_NEG_X);
+    PropagateLightFromNeighbour(queue, chunkGrid, 16, 0, 0, 1, 1, 0, DIRECTION_POS_X);
+    PropagateLightFromNeighbour(queue, chunkGrid, 0, -1, 1, 0, 0, -1, DIRECTION_NEG_Z);
+    PropagateLightFromNeighbour(queue, chunkGrid, 0, 16, 1, 0, 0, 1, DIRECTION_POS_Z);
+    EndTimings(PrepareNeighbourBlockLightSources);
+
+    BeginTimings(PropagateNeighbourBlockLight);
+    PropagateLightFully(queue);
+    i64 blockEndTime = NanoTime();
+    EndTimings(PropagateNeighbourBlockLight);
+
+#ifdef MEASURE_BANDWIDTH
+    LogInfo("[Block] Bw: %.0fMB/s, Dedup: %.0fMB/s (+Block = %.0f%%, +Light = %.0f%%)",
+            (queue->blockAccessCount * 2.0 + queue->lightAccessCount / 2.0) / (f64) (blockEndTime - blockStartTime) * 1000.0,
+            (2 * 4096 * 24 + 2048 * 26) / (f64) (blockEndTime - blockStartTime) * 1000.0,
+            100 * queue->blockAccessCount / (f64) (4096 * 24),
+            100 * queue->lightAccessCount / (f64) (4096 * 26));
+#endif
+}
+
 static void LoadChunkGrid(Chunk * targetChunk, Chunk * * chunkGrid) {
     chunkGrid[0] = targetChunk;
+#ifdef MEASURE_BANDWIDTH
+    return;
+#endif
     for (i32 dz = -1; dz <= 1; dz++) {
         for (i32 dx = -1; dx <= 1; dx++) {
             if (dx == 0 && dz == 0) {
@@ -364,87 +546,16 @@ void LightChunkAndExchangeWithNeighbours(Chunk * targetChunk) {
 
     EndTimings(InitQueue);
 
-    BeginTimings(InitSkyLightReferences);
+#ifdef MEASURE_BANDWIDTH
+    LogInfo("Chunk: %d, %d", targetChunk->pos.x, targetChunk->pos.z);
+#endif
 
-    for (i32 zx = 0; zx < 16; zx++) {
-        Chunk * chunk = chunkGrid[zx];
-        if (chunk == NULL) {
-            continue;
-        }
-        for (i32 sectionIndex = 0; sectionIndex < LIGHT_SECTIONS_PER_CHUNK; sectionIndex++) {
-            lightQueue.lightSections[(sectionIndex << 4) | zx] = chunk->lightSections[sectionIndex].skyLight;
-        }
-    }
-
-    EndTimings(InitSkyLightReferences);
-
-    BeginTimings(PropagateOwnSkyLight);
-
-    // NOTE(traks): prepare sky light sources for propagation
-    for (i32 zx = 0; zx < 16 * 16; zx++) {
-        i32 y = (MAX_WORLD_Y - MIN_WORLD_Y + 1) + 16 + 16;
-        u32 pos = PosFromXYZ(zx & 0xf, y, zx >> 4);
-        LightQueuePush(&lightQueue, PackEntry(pos, DIRECTION_POS_Y));
-    }
-
-    PropagateSkyLightFully(&lightQueue);
-
-    EndTimings(PropagateOwnSkyLight);
-
-    BeginTimings(PropagateNeighbourSkyLight);
-
-    PropagateLightFromNeighbour(&lightQueue, chunkGrid, -1, 0, 0, 1, -1, 0, DIRECTION_NEG_X);
-    PropagateLightFromNeighbour(&lightQueue, chunkGrid, 16, 0, 0, 1, 1, 0, DIRECTION_POS_X);
-    PropagateLightFromNeighbour(&lightQueue, chunkGrid, 0, -1, 1, 0, 0, -1, DIRECTION_NEG_Z);
-    PropagateLightFromNeighbour(&lightQueue, chunkGrid, 0, 16, 1, 0, 0, 1, DIRECTION_POS_Z);
-    PropagateSkyLightFully(&lightQueue);
-
-    EndTimings(PropagateNeighbourSkyLight);
-
-    BeginTimings(InitBlockLightReferences);
-
-    for (i32 zx = 0; zx < 16; zx++) {
-        Chunk * chunk = chunkGrid[zx];
-        if (chunk == NULL) {
-            continue;
-        }
-        for (i32 sectionIndex = 0; sectionIndex < LIGHT_SECTIONS_PER_CHUNK; sectionIndex++) {
-            lightQueue.lightSections[(sectionIndex << 4) | zx] = chunk->lightSections[sectionIndex].blockLight;
-        }
-    }
-
-    EndTimings(InitBlockLightReferences);
-
-    BeginTimings(PropagateOwnBlockLight);
-
-    // NOTE(traks): prepare block light sources for propagation
-    for (i32 y = 16; y < 16 + WORLD_HEIGHT; y++) {
-        for (i32 zx = 0; zx < 16 * 16; zx++) {
-            i32 sectionIndex = (y & 0xff0) | 0;
-            i32 posIndex = ((y & 0xf) << 8) | zx;
-            i32 blockState = SectionGetBlockState(&lightQueue.blockSections[sectionIndex], posIndex);
-            i32 emitted = serv->emittedLightByState[blockState];
-            if (emitted > 0) {
-                SetSectionLight(lightQueue.lightSections[sectionIndex], posIndex, emitted);
-                u32 pos = PosFromXYZ(zx & 0xf, y, zx >> 4);
-                LightQueuePush(&lightQueue, PackEntry(pos, DIRECTION_ZERO));
-            }
-        }
-    }
-
-    PropagateBlockLightFully(&lightQueue);
-
-    EndTimings(PropagateOwnBlockLight);
-
-    BeginTimings(PropagateNeighbourBlockLight);
-
-    PropagateLightFromNeighbour(&lightQueue, chunkGrid, -1, 0, 0, 1, -1, 0, DIRECTION_NEG_X);
-    PropagateLightFromNeighbour(&lightQueue, chunkGrid, 16, 0, 0, 1, 1, 0, DIRECTION_POS_X);
-    PropagateLightFromNeighbour(&lightQueue, chunkGrid, 0, -1, 1, 0, 0, -1, DIRECTION_NEG_Z);
-    PropagateLightFromNeighbour(&lightQueue, chunkGrid, 0, 16, 1, 0, 0, 1, DIRECTION_POS_Z);
-    PropagateBlockLightFully(&lightQueue);
-
-    EndTimings(PropagateNeighbourBlockLight);
+    DoSkyLight(&lightQueue, chunkGrid);
+#ifdef MEASURE_BANDWIDTH
+    lightQueue.blockAccessCount = 0;
+    lightQueue.lightAccessCount = 0;
+#endif
+    DoBlockLight(&lightQueue, chunkGrid);
 
     EndTimings(LightChunk);
 }

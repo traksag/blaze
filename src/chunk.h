@@ -98,6 +98,7 @@ static inline u32 SectionGetBlockState(SectionBlocks * blocks, u32 index) {
     if (SectionIsNull(blocks)) {
         return 0;
     }
+    assert(index <= 0xfff);
     return blocks->blockStates[index];
 }
 

@@ -92,7 +92,7 @@ try_get_block_entity(WorldBlockPos pos) {
 }
 
 void SectionSetBlockState(SectionBlocks * blocks, u32 index, u32 blockState) {
-    assert(index <= 0xffffff);
+    assert(index <= 0xfff);
     assert(blockState < serv->vanilla_block_state_count);
 
     if (SectionIsNull(blocks)) {
