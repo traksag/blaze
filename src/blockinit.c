@@ -3,6 +3,81 @@
 #include <stdio.h>
 #include "shared.h"
 
+typedef struct {
+    f32 edge;
+    f32 minA;
+    f32 minB;
+    f32 maxA;
+    f32 maxB;
+} PropagationTest;
+
+static PropagationTest BoxToPropagationTest(BoundingBox box, i32 dir) {
+    PropagationTest res = {0};
+    switch (dir) {
+    case DIRECTION_NEG_Y: res = (PropagationTest) {1 - box.minY, box.minX, box.minZ, box.maxX, box.maxZ};
+    case DIRECTION_POS_Y: res = (PropagationTest) {box.maxY, box.minX, box.minZ, box.maxX, box.maxZ};
+    case DIRECTION_NEG_Z: res = (PropagationTest) {1 - box.minZ, box.minX, box.minY, box.maxX, box.maxY};
+    case DIRECTION_POS_Z: res = (PropagationTest) {box.maxZ, box.minX, box.minY, box.maxX, box.maxY};
+    case DIRECTION_NEG_X: res = (PropagationTest) {1 - box.minX, box.minY, box.minZ, box.maxY, box.maxZ};
+    case DIRECTION_POS_X: res = (PropagationTest) {box.maxX, box.minY, box.minZ, box.maxY, box.maxZ};
+    }
+    return res;
+}
+
+// TODO(traks): most block models are not used for light propagation, because
+// most blocks have an empty light blocking model
+static i32 BlockLightCanPropagate(i32 fromModelIndex, i32 toModelIndex, i32 dir) {
+    BlockModel fromModel = serv->staticBlockModels[fromModelIndex];
+    BlockModel toModel = serv->staticBlockModels[toModelIndex];
+
+    i32 testCount = 0;
+    PropagationTest tests[16];
+
+    for (i32 i = 0; i < fromModel.size; i++) {
+        PropagationTest test = BoxToPropagationTest(fromModel.boxes[i], dir);
+        if (test.edge >= 1) {
+            tests[testCount++] = test;
+        }
+    }
+    for (i32 i = 0; i < toModel.size; i++) {
+        PropagationTest test = BoxToPropagationTest(fromModel.boxes[i], get_opposite_direction(dir));
+        if (test.edge >= 1) {
+            tests[testCount++] = test;
+        }
+    }
+
+    f32 curA = 0;
+    for (;;) {
+        f32 curB = 0;
+        f32 nextA = curA;
+        for (i32 testIndex = 0; testIndex < testCount; testIndex++) {
+            PropagationTest test = tests[testIndex];
+            if (test.minA <= curA && test.maxA >= curA && test.minB <= curB && test.maxB >= curB) {
+                curB = test.maxB;
+                nextA = MIN(nextA, test.maxA);
+            }
+        }
+        if (nextA == curA) {
+            break;
+        }
+    }
+
+    return (curA != 1);
+}
+
+static void CalculateBlockLightPropagation() {
+    for (i32 fromModelIndex = 0; fromModelIndex < BLOCK_MODEL_COUNT; fromModelIndex++) {
+        for (i32 toModelIndex = 0; toModelIndex < BLOCK_MODEL_COUNT; toModelIndex++) {
+            u32 entry = 0;
+            for (i32 dir = 0; dir < 6; dir++) {
+                i32 canPropagate = BlockLightCanPropagate(fromModelIndex, toModelIndex, dir);
+                entry |= (canPropagate << dir);
+            }
+            serv->lightCanPropagate[fromModelIndex * BLOCK_MODEL_COUNT + toModelIndex] = entry;
+        }
+    }
+}
+
 static void
 register_block_property(int id, char * name, int value_count, char * * values) {
     block_property_spec prop_spec = {0};
@@ -3127,5 +3202,8 @@ init_block_data(void) {
 
     assert(MAX_BLOCK_STATES >= serv->actual_block_state_count);
     assert(CeilLog2U32(serv->vanilla_block_state_count) == BITS_PER_BLOCK_STATE);
+
     LogInfo("Block state count: %d (ceillog2 = %d)", serv->vanilla_block_state_count, CeilLog2U32(serv->vanilla_block_state_count));
+
+    CalculateBlockLightPropagation();
 }

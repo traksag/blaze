@@ -2249,13 +2249,14 @@ typedef struct {
     int vanilla_block_state_count;
     int actual_block_state_count;
     block_property_spec block_property_specs[BLOCK_PROPERTY_COUNT];
-    BlockModel staticBlockModels[128];
+    BlockModel staticBlockModels[BLOCK_MODEL_COUNT];
     u8 collisionModelByState[MAX_BLOCK_STATES];
     u8 supportModelByState[MAX_BLOCK_STATES];
     u8 lightBlockingModelByState[MAX_BLOCK_STATES];
     u8 lightReductionByState[MAX_BLOCK_STATES];
     u8 emittedLightByState[MAX_BLOCK_STATES];
     BlockBehaviours blockBehavioursByType[ACTUAL_BLOCK_TYPE_COUNT];
+    u8 lightCanPropagate[BLOCK_MODEL_COUNT * BLOCK_MODEL_COUNT];
 
     dimension_type dimension_types[32];
     int dimension_type_count;
@@ -2398,6 +2399,12 @@ get_player_facing(entity_base * player);
 void
 push_direct_neighbour_block_updates(WorldBlockPos pos,
         block_update_context * buc);
+
+static inline i32 FindLightCanPropagate(i32 fromState, i32 toState, i32 dir) {
+    i32 fromModelIndex = serv->lightBlockingModelByState[fromState];
+    i32 toModelIndex = serv->lightBlockingModelByState[toState];
+    return (serv->lightCanPropagate[fromModelIndex * BLOCK_MODEL_COUNT + toModelIndex] >> dir) & 0x1;
+}
 
 // math
 

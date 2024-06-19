@@ -107,71 +107,6 @@ static inline LightQueueEntry LightQueuePop(LightQueue * queue) {
     return res;
 }
 
-typedef struct {
-    f32 edge;
-    f32 minA;
-    f32 minB;
-    f32 maxA;
-    f32 maxB;
-} PropagationTest;
-
-static PropagationTest BoxToPropagationTest(BoundingBox box, i32 dir) {
-    PropagationTest res = {0};
-    switch (dir) {
-    case DIRECTION_NEG_Y: res = (PropagationTest) {1 - box.minY, box.minX, box.minZ, box.maxX, box.maxZ};
-    case DIRECTION_POS_Y: res = (PropagationTest) {box.maxY, box.minX, box.minZ, box.maxX, box.maxZ};
-    case DIRECTION_NEG_Z: res = (PropagationTest) {1 - box.minZ, box.minX, box.minY, box.maxX, box.maxY};
-    case DIRECTION_POS_Z: res = (PropagationTest) {box.maxZ, box.minX, box.minY, box.maxX, box.maxY};
-    case DIRECTION_NEG_X: res = (PropagationTest) {1 - box.minX, box.minY, box.minZ, box.maxY, box.maxZ};
-    case DIRECTION_POS_X: res = (PropagationTest) {box.maxX, box.minY, box.minZ, box.maxY, box.maxZ};
-    }
-    return res;
-}
-
-// TODO(traks): this stuff should ideally be in blockinfo.h
-// TODO(traks): most block models are not used for light propagation, because
-// most blocks have an empty light blocking model. We can probably just
-// precompute all this and dump it into a table for each from block + to block
-// + direction combination. Resulting table will likely be small.
-static i32 BlockLightCanPropagate(i32 fromState, i32 toState, i32 dir) {
-    BlockModel fromModel = serv->staticBlockModels[serv->lightBlockingModelByState[fromState]];
-    BlockModel toModel = serv->staticBlockModels[serv->lightBlockingModelByState[toState]];
-
-    i32 testCount = 0;
-    PropagationTest tests[16];
-
-    for (i32 i = 0; i < fromModel.size; i++) {
-        PropagationTest test = BoxToPropagationTest(fromModel.boxes[i], dir);
-        if (test.edge >= 1) {
-            tests[testCount++] = test;
-        }
-    }
-    for (i32 i = 0; i < toModel.size; i++) {
-        PropagationTest test = BoxToPropagationTest(fromModel.boxes[i], get_opposite_direction(dir));
-        if (test.edge >= 1) {
-            tests[testCount++] = test;
-        }
-    }
-
-    f32 curA = 0;
-    for (;;) {
-        f32 curB = 0;
-        f32 nextA = curA;
-        for (i32 testIndex = 0; testIndex < testCount; testIndex++) {
-            PropagationTest test = tests[testIndex];
-            if (test.minA <= curA && test.maxA >= curA && test.minB <= curB && test.maxB >= curB) {
-                curB = test.maxB;
-                nextA = MIN(nextA, test.maxA);
-            }
-        }
-        if (nextA == curA) {
-            break;
-        }
-    }
-
-    return (curA != 1);
-}
-
 // NOTE(traks): update a neighbour's light and push the neighbour to the
 // queue if further propagation is necessary
 static inline void PropagateLight(LightQueue * queue, u32 toPos, i32 dir, i32 fromState, i32 fromValue, i32 lightReduction) {
@@ -201,7 +136,7 @@ static inline void PropagateLight(LightQueue * queue, u32 toPos, i32 dir, i32 fr
         return;
     }
 
-    if (!BlockLightCanPropagate(fromState, toState, dir)) {
+    if (!FindLightCanPropagate(fromState, toState, dir)) {
         return;
     }
 
@@ -255,7 +190,7 @@ static void PropagateMaxSkyLightDown(LightQueue * queue) {
                 if (reductionOfState > 0) {
                     break;
                 }
-                if (!BlockLightCanPropagate(fromState, toState, DIRECTION_NEG_Y)) {
+                if (!FindLightCanPropagate(fromState, toState, DIRECTION_NEG_Y)) {
                     break;
                 }
 

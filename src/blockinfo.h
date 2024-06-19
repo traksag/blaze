@@ -1571,6 +1571,7 @@ enum BlockModelType {
     BLOCK_MODEL_TOP_SLAB,
     BLOCK_MODEL_LILY_PAD,
     BLOCK_MODEL_SCAFFOLDING,
+    BLOCK_MODEL_COUNT,
 };
 
 typedef struct {
