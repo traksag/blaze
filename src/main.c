@@ -1183,12 +1183,18 @@ main(void) {
 
     // NOTE(traks): without this, sleep times can be delayed by 3 ms. With this,
     // the delay is in the order of 100 us - 1 ms (at least on macOS).
+    // TODO(traks): do we really want to set scheduler policy and priority?
     pthread_t mainThread = pthread_self();
     i32 mainThreadSchedPolicy = SCHED_FIFO;
     i32 minSchedPrio = sched_get_priority_min(mainThreadSchedPolicy);
     i32 maxSchedPrio = sched_get_priority_max(mainThreadSchedPolicy);
     struct sched_param mainThreadSchedParam = {
+#ifdef PROFILE
+        // NOTE(traks): This gives much more consistent timings
+        .sched_priority = maxSchedPrio
+#else
         .sched_priority = minSchedPrio + (maxSchedPrio - minSchedPrio) / 2
+#endif
     };
     pthread_setschedparam(mainThread, SCHED_FIFO, &mainThreadSchedParam);
 

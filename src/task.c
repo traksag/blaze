@@ -50,6 +50,8 @@ void CreateTaskQueue(TaskQueue * queue, i32 threadCount) {
 
     // TODO(traks): should we have different policies/priorities for different
     // queues? E.g. the background queue and a possible high priority queue
+    // TODO(traks): Should these settings be different when we profile, even for
+    // background queues?
     pthread_attr_t attributes;
     pthread_attr_init(&attributes);
     i32 schedPolicy = SCHED_OTHER;
