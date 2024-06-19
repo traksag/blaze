@@ -502,14 +502,14 @@ void FreeAndClearSectionBlocks(SectionBlocks * blocks) {
 }
 
 void * CallocSectionLight() {
-    i32 size = 2048;
+    i32 size = 4096;
     void * res = calloc(1, size);
     atomic_fetch_add_explicit(&sectionLightMemoryUsage, size, memory_order_relaxed);
     return res;
 }
 
 void FreeSectionLight(void * data) {
-    i32 size = 2048;
+    i32 size = 4096;
     free(data);
     if (data != NULL) {
         atomic_fetch_add_explicit(&sectionLightMemoryUsage, -size, memory_order_relaxed);

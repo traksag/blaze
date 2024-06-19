@@ -1247,6 +1247,16 @@ finish_packet(Cursor * send_cursor, entity_base * player) {
     // LogInfo("Packet size: %d", (int) packet_size);
 }
 
+static void PackLightSection(Cursor * targetCursor, u8 * source) {
+    WriteVarU32(targetCursor, 2048);
+    u8 * target = targetCursor->data + targetCursor->index;
+    if (CursorSkip(targetCursor, 2048)) {
+        for (i32 i = 0; i < 2048; i++) {
+            target[i] = GetSectionLight(source, 2 * i) | (GetSectionLight(source, 2 * i + 1) << 4);
+        }
+    }
+}
+
 void
 send_chunk_fully(Cursor * send_cursor, Chunk * ch,
         entity_base * entity, MemoryArena * tick_arena) {
@@ -1406,15 +1416,13 @@ send_chunk_fully(Cursor * send_cursor, Chunk * ch,
     WriteVarU32(send_cursor, lightSections);
     for (int sectionIndex = 0; sectionIndex < lightSections; sectionIndex++) {
         LightSection * section = ch->lightSections + sectionIndex;
-        WriteVarU32(send_cursor, 2048);
-        WriteData(send_cursor, section->skyLight, 2048);
+        PackLightSection(send_cursor, section->skyLight);
     }
 
     WriteVarU32(send_cursor, lightSections);
     for (int sectionIndex = 0; sectionIndex < lightSections; sectionIndex++) {
         LightSection * section = ch->lightSections + sectionIndex;
-        WriteVarU32(send_cursor, 2048);
-        WriteData(send_cursor, section->blockLight, 2048);
+        PackLightSection(send_cursor, section->blockLight);
     }
 
     EndTimings(WriteLight);

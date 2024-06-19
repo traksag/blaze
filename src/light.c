@@ -337,8 +337,8 @@ static void DoSkyLight(LightQueue * queue, Chunk * * chunkGrid) {
 
 #ifdef MEASURE_BANDWIDTH
     LogInfo("[Sky] Bw: %.0fMB/s, Dedup: %.0fMB/s (+Block = %.0f%%, +Light = %.0f%%)",
-            (queue->blockAccessCount * 2.0 + queue->lightAccessCount / 2.0) / (f64) (skyEndTime - skyStartTime) * 1000.0,
-            (2 * 4096 * 24 + 2048 * 26) / (f64) (skyEndTime - skyStartTime) * 1000.0,
+            (queue->blockAccessCount * 2.0 + queue->lightAccessCount) / (f64) (skyEndTime - skyStartTime) * 1000.0,
+            (2 * 4096 * 24 + 4096 * 26) / (f64) (skyEndTime - skyStartTime) * 1000.0,
             100 * queue->blockAccessCount / (f64) (4096 * 24),
             100 * queue->lightAccessCount / (f64) (4096 * 26));
 #endif
@@ -400,8 +400,8 @@ static void DoBlockLight(LightQueue * queue, Chunk * * chunkGrid) {
 
 #ifdef MEASURE_BANDWIDTH
     LogInfo("[Block] Bw: %.0fMB/s, Dedup: %.0fMB/s (+Block = %.0f%%, +Light = %.0f%%)",
-            (queue->blockAccessCount * 2.0 + queue->lightAccessCount / 2.0) / (f64) (blockEndTime - blockStartTime) * 1000.0,
-            (2 * 4096 * 24 + 2048 * 26) / (f64) (blockEndTime - blockStartTime) * 1000.0,
+            (queue->blockAccessCount * 2.0 + queue->lightAccessCount) / (f64) (blockEndTime - blockStartTime) * 1000.0,
+            (2 * 4096 * 24 + 4096 * 26) / (f64) (blockEndTime - blockStartTime) * 1000.0,
             100 * queue->blockAccessCount / (f64) (4096 * 24),
             100 * queue->lightAccessCount / (f64) (4096 * 26));
 #endif
@@ -473,8 +473,8 @@ void LightChunkAndExchangeWithNeighbours(Chunk * targetChunk) {
 
     // NOTE(traks): set up section references for easy access
     SectionBlocks sectionAir = {0};
-    u8 sectionFullLight[2048];
-    memset(sectionFullLight, 0xff, 2048);
+    u8 sectionFullLight[4096];
+    memset(sectionFullLight, 0xff, 4096);
 
     for (i32 i = 0; i < ARRAY_SIZE(lightQueue.blockSections); i++) {
         lightQueue.blockSections[i] = sectionAir;

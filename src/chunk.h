@@ -16,7 +16,7 @@ typedef struct {
 } ChunkSection;
 
 typedef struct {
-    // @OTE(traks): sky light and block light are 4 bits per entry. Currently
+    // @OTE(traks): sky light and block light are 1 byte per entry. Currently
     // never NULL, even if all light is 0.
     // NOTE(traks): index as yzx
     u8 * skyLight;
@@ -162,17 +162,14 @@ SetBlockResult WorldSetBlockState(WorldBlockPos pos, i32 blockState);
 i32 WorldGetBlockState(WorldBlockPos pos);
 void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena);
 
-static inline u8 GetSectionLight(u8 * lightArray, i32 posIndex) {
-    i32 byteIndex = posIndex / 2;
-    i32 shift = (posIndex & 0x1) * 4;
-    return (lightArray[byteIndex] >> shift) & 0xf;
+static inline u8 GetSectionLight(u8 * lightArray, u32 posIndex) {
+    assert(posIndex <= 0xfff);
+    return lightArray[posIndex];
 }
 
-static inline void SetSectionLight(u8 * lightArray, i32 posIndex, u8 light) {
-    i32 byteIndex = posIndex / 2;
-    i32 shift = (posIndex & 0x1) * 4;
-    i32 mask = 0xf0 >> shift;
-    lightArray[byteIndex] = (lightArray[byteIndex] & mask) | (light << shift);
+static inline void SetSectionLight(u8 * lightArray, u32 posIndex, u8 light) {
+    assert(posIndex <= 0xfff);
+    lightArray[posIndex] = light & 0xf;
 }
 
 // @NOTE(traks) assumes all light sections are present in the chunk and assumes

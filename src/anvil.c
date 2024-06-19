@@ -42,6 +42,13 @@ static void FillBufferFromFile(int fd, Cursor * cursor) {
     EndTimings(ReadFile);
 }
 
+static void UnpackStoredLight(u8 * target, u8 * source) {
+    for (i32 i = 0; i < 2048; i++) {
+        SetSectionLight(target, 2 * i, source[i] & 0xf);
+        SetSectionLight(target, 2 * i + 1, source[i] >> 4);
+    }
+}
+
 void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
     BeginTimings(ReadChunk);
 
@@ -418,10 +425,10 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
             NbtList blockLight = NbtGetArrayU8(&sectionNbt, STR("BlockLight"));
 
             if (skyLight.size == 2048) {
-                memcpy(lightSection->skyLight, skyLight.listData, 2048);
+                UnpackStoredLight(lightSection->skyLight, skyLight.listData);
             }
             if (blockLight.size == 2048) {
-                memcpy(lightSection->blockLight, blockLight.listData, 2048);
+                UnpackStoredLight(lightSection->blockLight, blockLight.listData);
             }
         }
     }
