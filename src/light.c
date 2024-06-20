@@ -27,7 +27,6 @@ typedef struct {
 typedef struct {
     // NOTE(traks): contains which positions to propagate from
     LightQueueEntry * entries;
-    i32 readIndex;
     i32 writeIndex;
     // NOTE(traks): index as yzx
     u8 * lightSections[4 * 4 * 32];
@@ -92,19 +91,15 @@ static inline i32 GetEntryDir(u32 entryData) {
 
 static inline void LightQueuePush(LightQueue * queue, LightQueueEntry entry) {
     i32 writeIndex = queue->writeIndex;
+    if (writeIndex >= LIGHT_QUEUE_SIZE) {
+        // TODO(traks): What should we do when this happens? Grow? Or should we
+        // ensure this can never happen theoretically by making the queue size
+        // large enough?
+        assert(0);
+        return;
+    }
     queue->entries[writeIndex] = entry;
-    writeIndex = (writeIndex + 1) % LIGHT_QUEUE_SIZE;
-    assert(writeIndex != queue->readIndex);
-    queue->writeIndex = writeIndex;
-}
-
-static inline LightQueueEntry LightQueuePop(LightQueue * queue) {
-    i32 readIndex = queue->readIndex;
-    assert(readIndex != queue->writeIndex);
-    LightQueueEntry res = queue->entries[readIndex];
-    readIndex = (readIndex + 1) % LIGHT_QUEUE_SIZE;
-    queue->readIndex = readIndex;
-    return res;
+    queue->writeIndex++;
 }
 
 // NOTE(traks): update a neighbour's light and push the neighbour to the
@@ -204,12 +199,10 @@ static void PropagateMaxSkyLightDown(LightQueue * queue) {
 }
 
 static void PropagateLightFully(LightQueue * queue) {
-    for (;;) {
-        if (queue->readIndex == queue->writeIndex) {
-            break;
-        }
-
-        LightQueueEntry entry = LightQueuePop(queue);
+    i32 readIndex = 0;
+    while (readIndex < queue->writeIndex) {
+        LightQueueEntry entry = queue->entries[readIndex];
+        readIndex++;
 
         i32 sectionIndex = PosToSectionIndex(entry.data);
         i32 posIndex = PosToSectionPosIndex(entry.data);
@@ -232,6 +225,9 @@ static void PropagateLightFully(LightQueue * queue) {
             }
         }
     }
+
+    // NOTE(traks): reset write index for the next round
+    queue->writeIndex = 0;
 }
 
 static void DoSkyLight(LightQueue * queue, Chunk * * chunkGrid) {
