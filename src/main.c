@@ -449,7 +449,7 @@ move_entity(entity_base * entity) {
                             {test_max_z, test_min_y, test_max_y, test_min_x, test_max_x, dz, dy, dx, z, y, x, DIRECTION_POS_Z},
                         };
 
-                        for (int i = 0; i < ARRAY_SIZE(tests); i++) {
+                        for (int i = 0; i < (i32) ARRAY_SIZE(tests); i++) {
                             hit_test * test = tests + i;
                             if (test->da != 0) {
                                 double hit_time = (test->wall_a - test->a) / test->da;
@@ -640,7 +640,7 @@ server_tick(void) {
     // update entities
     BeginTimings(TickEntities);
 
-    for (int i = 0; i < ARRAY_SIZE(serv->entities); i++) {
+    for (int i = 0; i < (i32) ARRAY_SIZE(serv->entities); i++) {
         entity_base * entity = serv->entities + i;
         if ((entity->flags & ENTITY_IN_USE) == 0) {
             continue;
@@ -664,7 +664,7 @@ server_tick(void) {
         entity_base * entity = resolve_entity(eid);
         if (entity->type == ENTITY_NULL) {
             // @TODO(traks) make sure this can never happen instead of hoping
-            assert(serv->tab_list_removed_count < ARRAY_SIZE(serv->tab_list_removed));
+            assert(serv->tab_list_removed_count < (i32) ARRAY_SIZE(serv->tab_list_removed));
             serv->tab_list_removed[serv->tab_list_removed_count] = eid;
             serv->tab_list_removed_count++;
             serv->tab_list[i] = serv->tab_list[serv->tab_list_size - 1];
@@ -679,7 +679,7 @@ server_tick(void) {
     // add players to live tab list
     for (int i = 0; i < serv->tab_list_added_count; i++) {
         entity_id eid = serv->tab_list_added[i];
-        assert(serv->tab_list_size < ARRAY_SIZE(serv->tab_list));
+        assert(serv->tab_list_size < (i32) ARRAY_SIZE(serv->tab_list));
         serv->tab_list[serv->tab_list_size] = eid;
         serv->tab_list_size++;
     }
@@ -688,7 +688,7 @@ server_tick(void) {
 
     BeginTimings(SendPlayers);
 
-    for (int i = 0; i < ARRAY_SIZE(serv->entities); i++) {
+    for (int i = 0; i < (i32) ARRAY_SIZE(serv->entities); i++) {
         entity_base * entity = serv->entities + i;
         if (entity->type != ENTITY_PLAYER) {
             continue;
@@ -715,7 +715,7 @@ server_tick(void) {
 
     BeginTimings(ClearEntityChanges);
 
-    for (int i = 0; i < ARRAY_SIZE(serv->entities); i++) {
+    for (int i = 0; i < (i32) ARRAY_SIZE(serv->entities); i++) {
         entity_base * entity = serv->entities + i;
         if ((entity->flags & ENTITY_IN_USE) == 0) {
             continue;
@@ -1054,7 +1054,7 @@ load_tags(char * file_name, char * list_name, tag_list * tags, resource_loc_tabl
                 break;
             }
         } else if (net_string_equal(args[0], STR("key"))) {
-            assert(tags->size < ARRAY_SIZE(tags->tags));
+            assert(tags->size < (i32) ARRAY_SIZE(tags->tags));
 
             tag = tags->tags + tags->size;
             tags->size++;
@@ -1066,8 +1066,7 @@ load_tags(char * file_name, char * list_name, tag_list * tags, resource_loc_tabl
 
             int name_size = args[1].size;
             assert(name_size <= UCHAR_MAX);
-            assert(serv->tag_name_count + 1 + name_size
-                    <= ARRAY_SIZE(serv->tag_name_buf));
+            assert(serv->tag_name_count + 1 + name_size <= (i32) ARRAY_SIZE(serv->tag_name_buf));
 
             serv->tag_name_buf[serv->tag_name_count] = name_size;
             serv->tag_name_count++;
@@ -1080,8 +1079,7 @@ load_tags(char * file_name, char * list_name, tag_list * tags, resource_loc_tabl
                 assert(0);
             }
 
-            assert(tag->values_index + tag->value_count
-                    <= ARRAY_SIZE(serv->tag_value_id_buf));
+            assert(tag->values_index + tag->value_count <= (i32) ARRAY_SIZE(serv->tag_value_id_buf));
             serv->tag_value_id_buf[tag->values_index + tag->value_count] = id;
             serv->tag_value_id_count++;
 

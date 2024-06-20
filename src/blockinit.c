@@ -153,7 +153,7 @@ static i32 count_block_states(block_properties * props) {
 static void UpdateGlobalBlockReferences(block_properties * props) {
     i32 blockType = props - serv->block_properties_table;
     i32 blockStates = count_block_states(props);
-    assert(props->base_state + blockStates <= ARRAY_SIZE(serv->block_type_by_state));
+    assert(props->base_state + blockStates <= (i32) ARRAY_SIZE(serv->block_type_by_state));
 
     for (int i = 0; i < blockStates; i++) {
         serv->block_type_by_state[props->base_state + i] = blockType;
@@ -349,7 +349,7 @@ static void SetEmittedLightWhenBerries(block_properties * props, i32 emittedLigh
 static void AddBlockBehaviour(block_properties * props, i32 behaviour) {
     i32 blockType = props - serv->block_properties_table;
     BlockBehaviours * behaviours = serv->blockBehavioursByType + blockType;
-    assert(behaviours->size < ARRAY_SIZE(behaviours->entries));
+    assert(behaviours->size < (i32) ARRAY_SIZE(behaviours->entries));
     behaviours->entries[behaviours->size] = behaviour;
     behaviours->size++;
 }
@@ -1077,7 +1077,7 @@ block_boxes_intersect_face(int box_count, BoundingBox * boxes,
 static void
 register_block_model(int index, int box_count, BoundingBox * pixel_boxes) {
     BlockModel * model = serv->staticBlockModels + index;
-    assert(box_count < ARRAY_SIZE(model->boxes));
+    assert(box_count < (i32) ARRAY_SIZE(model->boxes));
     model->size = box_count;
     for (int i = 0; i < box_count; i++) {
         model->boxes[i] = pixel_boxes[i];
@@ -1244,7 +1244,7 @@ init_block_data(void) {
     for (int i = 0; i < 4; i++) {
         int model_index = BLOCK_MODEL_BED_FOOT_POS_X + i;
         register_block_model(model_index, ARRAY_SIZE(boxes_foot_pos_x), boxes_foot_pos_x);
-        for (int j = 0; j < ARRAY_SIZE(boxes_foot_pos_x); j++) {
+        for (int j = 0; j < (i32) ARRAY_SIZE(boxes_foot_pos_x); j++) {
             boxes_foot_pos_x[i] = rotate_block_box_clockwise(boxes_foot_pos_x[i]);
         }
     }

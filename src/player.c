@@ -413,8 +413,8 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
         argumentCount = MIN(argumentCount, 8);
         for (u32 argIndex = 0; argIndex < argumentCount; argIndex++) {
             String key = ReadVarString(rec_cursor, 16);
-            u32 valueSize = ReadVarU32(rec_cursor);
-            valueSize = MIN(valueSize, rec_cursor->size);
+            i32 valueSize = ReadVarU32(rec_cursor);
+            valueSize = MIN(MAX(valueSize, 0), rec_cursor->size);
             u8 * value = rec_cursor->data + rec_cursor->index;
         }
 
@@ -433,8 +433,8 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
         // @TODO(traks) validate signature?
         i32 hasSignature = ReadU8(rec_cursor);
         if (hasSignature) {
-            u32 signatureSize = ReadVarU32(rec_cursor);
-            signatureSize = MIN(signatureSize, rec_cursor->size);
+            i32 signatureSize = ReadVarU32(rec_cursor);
+            signatureSize = MIN(MAX(signatureSize, 0), rec_cursor->size);
             u8 * signature = rec_cursor->data + rec_cursor->index;
             rec_cursor->index += signatureSize;
         }
@@ -447,7 +447,7 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
 
         // TODO(traks): filter out bad characters from the message
 
-        if (serv->global_msg_count < ARRAY_SIZE(serv->global_msgs)) {
+        if (serv->global_msg_count < (i32) ARRAY_SIZE(serv->global_msgs)) {
             global_msg * msg = serv->global_msgs + serv->global_msg_count;
             serv->global_msg_count++;
             int text_size = sprintf(
@@ -686,7 +686,7 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
         break;
     }
     case SBP_KEEP_ALIVE: {
-        u64 id = ReadU64(rec_cursor);
+        i64 id = ReadU64(rec_cursor);
         if (player->last_keep_alive_sent_tick == id) {
             entity->flags |= PLAYER_GOT_ALIVE_RESPONSE;
         }
@@ -1109,7 +1109,7 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
         LogInfo("Packet sign update");
         u64 block_pos = ReadU64(rec_cursor);
         String lines[4];
-        for (int i = 0; i < ARRAY_SIZE(lines); i++) {
+        for (int i = 0; i < (i32) ARRAY_SIZE(lines); i++) {
             lines[i] = ReadVarString(rec_cursor, 384);
         }
         break;
@@ -1771,7 +1771,7 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
     }
 
     // try to pick up nearby items
-    for (int i = 0; i < ARRAY_SIZE(serv->entities); i++) {
+    for (int i = 0; i < (i32) ARRAY_SIZE(serv->entities); i++) {
         entity_base * entity = serv->entities + i;
         if ((entity->flags & ENTITY_IN_USE) == 0) {
             continue;
@@ -2891,7 +2891,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         };
 
         WriteVarU32(send_cursor, ARRAY_SIZE(tag_lists));
-        for (int tagsi = 0; tagsi < ARRAY_SIZE(tag_lists); tagsi++) {
+        for (int tagsi = 0; tagsi < (i32) ARRAY_SIZE(tag_lists); tagsi++) {
             tag_list * tags = tag_lists[tagsi];
 
             String name = {

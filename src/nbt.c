@@ -611,7 +611,7 @@ void NbtPrint(NbtCompound * compound) {
         if (levelIndex < 0) {
             break;
         }
-        if (levelIndex >= ARRAY_SIZE(levels) - 1) {
+        if (levelIndex >= (i32) ARRAY_SIZE(levels) - 1) {
             // @NOTE(traks) might overflow this round, bail!
             return;
         }

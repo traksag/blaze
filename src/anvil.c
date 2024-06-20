@@ -135,7 +135,7 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
 
     u32 size_in_bytes = ReadU32(&cursor);
 
-    if (size_in_bytes > cursor.size - cursor.index) {
+    if ((i32) size_in_bytes > cursor.size - cursor.index) {
         LogInfo("Chunk data outside of its sectors");
         goto bail;
     }
@@ -277,7 +277,7 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
         goto bail;
     }
 
-    for (u32 sectionNbtIndex = 0; sectionNbtIndex < numSections; sectionNbtIndex++) {
+    for (i32 sectionNbtIndex = 0; sectionNbtIndex < numSections; sectionNbtIndex++) {
         NbtCompound sectionNbt = NbtNextCompound(&sectionList);
         // NOTE(traks): Should be u8, but sometimes this is an u32 in the wild.
         // Allow any int type, because we might as well
@@ -342,11 +342,8 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
                     stride = stride * propSpec->value_count + valueIndex;
                 }
 
-                u32 blockState = props->base_state + stride;
-                if (blockState >= serv->vanilla_block_state_count) {
-                    LogInfo("Encountered invalid block state");
-                    goto bail;
-                }
+                i32 blockState = props->base_state + stride;
+                assert(blockState < serv->vanilla_block_state_count);
                 paletteMap[paletteIndex] = blockState;
             }
 

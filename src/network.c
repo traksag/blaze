@@ -545,7 +545,7 @@ static void ClientTick(Client * client) {
 
         // @TODO(traks) ensure this can never happen instead of assering
         // it never will hopefully happen
-        assert(serv->tab_list_added_count < ARRAY_SIZE(serv->tab_list_added));
+        assert(serv->tab_list_added_count < (i32) ARRAY_SIZE(serv->tab_list_added));
         serv->tab_list_added[serv->tab_list_added_count] = entity->eid;
         serv->tab_list_added_count++;
 

@@ -104,9 +104,9 @@ typedef struct {
 typedef struct {
     ChunkHashEntry * entries;
     // NOTE(traks): must be power of 2
-    u32 arraySize;
+    i32 arraySize;
     u32 sizeMask;
-    u32 useCount;
+    i32 useCount;
 } ChunkHashMap;
 
 typedef struct {
@@ -156,8 +156,8 @@ static i32 ChunkHashEntryIsEmpty(ChunkHashEntry * entry) {
 
 static ChunkHashEntry * FindChunkHashEntryOrEmpty(PackedWorldChunkPos packedPos, u32 startIndex) {
     ChunkHashEntry * res = NULL;
-    for (u32 offset = 0; offset < chunkIndex.arraySize; offset++) {
-        u32 index = (startIndex + offset) & chunkIndex.sizeMask;
+    for (i32 offset = 0; offset < chunkIndex.arraySize; offset++) {
+        i32 index = (startIndex + offset) & chunkIndex.sizeMask;
         ChunkHashEntry * entry = chunkIndex.entries + index;
         if (ChunkHashEntryIsEmpty(entry) || packedPos.packed == entry->packedPos.packed) {
             res = entry;
@@ -173,7 +173,7 @@ static void GrowChunkHashMap() {
     // NOTE(traks): need a bit of wiggle room for integer operations
     assert(chunkIndex.arraySize < (1 << 20));
 
-    u32 oldSize = chunkIndex.arraySize;
+    i32 oldSize = chunkIndex.arraySize;
     ChunkHashEntry * oldEntries = chunkIndex.entries;
     chunkIndex.arraySize = MAX(2 * oldSize, 128);
     chunkIndex.sizeMask = chunkIndex.arraySize - 1;
@@ -196,7 +196,7 @@ static void RemoveHashEntry(ChunkHashEntry * entryToRemove) {
     u32 chainStart = entryToRemove - chunkIndex.entries;
     u32 indexToFill = chainStart;
     chunkIndex.entries[chainStart] = (ChunkHashEntry) {0};
-    for (u32 offset = 1; offset < chunkIndex.arraySize; offset++) {
+    for (i32 offset = 1; offset < chunkIndex.arraySize; offset++) {
         u32 curIndex = (chainStart + offset) & chunkIndex.sizeMask;
         ChunkHashEntry * chained = chunkIndex.entries + curIndex;
         if (ChunkHashEntryIsEmpty(chained)) {

@@ -77,7 +77,7 @@ try_get_block_entity(WorldBlockPos pos) {
         .z = pos.z & 0xf,
     };
 
-    for (int i = 0; i < ARRAY_SIZE(ch->block_entities); i++) {
+    for (int i = 0; i < (i32) ARRAY_SIZE(ch->block_entities); i++) {
         block_entity_base * block_entity = ch->block_entities + i;
         if (!(block_entity->flags & BLOCK_ENTITY_IN_USE)) {
             block_entity->pos = chunk_block_pos;
@@ -91,9 +91,9 @@ try_get_block_entity(WorldBlockPos pos) {
     return NULL;
 }
 
-void SectionSetBlockState(SectionBlocks * blocks, u32 index, u32 blockState) {
+void SectionSetBlockState(SectionBlocks * blocks, u32 index, i32 blockState) {
     assert(index <= 0xfff);
-    assert(blockState < serv->vanilla_block_state_count);
+    assert(0 <= blockState && blockState < serv->vanilla_block_state_count);
 
     if (SectionIsNull(blocks)) {
         if (blockState == 0) {

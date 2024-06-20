@@ -225,7 +225,7 @@ static void PropagateLightFully(LightQueue * queue) {
         // direction enum is.
         i32 shift[] = {-0x10000, 0x10000, -0x100, 0x100, -0x1, 0x1};
         u32 pos = GetEntryPos(entry.data);
-        u32 fromDir = GetEntryDir(entry.data);
+        i32 fromDir = GetEntryDir(entry.data);
         for (i32 dir = 0; dir < 6; dir++) {
             if (dir != fromDir) {
                 PropagateLight(queue, pos + shift[dir], dir, fromState, value, 1);
@@ -411,7 +411,7 @@ void LightChunkAndExchangeWithNeighbours(Chunk * targetChunk) {
     u8 sectionFullLight[4096];
     memset(sectionFullLight, 0xff, 4096);
 
-    for (i32 i = 0; i < ARRAY_SIZE(lightQueue.blockSections); i++) {
+    for (i32 i = 0; i < (i32) ARRAY_SIZE(lightQueue.blockSections); i++) {
         lightQueue.blockSections[i] = sectionAir;
         lightQueue.lightSections[i] = sectionFullLight;
     }

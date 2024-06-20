@@ -151,7 +151,7 @@ typedef struct {
 } SetBlockResult;
 
 u32 SectionGetBlockState(SectionBlocks * blocks, u32 index);
-void SectionSetBlockState(SectionBlocks * blocks, u32 index, u32 blockState);
+void SectionSetBlockState(SectionBlocks * blocks, u32 index, i32 blockState);
 
 // NOTE(traks): pos can be in world coordinates instead of chunk coordinates.
 // Makes this more convenient to use. Less error conditions = good!
