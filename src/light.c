@@ -13,14 +13,10 @@
 // #define MEASURE_BANDWIDTH
 
 typedef struct {
-    // NOTE(traks): Holds:
-    // - The position we want to propagate further from. It is represented as
-    //   the offset from y = min sky light level (i.e. min world height - 16) in
-    //   the lowest x,z corner of the centre chunk.
-    // - The direction we propagated from to get here, so we can avoid
-    //   propagating backwards.
-    //
-    // See the conversion functions below for how everything is encoded.
+    // NOTE(traks): Holds the position we want to propagate further from. It is
+    // represented as the offset from y = min sky light level (i.e. min world
+    // height - 16) in the lowest x,z corner of the centre chunk. See the
+    // conversion functions below for further encoding details.
     u32 data;
 } LightQueueEntry;
 
@@ -75,18 +71,13 @@ static inline i32 PosToY(u32 pos) {
     return (pos >> 16) & 0x1ff;
 }
 
-static inline LightQueueEntry PackEntry(u32 pos, u32 dir) {
-    u32 data = (dir << 28) | pos;
-    LightQueueEntry res = {.data = data};
+static inline LightQueueEntry PackEntry(u32 pos) {
+    LightQueueEntry res = {.data = pos};
     return res;
 }
 
-static inline u32 GetEntryPos(u32 entryData) {
-    return (entryData & 0xfffffff);
-}
-
-static inline i32 GetEntryDir(u32 entryData) {
-    return (entryData >> 28);
+static inline u32 GetEntryPos(LightQueueEntry entry) {
+    return entry.data;
 }
 
 static inline void LightQueuePush(LightQueue * queue, LightQueueEntry entry) {
@@ -137,7 +128,7 @@ static inline void PropagateLight(LightQueue * queue, u32 toPos, i32 dir, i32 fr
 
     SetSectionLight(queue->lightSections[sectionIndex], posIndex, spreadValue);
 
-    LightQueuePush(queue, PackEntry(toPos, get_opposite_direction(dir)));
+    LightQueuePush(queue, PackEntry(toPos));
 }
 
 static i32 GetNeighbourIndex(i32 dx, i32 dz) {
@@ -191,7 +182,7 @@ static void PropagateMaxSkyLightDown(LightQueue * queue) {
 
                 SetSectionLight(queue->lightSections[sectionIndex], posIndex, 15);
                 u32 toPos = PosFromXYZ(x, y, z);
-                LightQueuePush(queue, PackEntry(toPos, DIRECTION_POS_Y));
+                LightQueuePush(queue, PackEntry(toPos));
                 fromState = toState;
             }
         }
@@ -204,8 +195,9 @@ static void PropagateLightFully(LightQueue * queue) {
         LightQueueEntry entry = queue->entries[readIndex];
         readIndex++;
 
-        i32 sectionIndex = PosToSectionIndex(entry.data);
-        i32 posIndex = PosToSectionPosIndex(entry.data);
+        u32 fromPos = GetEntryPos(entry);
+        i32 sectionIndex = PosToSectionIndex(fromPos);
+        i32 posIndex = PosToSectionPosIndex(fromPos);
         i32 fromState = SectionGetBlockState(&queue->blockSections[sectionIndex], posIndex);
         i32 value = GetSectionLight(queue->lightSections[sectionIndex], posIndex);
 #ifdef MEASURE_BANDWIDTH
@@ -217,13 +209,12 @@ static void PropagateLightFully(LightQueue * queue) {
         // for performance. It shouldn't depend on whatever the order of the
         // direction enum is.
         i32 shift[] = {-0x10000, 0x10000, -0x100, 0x100, -0x1, 0x1};
-        u32 pos = GetEntryPos(entry.data);
-        i32 fromDir = GetEntryDir(entry.data);
-        for (i32 dir = 0; dir < 6; dir++) {
-            if (dir != fromDir) {
-                PropagateLight(queue, pos + shift[dir], dir, fromState, value, 1);
-            }
-        }
+        PropagateLight(queue, fromPos - 0x10000, DIRECTION_NEG_Y, fromState, value, 1);
+        PropagateLight(queue, fromPos + 0x10000, DIRECTION_POS_Y, fromState, value, 1);
+        PropagateLight(queue, fromPos - 0x100, DIRECTION_NEG_Z, fromState, value, 1);
+        PropagateLight(queue, fromPos + 0x100, DIRECTION_POS_Z, fromState, value, 1);
+        PropagateLight(queue, fromPos - 0x1, DIRECTION_NEG_X, fromState, value, 1);
+        PropagateLight(queue, fromPos + 0x1, DIRECTION_POS_X, fromState, value, 1);
     }
 
     // NOTE(traks): reset write index for the next round
@@ -306,7 +297,7 @@ static void DoBlockLight(LightQueue * queue, Chunk * * chunkGrid) {
             if (emitted > 0) {
                 SetSectionLight(queue->lightSections[sectionIndex], posIndex, emitted);
                 u32 pos = PosFromXYZ(zx & 0xf, y, zx >> 4);
-                LightQueuePush(queue, PackEntry(pos, DIRECTION_ZERO));
+                LightQueuePush(queue, PackEntry(pos));
             }
         }
     }
