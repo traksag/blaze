@@ -1,3 +1,4 @@
+#include <immintrin.h>
 #include "shared.h"
 #include "chunk.h"
 
@@ -50,12 +51,26 @@ static inline i32 XYZToSectionIndex(i32 x, i32 y, i32 z) {
 }
 
 static inline i32 PosToSectionIndex(u32 pos) {
+    // TODO(traks): apparently very slow on Zen 2, perhaps detect the CPU
+    // version and flags or something at runtime and switch implementations
+    // based on that
+#ifdef __BMI2__
+    i32 res = _pext_u32(pos, 0x01f03030);
+#else
     i32 res = ((pos & 0x1f00000) >> 16) | ((pos & 0x3000) >> 10) | ((pos & 0x30) >> 4);
+#endif
     return res;
 }
 
 static inline i32 PosToSectionPosIndex(u32 pos) {
+    // TODO(traks): apparently very slow on Zen 2, perhaps detect the CPU
+    // version and flags or something at runtime and switch implementations
+    // based on that
+#ifdef __BMI2__
+    i32 res = _pext_u32(pos, 0x000f0f0f);
+#else
     i32 res = ((pos & 0xf0000) >> 8) | ((pos & 0xf00) >> 4) | (pos & 0xf);
+#endif
     return res;
 }
 
