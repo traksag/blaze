@@ -254,7 +254,7 @@ static void PushUpdateRequest(ChunkHashEntry * entry) {
         u32 oldSize = updateRequests.arraySize;
         updateRequests.arraySize = MAX(2 * oldSize, 128);
         updateRequests.sizeMask = updateRequests.arraySize - 1;
-        updateRequests.entries = reallocf(updateRequests.entries, updateRequests.arraySize * sizeof *updateRequests.entries);
+        updateRequests.entries = realloc(updateRequests.entries, updateRequests.arraySize * sizeof *updateRequests.entries);
         // NOTE(traks): wrap the start around to the end of the old buffer
         memcpy(updateRequests.entries + oldSize, updateRequests.entries, oldSize * sizeof *updateRequests.entries);
     }
