@@ -1241,11 +1241,11 @@ init_block_data(void) {
         {0, 0, 0, 3, 3, 3}, // leg 1
         {0, 0, 13, 3, 3, 16}, // leg 2
     };
-    for (int i = 0; i < 4; i++) {
-        int model_index = BLOCK_MODEL_BED_FOOT_POS_X + i;
+    for (int rot = 0; rot < 4; rot++) {
+        int model_index = BLOCK_MODEL_BED_FOOT_POS_X + rot;
         register_block_model(model_index, ARRAY_SIZE(boxes_foot_pos_x), boxes_foot_pos_x);
-        for (int j = 0; j < (i32) ARRAY_SIZE(boxes_foot_pos_x); j++) {
-            boxes_foot_pos_x[i] = rotate_block_box_clockwise(boxes_foot_pos_x[i]);
+        for (int boxIndex = 0; boxIndex < (i32) ARRAY_SIZE(boxes_foot_pos_x); boxIndex++) {
+            boxes_foot_pos_x[boxIndex] = rotate_block_box_clockwise(boxes_foot_pos_x[boxIndex]);
         }
     }
 
