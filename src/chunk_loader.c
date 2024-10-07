@@ -252,11 +252,17 @@ static void PushUpdateRequest(ChunkHashEntry * entry) {
         // NOTE(traks): need a bit of wiggle room for integer operations
         assert(chunkIndex.arraySize < (1 << 20));
         u32 oldSize = updateRequests.arraySize;
+        ChunkUpdateRequest * oldEntries = updateRequests.entries;
         updateRequests.arraySize = MAX(2 * oldSize, 128);
         updateRequests.sizeMask = updateRequests.arraySize - 1;
-        updateRequests.entries = reallocf(updateRequests.entries, updateRequests.arraySize * sizeof *updateRequests.entries);
-        // NOTE(traks): wrap the start around to the end of the old buffer
-        memcpy(updateRequests.entries + oldSize, updateRequests.entries, oldSize * sizeof *updateRequests.entries);
+        updateRequests.entries = malloc(updateRequests.arraySize * sizeof *updateRequests.entries);
+        // NOTE(traks): for simplicity fill the new entries array twice with the
+        // old array, in case the old ring buffer had data wrapping around to
+        // the start
+        assert(oldSize == 0 || 2 * oldSize == updateRequests.arraySize);
+        memcpy(updateRequests.entries, oldEntries, oldSize * sizeof *updateRequests.entries);
+        memcpy(updateRequests.entries + oldSize, oldEntries, oldSize * sizeof *updateRequests.entries);
+        free(oldEntries);
     }
 
     u32 placementIndex = (updateRequests.startIndex + updateRequests.useCount) & updateRequests.sizeMask;
