@@ -9,6 +9,7 @@
 #include "shared.h"
 #include "nbt.h"
 #include "chunk.h"
+#include "packet.h"
 
 // Implicit packet IDs for ease of updating. Updating packet IDs manually is a
 // pain because packet types are ordered alphabetically and Mojang doesn't
@@ -1247,59 +1248,8 @@ chunk_cache_index(ChunkPos pos) {
     return (x * MAX_CHUNK_CACHE_DIAM + z) % n;
 }
 
-static void
-begin_packet(Cursor * send_cursor, i32 id) {
-    if (send_cursor->size - send_cursor->index < 6) {
-        send_cursor->error = 1;
-        return;
-    }
-
-    // LogInfo("Packet: %d", (int) id);
-
-    send_cursor->mark = send_cursor->index;
-    // NOTE(traks): reserve space for internal header and skip some bytes for
-    // packet size varint at the start
-    CursorSkip(send_cursor, 1 + 5);
-    WriteVarU32(send_cursor, id);
-}
-
-static void
-finish_packet(Cursor * send_cursor, entity_base * player) {
-    // We use the written data to determine the packet size instead of
-    // calculating the packet size up front. The major benefit is that
-    // calculating the packet size up front is very error prone and requires a
-    // lot of maintainance (in case of packet format changes).
-    //
-    // The downside is that we have to copy all packet data an additional time,
-    // because Mojang decided to encode packet sizes with a variable-size
-    // encoding.
-
-    if (send_cursor->error != 0 || send_cursor->index == send_cursor->size) {
-        // @NOTE(traks) packet ID could be invalid, but print it anyway
-        send_cursor->index = send_cursor->mark;
-        CursorSkip(send_cursor, 6);
-        i32 maybeId = ReadVarU32(send_cursor);
-        LogInfo("Finished invalid packet: %d", maybeId);
-        return;
-    }
-
-    int packet_end = send_cursor->index;
-    send_cursor->index = send_cursor->mark;
-    i32 packet_size = packet_end - send_cursor->index - 6;
-
-    int size_offset = 5 - VarU32Size(packet_size);
-    int internal_header = size_offset;
-    if (player->flags & PLAYER_PACKET_COMPRESSION) {
-        internal_header |= 0x80;
-    }
-    send_cursor->data[send_cursor->index] = internal_header;
-    send_cursor->index += 1 + size_offset;
-
-    WriteVarU32(send_cursor, packet_size);
-
-    send_cursor->index = packet_end;
-
-    // LogInfo("Packet size: %d", (int) packet_size);
+static void FinishPlayerPacket(Cursor * cursor, entity_base * player) {
+    FinishPacket(cursor, !!(player->flags & PLAYER_PACKET_COMPRESSION));
 }
 
 static void PackLightSection(Cursor * targetCursor, u8 * source) {
@@ -1322,7 +1272,7 @@ send_chunk_fully(Cursor * send_cursor, Chunk * ch,
     // packets are ~170KiB, and take ~2ms to compress. If we send a chunk to
     // 1000 players every tick, that's 2 seconds in a tick of 50ms, so we need
     // 40 CPU cores for that.
-    begin_packet(send_cursor, CBP_LEVEL_CHUNK_WITH_LIGHT);
+    BeginPacket(send_cursor, CBP_LEVEL_CHUNK_WITH_LIGHT);
     WriteU32(send_cursor, ch->pos.x);
     WriteU32(send_cursor, ch->pos.z);
 
@@ -1482,7 +1432,7 @@ send_chunk_fully(Cursor * send_cursor, Chunk * ch,
 
     EndTimings(WriteLight);
 
-    finish_packet(send_cursor, entity);
+    FinishPlayerPacket(send_cursor, entity);
 
     EndTimings(SendChunkFully);
 }
@@ -1494,7 +1444,7 @@ send_light_update(Cursor * send_cursor, ChunkPos pos, Chunk * ch,
 
     // @TODO(traks) send the real lighting data
 
-    begin_packet(send_cursor, CBP_LIGHT_UPDATE);
+    BeginPacket(send_cursor, CBP_LIGHT_UPDATE);
     WriteVarU32(send_cursor, pos.x);
     WriteVarU32(send_cursor, pos.z);
 
@@ -1535,13 +1485,13 @@ send_light_update(Cursor * send_cursor, ChunkPos pos, Chunk * ch,
         }
     }
 
-    finish_packet(send_cursor, entity);
+    FinishPlayerPacket(send_cursor, entity);
 
     EndTimings(SendLightUpdate);
 }
 
 static void SendPlayerTeleport(entity_base * player, Cursor * send_cursor) {
-    begin_packet(send_cursor, CBP_PLAYER_POSITION);
+    BeginPacket(send_cursor, CBP_PLAYER_POSITION);
     WriteF64(send_cursor, player->x);
     WriteF64(send_cursor, player->y);
     WriteF64(send_cursor, player->z);
@@ -1549,7 +1499,7 @@ static void SendPlayerTeleport(entity_base * player, Cursor * send_cursor) {
     WriteF32(send_cursor, player->rot_x);
     WriteU8(send_cursor, 0); // relative arguments
     WriteVarU32(send_cursor, player->player.current_teleport_id);
-    finish_packet(send_cursor, player);
+    FinishPlayerPacket(send_cursor, player);
 
     player->flags |= PLAYER_SENT_TELEPORT;
 }
@@ -1566,6 +1516,8 @@ static void SendPlayerTeleport(entity_base * player, Cursor * send_cursor) {
 // changed so you don't need to resolve entities to send tab list data.
 static void
 disconnect_player_now(entity_base * entity) {
+    // TODO(traks): send disconnect message and wait a bit before closing the
+    // socket, so the disconnect messages has a chance of reaching the client
     entity_player * player = &entity->player;
     close(player->sock);
 
@@ -2137,7 +2089,7 @@ send_changed_entity_data(Cursor * send_cursor, entity_base * player,
         return;
     }
 
-    begin_packet(send_cursor, CBP_SET_ENTITY_DATA);
+    BeginPacket(send_cursor, CBP_SET_ENTITY_DATA);
     WriteVarU32(send_cursor, entity->eid);
 
     if (changed_data & (1 << ENTITY_DATA_FLAGS)) {
@@ -2209,17 +2161,17 @@ send_changed_entity_data(Cursor * send_cursor, entity_base * player,
     }
 
     WriteU8(send_cursor, 0xff); // end of entity data
-    finish_packet(send_cursor, player);
+    FinishPlayerPacket(send_cursor, player);
 }
 
 static void
 send_take_item_entity_packet(entity_base * player, Cursor * send_cursor,
         entity_id taker_id, entity_id pickup_id, u8 pickup_size) {
-    begin_packet(send_cursor, CBP_TAKE_ITEM_ENTITY);
+    BeginPacket(send_cursor, CBP_TAKE_ITEM_ENTITY);
     WriteVarU32(send_cursor, pickup_id);
     WriteVarU32(send_cursor, taker_id);
     WriteVarU32(send_cursor, pickup_size);
-    finish_packet(send_cursor, player);
+    FinishPlayerPacket(send_cursor, player);
 }
 
 static void
@@ -2282,7 +2234,7 @@ try_update_tracked_entity(entity_base * player,
         i16 encoded_dz = encodedNewZ - encodedLastZ;
 
         if (sent_pos && sent_rot) {
-            begin_packet(send_cursor, CBP_MOVE_ENTITY_POS_ROT);
+            BeginPacket(send_cursor, CBP_MOVE_ENTITY_POS_ROT);
             WriteVarU32(send_cursor, entity->eid);
             WriteU16(send_cursor, encoded_dx);
             WriteU16(send_cursor, encoded_dy);
@@ -2290,22 +2242,22 @@ try_update_tracked_entity(entity_base * player,
             WriteU8(send_cursor, encoded_rot_y);
             WriteU8(send_cursor, encoded_rot_x);
             WriteU8(send_cursor, !!(player->flags & ENTITY_ON_GROUND));
-            finish_packet(send_cursor, player);
+            FinishPlayerPacket(send_cursor, player);
         } else if (sent_pos) {
-            begin_packet(send_cursor, CBP_MOVE_ENTITY_POS);
+            BeginPacket(send_cursor, CBP_MOVE_ENTITY_POS);
             WriteVarU32(send_cursor, entity->eid);
             WriteU16(send_cursor, encoded_dx);
             WriteU16(send_cursor, encoded_dy);
             WriteU16(send_cursor, encoded_dz);
             WriteU8(send_cursor, !!(player->flags & ENTITY_ON_GROUND));
-            finish_packet(send_cursor, player);
+            FinishPlayerPacket(send_cursor, player);
         } else if (sent_rot) {
-            begin_packet(send_cursor, CBP_MOVE_ENTITY_ROT);
+            BeginPacket(send_cursor, CBP_MOVE_ENTITY_ROT);
             WriteVarU32(send_cursor, entity->eid);
             WriteU8(send_cursor, encoded_rot_y);
             WriteU8(send_cursor, encoded_rot_x);
             WriteU8(send_cursor, !!(player->flags & ENTITY_ON_GROUND));
-            finish_packet(send_cursor, player);
+            FinishPlayerPacket(send_cursor, player);
         }
 
         if (sent_pos) {
@@ -2323,7 +2275,7 @@ try_update_tracked_entity(entity_base * player,
             tracked->last_sent_rot_y = encoded_rot_y;
         }
     } else {
-        begin_packet(send_cursor, CBP_TELEPORT_ENTITY);
+        BeginPacket(send_cursor, CBP_TELEPORT_ENTITY);
         WriteVarU32(send_cursor, entity->eid);
         WriteF64(send_cursor, entity->x);
         WriteF64(send_cursor, entity->y);
@@ -2331,7 +2283,7 @@ try_update_tracked_entity(entity_base * player,
         WriteU8(send_cursor, encoded_rot_y);
         WriteU8(send_cursor, encoded_rot_x);
         WriteU8(send_cursor, !!(player->flags & ENTITY_ON_GROUND));
-        finish_packet(send_cursor, player);
+        FinishPlayerPacket(send_cursor, player);
 
         tracked->last_tp_packet_tick = serv->current_tick;
 
@@ -2344,12 +2296,12 @@ try_update_tracked_entity(entity_base * player,
     }
 
     if (entity->type != ENTITY_PLAYER) {
-        begin_packet(send_cursor, CBP_SET_ENTITY_MOTION);
+        BeginPacket(send_cursor, CBP_SET_ENTITY_MOTION);
         WriteVarU32(send_cursor, entity->eid);
         WriteU16(send_cursor, CLAMP(entity->vx, -3.9, 3.9) * 8000);
         WriteU16(send_cursor, CLAMP(entity->vy, -3.9, 3.9) * 8000);
         WriteU16(send_cursor, CLAMP(entity->vz, -3.9, 3.9) * 8000);
-        finish_packet(send_cursor, player);
+        FinishPlayerPacket(send_cursor, player);
     }
 
     switch (entity->type) {
@@ -2357,10 +2309,10 @@ try_update_tracked_entity(entity_base * player,
         if (encoded_rot_y != tracked->last_sent_head_rot_y) {
             tracked->last_sent_head_rot_y = encoded_rot_y;
 
-            begin_packet(send_cursor, CBP_ROTATE_HEAD);
+            BeginPacket(send_cursor, CBP_ROTATE_HEAD);
             WriteVarU32(send_cursor, entity->eid);
             WriteU8(send_cursor, encoded_rot_y);
-            finish_packet(send_cursor, player);
+            FinishPlayerPacket(send_cursor, player);
         }
 
         if (entity->player.picked_up_tick == serv->current_tick) {
@@ -2398,7 +2350,7 @@ start_tracking_entity(entity_base * player,
     case ENTITY_PLAYER: {
         tracked->update_interval = 2;
 
-        begin_packet(send_cursor, CBP_ADD_ENTITY);
+        BeginPacket(send_cursor, CBP_ADD_ENTITY);
         WriteVarU32(send_cursor, entity->eid);
         // @TODO(traks) appropriate UUID
         WriteU64(send_cursor, 0);
@@ -2416,7 +2368,7 @@ start_tracking_entity(entity_base * player,
         WriteU16(send_cursor, 0);
         WriteU16(send_cursor, 0);
         WriteU16(send_cursor, 0);
-        finish_packet(send_cursor, player);
+        FinishPlayerPacket(send_cursor, player);
 
         tracked->last_sent_head_rot_y = encoded_rot_y;
         break;
@@ -2424,7 +2376,7 @@ start_tracking_entity(entity_base * player,
     case ENTITY_ITEM: {
         tracked->update_interval = 20;
 
-        // begin_packet(send_cursor, CBP_ADD_MOB);
+        // BeginPacket(send_cursor, CBP_ADD_MOB);
         // WriteVarU32(send_cursor, entity->eid);
         // // @TODO(traks) appropriate UUID
         // WriteU64(send_cursor, 0);
@@ -2441,8 +2393,8 @@ start_tracking_entity(entity_base * player,
         // WriteU16(send_cursor, 0);
         // WriteU16(send_cursor, 0);
         // WriteU16(send_cursor, 0);
-        // finish_packet(send_cursor, player);
-        begin_packet(send_cursor, CBP_ADD_ENTITY);
+        // FinishPlayerPacket(send_cursor, player);
+        BeginPacket(send_cursor, CBP_ADD_ENTITY);
         WriteVarU32(send_cursor, entity->eid);
         // @TODO(traks) appropriate UUID
         WriteU64(send_cursor, 0);
@@ -2463,14 +2415,14 @@ start_tracking_entity(entity_base * player,
         WriteU16(send_cursor, 0);
         WriteU16(send_cursor, 0);
         WriteU16(send_cursor, 0);
-        finish_packet(send_cursor, player);
+        FinishPlayerPacket(send_cursor, player);
 
-        begin_packet(send_cursor, CBP_SET_ENTITY_MOTION);
+        BeginPacket(send_cursor, CBP_SET_ENTITY_MOTION);
         WriteVarU32(send_cursor, entity->eid);
         WriteU16(send_cursor, CLAMP(entity->vx, -3.9, 3.9) * 8000);
         WriteU16(send_cursor, CLAMP(entity->vy, -3.9, 3.9) * 8000);
         WriteU16(send_cursor, CLAMP(entity->vz, -3.9, 3.9) * 8000);
-        finish_packet(send_cursor, player);
+        FinishPlayerPacket(send_cursor, player);
         break;
     }
     }
@@ -2480,7 +2432,7 @@ start_tracking_entity(entity_base * player,
 
 static void
 send_player_abilities(Cursor * send_cursor, entity_base * player) {
-    begin_packet(send_cursor, CBP_PLAYER_ABILITIES);
+    BeginPacket(send_cursor, CBP_PLAYER_ABILITIES);
     u8 ability_flags = 0;
 
     if (player->flags & ENTITY_INVULNERABLE) {
@@ -2499,7 +2451,7 @@ send_player_abilities(Cursor * send_cursor, entity_base * player) {
     WriteU8(send_cursor, ability_flags);
     WriteF32(send_cursor, 0.05); // flying speed
     WriteF32(send_cursor, 0.1); // walking speed
-    finish_packet(send_cursor, player);
+    FinishPlayerPacket(send_cursor, player);
 }
 
 static void UpdateChunkCache(entity_base * player, Cursor * sendCursor) {
@@ -2518,17 +2470,17 @@ static void UpdateChunkCache(entity_base * player, Cursor * sendCursor) {
 
     if (player->player.chunkCacheCentreX != nextChunkCacheCentreX
             || player->player.chunkCacheCentreZ != nextChunkCacheCentreZ) {
-        begin_packet(sendCursor, CBP_SET_CHUNK_CACHE_CENTER);
+        BeginPacket(sendCursor, CBP_SET_CHUNK_CACHE_CENTER);
         WriteVarU32(sendCursor, nextChunkCacheCentreX);
         WriteVarU32(sendCursor, nextChunkCacheCentreZ);
-        finish_packet(sendCursor, player);
+        FinishPlayerPacket(sendCursor, player);
     }
 
     if (player->player.chunkCacheRadius != player->player.nextChunkCacheRadius) {
         // TODO(traks): also send set simulation distance packet?
-        begin_packet(sendCursor, CBP_SET_CHUNK_CACHE_RADIUS);
+        BeginPacket(sendCursor, CBP_SET_CHUNK_CACHE_RADIUS);
         WriteVarU32(sendCursor, player->player.nextChunkCacheRadius);
-        finish_packet(sendCursor, player);
+        FinishPlayerPacket(sendCursor, player);
     }
 
     // NOTE(traks): untrack old chunks
@@ -2549,10 +2501,10 @@ static void UpdateChunkCache(entity_base * player, Cursor * sendCursor) {
             }
 
             if (cacheEntry->flags & PLAYER_CHUNK_SENT) {
-                begin_packet(sendCursor, CBP_FORGET_LEVEL_CHUNK);
+                BeginPacket(sendCursor, CBP_FORGET_LEVEL_CHUNK);
                 WriteU32(sendCursor, x);
                 WriteU32(sendCursor, z);
-                finish_packet(sendCursor, player);
+                FinishPlayerPacket(sendCursor, player);
             }
 
             *cacheEntry = (PlayerChunkCacheEntry) {0};
@@ -2606,7 +2558,7 @@ static void SendTrackedBlockChanges(entity_base * player, Cursor * sendCursor, M
             // packet data for this packet type and if the limit is
             // exceeded, reload chunks for clients.
 
-            begin_packet(sendCursor, CBP_SECTION_BLOCKS_UPDATE);
+            BeginPacket(sendCursor, CBP_SECTION_BLOCKS_UPDATE);
             u64 section_pos = ((u64) (pos.x & 0x3fffff) << 42)
                     | ((u64) (pos.z & 0x3fffff) << 20)
                     | (u64) (sectionY & 0xfffff);
@@ -2624,19 +2576,19 @@ static void SendTrackedBlockChanges(entity_base * player, Cursor * sendCursor, M
                 }
             }
 
-            finish_packet(sendCursor, player);
+            FinishPlayerPacket(sendCursor, player);
         }
 
         if (ch->lastLocalEventTick == serv->current_tick) {
             for (i32 i = 0; i < ch->localEventCount; i++) {
                 level_event * event = ch->localEvents + i;
 
-                begin_packet(sendCursor, CBP_LEVEL_EVENT);
+                BeginPacket(sendCursor, CBP_LEVEL_EVENT);
                 WriteU32(sendCursor, event->type);
                 WriteBlockPos(sendCursor, event->pos);
                 WriteU32(sendCursor, event->data);
                 WriteU8(sendCursor, 0); // is global event
-                finish_packet(sendCursor, player);
+                FinishPlayerPacket(sendCursor, player);
             }
         }
     }
@@ -2662,15 +2614,15 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
 
         if (PACKET_COMPRESSION_ENABLED) {
             // send login compression packet
-            begin_packet(send_cursor, 3);
+            BeginPacket(send_cursor, 3);
             WriteVarU32(send_cursor, 0);
-            finish_packet(send_cursor, player);
+            FinishPlayerPacket(send_cursor, player);
 
             player->flags |= PLAYER_PACKET_COMPRESSION;
         }
 
         // send game profile packet
-        begin_packet(send_cursor, 2);
+        BeginPacket(send_cursor, 2);
         // @TODO(traks) send UUID
         WriteU64(send_cursor, 0);
         WriteU64(send_cursor, player->eid);
@@ -2680,11 +2632,11 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         };
         WriteVarString(send_cursor, username);
         WriteVarU32(send_cursor, 0); // no properties for now
-        finish_packet(send_cursor, player);
+        FinishPlayerPacket(send_cursor, player);
 
         String level_name = STR("blaze:main");
 
-        begin_packet(send_cursor, CBP_LOGIN);
+        BeginPacket(send_cursor, CBP_LOGIN);
         WriteU32(send_cursor, player->eid);
         WriteU8(send_cursor, 0); // hardcore
         WriteU8(send_cursor, player->player.gamemode); // current gamemode
@@ -2929,14 +2881,14 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         WriteU8(send_cursor, 0); // is debug
         WriteU8(send_cursor, 0); // is flat
         WriteU8(send_cursor, 0); // has death location, world + block pos after if true
-        finish_packet(send_cursor, player);
+        FinishPlayerPacket(send_cursor, player);
 
-        begin_packet(send_cursor, CBP_SET_CARRIED_ITEM);
+        BeginPacket(send_cursor, CBP_SET_CARRIED_ITEM);
         WriteU8(send_cursor,
                 player->player.selected_slot - PLAYER_FIRST_HOTBAR_SLOT);
-        finish_packet(send_cursor, player);
+        FinishPlayerPacket(send_cursor, player);
 
-        begin_packet(send_cursor, CBP_UPDATE_TAGS);
+        BeginPacket(send_cursor, CBP_UPDATE_TAGS);
 
         tag_list * tag_lists[] = {
             &serv->block_tags,
@@ -2975,25 +2927,25 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                 }
             }
         }
-        finish_packet(send_cursor, player);
+        FinishPlayerPacket(send_cursor, player);
 
-        begin_packet(send_cursor, CBP_CUSTOM_PAYLOAD);
+        BeginPacket(send_cursor, CBP_CUSTOM_PAYLOAD);
         String brand_str = STR("minecraft:brand");
         String brand = STR("Blaze");
         WriteVarString(send_cursor, brand_str);
         WriteVarString(send_cursor, brand);
-        finish_packet(send_cursor, player);
+        FinishPlayerPacket(send_cursor, player);
 
-        begin_packet(send_cursor, CBP_CHANGE_DIFFICULTY);
+        BeginPacket(send_cursor, CBP_CHANGE_DIFFICULTY);
         WriteU8(send_cursor, 2); // difficulty normal
         WriteU8(send_cursor, 0); // locked
-        finish_packet(send_cursor, player);
+        FinishPlayerPacket(send_cursor, player);
 
         send_player_abilities(send_cursor, player);
 
         send_changed_entity_data(send_cursor, player, player, player->changed_data);
 
-        begin_packet(send_cursor, CBP_SERVER_DATA);
+        BeginPacket(send_cursor, CBP_SERVER_DATA);
         String prefix = STR("{\"text\":\"");
         String suffix = STR("\"}");
         // TODO(traks): not sure what this version of the MOTD is used for. But
@@ -3005,7 +2957,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         // popup that warns you about secure chat when joining the server.
         u8 enforcesSecureChat = 1;
         WriteU8(send_cursor, enforcesSecureChat);
-        finish_packet(send_cursor, player);
+        FinishPlayerPacket(send_cursor, player);
 
         // NOTE(traks): sync the player location, and then send the spawn
         // location packet, which tells the client to close the
@@ -3020,11 +2972,11 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         player->flags |= ENTITY_TELEPORTING;
         SendPlayerTeleport(player, send_cursor);
 
-        begin_packet(send_cursor, CBP_SET_DEFAULT_SPAWN_POSITION);
+        BeginPacket(send_cursor, CBP_SET_DEFAULT_SPAWN_POSITION);
         // TODO(traks): specific value not important for now
         WriteBlockPos(send_cursor, (BlockPos) {0, 0, 0});
         WriteF32(send_cursor, 0); // yaw
-        finish_packet(send_cursor, player);
+        FinishPlayerPacket(send_cursor, player);
 
         // reset changed data, because all data is sent already and we don't
         // want to send the same data twice
@@ -3036,9 +2988,9 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     // send keep alive packet every so often
     if (serv->current_tick - player->player.last_keep_alive_sent_tick >= KEEP_ALIVE_SPACING
             && (player->flags & PLAYER_GOT_ALIVE_RESPONSE)) {
-        begin_packet(send_cursor, CBP_KEEP_ALIVE);
+        BeginPacket(send_cursor, CBP_KEEP_ALIVE);
         WriteU64(send_cursor, serv->current_tick);
-        finish_packet(send_cursor, player);
+        FinishPlayerPacket(send_cursor, player);
 
         player->player.last_keep_alive_sent_tick = serv->current_tick;
         player->flags &= ~PLAYER_GOT_ALIVE_RESPONSE;
@@ -3051,10 +3003,10 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     }
 
     if (player->changed_data & PLAYER_GAMEMODE_CHANGED) {
-        begin_packet(send_cursor, CBP_GAME_EVENT);
+        BeginPacket(send_cursor, CBP_GAME_EVENT);
         WriteU8(send_cursor, PACKET_GAME_EVENT_CHANGE_GAMEMODE);
         WriteF32(send_cursor, player->player.gamemode);
-        finish_packet(send_cursor, player);
+        FinishPlayerPacket(send_cursor, player);
     }
 
     if (player->changed_data & PLAYER_ABILITIES_CHANGED) {
@@ -3071,9 +3023,9 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
 
     // NOTE(traks): send block change ack
     if (player->player.lastAckedBlockChange >= 0) {
-        begin_packet(send_cursor, CBP_BLOCK_CHANGED_ACK);
+        BeginPacket(send_cursor, CBP_BLOCK_CHANGED_ACK);
         WriteVarU32(send_cursor, player->player.lastAckedBlockChange);
-        finish_packet(send_cursor, player);
+        FinishPlayerPacket(send_cursor, player);
         player->player.lastAckedBlockChange = -1;
     }
 
@@ -3089,10 +3041,10 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             continue;
         }
 
-        begin_packet(send_cursor, CBP_BLOCK_UPDATE);
+        BeginPacket(send_cursor, CBP_BLOCK_UPDATE);
         WriteBlockPos(send_cursor, pos.xyz);
         WriteVarU32(send_cursor, block_state);
-        finish_packet(send_cursor, player);
+        FinishPlayerPacket(send_cursor, player);
     }
     player->player.changed_block_count = 0;
 
@@ -3184,7 +3136,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         // local version of the inventory menu when we send this packet. Work
         // around this?
 
-        begin_packet(send_cursor, CBP_CONTAINER_SET_SLOT);
+        BeginPacket(send_cursor, CBP_CONTAINER_SET_SLOT);
         // @NOTE(traks) container ids:
         // -2 = own inventory
         // -1 = item held in cursor
@@ -3204,7 +3156,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             // @TODO(traks) write NBT (currently just a single end tag)
             WriteU8(send_cursor, 0);
         }
-        finish_packet(send_cursor, player);
+        FinishPlayerPacket(send_cursor, player);
     }
 
     player->player.slots_needing_update = 0;
@@ -3219,7 +3171,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     if (!(player->flags & PLAYER_INITIALISED_TAB_LIST)) {
         player->flags |= PLAYER_INITIALISED_TAB_LIST;
         if (serv->tab_list_size > 0) {
-            begin_packet(send_cursor, CBP_PLAYER_INFO_UPDATE);
+            BeginPacket(send_cursor, CBP_PLAYER_INFO_UPDATE);
             u8 actionBits = 0b111111; // everything
             WriteU8(send_cursor, actionBits);
             WriteVarU32(send_cursor, serv->tab_list_size);
@@ -3248,11 +3200,11 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                 WriteVarU32(send_cursor, 0); // latency
                 WriteU8(send_cursor, 0); // has display name
             }
-            finish_packet(send_cursor, player);
+            FinishPlayerPacket(send_cursor, player);
         }
     } else {
         if (serv->tab_list_removed_count > 0) {
-            begin_packet(send_cursor, CBP_PLAYER_INFO_REMOVE);
+            BeginPacket(send_cursor, CBP_PLAYER_INFO_REMOVE);
             WriteVarU32(send_cursor, serv->tab_list_removed_count);
 
             for (int i = 0; i < serv->tab_list_removed_count; i++) {
@@ -3261,10 +3213,10 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                 WriteU64(send_cursor, 0);
                 WriteU64(send_cursor, eid);
             }
-            finish_packet(send_cursor, player);
+            FinishPlayerPacket(send_cursor, player);
         }
         if (serv->tab_list_added_count > 0) {
-            begin_packet(send_cursor, CBP_PLAYER_INFO_UPDATE);
+            BeginPacket(send_cursor, CBP_PLAYER_INFO_UPDATE);
 
             // NOTE(traks): actions:
             // 0 = add player
@@ -3308,7 +3260,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                 WriteVarU32(send_cursor, 0); // latency
                 WriteU8(send_cursor, 0); // has display name
             }
-            finish_packet(send_cursor, player);
+            FinishPlayerPacket(send_cursor, player);
         }
 
         for (int i = 0; i < MAX_ENTITIES; i++) {
@@ -3321,14 +3273,14 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             }
 
             if (entity->changed_data & PLAYER_GAMEMODE_CHANGED) {
-                begin_packet(send_cursor, CBP_PLAYER_INFO_UPDATE);
+                BeginPacket(send_cursor, CBP_PLAYER_INFO_UPDATE);
                 WriteVarU32(send_cursor, 0b000100); // action: update gamemode
                 WriteVarU32(send_cursor, 1); // changed entries
                 // @TODO(traks) write uuid
                 WriteU64(send_cursor, 0);
                 WriteU64(send_cursor, entity->eid);
                 WriteVarU32(send_cursor, entity->player.gamemode);
-                finish_packet(send_cursor, player);
+                FinishPlayerPacket(send_cursor, player);
             }
         }
     }
@@ -3397,12 +3349,12 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     }
 
     if (removed_entity_count > 0) {
-        begin_packet(send_cursor, CBP_REMOVE_ENTITIES);
+        BeginPacket(send_cursor, CBP_REMOVE_ENTITIES);
         WriteVarU32(send_cursor, removed_entity_count);
         for (int i = 0; i < removed_entity_count; i++) {
             WriteVarU32(send_cursor, removed_entities[i]);
         }
-        finish_packet(send_cursor, player);
+        FinishPlayerPacket(send_cursor, player);
     }
 
     EndTimings(TrackEntities);
@@ -3442,14 +3394,14 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         // TODO(traks): use player chat packet for this with annoying signing.
         // Also will make chat narration work properly as "sender says message"
         // (see the chat types we define in the login packet).
-        begin_packet(send_cursor, CBP_SYSTEM_CHAT);
+        BeginPacket(send_cursor, CBP_SYSTEM_CHAT);
         WriteVarString(send_cursor, jsonMessage);
         WriteU8(send_cursor, 0); // action bar or chat log
         // @TODO(traks) write sender UUID. If UUID equals 0, client displays it
         // regardless of client settings
         // WriteU64(send_cursor, 0);
         // WriteU64(send_cursor, 0);
-        finish_packet(send_cursor, player);
+        FinishPlayerPacket(send_cursor, player);
     }
 
     EndTimings(SendChat);
@@ -3472,84 +3424,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     };
     Cursor * final_cursor = &final_cursor_;
 
-    send_cursor->size = send_cursor->index;
-    send_cursor->index = 0;
-    while (send_cursor->index != send_cursor->size) {
-        int internal_header = send_cursor->data[send_cursor->index];
-        int size_offset = internal_header & 0x7;
-        int should_compress = internal_header & 0x80;
-
-        send_cursor->index += 1 + size_offset;
-
-        int packet_start = send_cursor->index;
-        i32 packet_size = ReadVarU32(send_cursor);
-        int packet_end = send_cursor->index + packet_size;
-
-        // TODO(traks): these 2 lines are debugging code
-        i32 packetId = ReadVarU32(send_cursor);
-        send_cursor->index = packet_end - packet_size;
-
-        if (should_compress) {
-            // @TODO(traks) handle errors properly
-
-            z_stream zstream;
-            zstream.zalloc = Z_NULL;
-            zstream.zfree = Z_NULL;
-            zstream.opaque = Z_NULL;
-
-            if (deflateInit(&zstream, Z_DEFAULT_COMPRESSION) != Z_OK) {
-                final_cursor->error = 1;
-                break;
-            }
-
-            zstream.next_in = send_cursor->data + send_cursor->index;
-            zstream.avail_in = packet_end - send_cursor->index;
-
-            MemoryArena temp_arena = *tick_arena;
-            // @TODO(traks) appropriate value
-            size_t max_compressed_size = 1 << 19;
-            unsigned char * compressed = MallocInArena(&temp_arena,
-                    max_compressed_size);
-
-            zstream.next_out = compressed;
-            zstream.avail_out = max_compressed_size;
-
-            BeginTimings(Deflate);
-            // i64 deflateTimeStart = NanoTime();
-            if (deflate(&zstream, Z_FINISH) != Z_STREAM_END) {
-                EndTimings(Deflate);
-                final_cursor->error = 1;
-                break;
-            }
-            // i64 deflateTimeEnd = NanoTime();
-            // if (packetId == CBP_LEVEL_CHUNK_WITH_LIGHT) {
-            //     LogInfo("Deflate took %jdµs for size %jd of packet %d", (intmax_t) (deflateTimeEnd - deflateTimeStart) / 1000, (intmax_t) packet_size, packetId);
-            // }
-            EndTimings(Deflate);
-
-            if (deflateEnd(&zstream) != Z_OK) {
-                final_cursor->error = 1;
-                break;
-            }
-
-            if (zstream.avail_in != 0) {
-                final_cursor->error = 1;
-                break;
-            }
-
-            WriteVarU32(final_cursor, VarU32Size(packet_size) + zstream.total_out);
-            WriteVarU32(final_cursor, packet_size);
-            WriteData(final_cursor, compressed, zstream.total_out);
-        } else {
-            // @TODO(traks) should check somewhere that no error occurs
-            WriteData(final_cursor, send_cursor->data + packet_start,
-                    packet_end - packet_start);
-        }
-
-        send_cursor->index = packet_end;
-    }
-
-    EndTimings(FinalisePackets);
+    FinalisePackets(final_cursor, send_cursor);
 
     if (final_cursor->error != 0) {
         // just disconnect the player

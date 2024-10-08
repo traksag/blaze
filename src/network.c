@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include "shared.h"
 #include "buffer.h"
+#include "packet.h"
 
 #define CLIENT_SHOULD_TERMINATE ((u32) 1 << 0)
 #define CLIENT_DID_TRANSFER_TO_PLAYER ((u32) 1 << 1)
@@ -298,7 +299,7 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
             recCursor->error = 1;
         }
 
-        // read client intention packet
+        // NOTE(traks): read client intention packet
         i32 protocol_version = ReadVarU32(recCursor);
         String address = ReadVarString(recCursor, 255);
         u16 port = ReadU16(recCursor);
@@ -328,9 +329,10 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
             recCursor->error = 1;
         }
 
-        // read status request packet
-        // empty
+        // NOTE(traks): status request packet is empty
 
+        // TODO(traks): bad idea to just clobber the entire scratch space, in
+        // case anyone else is using it
         MemoryArena scratch_arena = {
             .data = serv->short_lived_scratch,
             .size = serv->short_lived_scratch_size
@@ -384,15 +386,10 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
         response_size += sprintf((char *) response + response_size,
                 "]},\"description\":{\"text\":\"Running Blaze\"},\"enforcesSecureChat\":false}");
 
-        // TODO(traks): this whole packet size computation stuff is kinda yuck,
-        // also below. Get rid of it similarly to how we do it for game state
-        // packets.
-        int out_size = VarU32Size(0) + VarU32Size(response_size) + response_size;
-        int start = sendCursor->index;
-        WriteVarU32(sendCursor, out_size);
-        WriteVarU32(sendCursor, 0);
-        WriteVarU32(sendCursor, response_size);
-        WriteData(sendCursor, response, response_size);
+        // NOTE(traks): write status response packet
+        BeginPacket(sendCursor, 0);
+        WriteVarString(sendCursor, (String) {.data = response, .size = response_size});
+        FinishPacket(sendCursor, 0);
 
         client->protocolState = PROTOCOL_AWAIT_PING_REQUEST;
         break;
@@ -402,13 +399,13 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
             recCursor->error = 1;
         }
 
-        // read ping request packet
+        // NOTE(traks): read ping request packet
         u64 payload = ReadU64(recCursor);
 
-        int out_size = VarU32Size(1) + 8;
-        WriteVarU32(sendCursor, out_size);
-        WriteVarU32(sendCursor, 1);
+        // NOTE(traks): write ping response packet
+        BeginPacket(sendCursor, 1);
         WriteU64(sendCursor, payload);
+        FinishPacket(sendCursor, 0);
         break;
     }
     case PROTOCOL_AWAIT_HELLO: {
@@ -444,10 +441,11 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
 }
 
 static void ClientProcessAllPackets(Client * client) {
+    u8 tempData[2048];
     Cursor * sendCursor = &(Cursor) {
-        .data = client->sendBuf.data,
-        .size = client->sendBuf.size,
-        .index = client->sendBuf.cursor,
+        .data = tempData,
+        .size = sizeof tempData,
+        .index = 0,
     };
 
     for (;;) {
@@ -471,7 +469,15 @@ static void ClientProcessAllPackets(Client * client) {
         }
     }
 
-    client->sendBuf.cursor = sendCursor->index;
+    Cursor * finalCursor = &(Cursor) {
+        .data = client->sendBuf.data,
+        .size = client->sendBuf.size,
+        .index = client->sendBuf.cursor,
+    };
+
+    FinalisePackets(finalCursor, sendCursor);
+
+    client->sendBuf.cursor = finalCursor->index;
 }
 
 static void ClientTick(Client * client) {
