@@ -721,6 +721,7 @@ init_mushroom_block(char * resource_loc) {
 static void
 init_skull_props(char * resource_loc) {
     block_properties * props = BeginNextBlock(resource_loc);
+    add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
     add_block_property(props, BLOCK_PROPERTY_ROTATION_16, "0");
     // TODO(traks): block models
     SetLightBlockingModelForAllStates(props, BLOCK_MODEL_EMPTY);
@@ -730,6 +731,7 @@ init_skull_props(char * resource_loc) {
 static void
 init_wall_skull_props(char * resource_loc) {
     block_properties * props = BeginNextBlock(resource_loc);
+    add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     // TODO(traks): block models
     SetLightBlockingModelForAllStates(props, BLOCK_MODEL_EMPTY);
@@ -925,6 +927,27 @@ static void InitAzalea(char * resourceLoc) {
     // TODO(traks): block models
     block_properties * props = BeginNextBlock(resourceLoc);
     AddBlockBehaviour(props, BLOCK_BEHAVIOUR_AZALEA);
+}
+
+static void InitSuspiciousBlock(char * resourceLoc) {
+    // TODO(traks): block models, light reduction, etc. This is a block entity
+    block_properties * props = BeginNextBlock(resourceLoc);
+    add_block_property(props, BLOCK_PROPERTY_DUSTED, "0");
+}
+
+static void InitGrate(char * resourceLoc) {
+    block_properties * props = BeginNextBlock(resourceLoc);
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
+    SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetLightReductionWhenWaterlogged(props);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
+}
+
+static void InitBulb(char * resourceLoc) {
+    // TODO(traks): block models, light, behaviours, etc.
+    block_properties * props = BeginNextBlock(resourceLoc);
+    add_block_property(props, BLOCK_PROPERTY_LIT, "false");
+    add_block_property(props, BLOCK_PROPERTY_POWERED, "false");
 }
 
 typedef struct {
@@ -1376,6 +1399,11 @@ init_block_data(void) {
     register_bool_property(BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_4_OCCUPIED, "slot_4_occupied");
     register_bool_property(BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_5_OCCUPIED, "slot_5_occupied");
     register_range_property(BLOCK_PROPERTY_DUSTED, "dusted", 0, 3);
+    register_bool_property(BLOCK_PROPERTY_CRACKED, "cracked");
+    register_bool_property(BLOCK_PROPERTY_CRAFTING, "crafting");
+    register_property_v(BLOCK_PROPERTY_TRIAL_SPAWNER_STATE, "trial_spawner_state", 6, "inactive", "waiting_for_players", "active", "waiting_for_reward_ejection", "ejecting_reward", "cooldown");
+    register_property_v(BLOCK_PROPERTY_VAULT_STATE, "vault_state", 4, "inactive", "active", "unlocking", "ejecting");
+    register_bool_property(BLOCK_PROPERTY_OMINOUS, "ominous");
 
     block_properties * props;
 
@@ -1430,11 +1458,10 @@ init_block_data(void) {
     InitSimpleFullBlock("minecraft:sand");
 
     // TODO(traks): block models, light reduction, etc. This is a block entity
-    props = BeginNextBlock("minecraft:suspicious_sand");
-    add_block_property(props, BLOCK_PROPERTY_DUSTED, "0");
-
+    InitSuspiciousBlock("minecraft:suspicious_sand");
     InitSimpleFullBlock("minecraft:red_sand");
     InitSimpleFullBlock("minecraft:gravel");
+    InitSuspiciousBlock("minecraft:suspicious_gravel");
     InitSimpleFullBlock("minecraft:gold_ore");
     InitSimpleFullBlock("minecraft:deepslate_gold_ore");
     InitSimpleFullBlock("minecraft:iron_ore");
@@ -1558,7 +1585,7 @@ init_block_data(void) {
 
     // @TODO(traks) slow down entities in cobwebs
     init_simple_block("minecraft:cobweb", BLOCK_MODEL_EMPTY, 1, 0);
-    InitSimplePlant("minecraft:grass");
+    InitSimplePlant("minecraft:short_grass");
     InitSimplePlant("minecraft:fern");
 
     props = BeginNextBlock("minecraft:dead_bush");
@@ -1845,7 +1872,6 @@ init_block_data(void) {
 
     init_fence("minecraft:oak_fence", 1);
 
-    InitSimpleFullBlock("minecraft:pumpkin");
     InitSimpleFullBlock("minecraft:netherrack");
     InitSimpleBlockWithModels("minecraft:soul_sand", BLOCK_MODEL_Y_14, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY, 15, 0);
     InitSimpleFullBlock("minecraft:soul_soil");
@@ -1942,6 +1968,7 @@ init_block_data(void) {
 
     init_pane("minecraft:glass_pane");
 
+    InitSimpleFullBlock("minecraft:pumpkin");
     InitSimpleFullBlock("minecraft:melon");
 
     props = BeginNextBlock("minecraft:attached_pumpkin_stem");
@@ -2254,7 +2281,12 @@ init_block_data(void) {
     init_stair_props("minecraft:bamboo_mosaic_stairs");
 
     InitSimpleBlockWithModels("minecraft:slime_block", BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY, 1, 0);
-    InitSimpleBlockWithModels("minecraft:barrier", BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY, 0, 0);
+
+    props = BeginNextBlock("minecraft:barrier");
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
+    SetAllModelsForAllStatesIndividually(props, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetLightReductionWhenWaterlogged(props);
+    AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
     props = BeginNextBlock("minecraft:light");
     add_block_property(props, BLOCK_PROPERTY_LEVEL_LIGHT, "15");
@@ -2441,6 +2473,13 @@ init_block_data(void) {
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_FARMLAND_BELOW);
 
+    // TODO(traks): behaviours, models, etc.
+    props = BeginNextBlock("minecraft:pitcher_crop");
+    add_block_property(props, BLOCK_PROPERTY_AGE_4, "0");
+    add_block_property(props, BLOCK_PROPERTY_DOUBLE_BLOCK_HALF, "lower");
+
+    init_tall_plant("minecraft:pitcher_plant", 0);
+
     props = BeginNextBlock("minecraft:beetroots");
     add_block_property(props, BLOCK_PROPERTY_AGE_3, "0");
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
@@ -2566,6 +2605,10 @@ init_block_data(void) {
     // TODO(traks): block models + light reduction
     props = BeginNextBlock("minecraft:turtle_egg");
     add_block_property(props, BLOCK_PROPERTY_EGGS, "1");
+    add_block_property(props, BLOCK_PROPERTY_HATCH, "0");
+
+    // TODO(traks): block models + light reduction
+    props = BeginNextBlock("minecraft:sniffer_egg");
     add_block_property(props, BLOCK_PROPERTY_HATCH, "0");
 
     InitSimpleFullBlock("minecraft:dead_tube_coral_block");
@@ -3001,6 +3044,19 @@ init_block_data(void) {
     init_amethyst_cluster("minecraft:small_amethyst_bud", 1);
 
     InitSimpleFullBlock("minecraft:tuff");
+    init_slab("minecraft:tuff_slab");
+    init_stair_props("minecraft:tuff_stairs");
+    init_wall_props("minecraft:tuff_wall");
+    InitSimpleFullBlock("minecraft:polished_tuff");
+    init_slab("minecraft:polished_tuff_slab");
+    init_stair_props("minecraft:polished_tuff_stairs");
+    init_wall_props("minecraft:polished_tuff_wall");
+    InitSimpleFullBlock("minecraft:chiseled_tuff");
+    InitSimpleFullBlock("minecraft:tuff_bricks");
+    init_slab("minecraft:tuff_brick_slab");
+    init_stair_props("minecraft:tuff_brick_stairs");
+    init_wall_props("minecraft:tuff_brick_wall");
+    InitSimpleFullBlock("minecraft:chiseled_tuff_bricks");
 
     InitSimpleFullBlock("minecraft:calcite");
 
@@ -3016,6 +3072,13 @@ init_block_data(void) {
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
     SetEmittedLightForAllStates(props, 1);
     AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
+
+    // TODO(traks): block models, light reduction, light emission, behaviours, etc.
+    props = BeginNextBlock("minecraft:calibrated_sculk_sensor");
+    add_block_property(props, BLOCK_PROPERTY_SCULK_SENSOR_PHASE, "inactive");
+    add_block_property(props, BLOCK_PROPERTY_POWER, "0");
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
+    add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
 
     InitSimpleFullBlock("minecraft:sculk");
     InitMultiFaceBlock("minecraft:sculk_vein", 0);
@@ -3034,16 +3097,24 @@ init_block_data(void) {
     SetLightReductionForAllStates(props, 0);
     AddBlockBehaviour(props, BLOCK_BEHAVIOUR_FLUID);
 
-    InitSimpleFullBlock("minecraft:oxidized_copper");
-    InitSimpleFullBlock("minecraft:weathered_copper");
-    InitSimpleFullBlock("minecraft:exposed_copper");
     InitSimpleFullBlock("minecraft:copper_block");
+    InitSimpleFullBlock("minecraft:exposed_copper");
+    InitSimpleFullBlock("minecraft:weathered_copper");
+    InitSimpleFullBlock("minecraft:oxidized_copper");
     InitSimpleFullBlock("minecraft:copper_ore");
     InitSimpleFullBlock("minecraft:deepslate_copper_ore");
     InitSimpleFullBlock("minecraft:oxidized_cut_copper");
     InitSimpleFullBlock("minecraft:weathered_cut_copper");
     InitSimpleFullBlock("minecraft:exposed_cut_copper");
     InitSimpleFullBlock("minecraft:cut_copper");
+    InitSimpleFullBlock("minecraft:oxidized_chiseled_copper");
+    InitSimpleFullBlock("minecraft:weathered_chiseled_copper");
+    InitSimpleFullBlock("minecraft:exposed_chiseled_copper");
+    InitSimpleFullBlock("minecraft:chiseled_copper");
+    InitSimpleFullBlock("minecraft:waxed_oxidized_chiseled_copper");
+    InitSimpleFullBlock("minecraft:waxed_weathered_chiseled_copper");
+    InitSimpleFullBlock("minecraft:waxed_exposed_chiseled_copper");
+    InitSimpleFullBlock("minecraft:waxed_chiseled_copper");
 
     init_stair_props("minecraft:oxidized_cut_copper_stairs");
     init_stair_props("minecraft:weathered_cut_copper_stairs");
@@ -3073,6 +3144,42 @@ init_block_data(void) {
     init_slab("minecraft:waxed_weathered_cut_copper_slab");
     init_slab("minecraft:waxed_exposed_cut_copper_slab");
     init_slab("minecraft:waxed_cut_copper_slab");
+
+    init_door_props("minecraft:copper_door");
+    init_door_props("minecraft:exposed_copper_door");
+    init_door_props("minecraft:oxidized_copper_door");
+    init_door_props("minecraft:weathered_copper_door");
+    init_door_props("minecraft:waxed_copper_door");
+    init_door_props("minecraft:waxed_exposed_copper_door");
+    init_door_props("minecraft:waxed_oxidized_copper_door");
+    init_door_props("minecraft:waxed_weathered_copper_door");
+
+    init_trapdoor_props("minecraft:copper_trapdoor");
+    init_trapdoor_props("minecraft:exposed_copper_trapdoor");
+    init_trapdoor_props("minecraft:oxidized_copper_trapdoor");
+    init_trapdoor_props("minecraft:weathered_copper_trapdoor");
+    init_trapdoor_props("minecraft:waxed_copper_trapdoor");
+    init_trapdoor_props("minecraft:waxed_exposed_copper_trapdoor");
+    init_trapdoor_props("minecraft:waxed_oxidized_copper_trapdoor");
+    init_trapdoor_props("minecraft:waxed_weathered_copper_trapdoor");
+
+    InitGrate("minecraft:copper_grate");
+    InitGrate("minecraft:exposed_copper_grate");
+    InitGrate("minecraft:oxidized_copper_grate");
+    InitGrate("minecraft:weathered_copper_grate");
+    InitGrate("minecraft:waxed_copper_grate");
+    InitGrate("minecraft:waxed_exposed_copper_grate");
+    InitGrate("minecraft:waxed_oxidized_copper_grate");
+    InitGrate("minecraft:waxed_weathered_copper_grate");
+
+    InitBulb("minecraft:copper_bulb");
+    InitBulb("minecraft:exposed_copper_bulb");
+    InitBulb("minecraft:oxidized_copper_bulb");
+    InitBulb("minecraft:weathered_copper_bulb");
+    InitBulb("minecraft:waxed_copper_bulb");
+    InitBulb("minecraft:waxed_exposed_copper_bulb");
+    InitBulb("minecraft:waxed_oxidized_copper_bulb");
+    InitBulb("minecraft:waxed_weathered_copper_bulb");
 
     // TODO(traks) block models + light reduction
     props = BeginNextBlock("minecraft:lightning_rod");
@@ -3194,6 +3301,30 @@ init_block_data(void) {
     // block entity
     props = BeginNextBlock("minecraft:decorated_pot");
     add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
+    add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
+
+    // TODO(traks): block models, behaviours, light behaviour, etc. This is a
+    // block entity
+    props = BeginNextBlock("minecraft:crafter");
+    add_block_property(props, BLOCK_PROPERTY_JIGSAW_ORIENTATION, "north_up");
+    add_block_property(props, BLOCK_PROPERTY_TRIGGERED, "false");
+    add_block_property(props, BLOCK_PROPERTY_CRAFTING, "false");
+
+    // TODO(traks): block models, behaviours, light behaviour, etc. This is a
+    // block entity
+    props = BeginNextBlock("minecraft:trial_spawner");
+    add_block_property(props, BLOCK_PROPERTY_TRIAL_SPAWNER_STATE, "inactive");
+    add_block_property(props, BLOCK_PROPERTY_OMINOUS, "false");
+
+    // TODO(traks): block models, behaviours, light behaviour, etc. This is a
+    // block entity
+    props = BeginNextBlock("minecraft:vault");
+    add_block_property(props, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
+    add_block_property(props, BLOCK_PROPERTY_VAULT_STATE, "inactive");
+    add_block_property(props, BLOCK_PROPERTY_OMINOUS, "false");
+
+    // TODO(traks): block models, behaviours, light behaviour, etc.
+    props = BeginNextBlock("minecraft:heavy_core");
     add_block_property(props, BLOCK_PROPERTY_WATERLOGGED, "false");
 
     serv->vanilla_block_state_count = serv->actual_block_state_count;

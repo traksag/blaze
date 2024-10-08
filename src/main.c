@@ -826,6 +826,7 @@ static void
 init_entity_data(void) {
     register_entity_type(ENTITY_ALLAY, "minecraft:allay");
     register_entity_type(ENTITY_AREA_EFFECT_CLOUD, "minecraft:area_effect_cloud");
+    register_entity_type(ENTITY_ARMADILLO, "minecraft:armadillo");
     register_entity_type(ENTITY_ARMOR_STAND, "minecraft:armor_stand");
     register_entity_type(ENTITY_ARROW, "minecraft:arrow");
     register_entity_type(ENTITY_AXOLOTL, "minecraft:axolotl");
@@ -834,6 +835,9 @@ init_entity_data(void) {
     register_entity_type(ENTITY_BLAZE, "minecraft:blaze");
     register_entity_type(ENTITY_BLOCK_DISPLAY, "minecraft:block_display");
     register_entity_type(ENTITY_BOAT, "minecraft:boat");
+    register_entity_type(ENTITY_BOGGED, "minecraft:bogged");
+    register_entity_type(ENTITY_BREEZE, "minecraft:breeze");
+    register_entity_type(ENTITY_BREEZE_WIND_CHARGE, "minecraft:breeze_wind_charge");
     register_entity_type(ENTITY_CAMEL, "minecraft:camel");
     register_entity_type(ENTITY_CAT, "minecraft:cat");
     register_entity_type(ENTITY_CAVE_SPIDER, "minecraft:cave_spider");
@@ -881,6 +885,7 @@ init_entity_data(void) {
     register_entity_type(ENTITY_ITEM, "minecraft:item");
     register_entity_type(ENTITY_ITEM_DISPLAY, "minecraft:item_display");
     register_entity_type(ENTITY_ITEM_FRAME, "minecraft:item_frame");
+    register_entity_type(ENTITY_OMINOUS_ITEM_SPAWNER, "minecraft:ominous_item_spawner");
     register_entity_type(ENTITY_FIREBALL, "minecraft:fireball");
     register_entity_type(ENTITY_LEASH_KNOT, "minecraft:leash_knot");
     register_entity_type(ENTITY_LIGHTNING_BOLT, "minecraft:lightning_bolt");
@@ -901,7 +906,6 @@ init_entity_data(void) {
     register_entity_type(ENTITY_PIGLIN_BRUTE, "minecraft:piglin_brute");
     register_entity_type(ENTITY_PILLAGER, "minecraft:pillager");
     register_entity_type(ENTITY_POLAR_BEAR, "minecraft:polar_bear");
-    register_entity_type(ENTITY_TNT, "minecraft:tnt");
     register_entity_type(ENTITY_POTION, "minecraft:potion");
     register_entity_type(ENTITY_PUFFERFISH, "minecraft:pufferfish");
     register_entity_type(ENTITY_RABBIT, "minecraft:rabbit");
@@ -937,6 +941,7 @@ init_entity_data(void) {
     register_entity_type(ENTITY_VINDICATOR, "minecraft:vindicator");
     register_entity_type(ENTITY_WANDERING_TRADER, "minecraft:wandering_trader");
     register_entity_type(ENTITY_WARDEN, "minecraft:warden");
+    register_entity_type(ENTITY_WIND_CHARGE, "minecraft:wind_charge");
     register_entity_type(ENTITY_WITCH, "minecraft:witch");
     register_entity_type(ENTITY_WITHER, "minecraft:wither");
     register_entity_type(ENTITY_WITHER_SKELETON, "minecraft:wither_skeleton");
@@ -992,7 +997,6 @@ init_game_event_data(void) {
     register_game_event_type(GAME_EVENT_BLOCK_PLACE, "minecraft:block_place");
     register_game_event_type(GAME_EVENT_CONTAINER_CLOSE, "minecraft:container_close");
     register_game_event_type(GAME_EVENT_CONTAINER_OPEN, "minecraft:container_open");
-    register_game_event_type(GAME_EVENT_DISPENSE_FAIL, "minecraft:dispense_fail");
     register_game_event_type(GAME_EVENT_DRINK, "minecraft:drink");
     register_game_event_type(GAME_EVENT_EAT, "minecraft:eat");
     register_game_event_type(GAME_EVENT_ELYTRA_GLIDE, "minecraft:elytra_glide");
@@ -1002,8 +1006,7 @@ init_game_event_data(void) {
     register_game_event_type(GAME_EVENT_ENTITY_INTERACT, "minecraft:entity_interact");
     register_game_event_type(GAME_EVENT_ENTITY_MOUNT, "minecraft:entity_mount");
     register_game_event_type(GAME_EVENT_ENTITY_PLACE, "minecraft:entity_place");
-    register_game_event_type(GAME_EVENT_ENTITY_ROAR, "minecraft:entity_roar");
-    register_game_event_type(GAME_EVENT_ENTITY_SHAKE, "minecraft:entity_shake");
+    register_game_event_type(GAME_EVENT_ENTITY_ACTION, "minecraft:entity_action");
     register_game_event_type(GAME_EVENT_EQUIP, "minecraft:equip");
     register_game_event_type(GAME_EVENT_EXPLODE, "minecraft:explode");
     register_game_event_type(GAME_EVENT_FLAP, "minecraft:flap");
@@ -1017,8 +1020,6 @@ init_game_event_data(void) {
     register_game_event_type(GAME_EVENT_JUKEBOX_STOP_PLAY, "minecraft:jukebox_stop_play");
     register_game_event_type(GAME_EVENT_LIGHTNING_STRIKE, "minecraft:lightning_strike");
     register_game_event_type(GAME_EVENT_NOTE_BLOCK_PLAY, "minecraft:note_block_play");
-    register_game_event_type(GAME_EVENT_PISTON_CONTRACT, "minecraft:piston_contract");
-    register_game_event_type(GAME_EVENT_PISTON_EXTEND, "minecraft:piston_extend");
     register_game_event_type(GAME_EVENT_PRIME_FUSE, "minecraft:prime_fuse");
     register_game_event_type(GAME_EVENT_PROJECTILE_LAND, "minecraft:projectile_land");
     register_game_event_type(GAME_EVENT_PROJECTILE_SHOOT, "minecraft:projectile_shoot");
@@ -1029,6 +1030,22 @@ init_game_event_data(void) {
     register_game_event_type(GAME_EVENT_STEP, "minecraft:step");
     register_game_event_type(GAME_EVENT_SWIM, "minecraft:swim");
     register_game_event_type(GAME_EVENT_TELEPORT, "minecraft:teleport");
+    register_game_event_type(GAME_EVENT_UNEQUIP, "minecraft:unequip");
+    register_game_event_type(GAME_EVENT_RESONATE_1, "minecraft:resonate_1");
+    register_game_event_type(GAME_EVENT_RESONATE_2, "minecraft:resonate_2");
+    register_game_event_type(GAME_EVENT_RESONATE_3, "minecraft:resonate_3");
+    register_game_event_type(GAME_EVENT_RESONATE_4, "minecraft:resonate_4");
+    register_game_event_type(GAME_EVENT_RESONATE_5, "minecraft:resonate_5");
+    register_game_event_type(GAME_EVENT_RESONATE_6, "minecraft:resonate_6");
+    register_game_event_type(GAME_EVENT_RESONATE_7, "minecraft:resonate_7");
+    register_game_event_type(GAME_EVENT_RESONATE_8, "minecraft:resonate_8");
+    register_game_event_type(GAME_EVENT_RESONATE_9, "minecraft:resonate_9");
+    register_game_event_type(GAME_EVENT_RESONATE_10, "minecraft:resonate_10");
+    register_game_event_type(GAME_EVENT_RESONATE_11, "minecraft:resonate_11");
+    register_game_event_type(GAME_EVENT_RESONATE_12, "minecraft:resonate_12");
+    register_game_event_type(GAME_EVENT_RESONATE_13, "minecraft:resonate_13");
+    register_game_event_type(GAME_EVENT_RESONATE_14, "minecraft:resonate_14");
+    register_game_event_type(GAME_EVENT_RESONATE_15, "minecraft:resonate_15");
 }
 
 static void
@@ -1266,6 +1283,8 @@ main(void) {
     serv->backgroundQueue = backgroundQueue;
 
     InitChunkSystem();
+
+    LogInfo("Entering tick loop");
 
     i64 desiredTickStart = NanoTime();
 

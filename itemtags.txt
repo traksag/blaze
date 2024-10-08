@@ -1,3 +1,17 @@
+key minecraft:axolotl_food
+value minecraft:tropical_fish_bucket
+
+key minecraft:parrot_poisonous_food
+value minecraft:cookie
+
+key minecraft:foot_armor
+value minecraft:leather_boots
+value minecraft:chainmail_boots
+value minecraft:golden_boots
+value minecraft:iron_boots
+value minecraft:diamond_boots
+value minecraft:netherite_boots
+
 key minecraft:completes_find_tree_tutorial
 value minecraft:dark_oak_log
 value minecraft:dark_oak_wood
@@ -27,6 +41,10 @@ value minecraft:mangrove_log
 value minecraft:mangrove_wood
 value minecraft:stripped_mangrove_log
 value minecraft:stripped_mangrove_wood
+value minecraft:cherry_log
+value minecraft:cherry_wood
+value minecraft:stripped_cherry_log
+value minecraft:stripped_cherry_wood
 value minecraft:crimson_stem
 value minecraft:stripped_crimson_stem
 value minecraft:crimson_hyphae
@@ -44,8 +62,21 @@ value minecraft:birch_leaves
 value minecraft:azalea_leaves
 value minecraft:flowering_azalea_leaves
 value minecraft:mangrove_leaves
+value minecraft:cherry_leaves
 value minecraft:nether_wart_block
 value minecraft:warped_wart_block
+
+key minecraft:turtle_food
+value minecraft:seagrass
+
+key minecraft:horse_food
+value minecraft:wheat
+value minecraft:sugar
+value minecraft:hay_block
+value minecraft:apple
+value minecraft:golden_carrot
+value minecraft:golden_apple
+value minecraft:enchanted_golden_apple
 
 key minecraft:fox_food
 value minecraft:sweet_berries
@@ -69,14 +100,95 @@ value minecraft:jungle_fence
 value minecraft:crimson_fence
 value minecraft:warped_fence
 value minecraft:mangrove_fence
+value minecraft:bamboo_fence
+value minecraft:cherry_fence
+
+key minecraft:bee_food
+value minecraft:dandelion
+value minecraft:poppy
+value minecraft:blue_orchid
+value minecraft:allium
+value minecraft:azure_bluet
+value minecraft:red_tulip
+value minecraft:orange_tulip
+value minecraft:white_tulip
+value minecraft:pink_tulip
+value minecraft:oxeye_daisy
+value minecraft:cornflower
+value minecraft:lily_of_the_valley
+value minecraft:wither_rose
+value minecraft:torchflower
+value minecraft:sunflower
+value minecraft:lilac
+value minecraft:peony
+value minecraft:rose_bush
+value minecraft:pitcher_plant
+value minecraft:flowering_azalea_leaves
+value minecraft:flowering_azalea
+value minecraft:mangrove_propagule
+value minecraft:cherry_leaves
+value minecraft:pink_petals
+value minecraft:chorus_flower
+value minecraft:spore_blossom
+
+key minecraft:meat
+value minecraft:beef
+value minecraft:chicken
+value minecraft:cooked_beef
+value minecraft:cooked_chicken
+value minecraft:cooked_mutton
+value minecraft:cooked_porkchop
+value minecraft:cooked_rabbit
+value minecraft:mutton
+value minecraft:porkchop
+value minecraft:rabbit
+value minecraft:rotten_flesh
 
 key minecraft:smelts_to_glass
 value minecraft:sand
 value minecraft:red_sand
 
+key minecraft:head_armor
+value minecraft:leather_helmet
+value minecraft:chainmail_helmet
+value minecraft:golden_helmet
+value minecraft:iron_helmet
+value minecraft:diamond_helmet
+value minecraft:netherite_helmet
+value minecraft:turtle_helmet
+
 key minecraft:sand
 value minecraft:sand
 value minecraft:red_sand
+value minecraft:suspicious_sand
+value minecraft:suspicious_sand
+
+key minecraft:trimmable_armor
+value minecraft:leather_boots
+value minecraft:chainmail_boots
+value minecraft:golden_boots
+value minecraft:iron_boots
+value minecraft:diamond_boots
+value minecraft:netherite_boots
+value minecraft:leather_leggings
+value minecraft:chainmail_leggings
+value minecraft:golden_leggings
+value minecraft:iron_leggings
+value minecraft:diamond_leggings
+value minecraft:netherite_leggings
+value minecraft:leather_chestplate
+value minecraft:chainmail_chestplate
+value minecraft:golden_chestplate
+value minecraft:iron_chestplate
+value minecraft:diamond_chestplate
+value minecraft:netherite_chestplate
+value minecraft:leather_helmet
+value minecraft:chainmail_helmet
+value minecraft:golden_helmet
+value minecraft:iron_helmet
+value minecraft:diamond_helmet
+value minecraft:netherite_helmet
+value minecraft:turtle_helmet
 
 key minecraft:warped_stems
 value minecraft:warped_stem
@@ -94,24 +206,25 @@ value minecraft:spruce_trapdoor
 value minecraft:crimson_trapdoor
 value minecraft:warped_trapdoor
 value minecraft:mangrove_trapdoor
+value minecraft:bamboo_trapdoor
+value minecraft:cherry_trapdoor
 value minecraft:iron_trapdoor
+value minecraft:copper_trapdoor
+value minecraft:exposed_copper_trapdoor
+value minecraft:weathered_copper_trapdoor
+value minecraft:oxidized_copper_trapdoor
+value minecraft:waxed_copper_trapdoor
+value minecraft:waxed_exposed_copper_trapdoor
+value minecraft:waxed_weathered_copper_trapdoor
+value minecraft:waxed_oxidized_copper_trapdoor
 
-key minecraft:music_discs
-value minecraft:music_disc_13
-value minecraft:music_disc_cat
-value minecraft:music_disc_blocks
-value minecraft:music_disc_chirp
-value minecraft:music_disc_far
-value minecraft:music_disc_mall
-value minecraft:music_disc_mellohi
-value minecraft:music_disc_stal
-value minecraft:music_disc_strad
-value minecraft:music_disc_ward
-value minecraft:music_disc_11
-value minecraft:music_disc_wait
-value minecraft:music_disc_pigstep
-value minecraft:music_disc_otherside
-value minecraft:music_disc_5
+key minecraft:villager_plantable_seeds
+value minecraft:wheat_seeds
+value minecraft:potato
+value minecraft:carrot
+value minecraft:beetroot_seeds
+value minecraft:torchflower_seeds
+value minecraft:pitcher_pod
 
 key minecraft:planks
 value minecraft:oak_planks
@@ -123,6 +236,8 @@ value minecraft:dark_oak_planks
 value minecraft:crimson_planks
 value minecraft:warped_planks
 value minecraft:mangrove_planks
+value minecraft:bamboo_planks
+value minecraft:cherry_planks
 
 key minecraft:emerald_ores
 value minecraft:emerald_ore
@@ -133,9 +248,7 @@ value minecraft:sunflower
 value minecraft:lilac
 value minecraft:peony
 value minecraft:rose_bush
-
-key minecraft:axolotl_tempt_items
-value minecraft:tropical_fish_bucket
+value minecraft:pitcher_plant
 
 key minecraft:logs
 value minecraft:dark_oak_log
@@ -166,6 +279,10 @@ value minecraft:mangrove_log
 value minecraft:mangrove_wood
 value minecraft:stripped_mangrove_log
 value minecraft:stripped_mangrove_wood
+value minecraft:cherry_log
+value minecraft:cherry_wood
+value minecraft:stripped_cherry_log
+value minecraft:stripped_cherry_wood
 value minecraft:crimson_stem
 value minecraft:stripped_crimson_stem
 value minecraft:crimson_hyphae
@@ -222,6 +339,9 @@ value minecraft:green_candle
 value minecraft:red_candle
 value minecraft:black_candle
 
+key minecraft:llama_tempt_items
+value minecraft:hay_block
+
 key minecraft:freeze_immune_wearables
 value minecraft:leather_boots
 value minecraft:leather_leggings
@@ -239,6 +359,18 @@ value minecraft:dark_oak_button
 value minecraft:crimson_button
 value minecraft:warped_button
 value minecraft:mangrove_button
+value minecraft:bamboo_button
+value minecraft:cherry_button
+
+key minecraft:cherry_logs
+value minecraft:cherry_log
+value minecraft:cherry_wood
+value minecraft:stripped_cherry_log
+value minecraft:stripped_cherry_wood
+
+key minecraft:stone_buttons
+value minecraft:stone_button
+value minecraft:polished_blackstone_button
 
 key minecraft:creeper_igniters
 value minecraft:flint_and_steel
@@ -247,6 +379,32 @@ value minecraft:fire_charge
 key minecraft:coal_ores
 value minecraft:coal_ore
 value minecraft:deepslate_coal_ore
+
+key minecraft:decorated_pot_ingredients
+value minecraft:brick
+value minecraft:angler_pottery_sherd
+value minecraft:archer_pottery_sherd
+value minecraft:arms_up_pottery_sherd
+value minecraft:blade_pottery_sherd
+value minecraft:brewer_pottery_sherd
+value minecraft:burn_pottery_sherd
+value minecraft:danger_pottery_sherd
+value minecraft:explorer_pottery_sherd
+value minecraft:friend_pottery_sherd
+value minecraft:heart_pottery_sherd
+value minecraft:heartbreak_pottery_sherd
+value minecraft:howl_pottery_sherd
+value minecraft:miner_pottery_sherd
+value minecraft:mourner_pottery_sherd
+value minecraft:plenty_pottery_sherd
+value minecraft:prize_pottery_sherd
+value minecraft:sheaf_pottery_sherd
+value minecraft:shelter_pottery_sherd
+value minecraft:skull_pottery_sherd
+value minecraft:snort_pottery_sherd
+value minecraft:flow_pottery_sherd
+value minecraft:guster_pottery_sherd
+value minecraft:scrape_pottery_sherd
 
 key minecraft:saplings
 value minecraft:oak_sapling
@@ -258,39 +416,11 @@ value minecraft:dark_oak_sapling
 value minecraft:azalea
 value minecraft:flowering_azalea
 value minecraft:mangrove_propagule
+value minecraft:cherry_sapling
 
-key minecraft:tools
-value minecraft:diamond_sword
-value minecraft:stone_sword
-value minecraft:golden_sword
-value minecraft:netherite_sword
-value minecraft:wooden_sword
-value minecraft:iron_sword
-value minecraft:diamond_axe
-value minecraft:stone_axe
-value minecraft:golden_axe
-value minecraft:netherite_axe
-value minecraft:wooden_axe
-value minecraft:iron_axe
-value minecraft:diamond_pickaxe
-value minecraft:stone_pickaxe
-value minecraft:golden_pickaxe
-value minecraft:netherite_pickaxe
-value minecraft:wooden_pickaxe
-value minecraft:iron_pickaxe
-value minecraft:diamond_shovel
-value minecraft:stone_shovel
-value minecraft:golden_shovel
-value minecraft:netherite_shovel
-value minecraft:wooden_shovel
-value minecraft:iron_shovel
-value minecraft:diamond_hoe
-value minecraft:stone_hoe
-value minecraft:golden_hoe
-value minecraft:netherite_hoe
-value minecraft:wooden_hoe
-value minecraft:iron_hoe
-value minecraft:trident
+key minecraft:llama_food
+value minecraft:wheat
+value minecraft:hay_block
 
 key minecraft:axes
 value minecraft:diamond_axe
@@ -299,6 +429,9 @@ value minecraft:golden_axe
 value minecraft:netherite_axe
 value minecraft:wooden_axe
 value minecraft:iron_axe
+
+key minecraft:frog_food
+value minecraft:slime_ball
 
 key minecraft:pickaxes
 value minecraft:diamond_pickaxe
@@ -337,6 +470,10 @@ value minecraft:mangrove_log
 value minecraft:mangrove_wood
 value minecraft:stripped_mangrove_log
 value minecraft:stripped_mangrove_wood
+value minecraft:cherry_log
+value minecraft:cherry_wood
+value minecraft:stripped_cherry_log
+value minecraft:stripped_cherry_wood
 
 key minecraft:spruce_logs
 value minecraft:spruce_log
@@ -352,10 +489,44 @@ value minecraft:netherite_sword
 value minecraft:wooden_sword
 value minecraft:iron_sword
 
+key minecraft:chest_armor
+value minecraft:leather_chestplate
+value minecraft:chainmail_chestplate
+value minecraft:golden_chestplate
+value minecraft:iron_chestplate
+value minecraft:diamond_chestplate
+value minecraft:netherite_chestplate
+
+key minecraft:trim_templates
+value minecraft:ward_armor_trim_smithing_template
+value minecraft:spire_armor_trim_smithing_template
+value minecraft:coast_armor_trim_smithing_template
+value minecraft:eye_armor_trim_smithing_template
+value minecraft:dune_armor_trim_smithing_template
+value minecraft:wild_armor_trim_smithing_template
+value minecraft:rib_armor_trim_smithing_template
+value minecraft:tide_armor_trim_smithing_template
+value minecraft:sentry_armor_trim_smithing_template
+value minecraft:vex_armor_trim_smithing_template
+value minecraft:snout_armor_trim_smithing_template
+value minecraft:wayfinder_armor_trim_smithing_template
+value minecraft:shaper_armor_trim_smithing_template
+value minecraft:silence_armor_trim_smithing_template
+value minecraft:raiser_armor_trim_smithing_template
+value minecraft:host_armor_trim_smithing_template
+value minecraft:flow_armor_trim_smithing_template
+value minecraft:bolt_armor_trim_smithing_template
+
+key minecraft:goat_food
+value minecraft:wheat
+
 key minecraft:stone_tool_materials
 value minecraft:cobblestone
 value minecraft:blackstone
 value minecraft:cobbled_deepslate
+
+key minecraft:sniffer_food
+value minecraft:torchflower_seeds
 
 key minecraft:gold_ores
 value minecraft:gold_ore
@@ -391,6 +562,8 @@ value minecraft:crimson_door
 value minecraft:warped_door
 value minecraft:crimson_sign
 value minecraft:warped_sign
+value minecraft:warped_hanging_sign
+value minecraft:crimson_hanging_sign
 
 key minecraft:stairs
 value minecraft:oak_stairs
@@ -402,6 +575,9 @@ value minecraft:dark_oak_stairs
 value minecraft:crimson_stairs
 value minecraft:warped_stairs
 value minecraft:mangrove_stairs
+value minecraft:bamboo_stairs
+value minecraft:cherry_stairs
+value minecraft:bamboo_mosaic_stairs
 value minecraft:cobblestone_stairs
 value minecraft:sandstone_stairs
 value minecraft:nether_brick_stairs
@@ -443,6 +619,9 @@ value minecraft:waxed_exposed_cut_copper_stairs
 value minecraft:waxed_cut_copper_stairs
 value minecraft:waxed_oxidized_cut_copper_stairs
 value minecraft:mud_brick_stairs
+value minecraft:tuff_stairs
+value minecraft:polished_tuff_stairs
+value minecraft:tuff_brick_stairs
 
 key minecraft:crimson_stems
 value minecraft:crimson_stem
@@ -454,6 +633,48 @@ key minecraft:wart_blocks
 value minecraft:nether_wart_block
 value minecraft:warped_wart_block
 
+key minecraft:breaks_decorated_pots
+value minecraft:diamond_sword
+value minecraft:stone_sword
+value minecraft:golden_sword
+value minecraft:netherite_sword
+value minecraft:wooden_sword
+value minecraft:iron_sword
+value minecraft:diamond_axe
+value minecraft:stone_axe
+value minecraft:golden_axe
+value minecraft:netherite_axe
+value minecraft:wooden_axe
+value minecraft:iron_axe
+value minecraft:diamond_pickaxe
+value minecraft:stone_pickaxe
+value minecraft:golden_pickaxe
+value minecraft:netherite_pickaxe
+value minecraft:wooden_pickaxe
+value minecraft:iron_pickaxe
+value minecraft:diamond_shovel
+value minecraft:stone_shovel
+value minecraft:golden_shovel
+value minecraft:netherite_shovel
+value minecraft:wooden_shovel
+value minecraft:iron_shovel
+value minecraft:diamond_hoe
+value minecraft:stone_hoe
+value minecraft:golden_hoe
+value minecraft:netherite_hoe
+value minecraft:wooden_hoe
+value minecraft:iron_hoe
+value minecraft:trident
+value minecraft:mace
+
+key minecraft:chicken_food
+value minecraft:wheat_seeds
+value minecraft:melon_seeds
+value minecraft:pumpkin_seeds
+value minecraft:beetroot_seeds
+value minecraft:torchflower_seeds
+value minecraft:pitcher_pod
+
 key minecraft:fences
 value minecraft:oak_fence
 value minecraft:acacia_fence
@@ -464,6 +685,8 @@ value minecraft:jungle_fence
 value minecraft:crimson_fence
 value minecraft:warped_fence
 value minecraft:mangrove_fence
+value minecraft:bamboo_fence
+value minecraft:cherry_fence
 value minecraft:nether_brick_fence
 
 key minecraft:oak_logs
@@ -502,6 +725,26 @@ value minecraft:netherite_shovel
 value minecraft:wooden_shovel
 value minecraft:iron_shovel
 
+key minecraft:strider_food
+value minecraft:warped_fungus
+
+key minecraft:noteblock_top_instruments
+value minecraft:zombie_head
+value minecraft:skeleton_skull
+value minecraft:creeper_head
+value minecraft:dragon_head
+value minecraft:wither_skeleton_skull
+value minecraft:piglin_head
+value minecraft:player_head
+
+key minecraft:bamboo_blocks
+value minecraft:bamboo_block
+value minecraft:stripped_bamboo_block
+
+key minecraft:cat_food
+value minecraft:cod
+value minecraft:salmon
+
 key minecraft:small_flowers
 value minecraft:dandelion
 value minecraft:poppy
@@ -516,10 +759,30 @@ value minecraft:oxeye_daisy
 value minecraft:cornflower
 value minecraft:lily_of_the_valley
 value minecraft:wither_rose
+value minecraft:torchflower
+
+key minecraft:armadillo_food
+value minecraft:spider_eye
+
+key minecraft:wolf_food
+value minecraft:beef
+value minecraft:chicken
+value minecraft:cooked_beef
+value minecraft:cooked_chicken
+value minecraft:cooked_mutton
+value minecraft:cooked_porkchop
+value minecraft:cooked_rabbit
+value minecraft:mutton
+value minecraft:porkchop
+value minecraft:rabbit
+value minecraft:rotten_flesh
 
 key minecraft:piglin_food
 value minecraft:porkchop
 value minecraft:cooked_porkchop
+
+key minecraft:cow_food
+value minecraft:wheat
 
 key minecraft:diamond_ores
 value minecraft:diamond_ore
@@ -535,6 +798,9 @@ value minecraft:dark_oak_slab
 value minecraft:crimson_slab
 value minecraft:warped_slab
 value minecraft:mangrove_slab
+value minecraft:bamboo_slab
+value minecraft:cherry_slab
+value minecraft:bamboo_mosaic_slab
 value minecraft:stone_slab
 value minecraft:smooth_stone_slab
 value minecraft:stone_brick_slab
@@ -580,6 +846,9 @@ value minecraft:exposed_cut_copper_slab
 value minecraft:cut_copper_slab
 value minecraft:waxed_oxidized_cut_copper_slab
 value minecraft:mud_brick_slab
+value minecraft:tuff_slab
+value minecraft:polished_tuff_slab
+value minecraft:tuff_brick_slab
 
 key minecraft:copper_ores
 value minecraft:copper_ore
@@ -600,6 +869,8 @@ value minecraft:jungle_boat
 value minecraft:acacia_boat
 value minecraft:dark_oak_boat
 value minecraft:mangrove_boat
+value minecraft:bamboo_raft
+value minecraft:cherry_boat
 value minecraft:oak_chest_boat
 value minecraft:spruce_chest_boat
 value minecraft:birch_chest_boat
@@ -607,6 +878,8 @@ value minecraft:jungle_chest_boat
 value minecraft:acacia_chest_boat
 value minecraft:dark_oak_chest_boat
 value minecraft:mangrove_chest_boat
+value minecraft:bamboo_chest_raft
+value minecraft:cherry_chest_boat
 
 key minecraft:beds
 value minecraft:red_bed
@@ -626,6 +899,14 @@ value minecraft:purple_bed
 value minecraft:white_bed
 value minecraft:yellow_bed
 
+key minecraft:parrot_food
+value minecraft:wheat_seeds
+value minecraft:melon_seeds
+value minecraft:pumpkin_seeds
+value minecraft:beetroot_seeds
+value minecraft:torchflower_seeds
+value minecraft:pitcher_pod
+
 key minecraft:fence_gates
 value minecraft:acacia_fence_gate
 value minecraft:birch_fence_gate
@@ -636,6 +917,8 @@ value minecraft:spruce_fence_gate
 value minecraft:crimson_fence_gate
 value minecraft:warped_fence_gate
 value minecraft:mangrove_fence_gate
+value minecraft:bamboo_fence_gate
+value minecraft:cherry_fence_gate
 
 key minecraft:wooden_slabs
 value minecraft:oak_slab
@@ -647,6 +930,33 @@ value minecraft:dark_oak_slab
 value minecraft:crimson_slab
 value minecraft:warped_slab
 value minecraft:mangrove_slab
+value minecraft:bamboo_slab
+value minecraft:cherry_slab
+
+key minecraft:decorated_pot_sherds
+value minecraft:angler_pottery_sherd
+value minecraft:archer_pottery_sherd
+value minecraft:arms_up_pottery_sherd
+value minecraft:blade_pottery_sherd
+value minecraft:brewer_pottery_sherd
+value minecraft:burn_pottery_sherd
+value minecraft:danger_pottery_sherd
+value minecraft:explorer_pottery_sherd
+value minecraft:friend_pottery_sherd
+value minecraft:heart_pottery_sherd
+value minecraft:heartbreak_pottery_sherd
+value minecraft:howl_pottery_sherd
+value minecraft:miner_pottery_sherd
+value minecraft:mourner_pottery_sherd
+value minecraft:plenty_pottery_sherd
+value minecraft:prize_pottery_sherd
+value minecraft:sheaf_pottery_sherd
+value minecraft:shelter_pottery_sherd
+value minecraft:skull_pottery_sherd
+value minecraft:snort_pottery_sherd
+value minecraft:flow_pottery_sherd
+value minecraft:guster_pottery_sherd
+value minecraft:scrape_pottery_sherd
 
 key minecraft:dark_oak_logs
 value minecraft:dark_oak_log
@@ -668,6 +978,18 @@ value minecraft:music_disc_ward
 value minecraft:music_disc_11
 value minecraft:music_disc_wait
 
+key minecraft:trim_materials
+value minecraft:iron_ingot
+value minecraft:copper_ingot
+value minecraft:gold_ingot
+value minecraft:lapis_lazuli
+value minecraft:emerald
+value minecraft:diamond
+value minecraft:netherite_ingot
+value minecraft:redstone
+value minecraft:quartz
+value minecraft:amethyst_shard
+
 key minecraft:flowers
 value minecraft:dandelion
 value minecraft:poppy
@@ -682,13 +1004,19 @@ value minecraft:oxeye_daisy
 value minecraft:cornflower
 value minecraft:lily_of_the_valley
 value minecraft:wither_rose
+value minecraft:torchflower
 value minecraft:sunflower
 value minecraft:lilac
 value minecraft:peony
 value minecraft:rose_bush
+value minecraft:pitcher_plant
 value minecraft:flowering_azalea_leaves
 value minecraft:flowering_azalea
 value minecraft:mangrove_propagule
+value minecraft:cherry_leaves
+value minecraft:pink_petals
+value minecraft:chorus_flower
+value minecraft:spore_blossom
 
 key minecraft:compasses
 value minecraft:compass
@@ -696,6 +1024,14 @@ value minecraft:recovery_compass
 
 key minecraft:ignored_by_piglin_babies
 value minecraft:leather
+
+key minecraft:pig_food
+value minecraft:carrot
+value minecraft:potato
+value minecraft:beetroot
+
+key minecraft:camel_food
+value minecraft:cactus
 
 key minecraft:cluster_max_harvestables
 value minecraft:diamond_pickaxe
@@ -708,6 +1044,9 @@ value minecraft:wooden_pickaxe
 key minecraft:redstone_ores
 value minecraft:redstone_ore
 value minecraft:deepslate_redstone_ore
+
+key minecraft:panda_food
+value minecraft:bamboo
 
 key minecraft:dirt
 value minecraft:dirt
@@ -728,6 +1067,21 @@ value minecraft:jungle_chest_boat
 value minecraft:acacia_chest_boat
 value minecraft:dark_oak_chest_boat
 value minecraft:mangrove_chest_boat
+value minecraft:bamboo_chest_raft
+value minecraft:cherry_chest_boat
+
+key minecraft:hanging_signs
+value minecraft:oak_hanging_sign
+value minecraft:spruce_hanging_sign
+value minecraft:birch_hanging_sign
+value minecraft:acacia_hanging_sign
+value minecraft:cherry_hanging_sign
+value minecraft:jungle_hanging_sign
+value minecraft:dark_oak_hanging_sign
+value minecraft:crimson_hanging_sign
+value minecraft:warped_hanging_sign
+value minecraft:mangrove_hanging_sign
+value minecraft:bamboo_hanging_sign
 
 key minecraft:leaves
 value minecraft:jungle_leaves
@@ -739,6 +1093,7 @@ value minecraft:birch_leaves
 value minecraft:azalea_leaves
 value minecraft:flowering_azalea_leaves
 value minecraft:mangrove_leaves
+value minecraft:cherry_leaves
 
 key minecraft:walls
 value minecraft:cobblestone_wall
@@ -763,6 +1118,9 @@ value minecraft:polished_deepslate_wall
 value minecraft:deepslate_tile_wall
 value minecraft:deepslate_brick_wall
 value minecraft:mud_brick_wall
+value minecraft:tuff_wall
+value minecraft:polished_tuff_wall
+value minecraft:tuff_brick_wall
 
 key minecraft:wooden_doors
 value minecraft:oak_door
@@ -774,6 +1132,13 @@ value minecraft:dark_oak_door
 value minecraft:crimson_door
 value minecraft:warped_door
 value minecraft:mangrove_door
+value minecraft:bamboo_door
+value minecraft:cherry_door
+
+key minecraft:rabbit_food
+value minecraft:carrot
+value minecraft:golden_carrot
+value minecraft:dandelion
 
 key minecraft:stone_crafting_materials
 value minecraft:cobblestone
@@ -851,7 +1216,33 @@ value minecraft:dark_oak_door
 value minecraft:crimson_door
 value minecraft:warped_door
 value minecraft:mangrove_door
+value minecraft:bamboo_door
+value minecraft:cherry_door
+value minecraft:copper_door
+value minecraft:exposed_copper_door
+value minecraft:weathered_copper_door
+value minecraft:oxidized_copper_door
+value minecraft:waxed_copper_door
+value minecraft:waxed_exposed_copper_door
+value minecraft:waxed_weathered_copper_door
+value minecraft:waxed_oxidized_copper_door
 value minecraft:iron_door
+
+key minecraft:dyeable
+value minecraft:leather_helmet
+value minecraft:leather_chestplate
+value minecraft:leather_leggings
+value minecraft:leather_boots
+value minecraft:leather_horse_armor
+value minecraft:wolf_armor
+
+key minecraft:horse_tempt_items
+value minecraft:golden_carrot
+value minecraft:golden_apple
+value minecraft:enchanted_golden_apple
+
+key minecraft:sheep_food
+value minecraft:wheat
 
 key minecraft:piglin_repellents
 value minecraft:soul_torch
@@ -880,6 +1271,8 @@ value minecraft:spruce_trapdoor
 value minecraft:crimson_trapdoor
 value minecraft:warped_trapdoor
 value minecraft:mangrove_trapdoor
+value minecraft:bamboo_trapdoor
+value minecraft:cherry_trapdoor
 
 key minecraft:anvil
 value minecraft:anvil
@@ -896,8 +1289,28 @@ value minecraft:dark_oak_button
 value minecraft:crimson_button
 value minecraft:warped_button
 value minecraft:mangrove_button
+value minecraft:bamboo_button
+value minecraft:cherry_button
 value minecraft:stone_button
 value minecraft:polished_blackstone_button
+
+key minecraft:bookshelf_books
+value minecraft:book
+value minecraft:written_book
+value minecraft:enchanted_book
+value minecraft:writable_book
+value minecraft:knowledge_book
+
+key minecraft:hoglin_food
+value minecraft:crimson_fungus
+
+key minecraft:leg_armor
+value minecraft:leather_leggings
+value minecraft:chainmail_leggings
+value minecraft:golden_leggings
+value minecraft:iron_leggings
+value minecraft:diamond_leggings
+value minecraft:netherite_leggings
 
 key minecraft:wooden_pressure_plates
 value minecraft:oak_pressure_plate
@@ -909,6 +1322,8 @@ value minecraft:dark_oak_pressure_plate
 value minecraft:crimson_pressure_plate
 value minecraft:warped_pressure_plate
 value minecraft:mangrove_pressure_plate
+value minecraft:bamboo_pressure_plate
+value minecraft:cherry_pressure_plate
 
 key minecraft:arrows
 value minecraft:arrow
@@ -925,6 +1340,8 @@ value minecraft:dark_oak_sign
 value minecraft:crimson_sign
 value minecraft:warped_sign
 value minecraft:mangrove_sign
+value minecraft:bamboo_sign
+value minecraft:cherry_sign
 
 key minecraft:terracotta
 value minecraft:terracotta
@@ -945,6 +1362,15 @@ value minecraft:green_terracotta
 value minecraft:red_terracotta
 value minecraft:black_terracotta
 
+key minecraft:skulls
+value minecraft:player_head
+value minecraft:creeper_head
+value minecraft:zombie_head
+value minecraft:skeleton_skull
+value minecraft:wither_skeleton_skull
+value minecraft:dragon_head
+value minecraft:piglin_head
+
 key minecraft:mangrove_logs
 value minecraft:mangrove_log
 value minecraft:mangrove_wood
@@ -954,6 +1380,10 @@ value minecraft:stripped_mangrove_wood
 key minecraft:soul_fire_base_blocks
 value minecraft:soul_sand
 value minecraft:soul_soil
+
+key minecraft:ocelot_food
+value minecraft:cod
+value minecraft:salmon
 
 key minecraft:dampens_vibrations
 value minecraft:white_wool
@@ -995,6 +1425,10 @@ value minecraft:birch_wood
 value minecraft:stripped_birch_log
 value minecraft:stripped_birch_wood
 
+key minecraft:strider_tempt_items
+value minecraft:warped_fungus
+value minecraft:warped_fungus_on_a_stick
+
 key minecraft:rails
 value minecraft:rail
 value minecraft:powered_rail
@@ -1011,3 +1445,362 @@ value minecraft:dark_oak_stairs
 value minecraft:crimson_stairs
 value minecraft:warped_stairs
 value minecraft:mangrove_stairs
+value minecraft:bamboo_stairs
+value minecraft:cherry_stairs
+
+key minecraft:enchantable/weapon
+value minecraft:diamond_sword
+value minecraft:stone_sword
+value minecraft:golden_sword
+value minecraft:netherite_sword
+value minecraft:wooden_sword
+value minecraft:iron_sword
+value minecraft:diamond_axe
+value minecraft:stone_axe
+value minecraft:golden_axe
+value minecraft:netherite_axe
+value minecraft:wooden_axe
+value minecraft:iron_axe
+value minecraft:mace
+
+key minecraft:enchantable/armor
+value minecraft:leather_boots
+value minecraft:chainmail_boots
+value minecraft:golden_boots
+value minecraft:iron_boots
+value minecraft:diamond_boots
+value minecraft:netherite_boots
+value minecraft:leather_leggings
+value minecraft:chainmail_leggings
+value minecraft:golden_leggings
+value minecraft:iron_leggings
+value minecraft:diamond_leggings
+value minecraft:netherite_leggings
+value minecraft:leather_chestplate
+value minecraft:chainmail_chestplate
+value minecraft:golden_chestplate
+value minecraft:iron_chestplate
+value minecraft:diamond_chestplate
+value minecraft:netherite_chestplate
+value minecraft:leather_helmet
+value minecraft:chainmail_helmet
+value minecraft:golden_helmet
+value minecraft:iron_helmet
+value minecraft:diamond_helmet
+value minecraft:netherite_helmet
+value minecraft:turtle_helmet
+
+key minecraft:enchantable/foot_armor
+value minecraft:leather_boots
+value minecraft:chainmail_boots
+value minecraft:golden_boots
+value minecraft:iron_boots
+value minecraft:diamond_boots
+value minecraft:netherite_boots
+
+key minecraft:enchantable/head_armor
+value minecraft:leather_helmet
+value minecraft:chainmail_helmet
+value minecraft:golden_helmet
+value minecraft:iron_helmet
+value minecraft:diamond_helmet
+value minecraft:netherite_helmet
+value minecraft:turtle_helmet
+
+key minecraft:enchantable/mining
+value minecraft:diamond_axe
+value minecraft:stone_axe
+value minecraft:golden_axe
+value minecraft:netherite_axe
+value minecraft:wooden_axe
+value minecraft:iron_axe
+value minecraft:diamond_pickaxe
+value minecraft:stone_pickaxe
+value minecraft:golden_pickaxe
+value minecraft:netherite_pickaxe
+value minecraft:wooden_pickaxe
+value minecraft:iron_pickaxe
+value minecraft:diamond_shovel
+value minecraft:stone_shovel
+value minecraft:golden_shovel
+value minecraft:netherite_shovel
+value minecraft:wooden_shovel
+value minecraft:iron_shovel
+value minecraft:diamond_hoe
+value minecraft:stone_hoe
+value minecraft:golden_hoe
+value minecraft:netherite_hoe
+value minecraft:wooden_hoe
+value minecraft:iron_hoe
+value minecraft:shears
+
+key minecraft:enchantable/sharp_weapon
+value minecraft:diamond_sword
+value minecraft:stone_sword
+value minecraft:golden_sword
+value minecraft:netherite_sword
+value minecraft:wooden_sword
+value minecraft:iron_sword
+value minecraft:diamond_axe
+value minecraft:stone_axe
+value minecraft:golden_axe
+value minecraft:netherite_axe
+value minecraft:wooden_axe
+value minecraft:iron_axe
+
+key minecraft:enchantable/sword
+value minecraft:diamond_sword
+value minecraft:stone_sword
+value minecraft:golden_sword
+value minecraft:netherite_sword
+value minecraft:wooden_sword
+value minecraft:iron_sword
+
+key minecraft:enchantable/chest_armor
+value minecraft:leather_chestplate
+value minecraft:chainmail_chestplate
+value minecraft:golden_chestplate
+value minecraft:iron_chestplate
+value minecraft:diamond_chestplate
+value minecraft:netherite_chestplate
+
+key minecraft:enchantable/crossbow
+value minecraft:crossbow
+
+key minecraft:enchantable/bow
+value minecraft:bow
+
+key minecraft:enchantable/durability
+value minecraft:leather_boots
+value minecraft:chainmail_boots
+value minecraft:golden_boots
+value minecraft:iron_boots
+value minecraft:diamond_boots
+value minecraft:netherite_boots
+value minecraft:leather_leggings
+value minecraft:chainmail_leggings
+value minecraft:golden_leggings
+value minecraft:iron_leggings
+value minecraft:diamond_leggings
+value minecraft:netherite_leggings
+value minecraft:leather_chestplate
+value minecraft:chainmail_chestplate
+value minecraft:golden_chestplate
+value minecraft:iron_chestplate
+value minecraft:diamond_chestplate
+value minecraft:netherite_chestplate
+value minecraft:leather_helmet
+value minecraft:chainmail_helmet
+value minecraft:golden_helmet
+value minecraft:iron_helmet
+value minecraft:diamond_helmet
+value minecraft:netherite_helmet
+value minecraft:turtle_helmet
+value minecraft:elytra
+value minecraft:shield
+value minecraft:diamond_sword
+value minecraft:stone_sword
+value minecraft:golden_sword
+value minecraft:netherite_sword
+value minecraft:wooden_sword
+value minecraft:iron_sword
+value minecraft:diamond_axe
+value minecraft:stone_axe
+value minecraft:golden_axe
+value minecraft:netherite_axe
+value minecraft:wooden_axe
+value minecraft:iron_axe
+value minecraft:diamond_pickaxe
+value minecraft:stone_pickaxe
+value minecraft:golden_pickaxe
+value minecraft:netherite_pickaxe
+value minecraft:wooden_pickaxe
+value minecraft:iron_pickaxe
+value minecraft:diamond_shovel
+value minecraft:stone_shovel
+value minecraft:golden_shovel
+value minecraft:netherite_shovel
+value minecraft:wooden_shovel
+value minecraft:iron_shovel
+value minecraft:diamond_hoe
+value minecraft:stone_hoe
+value minecraft:golden_hoe
+value minecraft:netherite_hoe
+value minecraft:wooden_hoe
+value minecraft:iron_hoe
+value minecraft:bow
+value minecraft:crossbow
+value minecraft:trident
+value minecraft:flint_and_steel
+value minecraft:shears
+value minecraft:brush
+value minecraft:fishing_rod
+value minecraft:carrot_on_a_stick
+value minecraft:warped_fungus_on_a_stick
+value minecraft:mace
+
+key minecraft:enchantable/vanishing
+value minecraft:leather_boots
+value minecraft:chainmail_boots
+value minecraft:golden_boots
+value minecraft:iron_boots
+value minecraft:diamond_boots
+value minecraft:netherite_boots
+value minecraft:leather_leggings
+value minecraft:chainmail_leggings
+value minecraft:golden_leggings
+value minecraft:iron_leggings
+value minecraft:diamond_leggings
+value minecraft:netherite_leggings
+value minecraft:leather_chestplate
+value minecraft:chainmail_chestplate
+value minecraft:golden_chestplate
+value minecraft:iron_chestplate
+value minecraft:diamond_chestplate
+value minecraft:netherite_chestplate
+value minecraft:leather_helmet
+value minecraft:chainmail_helmet
+value minecraft:golden_helmet
+value minecraft:iron_helmet
+value minecraft:diamond_helmet
+value minecraft:netherite_helmet
+value minecraft:turtle_helmet
+value minecraft:elytra
+value minecraft:shield
+value minecraft:diamond_sword
+value minecraft:stone_sword
+value minecraft:golden_sword
+value minecraft:netherite_sword
+value minecraft:wooden_sword
+value minecraft:iron_sword
+value minecraft:diamond_axe
+value minecraft:stone_axe
+value minecraft:golden_axe
+value minecraft:netherite_axe
+value minecraft:wooden_axe
+value minecraft:iron_axe
+value minecraft:diamond_pickaxe
+value minecraft:stone_pickaxe
+value minecraft:golden_pickaxe
+value minecraft:netherite_pickaxe
+value minecraft:wooden_pickaxe
+value minecraft:iron_pickaxe
+value minecraft:diamond_shovel
+value minecraft:stone_shovel
+value minecraft:golden_shovel
+value minecraft:netherite_shovel
+value minecraft:wooden_shovel
+value minecraft:iron_shovel
+value minecraft:diamond_hoe
+value minecraft:stone_hoe
+value minecraft:golden_hoe
+value minecraft:netherite_hoe
+value minecraft:wooden_hoe
+value minecraft:iron_hoe
+value minecraft:bow
+value minecraft:crossbow
+value minecraft:trident
+value minecraft:flint_and_steel
+value minecraft:shears
+value minecraft:brush
+value minecraft:fishing_rod
+value minecraft:carrot_on_a_stick
+value minecraft:warped_fungus_on_a_stick
+value minecraft:mace
+value minecraft:compass
+value minecraft:carved_pumpkin
+value minecraft:player_head
+value minecraft:creeper_head
+value minecraft:zombie_head
+value minecraft:skeleton_skull
+value minecraft:wither_skeleton_skull
+value minecraft:dragon_head
+value minecraft:piglin_head
+
+key minecraft:enchantable/fishing
+value minecraft:fishing_rod
+
+key minecraft:enchantable/fire_aspect
+value minecraft:diamond_sword
+value minecraft:stone_sword
+value minecraft:golden_sword
+value minecraft:netherite_sword
+value minecraft:wooden_sword
+value minecraft:iron_sword
+value minecraft:mace
+
+key minecraft:enchantable/equippable
+value minecraft:leather_boots
+value minecraft:chainmail_boots
+value minecraft:golden_boots
+value minecraft:iron_boots
+value minecraft:diamond_boots
+value minecraft:netherite_boots
+value minecraft:leather_leggings
+value minecraft:chainmail_leggings
+value minecraft:golden_leggings
+value minecraft:iron_leggings
+value minecraft:diamond_leggings
+value minecraft:netherite_leggings
+value minecraft:leather_chestplate
+value minecraft:chainmail_chestplate
+value minecraft:golden_chestplate
+value minecraft:iron_chestplate
+value minecraft:diamond_chestplate
+value minecraft:netherite_chestplate
+value minecraft:leather_helmet
+value minecraft:chainmail_helmet
+value minecraft:golden_helmet
+value minecraft:iron_helmet
+value minecraft:diamond_helmet
+value minecraft:netherite_helmet
+value minecraft:turtle_helmet
+value minecraft:elytra
+value minecraft:player_head
+value minecraft:creeper_head
+value minecraft:zombie_head
+value minecraft:skeleton_skull
+value minecraft:wither_skeleton_skull
+value minecraft:dragon_head
+value minecraft:piglin_head
+value minecraft:carved_pumpkin
+
+key minecraft:enchantable/leg_armor
+value minecraft:leather_leggings
+value minecraft:chainmail_leggings
+value minecraft:golden_leggings
+value minecraft:iron_leggings
+value minecraft:diamond_leggings
+value minecraft:netherite_leggings
+
+key minecraft:enchantable/trident
+value minecraft:trident
+
+key minecraft:enchantable/mace
+value minecraft:mace
+
+key minecraft:enchantable/mining_loot
+value minecraft:diamond_axe
+value minecraft:stone_axe
+value minecraft:golden_axe
+value minecraft:netherite_axe
+value minecraft:wooden_axe
+value minecraft:iron_axe
+value minecraft:diamond_pickaxe
+value minecraft:stone_pickaxe
+value minecraft:golden_pickaxe
+value minecraft:netherite_pickaxe
+value minecraft:wooden_pickaxe
+value minecraft:iron_pickaxe
+value minecraft:diamond_shovel
+value minecraft:stone_shovel
+value minecraft:golden_shovel
+value minecraft:netherite_shovel
+value minecraft:wooden_shovel
+value minecraft:iron_shovel
+value minecraft:diamond_hoe
+value minecraft:stone_hoe
+value minecraft:golden_hoe
+value minecraft:netherite_hoe
+value minecraft:wooden_hoe
+value minecraft:iron_hoe

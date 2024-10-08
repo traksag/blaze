@@ -48,7 +48,7 @@ can_replace(i32 place_type, i32 cur_type) {
         // disallow it for other blocks depending on whether this is the clicked
         // block or the relative block?
     // replaceable plants
-    case BLOCK_GRASS:
+    case BLOCK_SHORT_GRASS:
     case BLOCK_FERN:
     case BLOCK_DEAD_BUSH:
     case BLOCK_VINE:
@@ -2039,8 +2039,8 @@ process_use_item_on_packet(entity_base * player,
     case ITEM_COBWEB:
         place_simple_block(context, BLOCK_COBWEB);
         break;
-    case ITEM_GRASS:
-        place_plant(context, BLOCK_GRASS);
+    case ITEM_SHORT_GRASS:
+        place_plant(context, BLOCK_SHORT_GRASS);
         break;
     case ITEM_FERN:
         place_plant(context, BLOCK_FERN);
@@ -4329,6 +4329,19 @@ init_item_data(void) {
     register_item_type(ITEM_POLISHED_DEEPSLATE, "minecraft:polished_deepslate");
     register_item_type(ITEM_CALCITE, "minecraft:calcite");
     register_item_type(ITEM_TUFF, "minecraft:tuff");
+    register_item_type(ITEM_TUFF_SLAB, "minecraft:tuff_slab");
+    register_item_type(ITEM_TUFF_STAIRS, "minecraft:tuff_stairs");
+    register_item_type(ITEM_TUFF_WALL, "minecraft:tuff_wall");
+    register_item_type(ITEM_CHISELED_TUFF, "minecraft:chiseled_tuff");
+    register_item_type(ITEM_POLISHED_TUFF, "minecraft:polished_tuff");
+    register_item_type(ITEM_POLISHED_TUFF_SLAB, "minecraft:polished_tuff_slab");
+    register_item_type(ITEM_POLISHED_TUFF_STAIRS, "minecraft:polished_tuff_stairs");
+    register_item_type(ITEM_POLISHED_TUFF_WALL, "minecraft:polished_tuff_wall");
+    register_item_type(ITEM_TUFF_BRICKS, "minecraft:tuff_bricks");
+    register_item_type(ITEM_TUFF_BRICK_SLAB, "minecraft:tuff_brick_slab");
+    register_item_type(ITEM_TUFF_BRICK_STAIRS, "minecraft:tuff_brick_stairs");
+    register_item_type(ITEM_TUFF_BRICK_WALL, "minecraft:tuff_brick_wall");
+    register_item_type(ITEM_CHISELED_TUFF_BRICKS, "minecraft:chiseled_tuff_bricks");
     register_item_type(ITEM_DRIPSTONE_BLOCK, "minecraft:dripstone_block");
     register_item_type(ITEM_GRASS_BLOCK, "minecraft:grass_block");
     register_item_type(ITEM_DIRT, "minecraft:dirt");
@@ -4362,6 +4375,7 @@ init_item_data(void) {
     register_item_type(ITEM_BEDROCK, "minecraft:bedrock");
     register_item_type(ITEM_SAND, "minecraft:sand");
     register_item_type(ITEM_SUSPICIOUS_SAND, "minecraft:suspicious_sand");
+    register_item_type(ITEM_SUSPICIOUS_GRAVEL, "minecraft:suspicious_gravel");
     register_item_type(ITEM_RED_SAND, "minecraft:red_sand");
     register_item_type(ITEM_GRAVEL, "minecraft:gravel");
     register_item_type(ITEM_COAL_ORE, "minecraft:coal_ore");
@@ -4387,6 +4401,7 @@ init_item_data(void) {
     register_item_type(ITEM_RAW_IRON_BLOCK, "minecraft:raw_iron_block");
     register_item_type(ITEM_RAW_COPPER_BLOCK, "minecraft:raw_copper_block");
     register_item_type(ITEM_RAW_GOLD_BLOCK, "minecraft:raw_gold_block");
+    register_item_type(ITEM_HEAVY_CORE, "minecraft:heavy_core");
     register_item_type(ITEM_AMETHYST_BLOCK, "minecraft:amethyst_block");
     register_item_type(ITEM_BUDDING_AMETHYST, "minecraft:budding_amethyst");
     register_item_type(ITEM_IRON_BLOCK, "minecraft:iron_block");
@@ -4397,6 +4412,10 @@ init_item_data(void) {
     register_item_type(ITEM_EXPOSED_COPPER, "minecraft:exposed_copper");
     register_item_type(ITEM_WEATHERED_COPPER, "minecraft:weathered_copper");
     register_item_type(ITEM_OXIDIZED_COPPER, "minecraft:oxidized_copper");
+    register_item_type(ITEM_CHISELED_COPPER, "minecraft:chiseled_copper");
+    register_item_type(ITEM_EXPOSED_CHISELED_COPPER, "minecraft:exposed_chiseled_copper");
+    register_item_type(ITEM_WEATHERED_CHISELED_COPPER, "minecraft:weathered_chiseled_copper");
+    register_item_type(ITEM_OXIDIZED_CHISELED_COPPER, "minecraft:oxidized_chiseled_copper");
     register_item_type(ITEM_CUT_COPPER, "minecraft:cut_copper");
     register_item_type(ITEM_EXPOSED_CUT_COPPER, "minecraft:exposed_cut_copper");
     register_item_type(ITEM_WEATHERED_CUT_COPPER, "minecraft:weathered_cut_copper");
@@ -4413,6 +4432,10 @@ init_item_data(void) {
     register_item_type(ITEM_WAXED_EXPOSED_COPPER, "minecraft:waxed_exposed_copper");
     register_item_type(ITEM_WAXED_WEATHERED_COPPER, "minecraft:waxed_weathered_copper");
     register_item_type(ITEM_WAXED_OXIDIZED_COPPER, "minecraft:waxed_oxidized_copper");
+    register_item_type(ITEM_WAXED_CHISELED_COPPER, "minecraft:waxed_chiseled_copper");
+    register_item_type(ITEM_WAXED_EXPOSED_CHISELED_COPPER, "minecraft:waxed_exposed_chiseled_copper");
+    register_item_type(ITEM_WAXED_WEATHERED_CHISELED_COPPER, "minecraft:waxed_weathered_chiseled_copper");
+    register_item_type(ITEM_WAXED_OXIDIZED_CHISELED_COPPER, "minecraft:waxed_oxidized_chiseled_copper");
     register_item_type(ITEM_WAXED_CUT_COPPER, "minecraft:waxed_cut_copper");
     register_item_type(ITEM_WAXED_EXPOSED_CUT_COPPER, "minecraft:waxed_exposed_cut_copper");
     register_item_type(ITEM_WAXED_WEATHERED_CUT_COPPER, "minecraft:waxed_weathered_cut_copper");
@@ -4488,7 +4511,7 @@ init_item_data(void) {
     register_item_type(ITEM_CHISELED_SANDSTONE, "minecraft:chiseled_sandstone");
     register_item_type(ITEM_CUT_SANDSTONE, "minecraft:cut_sandstone");
     register_item_type(ITEM_COBWEB, "minecraft:cobweb");
-    register_item_type(ITEM_GRASS, "minecraft:grass");
+    register_item_type(ITEM_SHORT_GRASS, "minecraft:short_grass");
     register_item_type(ITEM_FERN, "minecraft:fern");
     register_item_type(ITEM_AZALEA, "minecraft:azalea");
     register_item_type(ITEM_FLOWERING_AZALEA, "minecraft:flowering_azalea");
@@ -4525,6 +4548,7 @@ init_item_data(void) {
     register_item_type(ITEM_LILY_OF_THE_VALLEY, "minecraft:lily_of_the_valley");
     register_item_type(ITEM_WITHER_ROSE, "minecraft:wither_rose");
     register_item_type(ITEM_TORCHFLOWER, "minecraft:torchflower");
+    register_item_type(ITEM_PITCHER_PLANT, "minecraft:pitcher_plant");
     register_item_type(ITEM_SPORE_BLOSSOM, "minecraft:spore_blossom");
     register_item_type(ITEM_BROWN_MUSHROOM, "minecraft:brown_mushroom");
     register_item_type(ITEM_RED_MUSHROOM, "minecraft:red_mushroom");
@@ -4880,6 +4904,7 @@ init_item_data(void) {
     register_item_type(ITEM_RED_CONCRETE_POWDER, "minecraft:red_concrete_powder");
     register_item_type(ITEM_BLACK_CONCRETE_POWDER, "minecraft:black_concrete_powder");
     register_item_type(ITEM_TURTLE_EGG, "minecraft:turtle_egg");
+    register_item_type(ITEM_SNIFFER_EGG, "minecraft:sniffer_egg");
     register_item_type(ITEM_DEAD_TUBE_CORAL_BLOCK, "minecraft:dead_tube_coral_block");
     register_item_type(ITEM_DEAD_BRAIN_CORAL_BLOCK, "minecraft:dead_brain_coral_block");
     register_item_type(ITEM_DEAD_BUBBLE_CORAL_BLOCK, "minecraft:dead_bubble_coral_block");
@@ -4967,6 +4992,7 @@ init_item_data(void) {
     register_item_type(ITEM_LIGHTNING_ROD, "minecraft:lightning_rod");
     register_item_type(ITEM_DAYLIGHT_DETECTOR, "minecraft:daylight_detector");
     register_item_type(ITEM_SCULK_SENSOR, "minecraft:sculk_sensor");
+    register_item_type(ITEM_CALIBRATED_SCULK_SENSOR, "minecraft:calibrated_sculk_sensor");
     register_item_type(ITEM_TRIPWIRE_HOOK, "minecraft:tripwire_hook");
     register_item_type(ITEM_TRAPPED_CHEST, "minecraft:trapped_chest");
     register_item_type(ITEM_TNT, "minecraft:tnt");
@@ -5012,6 +5038,14 @@ init_item_data(void) {
     register_item_type(ITEM_BAMBOO_DOOR, "minecraft:bamboo_door");
     register_item_type(ITEM_CRIMSON_DOOR, "minecraft:crimson_door");
     register_item_type(ITEM_WARPED_DOOR, "minecraft:warped_door");
+    register_item_type(ITEM_COPPER_DOOR, "minecraft:copper_door");
+    register_item_type(ITEM_EXPOSED_COPPER_DOOR, "minecraft:exposed_copper_door");
+    register_item_type(ITEM_WEATHERED_COPPER_DOOR, "minecraft:weathered_copper_door");
+    register_item_type(ITEM_OXIDIZED_COPPER_DOOR, "minecraft:oxidized_copper_door");
+    register_item_type(ITEM_WAXED_COPPER_DOOR, "minecraft:waxed_copper_door");
+    register_item_type(ITEM_WAXED_EXPOSED_COPPER_DOOR, "minecraft:waxed_exposed_copper_door");
+    register_item_type(ITEM_WAXED_WEATHERED_COPPER_DOOR, "minecraft:waxed_weathered_copper_door");
+    register_item_type(ITEM_WAXED_OXIDIZED_COPPER_DOOR, "minecraft:waxed_oxidized_copper_door");
     register_item_type(ITEM_IRON_TRAPDOOR, "minecraft:iron_trapdoor");
     register_item_type(ITEM_OAK_TRAPDOOR, "minecraft:oak_trapdoor");
     register_item_type(ITEM_SPRUCE_TRAPDOOR, "minecraft:spruce_trapdoor");
@@ -5024,6 +5058,14 @@ init_item_data(void) {
     register_item_type(ITEM_BAMBOO_TRAPDOOR, "minecraft:bamboo_trapdoor");
     register_item_type(ITEM_CRIMSON_TRAPDOOR, "minecraft:crimson_trapdoor");
     register_item_type(ITEM_WARPED_TRAPDOOR, "minecraft:warped_trapdoor");
+    register_item_type(ITEM_COPPER_TRAPDOOR, "minecraft:copper_trapdoor");
+    register_item_type(ITEM_EXPOSED_COPPER_TRAPDOOR, "minecraft:exposed_copper_trapdoor");
+    register_item_type(ITEM_WEATHERED_COPPER_TRAPDOOR, "minecraft:weathered_copper_trapdoor");
+    register_item_type(ITEM_OXIDIZED_COPPER_TRAPDOOR, "minecraft:oxidized_copper_trapdoor");
+    register_item_type(ITEM_WAXED_COPPER_TRAPDOOR, "minecraft:waxed_copper_trapdoor");
+    register_item_type(ITEM_WAXED_EXPOSED_COPPER_TRAPDOOR, "minecraft:waxed_exposed_copper_trapdoor");
+    register_item_type(ITEM_WAXED_WEATHERED_COPPER_TRAPDOOR, "minecraft:waxed_weathered_copper_trapdoor");
+    register_item_type(ITEM_WAXED_OXIDIZED_COPPER_TRAPDOOR, "minecraft:waxed_oxidized_copper_trapdoor");
     register_item_type(ITEM_OAK_FENCE_GATE, "minecraft:oak_fence_gate");
     register_item_type(ITEM_SPRUCE_FENCE_GATE, "minecraft:spruce_fence_gate");
     register_item_type(ITEM_BIRCH_FENCE_GATE, "minecraft:birch_fence_gate");
@@ -5069,8 +5111,11 @@ init_item_data(void) {
     register_item_type(ITEM_STRUCTURE_BLOCK, "minecraft:structure_block");
     register_item_type(ITEM_JIGSAW, "minecraft:jigsaw");
     register_item_type(ITEM_TURTLE_HELMET, "minecraft:turtle_helmet");
-    register_item_type(ITEM_SCUTE, "minecraft:scute");
+    register_item_type(ITEM_TURTLE_SCUTE, "minecraft:turtle_scute");
+    register_item_type(ITEM_ARMADILLO_SCUTE, "minecraft:armadillo_scute");
+    register_item_type(ITEM_WOLF_ARMOR, "minecraft:wolf_armor");
     register_item_type(ITEM_FLINT_AND_STEEL, "minecraft:flint_and_steel");
+    register_item_type(ITEM_BOWL, "minecraft:bowl");
     register_item_type(ITEM_APPLE, "minecraft:apple");
     register_item_type(ITEM_BOW, "minecraft:bow");
     register_item_type(ITEM_ARROW, "minecraft:arrow");
@@ -5120,7 +5165,6 @@ init_item_data(void) {
     register_item_type(ITEM_NETHERITE_AXE, "minecraft:netherite_axe");
     register_item_type(ITEM_NETHERITE_HOE, "minecraft:netherite_hoe");
     register_item_type(ITEM_STICK, "minecraft:stick");
-    register_item_type(ITEM_BOWL, "minecraft:bowl");
     register_item_type(ITEM_MUSHROOM_STEW, "minecraft:mushroom_stew");
     register_item_type(ITEM_STRING, "minecraft:string");
     register_item_type(ITEM_FEATHER, "minecraft:feather");
@@ -5253,6 +5297,7 @@ init_item_data(void) {
     register_item_type(ITEM_RED_BED, "minecraft:red_bed");
     register_item_type(ITEM_BLACK_BED, "minecraft:black_bed");
     register_item_type(ITEM_COOKIE, "minecraft:cookie");
+    register_item_type(ITEM_CRAFTER, "minecraft:crafter");
     register_item_type(ITEM_FILLED_MAP, "minecraft:filled_map");
     register_item_type(ITEM_SHEARS, "minecraft:shears");
     register_item_type(ITEM_MELON_SLICE, "minecraft:melon_slice");
@@ -5279,11 +5324,14 @@ init_item_data(void) {
     register_item_type(ITEM_CAULDRON, "minecraft:cauldron");
     register_item_type(ITEM_ENDER_EYE, "minecraft:ender_eye");
     register_item_type(ITEM_GLISTERING_MELON_SLICE, "minecraft:glistering_melon_slice");
+    register_item_type(ITEM_ARMADILLO_SPAWN_EGG, "minecraft:armadillo_spawn_egg");
     register_item_type(ITEM_ALLAY_SPAWN_EGG, "minecraft:allay_spawn_egg");
     register_item_type(ITEM_AXOLOTL_SPAWN_EGG, "minecraft:axolotl_spawn_egg");
     register_item_type(ITEM_BAT_SPAWN_EGG, "minecraft:bat_spawn_egg");
     register_item_type(ITEM_BEE_SPAWN_EGG, "minecraft:bee_spawn_egg");
     register_item_type(ITEM_BLAZE_SPAWN_EGG, "minecraft:blaze_spawn_egg");
+    register_item_type(ITEM_BOGGED_SPAWN_EGG, "minecraft:bogged_spawn_egg");
+    register_item_type(ITEM_BREEZE_SPAWN_EGG, "minecraft:breeze_spawn_egg");
     register_item_type(ITEM_CAT_SPAWN_EGG, "minecraft:cat_spawn_egg");
     register_item_type(ITEM_CAMEL_SPAWN_EGG, "minecraft:camel_spawn_egg");
     register_item_type(ITEM_CAVE_SPIDER_SPAWN_EGG, "minecraft:cave_spider_spawn_egg");
@@ -5358,8 +5406,10 @@ init_item_data(void) {
     register_item_type(ITEM_ZOMBIFIED_PIGLIN_SPAWN_EGG, "minecraft:zombified_piglin_spawn_egg");
     register_item_type(ITEM_EXPERIENCE_BOTTLE, "minecraft:experience_bottle");
     register_item_type(ITEM_FIRE_CHARGE, "minecraft:fire_charge");
+    register_item_type(ITEM_WIND_CHARGE, "minecraft:wind_charge");
     register_item_type(ITEM_WRITABLE_BOOK, "minecraft:writable_book");
     register_item_type(ITEM_WRITTEN_BOOK, "minecraft:written_book");
+    register_item_type(ITEM_MACE, "minecraft:mace");
     register_item_type(ITEM_ITEM_FRAME, "minecraft:item_frame");
     register_item_type(ITEM_GLOW_ITEM_FRAME, "minecraft:glow_item_frame");
     register_item_type(ITEM_FLOWER_POT, "minecraft:flower_pot");
@@ -5419,6 +5469,7 @@ init_item_data(void) {
     register_item_type(ITEM_CHORUS_FRUIT, "minecraft:chorus_fruit");
     register_item_type(ITEM_POPPED_CHORUS_FRUIT, "minecraft:popped_chorus_fruit");
     register_item_type(ITEM_TORCHFLOWER_SEEDS, "minecraft:torchflower_seeds");
+    register_item_type(ITEM_PITCHER_POD, "minecraft:pitcher_pod");
     register_item_type(ITEM_BEETROOT, "minecraft:beetroot");
     register_item_type(ITEM_BEETROOT_SEEDS, "minecraft:beetroot_seeds");
     register_item_type(ITEM_BEETROOT_SOUP, "minecraft:beetroot_soup");
@@ -5437,6 +5488,8 @@ init_item_data(void) {
     register_item_type(ITEM_MUSIC_DISC_CAT, "minecraft:music_disc_cat");
     register_item_type(ITEM_MUSIC_DISC_BLOCKS, "minecraft:music_disc_blocks");
     register_item_type(ITEM_MUSIC_DISC_CHIRP, "minecraft:music_disc_chirp");
+    register_item_type(ITEM_MUSIC_DISC_CREATOR, "minecraft:music_disc_creator");
+    register_item_type(ITEM_MUSIC_DISC_CREATOR_MUSIC_BOX, "minecraft:music_disc_creator_music_box");
     register_item_type(ITEM_MUSIC_DISC_FAR, "minecraft:music_disc_far");
     register_item_type(ITEM_MUSIC_DISC_MALL, "minecraft:music_disc_mall");
     register_item_type(ITEM_MUSIC_DISC_MELLOHI, "minecraft:music_disc_mellohi");
@@ -5446,8 +5499,10 @@ init_item_data(void) {
     register_item_type(ITEM_MUSIC_DISC_11, "minecraft:music_disc_11");
     register_item_type(ITEM_MUSIC_DISC_WAIT, "minecraft:music_disc_wait");
     register_item_type(ITEM_MUSIC_DISC_OTHERSIDE, "minecraft:music_disc_otherside");
+    register_item_type(ITEM_MUSIC_DISC_RELIC, "minecraft:music_disc_relic");
     register_item_type(ITEM_MUSIC_DISC_5, "minecraft:music_disc_5");
     register_item_type(ITEM_MUSIC_DISC_PIGSTEP, "minecraft:music_disc_pigstep");
+    register_item_type(ITEM_MUSIC_DISC_PRECIPICE, "minecraft:music_disc_precipice");
     register_item_type(ITEM_DISC_FRAGMENT_5, "minecraft:disc_fragment_5");
     register_item_type(ITEM_TRIDENT, "minecraft:trident");
     register_item_type(ITEM_PHANTOM_MEMBRANE, "minecraft:phantom_membrane");
@@ -5462,6 +5517,8 @@ init_item_data(void) {
     register_item_type(ITEM_MOJANG_BANNER_PATTERN, "minecraft:mojang_banner_pattern");
     register_item_type(ITEM_GLOBE_BANNER_PATTERN, "minecraft:globe_banner_pattern");
     register_item_type(ITEM_PIGLIN_BANNER_PATTERN, "minecraft:piglin_banner_pattern");
+    register_item_type(ITEM_FLOW_BANNER_PATTERN, "minecraft:flow_banner_pattern");
+    register_item_type(ITEM_GUSTER_BANNER_PATTERN, "minecraft:guster_banner_pattern");
     register_item_type(ITEM_GOAT_HORN, "minecraft:goat_horn");
     register_item_type(ITEM_COMPOSTER, "minecraft:composter");
     register_item_type(ITEM_BARREL, "minecraft:barrel");
@@ -5528,20 +5585,68 @@ init_item_data(void) {
     register_item_type(ITEM_FROGSPAWN, "minecraft:frogspawn");
     register_item_type(ITEM_ECHO_SHARD, "minecraft:echo_shard");
     register_item_type(ITEM_BRUSH, "minecraft:brush");
-    register_item_type(ITEM_NETHERITE_UPGRADE_SMITHING_TEMPLATE, "minecraft:item_netherite_upgrade_smithing_template");
-    register_item_type(ITEM_SENTRY_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:item_sentry_armor_trim_smithing_template");
-    register_item_type(ITEM_DUNE_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:item_dune_armor_trim_smithing_template");
-    register_item_type(ITEM_COAST_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:item_coast_armor_trim_smithing_template");
-    register_item_type(ITEM_WILD_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:item_wild_armor_trim_smithing_template");
-    register_item_type(ITEM_WARD_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:item_ward_armor_trim_smithing_template");
-    register_item_type(ITEM_EYE_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:item_eye_armor_trim_smithing_template");
-    register_item_type(ITEM_VEX_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:item_vex_armor_trim_smithing_template");
-    register_item_type(ITEM_TIDE_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:item_tide_armor_trim_smithing_template");
-    register_item_type(ITEM_SNOUT_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:item_snout_armor_trim_smithing_template");
-    register_item_type(ITEM_RIB_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:item_rib_armor_trim_smithing_template");
-    register_item_type(ITEM_SPIRE_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:item_spire_armor_trim_smithing_template");
-    register_item_type(ITEM_POTTERY_SHARD_ARCHER, "minecraft:item_pottery_shard_archer");
-    register_item_type(ITEM_POTTERY_SHARD_PRIZE, "minecraft:item_pottery_shard_prize");
-    register_item_type(ITEM_POTTERY_SHARD_ARMS_UP, "minecraft:item_pottery_shard_arms_up");
-    register_item_type(ITEM_POTTERY_SHARD_SKULL, "minecraft:item_pottery_shard_skull");
+    register_item_type(ITEM_NETHERITE_UPGRADE_SMITHING_TEMPLATE, "minecraft:netherite_upgrade_smithing_template");
+    register_item_type(ITEM_SENTRY_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:sentry_armor_trim_smithing_template");
+    register_item_type(ITEM_DUNE_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:dune_armor_trim_smithing_template");
+    register_item_type(ITEM_COAST_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:coast_armor_trim_smithing_template");
+    register_item_type(ITEM_WILD_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:wild_armor_trim_smithing_template");
+    register_item_type(ITEM_WARD_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:ward_armor_trim_smithing_template");
+    register_item_type(ITEM_EYE_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:eye_armor_trim_smithing_template");
+    register_item_type(ITEM_VEX_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:vex_armor_trim_smithing_template");
+    register_item_type(ITEM_TIDE_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:tide_armor_trim_smithing_template");
+    register_item_type(ITEM_SNOUT_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:snout_armor_trim_smithing_template");
+    register_item_type(ITEM_RIB_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:rib_armor_trim_smithing_template");
+    register_item_type(ITEM_SPIRE_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:spire_armor_trim_smithing_template");
+    register_item_type(ITEM_WAYFINDER_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:wayfinder_armor_trim_smithing_template");
+    register_item_type(ITEM_SHAPER_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:shaper_armor_trim_smithing_template");
+    register_item_type(ITEM_SILENCE_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:silence_armor_trim_smithing_template");
+    register_item_type(ITEM_RAISER_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:raiser_armor_trim_smithing_template");
+    register_item_type(ITEM_HOST_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:host_armor_trim_smithing_template");
+    register_item_type(ITEM_FLOW_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:flow_armor_trim_smithing_template");
+    register_item_type(ITEM_BOLT_ARMOR_TRIM_SMITHING_TEMPLATE, "minecraft:bolt_armor_trim_smithing_template");
+    register_item_type(ITEM_ANGLER_POTTERY_SHERD, "minecraft:angler_pottery_sherd");
+    register_item_type(ITEM_ARCHER_POTTERY_SHERD, "minecraft:archer_pottery_sherd");
+    register_item_type(ITEM_ARMS_UP_POTTERY_SHERD, "minecraft:arms_up_pottery_sherd");
+    register_item_type(ITEM_BLADE_POTTERY_SHERD, "minecraft:blade_pottery_sherd");
+    register_item_type(ITEM_BREWER_POTTERY_SHERD, "minecraft:brewer_pottery_sherd");
+    register_item_type(ITEM_BURN_POTTERY_SHERD, "minecraft:burn_pottery_sherd");
+    register_item_type(ITEM_DANGER_POTTERY_SHERD, "minecraft:danger_pottery_sherd");
+    register_item_type(ITEM_EXPLORER_POTTERY_SHERD, "minecraft:explorer_pottery_sherd");
+    register_item_type(ITEM_FLOW_POTTERY_SHERD, "minecraft:flow_pottery_sherd");
+    register_item_type(ITEM_FRIEND_POTTERY_SHERD, "minecraft:friend_pottery_sherd");
+    register_item_type(ITEM_GUSTER_POTTERY_SHERD, "minecraft:guster_pottery_sherd");
+    register_item_type(ITEM_HEART_POTTERY_SHERD, "minecraft:heart_pottery_sherd");
+    register_item_type(ITEM_HEARTBREAK_POTTERY_SHERD, "minecraft:heartbreak_pottery_sherd");
+    register_item_type(ITEM_HOWL_POTTERY_SHERD, "minecraft:howl_pottery_sherd");
+    register_item_type(ITEM_MINER_POTTERY_SHERD, "minecraft:miner_pottery_sherd");
+    register_item_type(ITEM_MOURNER_POTTERY_SHERD, "minecraft:mourner_pottery_sherd");
+    register_item_type(ITEM_PLENTY_POTTERY_SHERD, "minecraft:plenty_pottery_sherd");
+    register_item_type(ITEM_PRIZE_POTTERY_SHERD, "minecraft:prize_pottery_sherd");
+    register_item_type(ITEM_SCRAPE_POTTERY_SHERD, "minecraft:scrape_pottery_sherd");
+    register_item_type(ITEM_SHEAF_POTTERY_SHERD, "minecraft:sheaf_pottery_sherd");
+    register_item_type(ITEM_SHELTER_POTTERY_SHERD, "minecraft:shelter_pottery_sherd");
+    register_item_type(ITEM_SKULL_POTTERY_SHERD, "minecraft:skull_pottery_sherd");
+    register_item_type(ITEM_SNORT_POTTERY_SHERD, "minecraft:snort_pottery_sherd");
+    register_item_type(ITEM_COPPER_GRATE, "minecraft:copper_grate");
+    register_item_type(ITEM_EXPOSED_COPPER_GRATE, "minecraft:exposed_copper_grate");
+    register_item_type(ITEM_WEATHERED_COPPER_GRATE, "minecraft:weathered_copper_grate");
+    register_item_type(ITEM_OXIDIZED_COPPER_GRATE, "minecraft:oxidized_copper_grate");
+    register_item_type(ITEM_WAXED_COPPER_GRATE, "minecraft:waxed_copper_grate");
+    register_item_type(ITEM_WAXED_EXPOSED_COPPER_GRATE, "minecraft:waxed_exposed_copper_grate");
+    register_item_type(ITEM_WAXED_WEATHERED_COPPER_GRATE, "minecraft:waxed_weathered_copper_grate");
+    register_item_type(ITEM_WAXED_OXIDIZED_COPPER_GRATE, "minecraft:waxed_oxidized_copper_grate");
+    register_item_type(ITEM_COPPER_BULB, "minecraft:copper_bulb");
+    register_item_type(ITEM_EXPOSED_COPPER_BULB, "minecraft:exposed_copper_bulb");
+    register_item_type(ITEM_WEATHERED_COPPER_BULB, "minecraft:weathered_copper_bulb");
+    register_item_type(ITEM_OXIDIZED_COPPER_BULB, "minecraft:oxidized_copper_bulb");
+    register_item_type(ITEM_WAXED_COPPER_BULB, "minecraft:waxed_copper_bulb");
+    register_item_type(ITEM_WAXED_EXPOSED_COPPER_BULB, "minecraft:waxed_exposed_copper_bulb");
+    register_item_type(ITEM_WAXED_WEATHERED_COPPER_BULB, "minecraft:waxed_weathered_copper_bulb");
+    register_item_type(ITEM_WAXED_OXIDIZED_COPPER_BULB, "minecraft:waxed_oxidized_copper_bulb");
+    register_item_type(ITEM_TRIAL_SPAWNER, "minecraft:trial_spawner");
+    register_item_type(ITEM_TRIAL_KEY, "minecraft:trial_key");
+    register_item_type(ITEM_OMINOUS_TRIAL_KEY, "minecraft:ominous_trial_key");
+    register_item_type(ITEM_VAULT, "minecraft:vault");
+    register_item_type(ITEM_OMINOUS_BOTTLE, "minecraft:ominous_bottle");
+    register_item_type(ITEM_BREEZE_ROD, "minecraft:breeze_rod");
 }

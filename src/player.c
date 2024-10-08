@@ -14,20 +14,26 @@
 // pain because packet types are ordered alphabetically and Mojang doesn't
 // provide an explicit list of packet IDs.
 enum serverbound_packet_type {
-    SBP_ACCEPT_TELEPORT,
+    SBP_ACCEPT_TELEPORTATION,
     SBP_BLOCK_ENTITY_TAG_QUERY,
     SBP_CHANGE_DIFFICULTY,
     SBP_CHAT_ACK,
     SBP_CHAT_COMMAND,
+    SBP_CHAT_COMMAND_SIGNED,
     SBP_CHAT,
     SBP_CHAT_SESSION_UPDATE,
+    SBP_CHUNK_BATCH_RECEIVED,
     SBP_CLIENT_COMMAND,
     SBP_CLIENT_INFORMATION,
     SBP_COMMAND_SUGGESTION,
+    SBP_CONFIGURATION_ACKNOWLEDGED,
     SBP_CONTAINER_BUTTON_CLICK,
     SBP_CONTAINER_CLICK,
     SBP_CONTAINER_CLOSE,
+    SBP_CONTAINER_SLOT_STATE_CHANGED,
+    SBP_COOKIE_RESPONSE,
     SBP_CUSTOM_PAYLOAD,
+    SBP_DEBUG_SAMPLE_SUBSCRIPTION,
     SBP_EDIT_BOOK,
     SBP_ENTITY_TAG_QUERY,
     SBP_INTERACT,
@@ -37,10 +43,11 @@ enum serverbound_packet_type {
     SBP_MOVE_PLAYER_POS,
     SBP_MOVE_PLAYER_POS_ROT,
     SBP_MOVE_PLAYER_ROT,
-    SBP_MOVE_PLAYER_STATUS,
+    SBP_MOVE_PLAYER_STATUS_ONLY,
     SBP_MOVE_VEHICLE,
     SBP_PADDLE_BOAT,
     SBP_PICK_ITEM,
+    SBP_PING_REQUEST,
     SBP_PLACE_RECIPE,
     SBP_PLAYER_ABILITIES,
     SBP_PLAYER_ACTION,
@@ -65,7 +72,6 @@ enum serverbound_packet_type {
     SBP_TELEPORT_TO_ENTITY,
     SBP_USE_ITEM_ON,
     SBP_USE_ITEM,
-    SBP_VEC_DELTA_CODEC,
     SERVERBOUND_PACKET_COUNT,
 };
 
@@ -73,7 +79,6 @@ enum clientbound_packet_type {
     CBP_BUNDLE,
     CBP_ADD_ENTITY,
     CBP_ADD_EXPERIENCE_ORB,
-    CBP_ADD_PLAYER,
     CBP_ANIMATE,
     CBP_AWARD_STATS,
     CBP_BLOCK_CHANGED_ACK,
@@ -83,18 +88,22 @@ enum clientbound_packet_type {
     CBP_BLOCK_UPDATE,
     CBP_BOSS_EVENT,
     CBP_CHANGE_DIFFICULTY,
+    CBP_CHUNK_BATCH_FINISHED,
+    CBP_CHUNK_BATCH_START,
     CBP_CHUNKS_BIOMES,
     CBP_CLEAR_TITLES,
-    CBP_COMMANDS,
     CBP_COMMAND_SUGGESTIONS,
+    CBP_COMMANDS,
     CBP_CONTAINER_CLOSE,
     CBP_CONTAINER_SET_CONTENT,
     CBP_CONTAINER_SET_DATA,
     CBP_CONTAINER_SET_SLOT,
+    CBP_COOKIE_REQUEST,
     CBP_COOLDOWN,
     CBP_CUSTOM_CHAT_COMPLETIONS,
     CBP_CUSTOM_PAYLOAD,
     CBP_DAMAGE_EVENT,
+    CBP_DEBUG_SAMPLE,
     CBP_DELETE_CHAT,
     CBP_DISCONNECT,
     CBP_DISGUISED_CHAT,
@@ -104,7 +113,7 @@ enum clientbound_packet_type {
     CBP_GAME_EVENT,
     CBP_HORSE_SCREEN_OPEN,
     CBP_HURT_ANIMATION,
-    CBP_INITIALISE_BORDER,
+    CBP_INITIALIZE_BORDER,
     CBP_KEEP_ALIVE,
     CBP_LEVEL_CHUNK_WITH_LIGHT,
     CBP_LEVEL_EVENT,
@@ -121,6 +130,7 @@ enum clientbound_packet_type {
     CBP_OPEN_SCREEN,
     CBP_OPEN_SIGN_EDITOR,
     CBP_PING,
+    CBP_PONG_RESPONSE,
     CBP_PLACE_GHOST_RECIPE,
     CBP_PLAYER_ABILITIES,
     CBP_PLAYER_CHAT,
@@ -134,21 +144,23 @@ enum clientbound_packet_type {
     CBP_RECIPE,
     CBP_REMOVE_ENTITIES,
     CBP_REMOVE_MOB_EFFECT,
-    CBP_RESOURCE_PACK,
+    CBP_RESET_SCORE,
+    CBP_RESOURCE_PACK_POP,
+    CBP_RESOURCE_PACK_PUSH,
     CBP_RESPAWN,
     CBP_ROTATE_HEAD,
     CBP_SECTION_BLOCKS_UPDATE,
     CBP_SELECT_ADVANCEMENTS_TAB,
     CBP_SERVER_DATA,
     CBP_SET_ACTION_BAR_TEXT,
-    CBP_SET_BORDER_CENTRE,
+    CBP_SET_BORDER_CENTER,
     CBP_SET_BORDER_LERP_SIZE,
     CBP_SET_BORDER_SIZE,
     CBP_SET_BORDER_WARNING_DELAY,
     CBP_SET_BORDER_WARNING_DISTANCE,
     CBP_SET_CAMERA,
     CBP_SET_CARRIED_ITEM,
-    CBP_SET_CHUNK_CACHE_CENTRE,
+    CBP_SET_CHUNK_CACHE_CENTER,
     CBP_SET_CHUNK_CACHE_RADIUS,
     CBP_SET_DEFAULT_SPAWN_POSITION,
     CBP_SET_DISPLAY_OBJECTIVE,
@@ -163,24 +175,31 @@ enum clientbound_packet_type {
     CBP_SET_PLAYER_TEAM,
     CBP_SET_SCORE,
     CBP_SET_SIMULATION_DISTANCE,
-    CBP_SET_SET_SUBTITLE_TEXT,
+    CBP_SET_SUBTITLE_TEXT,
     CBP_SET_TIME,
-    CBP_SET_TITLES,
     CBP_SET_TITLE_TEXT,
+    CBP_SET_TITLES_ANIMATION,
     CBP_SOUND_ENTITY,
     CBP_SOUND,
+    CBP_START_CONFIGURATION,
     CBP_STOP_SOUND,
+    CBP_STORE_COOKIE,
     CBP_SYSTEM_CHAT,
     CBP_TAB_LIST,
     CBP_TAG_QUERY,
     CBP_TAKE_ITEM_ENTITY,
     CBP_TELEPORT_ENTITY,
+    CBP_TICKING_STATE,
+    CBP_TICKING_STEP,
+    CBP_TRANSFER,
     CBP_UPDATE_ADVANCEMENTS,
     CBP_UPDATE_ATTRIBUTES,
-    CBP_UPDATE_ENABLE_FEATURES,
     CBP_UPDATE_MOB_EFFECT,
     CBP_UPDATE_RECIPES,
     CBP_UPDATE_TAGS,
+    CBP_PROJECTILE_POWER,
+    CBP_CUSTOM_REPORT_DETAILS,
+    CBP_SERVER_LINKS,
     CLIENTBOUND_PACKET_COUNT,
 };
 
@@ -369,8 +388,8 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
     i32 packet_id = ReadVarU32(rec_cursor);
 
     switch (packet_id) {
-    case SBP_ACCEPT_TELEPORT: {
-        LogInfo("Packet accept teleport");
+    case SBP_ACCEPT_TELEPORTATION: {
+        LogInfo("Packet accept teleportation");
         i32 teleport_id = ReadVarU32(rec_cursor);
 
         if ((entity->flags & ENTITY_TELEPORTING)
@@ -425,6 +444,11 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
         }
         break;
     }
+    case SBP_CHAT_COMMAND_SIGNED: {
+        LogInfo("Packet chat command signed");
+        // TODO(traks): parse and process
+        break;
+    }
     case SBP_CHAT: {
         String chat = ReadVarString(rec_cursor, 256);
         u64 timestamp = ReadU64(rec_cursor);
@@ -471,6 +495,12 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
         // NOTE(traks): signature data
         CursorSkip(rec_cursor, 4096);
 
+        // TODO(traks): handle packet
+        break;
+    }
+    case SBP_CHUNK_BATCH_RECEIVED: {
+        LogInfo("Packet chunk batch received");
+        f32 clientDesiredChunksPerTick = ReadF32(rec_cursor);
         // TODO(traks): handle packet
         break;
     }
@@ -521,6 +551,11 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
         LogInfo("Packet command suggestion");
         i32 id = ReadVarU32(rec_cursor);
         String command = ReadVarString(rec_cursor, 32500);
+        break;
+    }
+    case SBP_CONFIGURATION_ACKNOWLEDGED: {
+        LogInfo("Packet configuration acknowledged");
+        // TODO(traks): parse and process
         break;
     }
     case SBP_CONTAINER_BUTTON_CLICK: {
@@ -604,6 +639,16 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
         u8 container_id = ReadU8(rec_cursor);
         break;
     }
+    case SBP_CONTAINER_SLOT_STATE_CHANGED: {
+        LogInfo("Packet contained slot state changed");
+        // TODO(traks): parse and process
+        break;
+    }
+    case SBP_COOKIE_RESPONSE: {
+        LogInfo("Packet cookie response");
+        // TODO(traks): parse and process
+        break;
+    }
     case SBP_CUSTOM_PAYLOAD: {
         LogInfo("Packet custom payload");
         String id = ReadVarString(rec_cursor, 32767);
@@ -617,6 +662,11 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
         }
 
         rec_cursor->index += payload_size;
+        break;
+    }
+    case SBP_DEBUG_SAMPLE_SUBSCRIPTION: {
+        LogInfo("Packet debug sample subscription");
+        // TODO(traks): parse and process
         break;
     }
     case SBP_EDIT_BOOK: {
@@ -726,7 +776,7 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
                 head_rot_x, head_rot_y, on_ground);
         break;
     }
-    case SBP_MOVE_PLAYER_STATUS: {
+    case SBP_MOVE_PLAYER_STATUS_ONLY: {
         int on_ground = ReadU8(rec_cursor);
         process_move_player_packet(entity,
                 entity->x, entity->y, entity->z,
@@ -752,6 +802,11 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
     case SBP_PICK_ITEM: {
         LogInfo("Packet pick item");
         i32 slot = ReadVarU32(rec_cursor);
+        break;
+    }
+    case SBP_PING_REQUEST: {
+        LogInfo("Packet ping request");
+        // TODO(traks): parse and process
         break;
     }
     case SBP_PLACE_RECIPE: {
@@ -918,7 +973,7 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
             entity->flags |= ENTITY_SHIFTING;
             entity->changed_data |= 1 << ENTITY_DATA_FLAGS;
             if (!(entity->flags & PLAYER_FLYING)) {
-                entity->pose = ENTITY_POSE_SHIFTING;
+                entity->pose = ENTITY_POSE_CROUCHING;
                 entity->changed_data |= 1 << ENTITY_DATA_POSE;
             }
             break;
@@ -1617,7 +1672,7 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
             i32 blockLight = GetSectionLight(ch->lightSections[basedY >> 4].blockLight, posIndex);
             i32 maxHeight = ch->motion_blocking_height_map[((z & 0xf) << 4) | (x & 0xf)];
 
-            if (serv->global_msg_count < ARRAY_SIZE(serv->global_msgs)) {
+            if (serv->global_msg_count < (i32) ARRAY_SIZE(serv->global_msgs)) {
                 global_msg * msg = serv->global_msgs + serv->global_msg_count;
                 serv->global_msg_count++;
                 int text_size = sprintf(
@@ -2340,24 +2395,27 @@ start_tracking_entity(entity_base * player,
     case ENTITY_PLAYER: {
         tracked->update_interval = 2;
 
-        begin_packet(send_cursor, CBP_ADD_PLAYER);
+        begin_packet(send_cursor, CBP_ADD_ENTITY);
         WriteVarU32(send_cursor, entity->eid);
         // @TODO(traks) appropriate UUID
         WriteU64(send_cursor, 0);
         WriteU64(send_cursor, entity->eid);
+        WriteVarU32(send_cursor, entity->type);
         WriteF64(send_cursor, entity->x);
         WriteF64(send_cursor, entity->y);
         WriteF64(send_cursor, entity->z);
-        WriteU8(send_cursor, encoded_rot_y);
         WriteU8(send_cursor, encoded_rot_x);
+        WriteU8(send_cursor, encoded_rot_y);
+        WriteU8(send_cursor, encoded_rot_y); // TODO(traks): y head rot?
+        // NOTE(traks): entity data not used for players
+        WriteVarU32(send_cursor, 0);
+        // TODO(traks): velocity?
+        WriteU16(send_cursor, 0);
+        WriteU16(send_cursor, 0);
+        WriteU16(send_cursor, 0);
         finish_packet(send_cursor, player);
 
         tracked->last_sent_head_rot_y = encoded_rot_y;
-
-        begin_packet(send_cursor, CBP_ROTATE_HEAD);
-        WriteVarU32(send_cursor, entity->eid);
-        WriteU8(send_cursor, encoded_rot_y);
-        finish_packet(send_cursor, player);
         break;
     }
     case ENTITY_ITEM: {
@@ -2457,7 +2515,7 @@ static void UpdateChunkCache(entity_base * player, Cursor * sendCursor) {
 
     if (player->player.chunkCacheCentreX != nextChunkCacheCentreX
             || player->player.chunkCacheCentreZ != nextChunkCacheCentreZ) {
-        begin_packet(sendCursor, CBP_SET_CHUNK_CACHE_CENTRE);
+        begin_packet(sendCursor, CBP_SET_CHUNK_CACHE_CENTER);
         WriteVarU32(sendCursor, nextChunkCacheCentreX);
         WriteVarU32(sendCursor, nextChunkCacheCentreZ);
         finish_packet(sendCursor, player);
@@ -2868,11 +2926,6 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         WriteU8(send_cursor, 0); // is debug
         WriteU8(send_cursor, 0); // is flat
         WriteU8(send_cursor, 0); // has death location, world + block pos after if true
-        finish_packet(send_cursor, player);
-
-        begin_packet(send_cursor, CBP_UPDATE_ENABLE_FEATURES);
-        WriteVarU32(send_cursor, 1);
-        WriteVarString(send_cursor, STR("minecraft:vanilla"));
         finish_packet(send_cursor, player);
 
         begin_packet(send_cursor, CBP_SET_CARRIED_ITEM);
