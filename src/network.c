@@ -179,6 +179,9 @@ static void DeleteClient(i32 clientIndex) {
 }
 
 static void ClientMarkTerminate(Client * client) {
+    // TODO(traks): we should really be sending disconnect packets back with
+    // some error message. Probably also need to wait a bit before actually
+    // closing the connection? Otherwise the message may not be received.
     client->flags |= CLIENT_SHOULD_TERMINATE;
 }
 
@@ -285,6 +288,10 @@ static Cursor ClientGetNextPacket(Client * client) {
 static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Cursor * sendCursor) {
     i32 packetId = ReadVarU32(recCursor);
 
+    // TODO(traks): We should handle legacy ping requests. They have a different
+    // structure than current packets, so some special handling will be needed
+    // when we receive them to figure out the packet size and so on.
+
     switch (client->protocolState) {
     case PROTOCOL_HANDSHAKE: {
         if (packetId != 0) {
@@ -300,12 +307,17 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
         if (next_state == 1) {
             client->protocolState = PROTOCOL_AWAIT_STATUS_REQUEST;
         } else if (next_state == 2) {
+            // NOTE(traks): login
             if (protocol_version != SERVER_PROTOCOL_VERSION) {
                 LogInfo("Client protocol version %jd != %jd", (intmax_t) protocol_version, (intmax_t) SERVER_PROTOCOL_VERSION);
                 recCursor->error = 1;
             } else {
                 client->protocolState = PROTOCOL_AWAIT_HELLO;
             }
+        } else if (next_state == 3) {
+            // NOTE(traks): client was transferred to us. Currently we don't
+            // allow this for simplicity, so just error out
+            recCursor->error = 1;
         } else {
             recCursor->error = 1;
         }
@@ -339,6 +351,10 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
                 SERVER_GAME_VERSION, SERVER_PROTOCOL_VERSION,
                 (int) MAX_PLAYERS, (int) list_size);
 
+        // TODO(traks): don't display players with "Allow server listings"
+        // turned off, and don't display players we have not yet fully joined
+        // (maybe we do this already? should also not count those towards the
+        // amount of online players?)
         for (int sampleIndex = 0; sampleIndex < sample_size; sampleIndex++) {
             int target = sampleIndex + (rand() % (list_size - sampleIndex));
             entity_id * sampled = list + target;
@@ -364,10 +380,13 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
             *sampled = list[sampleIndex];
         }
 
-        // TODO(traks): implement chat previewing
+        // TODO(traks): support secure chat
         response_size += sprintf((char *) response + response_size,
-                "]},\"description\":{\"text\":\"Running Blaze\"}}");
+                "]},\"description\":{\"text\":\"Running Blaze\"},\"enforcesSecureChat\":false}");
 
+        // TODO(traks): this whole packet size computation stuff is kinda yuck,
+        // also below. Get rid of it similarly to how we do it for game state
+        // packets.
         int out_size = VarU32Size(0) + VarU32Size(response_size) + response_size;
         int start = sendCursor->index;
         WriteVarU32(sendCursor, out_size);
@@ -407,12 +426,9 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
         memcpy(client->username, username.data, username.size);
         client->usernameSize = username.size;
 
-        i32 hasUuid = ReadU8(recCursor);
-        if (hasUuid) {
-            u64 uuid_high = ReadU64(recCursor);
-            u64 uuid_low = ReadU64(recCursor);
-            // TODO(traks): do something with the UUID
-        }
+        u64 uuid_high = ReadU64(recCursor);
+        u64 uuid_low = ReadU64(recCursor);
+        // TODO(traks): do something with the UUID
 
         // @TODO(traks) online mode
         // @TODO(traks) enable compression
@@ -493,7 +509,7 @@ static void ClientTick(Client * client) {
     // NOTE(traks): start the PLAY state and transfer the connection to the
     // player entity
 
-    if (client->sendBuf.cursor == 0 && client->protocolState == PROTOCOL_JOIN_WHEN_SENT) {
+    if (client->sendBuf.cursor == 0 && client->protocolState == PROTOCOL_JOIN_WHEN_SENT && !(client->flags & CLIENT_SHOULD_TERMINATE)) {
         entity_base * entity = try_reserve_entity(ENTITY_PLAYER);
 
         if (entity->type == ENTITY_NULL) {
@@ -549,6 +565,9 @@ static void ClientTick(Client * client) {
         serv->tab_list_added[serv->tab_list_added_count] = entity->eid;
         serv->tab_list_added_count++;
 
+        // NOTE(traks): updating the connection will be done on a player basis
+        // instead of during initial connection processing
+        assert(!(client->flags & CLIENT_SHOULD_TERMINATE));
         client->flags |= CLIENT_DID_TRANSFER_TO_PLAYER;
 
         LogInfo("Player '%.*s' joined", (int) client->usernameSize, client->username);

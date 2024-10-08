@@ -252,7 +252,7 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
     }
 
     String status = NbtGetString(&chunkNbt, STR("Status"));
-    if (!net_string_equal(status, STR("full")) && !net_string_equal(status, STR("empty"))) {
+    if (!net_string_equal(status, STR("minecraft:full"))) {
         // @TODO(traks) this message gets spammed on the edges of pregenerated
         // terrain. Maybe turn it into a debug message.
         LogInfo("Chunk not fully generated, status: %.*s", status.size, status.data);

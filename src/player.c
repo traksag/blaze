@@ -1657,6 +1657,9 @@ void
 tick_player(entity_base * player, MemoryArena * tick_arena) {
     BeginTimings(TickPlayer);
 
+    // TODO(traks): should we wait with actually creating the player and ticking
+    // the player until the login packets have been sent?
+
     // @TODO(traks) remove
     if (0) {
         i32 x = floor(player->x);
