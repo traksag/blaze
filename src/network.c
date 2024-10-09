@@ -13,13 +13,20 @@
 
 #define CLIENT_SHOULD_TERMINATE ((u32) 1 << 0)
 #define CLIENT_DID_TRANSFER_TO_PLAYER ((u32) 1 << 1)
+#define CLIENT_PACKET_COMPRESSION ((u32) 1 << 2)
+#define CLIENT_WANT_KNOWN_PACKS ((u32) 1 << 3)
+#define CLIENT_GOT_KNOWN_PACKS ((u32) 1 << 4)
+#define CLIENT_GOT_CLIENT_INFO ((u32) 1 << 5)
+#define CLIENT_WANT_FINISH_CONFIGURATION ((u32) 1 << 6)
 
 enum ProtocolState {
     PROTOCOL_HANDSHAKE,
     PROTOCOL_AWAIT_STATUS_REQUEST,
     PROTOCOL_AWAIT_PING_REQUEST,
     PROTOCOL_AWAIT_HELLO,
-    PROTOCOL_JOIN_WHEN_SENT,
+    PROTOCOL_AWAIT_LOGIN_ACK,
+    PROTOCOL_CONFIGURATION,
+    PROTOCOL_JOIN,
 };
 
 typedef struct {
@@ -34,12 +41,21 @@ typedef struct {
 
     Buffer recBuf;
     Buffer sendBuf;
-    Buffer recPacketBuf;
-    i32 recPacketBufConsumed;
 
     int protocolState;
+    UUID uuid;
     unsigned char username[16];
     int usernameSize;
+
+    u8 locale[MAX_PLAYER_LOCALE_SIZE];
+    i32 localeSize;
+    i32 nextChunkCacheRadius;
+    i32 chatMode;
+    i32 seesChatColours;
+    u8 skinCustomisation;
+    i32 mainHand;
+    i32 textFiltering;
+    i32 showInStatusList;
 } Client;
 
 typedef struct {
@@ -142,10 +158,9 @@ static void CreateClient(int clientSocket) {
     //
     //  2. Receive a client intention packet and hello packet and store them
     //     together inside the receive buffer.
-    i32 receiveBufferSize = 1024;
+    i32 receiveBufferSize = 1 << 10;
     // TODO(traks): figure out appropriate size
-    i32 sendBufferSize = 2048;
-    i32 receivePacketBufferSize = 1024;
+    i32 sendBufferSize = 16 << 10;
     client->recBuf = (Buffer) {
         .data = malloc(receiveBufferSize),
         .size = receiveBufferSize,
@@ -153,10 +168,6 @@ static void CreateClient(int clientSocket) {
     client->sendBuf = (Buffer) {
         .data = malloc(sendBufferSize),
         .size = sendBufferSize,
-    };
-    client->recPacketBuf = (Buffer) {
-        .data = malloc(receivePacketBufferSize),
-        .size = receivePacketBufferSize,
     };
 
     network.clientArray[clientIndex] = client;
@@ -186,107 +197,308 @@ static void ClientMarkTerminate(Client * client) {
     client->flags |= CLIENT_SHOULD_TERMINATE;
 }
 
-static void ClientReadAllPackets(Client * client) {
-    if (client->recBuf.cursor == client->recBuf.size) {
-        // NOTE(traks): Should never happen. If there's a full packet in the
-        // buffer, we always drain it. Maybe some parse error occurred and we
-        // didn't kick the client?
-        LogInfo("Client read buffer full");
-        ClientMarkTerminate(client);
-        return;
+static void WriteSingleRegistry(Client * client, Cursor * sendCursor, char * name, char * * entries, i32 entryCount) {
+    BeginPacket(sendCursor, 7);
+    WriteVarString(sendCursor, STR(name));
+    WriteVarU32(sendCursor, entryCount);
+    for (i32 i = 0; i < entryCount; i++) {
+        WriteVarString(sendCursor, STR(entries[i]));
+        WriteU8(sendCursor, 0); // no data
     }
-
-    ssize_t receiveSize = recv(client->socket, client->recBuf.data + client->recBuf.cursor, client->recBuf.size - client->recBuf.cursor, 0);
-
-    if (receiveSize == 0) {
-        // NOTE(traks): client closed its end of the connection
-        LogInfo("Client disconnected itself");
-        ClientMarkTerminate(client);
-        return;
-    } else if (receiveSize == -1) {
-        if (errno == EAGAIN) {
-            // NOTE(traks): EAGAIN means there was no new data in the socket's
-            // internal receive buffer
-        } else {
-            LogErrno("Couldn't receive protocol data from client: %s");
-            ClientMarkTerminate(client);
-            return;
-        }
-    } else {
-        client->recBuf.cursor += receiveSize;
-    }
-
-    Cursor * recCursor = &(Cursor) {
-        .data = client->recBuf.data,
-        .size = client->recBuf.cursor,
-    };
-
-    // NOTE(traks): compact the incoming packet buffer
-    memmove(client->recPacketBuf.data, client->recPacketBuf.data + client->recPacketBufConsumed, client->recPacketBuf.cursor - client->recPacketBufConsumed);
-    client->recPacketBuf.cursor -= client->recPacketBufConsumed;
-    client->recPacketBufConsumed = 0;
-
-    for (;;) {
-        CursorSetMark(recCursor);
-        i32 packetSizeRemaining = ReadVarU32(recCursor);
-        i32 prefixSize = recCursor->index - recCursor->mark;
-        CursorRewind(recCursor);
-
-        if (recCursor->error != 0) {
-            // NOTE(traks): packet size not fully received yet
-            break;
-        }
-
-        i32 maxRemaining = client->recBuf.size - prefixSize;
-        if (packetSizeRemaining <= 0 || packetSizeRemaining > maxRemaining) {
-            LogInfo("Packet size error: %d, max: %d", packetSizeRemaining, maxRemaining);
-            ClientMarkTerminate(client);
-            return;
-        }
-
-        i32 totalPacketSize = packetSizeRemaining + prefixSize;
-        if (totalPacketSize > CursorRemaining(recCursor)) {
-            // NOTE(traks): packet not fully received yet
-            break;
-        }
-
-        if (totalPacketSize > (client->recPacketBuf.size - client->recPacketBuf.cursor)) {
-            LogInfo("Client sending too much data");
-            ClientMarkTerminate(client);
-            return;
-        }
-
-        memcpy(client->recPacketBuf.data + client->recPacketBuf.cursor, recCursor->data + recCursor->index, totalPacketSize);
-        client->recPacketBuf.cursor += totalPacketSize;
-
-        recCursor->index += totalPacketSize;
-    }
-
-    memmove(recCursor->data, recCursor->data + recCursor->index, recCursor->size - recCursor->index);
-    client->recBuf.cursor = recCursor->size - recCursor->index;
+    FinishPacket(sendCursor, !!(client->flags & CLIENT_PACKET_COMPRESSION));
 }
 
-static Cursor ClientGetNextPacket(Client * client) {
-    Cursor res = {0};
-    if (client->recPacketBufConsumed == client->recPacketBuf.cursor) {
-        return res;
-    }
-
-    Cursor * temp = &(Cursor) {
-        .data = client->recPacketBuf.data,
-        .size = client->recPacketBuf.cursor,
-        .index = client->recPacketBufConsumed,
+static void WriteAllRegistries(Client * client, Cursor * sendCursor) {
+    char * trimMaterials[] = {
+        "minecraft:amethyst",
+        "minecraft:copper",
+        "minecraft:diamond",
+        "minecraft:emerald",
+        "minecraft:gold",
+        "minecraft:iron",
+        "minecraft:lapis",
+        "minecraft:netherite",
+        "minecraft:quartz",
+        "minecraft:redstone",
     };
-    i32 packetSizeRemaining = ReadVarU32(temp);
+    WriteSingleRegistry(client, sendCursor, "minecraft:trim_material", trimMaterials, ARRAY_SIZE(trimMaterials));
 
-    res.data = temp->data + temp->index;
-    res.size = packetSizeRemaining;
+    char * trimPatterns[] = {
+        "minecraft:bolt",
+        "minecraft:coast",
+        "minecraft:dune",
+        "minecraft:eye",
+        "minecraft:flow",
+        "minecraft:host",
+        "minecraft:raiser",
+        "minecraft:rib",
+        "minecraft:sentry",
+        "minecraft:shaper",
+        "minecraft:silence",
+        "minecraft:snout",
+        "minecraft:spire",
+        "minecraft:tide",
+        "minecraft:vex",
+        "minecraft:ward",
+        "minecraft:wayfinder",
+        "minecraft:wild",
+    };
+    WriteSingleRegistry(client, sendCursor, "minecraft:trim_pattern", trimPatterns, ARRAY_SIZE(trimPatterns));
 
-    client->recPacketBufConsumed = temp->index + packetSizeRemaining;
-    return res;
+    char * bannerPatterns[] = {
+        "minecraft:base",
+        "minecraft:border",
+        "minecraft:bricks",
+        "minecraft:circle",
+        "minecraft:creeper",
+        "minecraft:cross",
+        "minecraft:curly_border",
+        "minecraft:diagonal_left",
+        "minecraft:diagonal_right",
+        "minecraft:diagonal_up_left",
+        "minecraft:diagonal_up_right",
+        "minecraft:flow",
+        "minecraft:flower",
+        "minecraft:globe",
+        "minecraft:gradient",
+        "minecraft:gradient_up",
+        "minecraft:guster",
+        "minecraft:half_horizontal",
+        "minecraft:half_horizontal_bottom",
+        "minecraft:half_vertical",
+        "minecraft:half_vertical_right",
+        "minecraft:mojang",
+        "minecraft:piglin",
+        "minecraft:rhombus",
+        "minecraft:skull",
+        "minecraft:small_stripes",
+        "minecraft:square_bottom_left",
+        "minecraft:square_bottom_right",
+        "minecraft:square_top_left",
+        "minecraft:square_top_right",
+        "minecraft:straight_cross",
+        "minecraft:stripe_bottom",
+        "minecraft:stripe_center",
+        "minecraft:stripe_downleft",
+        "minecraft:stripe_downright",
+        "minecraft:stripe_left",
+        "minecraft:stripe_middle",
+        "minecraft:stripe_right",
+        "minecraft:stripe_top",
+        "minecraft:triangle_bottom",
+        "minecraft:triangle_top",
+        "minecraft:triangles_bottom",
+        "minecraft:triangles_top",
+    };
+    WriteSingleRegistry(client, sendCursor, "minecraft:banner_pattern", bannerPatterns, ARRAY_SIZE(bannerPatterns));
+
+    char * biomes[] = {
+        "minecraft:badlands",
+        "minecraft:bamboo_jungle",
+        "minecraft:basalt_deltas",
+        "minecraft:beach",
+        "minecraft:birch_forest",
+        "minecraft:cherry_grove",
+        "minecraft:cold_ocean",
+        "minecraft:crimson_forest",
+        "minecraft:dark_forest",
+        "minecraft:deep_cold_ocean",
+        "minecraft:deep_dark",
+        "minecraft:deep_frozen_ocean",
+        "minecraft:deep_lukewarm_ocean",
+        "minecraft:deep_ocean",
+        "minecraft:desert",
+        "minecraft:dripstone_caves",
+        "minecraft:end_barrens",
+        "minecraft:end_highlands",
+        "minecraft:end_midlands",
+        "minecraft:eroded_badlands",
+        "minecraft:flower_forest",
+        "minecraft:forest",
+        "minecraft:frozen_ocean",
+        "minecraft:frozen_peaks",
+        "minecraft:frozen_river",
+        "minecraft:grove",
+        "minecraft:ice_spikes",
+        "minecraft:jagged_peaks",
+        "minecraft:jungle",
+        "minecraft:lukewarm_ocean",
+        "minecraft:lush_caves",
+        "minecraft:mangrove_swamp",
+        "minecraft:meadow",
+        "minecraft:mushroom_fields",
+        "minecraft:nether_wastes",
+        "minecraft:ocean",
+        "minecraft:old_growth_birch_forest",
+        "minecraft:old_growth_pine_taiga",
+        "minecraft:old_growth_spruce_taiga",
+        "minecraft:plains",
+        "minecraft:river",
+        "minecraft:savanna",
+        "minecraft:savanna_plateau",
+        "minecraft:small_end_islands",
+        "minecraft:snowy_beach",
+        "minecraft:snowy_plains",
+        "minecraft:snowy_slopes",
+        "minecraft:snowy_taiga",
+        "minecraft:soul_sand_valley",
+        "minecraft:sparse_jungle",
+        "minecraft:stony_peaks",
+        "minecraft:stony_shore",
+        "minecraft:sunflower_plains",
+        "minecraft:swamp",
+        "minecraft:taiga",
+        "minecraft:the_end",
+        "minecraft:the_void",
+        "minecraft:warm_ocean",
+        "minecraft:warped_forest",
+        "minecraft:windswept_forest",
+        "minecraft:windswept_gravelly_hills",
+        "minecraft:windswept_hills",
+        "minecraft:windswept_savanna",
+        "minecraft:wooded_badlands",
+    };
+    WriteSingleRegistry(client, sendCursor, "minecraft:worldgen/biome", biomes, ARRAY_SIZE(biomes));
+
+    char * chatTypes[] = {
+        "minecraft:chat",
+        "minecraft:emote_command",
+        "minecraft:msg_command_incoming",
+        "minecraft:msg_command_outgoing",
+        "minecraft:say_command",
+        "minecraft:team_msg_command_incoming",
+        "minecraft:team_msg_command_outgoing",
+    };
+    WriteSingleRegistry(client, sendCursor, "minecraft:chat_type", chatTypes, ARRAY_SIZE(chatTypes));
+
+    char * damageTypes[] = {
+        "minecraft:arrow",
+        "minecraft:bad_respawn_point",
+        "minecraft:cactus",
+        "minecraft:campfire",
+        "minecraft:cramming",
+        "minecraft:dragon_breath",
+        "minecraft:drown",
+        "minecraft:dry_out",
+        "minecraft:explosion",
+        "minecraft:fall",
+        "minecraft:falling_anvil",
+        "minecraft:falling_block",
+        "minecraft:falling_stalactite",
+        "minecraft:fireball",
+        "minecraft:fireworks",
+        "minecraft:fly_into_wall",
+        "minecraft:freeze",
+        "minecraft:generic",
+        "minecraft:generic_kill",
+        "minecraft:hot_floor",
+        "minecraft:in_fire",
+        "minecraft:in_wall",
+        "minecraft:indirect_magic",
+        "minecraft:lava",
+        "minecraft:lightning_bolt",
+        "minecraft:magic",
+        "minecraft:mob_attack",
+        "minecraft:mob_attack_no_aggro",
+        "minecraft:mob_projectile",
+        "minecraft:on_fire",
+        "minecraft:out_of_world",
+        "minecraft:outside_border",
+        "minecraft:player_attack",
+        "minecraft:player_explosion",
+        "minecraft:sonic_boom",
+        "minecraft:spit",
+        "minecraft:stalagmite",
+        "minecraft:starve",
+        "minecraft:sting",
+        "minecraft:sweet_berry_bush",
+        "minecraft:thorns",
+        "minecraft:thrown",
+        "minecraft:trident",
+        "minecraft:unattributed_fireball",
+        "minecraft:wind_charge",
+        "minecraft:wither",
+        "minecraft:wither_skull",
+    };
+    WriteSingleRegistry(client, sendCursor, "minecraft:damage_type", damageTypes, ARRAY_SIZE(damageTypes));
+
+    char * dimensionTypes[] = {
+        "minecraft:overworld",
+        "minecraft:overworld_caves",
+        "minecraft:the_end",
+        "minecraft:the_nether",
+    };
+    WriteSingleRegistry(client, sendCursor, "minecraft:dimension_type", dimensionTypes, ARRAY_SIZE(dimensionTypes));
+
+    char * wolfVariants[] = {
+        "minecraft:ashen",
+        "minecraft:black",
+        "minecraft:chestnut",
+        "minecraft:pale",
+        "minecraft:rusty",
+        "minecraft:snowy",
+        "minecraft:spotted",
+        "minecraft:striped",
+        "minecraft:woods",
+    };
+    WriteSingleRegistry(client, sendCursor, "minecraft:wolf_variant", wolfVariants, ARRAY_SIZE(wolfVariants));
+
+    char * paintingVariants[] = {
+        "minecraft:alban",
+        "minecraft:aztec",
+        "minecraft:aztec2",
+        "minecraft:backyard",
+        "minecraft:baroque",
+        "minecraft:bomb",
+        "minecraft:bouquet",
+        "minecraft:burning_skull",
+        "minecraft:bust",
+        "minecraft:cavebird",
+        "minecraft:changing",
+        "minecraft:cotan",
+        "minecraft:courbet",
+        "minecraft:creebet",
+        "minecraft:donkey_kong",
+        "minecraft:earth",
+        "minecraft:endboss",
+        "minecraft:fern",
+        "minecraft:fighters",
+        "minecraft:finding",
+        "minecraft:fire",
+        "minecraft:graham",
+        "minecraft:humble",
+        "minecraft:kebab",
+        "minecraft:lowmist",
+        "minecraft:match",
+        "minecraft:meditative",
+        "minecraft:orb",
+        "minecraft:owlemons",
+        "minecraft:passage",
+        "minecraft:pigscene",
+        "minecraft:plant",
+        "minecraft:pointer",
+        "minecraft:pond",
+        "minecraft:pool",
+        "minecraft:prairie_ride",
+        "minecraft:sea",
+        "minecraft:skeleton",
+        "minecraft:skull_and_roses",
+        "minecraft:stage",
+        "minecraft:sunflowers",
+        "minecraft:sunset",
+        "minecraft:tides",
+        "minecraft:unpacked",
+        "minecraft:void",
+        "minecraft:wanderer",
+        "minecraft:wasteland",
+        "minecraft:water",
+        "minecraft:wind",
+        "minecraft:wither",
+    };
+    WriteSingleRegistry(client, sendCursor, "minecraft:painting_variant", paintingVariants, ARRAY_SIZE(paintingVariants));
 }
 
-static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Cursor * sendCursor) {
+static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Cursor * sendCursor, MemoryArena * arena) {
     i32 packetId = ReadVarU32(recCursor);
 
     // TODO(traks): We should handle legacy ping requests. They have a different
@@ -331,21 +543,16 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
 
         // NOTE(traks): status request packet is empty
 
-        // TODO(traks): bad idea to just clobber the entire scratch space, in
-        // case anyone else is using it
-        MemoryArena scratch_arena = {
-            .data = serv->short_lived_scratch,
-            .size = serv->short_lived_scratch_size
-        };
+        MemoryArena * scratchArena = &(MemoryArena) {0};
+        *scratchArena = *arena;
 
         int list_size = serv->tab_list_size;
         size_t list_bytes = list_size * sizeof (entity_id);
-        entity_id * list = MallocInArena(
-                &scratch_arena, list_bytes);
+        entity_id * list = MallocInArena(scratchArena, list_bytes);
         memcpy(list, serv->tab_list, list_bytes);
         int sample_size = MIN(12, list_size);
 
-        unsigned char * response = MallocInArena(&scratch_arena, 2048);
+        unsigned char * response = MallocInArena(scratchArena, 2048);
         int response_size = 0;
         response_size += sprintf((char *) response + response_size,
                 "{\"version\":{\"name\":\"%s\",\"protocol\":%d},"
@@ -406,6 +613,10 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
         BeginPacket(sendCursor, 1);
         WriteU64(sendCursor, payload);
         FinishPacket(sendCursor, 0);
+
+        // TODO(traks): we should really be waiting a bit for the packets to
+        // flow to the client
+        ClientMarkTerminate(client);
         break;
     }
     case PROTOCOL_AWAIT_HELLO: {
@@ -413,7 +624,7 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
             recCursor->error = 1;
         }
 
-        // read hello packet
+        // NOTE(traks): read hello packet
         String username = ReadVarString(recCursor, 16);
         // @TODO(traks) more username validation
         if (username.size == 0) {
@@ -423,14 +634,159 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
         memcpy(client->username, username.data, username.size);
         client->usernameSize = username.size;
 
-        u64 uuid_high = ReadU64(recCursor);
-        u64 uuid_low = ReadU64(recCursor);
-        // TODO(traks): do something with the UUID
+        // TODO(traks): Apparently vanilla ignores this? I believe Paper
+        // generates UUIDs based on the player name in offline mode. Maybe it's
+        // better if we do the same?
+        UUID uuid = ReadUUID(recCursor);
+        client->uuid = uuid;
 
         // @TODO(traks) online mode
-        // @TODO(traks) enable compression
 
-        client->protocolState = PROTOCOL_JOIN_WHEN_SENT;
+        if (PACKET_COMPRESSION_ENABLED) {
+            // NOTE(traks): send login compression packet
+            BeginPacket(sendCursor, 3);
+            // TODO(traks): for now it is important to compress everything or
+            // nothing, because our packet writing utilities don't support a
+            // threshold
+            WriteVarU32(sendCursor, 0);
+            FinishPacket(sendCursor, 0);
+
+            client->flags |= CLIENT_PACKET_COMPRESSION;
+        }
+
+        // NOTE(traks): send game profile packet
+        BeginPacket(sendCursor, 2);
+        WriteUUID(sendCursor, uuid);
+        WriteVarString(sendCursor, username);
+        WriteVarU32(sendCursor, 0); // no properties for now
+        WriteU8(sendCursor, 1); // strict packet processing
+        FinishPacket(sendCursor, !!(client->flags & CLIENT_PACKET_COMPRESSION));
+
+        client->protocolState = PROTOCOL_AWAIT_LOGIN_ACK;
+        break;
+    }
+    case PROTOCOL_AWAIT_LOGIN_ACK: {
+        if (packetId != 3) {
+            recCursor->error = 1;
+        }
+
+        // NOTE(traks): we're now in the configuration phase
+
+        // NOTE(traks): send enabled features packet
+        BeginPacket(sendCursor, 12);
+        WriteVarU32(sendCursor, 1);
+        WriteVarString(sendCursor, STR("minecraft:vanilla"));
+        FinishPacket(sendCursor, !!(client->flags & CLIENT_PACKET_COMPRESSION));
+
+        // NOTE(traks): send known packs packet
+        BeginPacket(sendCursor, 14);
+        WriteVarU32(sendCursor, 1);
+        WriteVarString(sendCursor, STR("minecraft"));
+        WriteVarString(sendCursor, STR("core"));
+        WriteVarString(sendCursor, STR(SERVER_GAME_VERSION));
+        FinishPacket(sendCursor, !!(client->flags & CLIENT_PACKET_COMPRESSION));
+        client->flags |= CLIENT_WANT_KNOWN_PACKS;
+
+        // TODO(traks): we should send all vanilla datapack stuff to the client
+        // if it doesn't have the desired core pack. For now we don't do this
+        // for simplicity. It's truly a pain to send all that. Sadly 1.21.1 and
+        // 1.21 don't use the same pack, even though they're compatible
+        // protocol-wise, big bruh moment
+
+        client->protocolState = PROTOCOL_CONFIGURATION;
+        break;
+    }
+    case PROTOCOL_CONFIGURATION: {
+        if (packetId == 0) {
+            // TODO(traks): this is duplicated in PLAY packet processing
+
+            // NOTE(traks): read client information packet
+            String locale = ReadVarString(recCursor, MAX_PLAYER_LOCALE_SIZE);
+            memcpy(client->locale, locale.data, locale.size);
+            client->localeSize = locale.size;
+            // NOTE(traks): View distance is without the extra border of chunks,
+            // while chunk cache radius is with the extra border of
+            // chunks. This clamps the view distance between the minimum
+            // of 2 and the server maximum.
+            i32 viewDistance = ReadU8(recCursor);
+            client->nextChunkCacheRadius = MIN(MAX(viewDistance, 2), MAX_CHUNK_CACHE_RADIUS - 1) + 1;
+            client->chatMode = ReadVarU32(recCursor);
+            client->seesChatColours = ReadU8(recCursor);
+            client->skinCustomisation = ReadU8(recCursor);
+            client->mainHand = ReadVarU32(recCursor);
+            client->textFiltering = ReadU8(recCursor);
+            client->showInStatusList = ReadU8(recCursor);
+
+            client->flags |= CLIENT_GOT_CLIENT_INFO;
+        } else if (packetId == 2) {
+            // NOTE(traks): plugin message packet
+            String identifier = ReadVarString(recCursor, 32767);
+            LogInfo("Got plugin message: %.*s", identifier.size, identifier.data);
+            i32 payloadSize = recCursor->size - recCursor->index;
+            if (payloadSize > 32767) {
+                recCursor->error = 1;
+                break;
+            }
+            CursorSkip(recCursor, payloadSize);
+        } else if (packetId == 3) {
+            LogInfo("Finish configuration");
+            if (!(client->flags & CLIENT_WANT_FINISH_CONFIGURATION)) {
+                LogInfo("Received finish configuration ack without request");
+                recCursor->error = 1;
+                break;
+            }
+
+            // NOTE(traks): acknowledgement packet is empty
+            client->protocolState = PROTOCOL_JOIN;
+        } else if (packetId == 7) {
+            if (!(client->flags & CLIENT_WANT_KNOWN_PACKS)) {
+                recCursor->error = 1;
+                break;
+            }
+            client->flags &= ~CLIENT_WANT_KNOWN_PACKS;
+
+            // NOTE(traks): read known packs packet
+            i32 packCount = ReadVarU32(recCursor);
+
+            // TODO(traks): appropriate limit
+            if (packCount > 32) {
+                recCursor->error = 1;
+                break;
+            }
+
+            i32 foundDesiredCorePack = 0;
+            for (i32 packIndex = 0; packIndex < packCount; packIndex++) {
+                String namespace = ReadVarString(recCursor, 32767);
+                String id = ReadVarString(recCursor, 32767);
+                String version = ReadVarString(recCursor, 32767);
+                if (StringEquals(namespace, STR("minecraft")) && StringEquals(id, STR("core")) && StringEquals(version, STR(SERVER_GAME_VERSION))) {
+                    foundDesiredCorePack = 1;
+                }
+            }
+
+            if (!foundDesiredCorePack) {
+                LogInfo("Client doesn't have core pack for %s", SERVER_GAME_VERSION);
+                recCursor->error = 1;
+                break;
+            }
+
+            // NOTE(traks): send all the stupid registries. The only benefit of
+            // the core pack is that we don't need to send NBT data of the
+            // registry entries
+            WriteAllRegistries(client, sendCursor);
+            client->flags |= CLIENT_GOT_KNOWN_PACKS;
+        } else {
+            LogInfo("Unexpected packet %d in configuration phase", (int) packetId);
+            recCursor->error = 1;
+            break;
+        }
+
+        if ((client->flags & CLIENT_GOT_CLIENT_INFO) && (client->flags & CLIENT_GOT_KNOWN_PACKS) && !(client->flags & CLIENT_WANT_FINISH_CONFIGURATION)) {
+            // NOTE(traks): send finish configuration packet
+            BeginPacket(sendCursor, 3);
+            FinishPacket(sendCursor, !!(client->flags & CLIENT_PACKET_COMPRESSION));
+            client->flags |= CLIENT_WANT_FINISH_CONFIGURATION;
+        }
         break;
     }
     default:
@@ -441,33 +797,88 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
 }
 
 static void ClientProcessAllPackets(Client * client) {
-    u8 tempData[2048];
+    if (client->recBuf.cursor == client->recBuf.size) {
+        // NOTE(traks): Should never happen. If there's a full packet in the
+        // buffer, we always drain it. Maybe some parse error occurred and we
+        // didn't kick the client?
+        LogInfo("Client read buffer full");
+        ClientMarkTerminate(client);
+        return;
+    }
+
+    ssize_t receiveSize = recv(client->socket, client->recBuf.data + client->recBuf.cursor, client->recBuf.size - client->recBuf.cursor, 0);
+
+    if (receiveSize == -1) {
+        // TODO(traks): or EWOULDBLOCK?
+        if (errno == EAGAIN) {
+            // NOTE(traks): there is no new data
+        } else {
+            LogErrno("Couldn't receive protocol data from client: %s");
+            ClientMarkTerminate(client);
+            return;
+        }
+    } else {
+        client->recBuf.cursor += receiveSize;
+    }
+
+    Cursor * recCursor = &(Cursor) {
+        .data = client->recBuf.data,
+        .size = client->recBuf.cursor,
+    };
+
+    // TODO(traks): bad idea to just clobber the entire scratch space, in
+    // case anyone else is using it
+    MemoryArena * processingArena = &(MemoryArena) {
+        .data = serv->short_lived_scratch,
+        .size = serv->short_lived_scratch_size
+    };
+
+    i32 sendCursorAllocSize = 1 << 20;
     Cursor * sendCursor = &(Cursor) {
-        .data = tempData,
-        .size = sizeof tempData,
+        .data = MallocInArena(processingArena, sendCursorAllocSize),
+        .size = sendCursorAllocSize,
         .index = 0,
     };
 
     for (;;) {
-        Cursor packetCursor = ClientGetNextPacket(client);
-        if (packetCursor.data == NULL) {
+        MemoryArena * loopArena = &(MemoryArena) {0};
+        *loopArena = *processingArena;
+
+        Cursor * packetCursor = &(Cursor) {0};
+        *packetCursor = TryReadPacket(recCursor, loopArena, !!(client->flags & CLIENT_PACKET_COMPRESSION), client->recBuf.size);
+
+        if (recCursor->error) {
+            LogInfo("Incoming packet error");
+            ClientMarkTerminate(client);
+            return;
+        }
+        if (packetCursor->size == 0) {
+            // NOTE(traks): packet not ready yet
             break;
         }
 
-        ClientProcessSinglePacket(client, &packetCursor, sendCursor);
+        ClientProcessSinglePacket(client, packetCursor, sendCursor, loopArena);
 
         assert(sendCursor->error == 0);
 
-        if (packetCursor.index != packetCursor.size) {
-            packetCursor.error = 1;
+        if (packetCursor->index != packetCursor->size) {
+            packetCursor->error = 1;
         }
 
-        if (packetCursor.error != 0) {
+        if (packetCursor->error != 0) {
             LogInfo("Client protocol error occurred");
             ClientMarkTerminate(client);
             return;
         }
+
+        if (client->flags & CLIENT_SHOULD_TERMINATE) {
+            break;
+        }
     }
+
+    // NOTE(traks): compact the receive buffer
+    memmove(recCursor->data, recCursor->data + recCursor->index, recCursor->size - recCursor->index);
+    client->recBuf.cursor = recCursor->size - recCursor->index;
 
     Cursor * finalCursor = &(Cursor) {
         .data = client->sendBuf.data,
@@ -477,6 +888,12 @@ static void ClientProcessAllPackets(Client * client) {
 
     FinalisePackets(finalCursor, sendCursor);
 
+    if (finalCursor->error || sendCursor->error) {
+        LogInfo("Failed to finalise packets");
+        ClientMarkTerminate(client);
+        return;
+    }
+
     client->sendBuf.cursor = finalCursor->index;
 }
 
@@ -484,10 +901,6 @@ static void ClientTick(Client * client) {
     assert(client != NULL);
 
     // NOTE(traks): read incoming data
-
-    BeginTimings(ClientReadAllPackets);
-    ClientReadAllPackets(client);
-    EndTimings(ClientReadAllPackets);
 
     BeginTimings(ClientProcessAllPackets);
     ClientProcessAllPackets(client);
@@ -512,10 +925,10 @@ static void ClientTick(Client * client) {
         client->sendBuf.cursor -= sendSize;
     }
 
-    // NOTE(traks): start the PLAY state and transfer the connection to the
-    // player entity
+    if (client->protocolState == PROTOCOL_JOIN && !(client->flags & CLIENT_SHOULD_TERMINATE)) {
+        // NOTE(traks): start the PLAY state and transfer the connection to the
+        // player entity
 
-    if (client->sendBuf.cursor == 0 && client->protocolState == PROTOCOL_JOIN_WHEN_SENT && !(client->flags & CLIENT_SHOULD_TERMINATE)) {
         entity_base * entity = try_reserve_entity(ENTITY_PLAYER);
 
         if (entity->type == ENTITY_NULL) {
@@ -531,6 +944,11 @@ static void ClientTick(Client * client) {
         // to some website, Fortnite sends about 1.5KB/tick. Although we
         // sometimes have to send a bunch of chunk data, which can be
         // tens of KB. Minecraft even allows up to 2MB of chunk data.
+
+        // TODO(traks): There shouldn't be anything left in the receive
+        // buffer/send buffer when we're done here with the initial processing.
+        // However, perhaps we should make sure and copy over anything to the
+        // player's receive and send buffer?
         player->rec_buf_size = 1 << 16;
         player->rec_buf = malloc(player->rec_buf_size);
 
@@ -549,11 +967,24 @@ static void ClientTick(Client * client) {
         player->sock = client->socket;
         memcpy(player->username, client->username, client->usernameSize);
         player->username_size = client->usernameSize;
+        entity->uuid = client->uuid;
+
+        memcpy(player->locale, client->locale, client->localeSize);
+        player->localeSize = client->localeSize;
+        player->chatMode = client->chatMode;
+        player->seesChatColours = client->seesChatColours;
+        player->skinCustomisation = client->skinCustomisation;
+        player->mainHand = client->mainHand;
+        player->textFiltering = client->textFiltering;
+        player->showInStatusList = client->showInStatusList;
         player->chunkCacheRadius = -1;
-        // @TODO(traks) configurable server-wide global
-        player->nextChunkCacheRadius = MAX_CHUNK_CACHE_RADIUS;
+        player->nextChunkCacheRadius = client->nextChunkCacheRadius;
+
         player->last_keep_alive_sent_tick = serv->current_tick;
         entity->flags |= PLAYER_GOT_ALIVE_RESPONSE;
+        if (client->flags & CLIENT_PACKET_COMPRESSION) {
+            entity->flags |= PLAYER_PACKET_COMPRESSION;
+        }
         player->selected_slot = PLAYER_FIRST_HOTBAR_SLOT;
         // @TODO(traks) collision width and height of player depending
         // on player pose

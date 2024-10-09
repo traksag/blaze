@@ -109,6 +109,14 @@ i32 ReadBool(Cursor * cursor) {
     return !!res;
 }
 
+UUID ReadUUID(Cursor * cursor) {
+    // TODO(traks): validate this?
+    u64 high = ReadU64(cursor);
+    u64 low = ReadU64(cursor);
+    UUID res = {.low = low, .high = high};
+    return res;
+}
+
 void WriteVarU32(Cursor * cursor, u32 value) {
     for (;;) {
         if (cursor->index == cursor->size) {
@@ -187,6 +195,11 @@ void WriteBlockPos(Cursor * cursor, BlockPos value) {
             | ((u64) (value.z & 0x3ffffff) << 12)
             | ((u64) (value.y & 0xfff));
     WriteU64(cursor, in);
+}
+
+void WriteUUID(Cursor * cursor, UUID value) {
+    WriteU64(cursor, value.high);
+    WriteU64(cursor, value.low);
 }
 
 void WriteData(Cursor * cursor, u8 * restrict data, i32 size) {

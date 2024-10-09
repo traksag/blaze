@@ -111,6 +111,11 @@ typedef struct {
 
 #define STR(x) ((String) {.size = strlen(x), .data = (u8 *) (x)})
 
+typedef struct {
+    u64 low;
+    u64 high;
+} UUID;
+
 i64 NanoTime(void);
 
 // @NOTE(traks) make sure you're not logging user input directly, but as e.g.
@@ -188,6 +193,13 @@ static TempMemoryArena BeginTempArena(MemoryArena * arena) {
 
 static void EndTempArena(TempMemoryArena * temp) {
     temp->arena->index = temp->startIndex;
+}
+
+static i32 StringEquals(String a, String b) {
+    if (a.size != b.size) {
+        return 0;
+    }
+    return memcmp(a.data, b.data, a.size) == 0;
 }
 
 #endif

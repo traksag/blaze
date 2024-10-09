@@ -27,8 +27,8 @@ void FinishPacket(Cursor * cursor, i32 markCompress) {
     //
     // The downside is that we have to copy all packet data an additional time,
     // because Mojang decided to encode packet sizes with a variable-size
-    // encoding. It's not a huge issue if compression is enabled, because we
-    // will need to compress the packets to another buffer anyway.
+    // encoding. For compressed packets the same issue applies: we need to write
+    // the compression length as a varint.
 
     if (cursor->error != 0) {
         // NOTE(traks): packet ID could be invalid, but print it anyway
@@ -148,4 +148,89 @@ void FinalisePackets(Cursor * finalCursor, Cursor * sendCursor) {
 
     free(compressed);
     EndTimings(FinalisePackets);
+}
+
+Cursor TryReadPacket(Cursor * recCursor, MemoryArena * arena, i32 shouldDecompress, i32 recBufferSize) {
+    Cursor res = {0};
+    Cursor * packetCursor = &(Cursor) {0};
+    *packetCursor = *recCursor;
+    i32 packetSize = ReadVarU32(packetCursor);
+
+    if (packetCursor->error) {
+        // NOTE(traks): packet size not fully received yet
+        return res;
+    }
+    // NOTE(traks): subtract 5 because that's an upper bound for the encoded
+    // packet size varint. If the packet is too large it'll never fit in the
+    // buffer
+    if (packetSize > recBufferSize - 5 || packetSize <= 0) {
+        LogInfo("Bad packet size: %d", (int) packetSize);
+        recCursor->error = 1;
+        return res;
+    }
+    if (packetSize > CursorRemaining(packetCursor)) {
+        // NOTE(traks): packet not fully received yet
+        return res;
+    }
+
+    packetCursor->size = packetCursor->index + packetSize;
+    recCursor->index = packetCursor->size;
+
+    if (shouldDecompress) {
+        // TODO(traks): ignore the uncompressed packet size for now, since we
+        // require all packets to be compressed. When we add a compression
+        // threshold, we should validate this!
+        ReadVarU32(packetCursor);
+
+        // TODO(traks): move to a zlib alternative that is optimised
+        // for single pass inflate/deflate. If we don't end up doing
+        // this, make sure the code below is actually correct (when
+        // do we need to clean stuff up?)!
+
+        z_stream zstream;
+        zstream.zalloc = Z_NULL;
+        zstream.zfree = Z_NULL;
+        zstream.opaque = Z_NULL;
+
+        if (inflateInit2(&zstream, 0) != Z_OK) {
+            LogInfo("inflateInit failed");
+            recCursor->error = 1;
+            return res;
+        }
+
+        zstream.next_in = packetCursor->data + packetCursor->index;
+        zstream.avail_in = packetCursor->size - packetCursor->index;
+
+        // TODO(traks): appropriate value?
+        size_t maxUncompressedSize = 2 * (1 << 20);
+        u8 * uncompressed = MallocInArena(arena, maxUncompressedSize);
+
+        zstream.next_out = uncompressed;
+        zstream.avail_out = maxUncompressedSize;
+
+        if (inflate(&zstream, Z_FINISH) != Z_STREAM_END) {
+            LogInfo("Failed to finish inflating packet: %s", zstream.msg);
+            recCursor->error = 1;
+            return res;
+        }
+
+        if (inflateEnd(&zstream) != Z_OK) {
+            LogInfo("inflateEnd failed");
+            recCursor->error = 1;
+            return res;
+        }
+
+        if (zstream.avail_in != 0) {
+            LogInfo("Didn't inflate entire packet");
+            recCursor->error = 1;
+            return res;
+        }
+
+        res.data = uncompressed;
+        res.size = zstream.total_out;
+    } else {
+        res.data = packetCursor->data + packetCursor->index;
+        res.size = packetCursor->size - packetCursor->index;
+    }
+    return res;
 }

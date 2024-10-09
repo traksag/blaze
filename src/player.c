@@ -488,8 +488,7 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
     case SBP_CHAT_SESSION_UPDATE: {
         LogInfo("Packet chat session update");
         // NOTE(traks): some UUID
-        u64 uuid_high = ReadU64(rec_cursor);
-        u64 uuid_low = ReadU64(rec_cursor);
+        UUID uuid = ReadUUID(rec_cursor);
         u64 timestamp = ReadU64(rec_cursor);
         // NOTE(traks): public key data
         CursorSkip(rec_cursor, 512);
@@ -525,27 +524,21 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
     }
     case SBP_CLIENT_INFORMATION: {
         LogInfo("Packet client information");
-        String language = ReadVarString(rec_cursor, 16);
-        u8 view_distance = ReadU8(rec_cursor);
-        i32 chat_visibility = ReadVarU32(rec_cursor);
-        u8 sees_chat_colours = ReadU8(rec_cursor);
-        u8 model_customisation = ReadU8(rec_cursor);
-        i32 main_hand = ReadVarU32(rec_cursor);
-        u8 text_filtering = ReadU8(rec_cursor);
-        u8 allowInStatusList = ReadU8(rec_cursor);
-
-        // View distance is without the extra border of chunks,
+        String locale = ReadVarString(rec_cursor, MAX_PLAYER_LOCALE_SIZE);
+        memcpy(player->locale, locale.data, locale.size);
+        player->localeSize = locale.size;
+        // NOTE(traks): View distance is without the extra border of chunks,
         // while chunk cache radius is with the extra border of
         // chunks. This clamps the view distance between the minimum
         // of 2 and the server maximum.
-        player->nextChunkCacheRadius = MIN(MAX(view_distance, 2), MAX_CHUNK_CACHE_RADIUS - 1) + 1;
-        memcpy(player->language, language.data, language.size);
-        player->language_size = language.size;
-        player->sees_chat_colours = sees_chat_colours;
-        player->model_customisation = model_customisation;
-        player->main_hand = main_hand;
-        player->text_filtering = text_filtering;
-        player->allowInStatusList = allowInStatusList;
+        i32 viewDistance = ReadU8(rec_cursor);
+        player->nextChunkCacheRadius = MIN(MAX(viewDistance, 2), MAX_CHUNK_CACHE_RADIUS - 1) + 1;
+        player->chatMode = ReadVarU32(rec_cursor);
+        player->seesChatColours = ReadU8(rec_cursor);
+        player->skinCustomisation = ReadU8(rec_cursor);
+        player->mainHand = ReadVarU32(rec_cursor);
+        player->textFiltering = ReadU8(rec_cursor);
+        player->showInStatusList = ReadU8(rec_cursor);
         break;
     }
     case SBP_COMMAND_SUGGESTION: {
@@ -1177,9 +1170,8 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
     }
     case SBP_TELEPORT_TO_ENTITY: {
         LogInfo("Packet teleport to entity");
-        // @TODO(traks) read UUID instead
-        u64 uuid_high = ReadU64(rec_cursor);
-        u64 uuid_low = ReadU64(rec_cursor);
+        // TODO(traks): process
+        UUID targetUUID = ReadUUID(rec_cursor);
         break;
     }
     case SBP_USE_ITEM_ON: {
@@ -1280,7 +1272,9 @@ send_chunk_fully(Cursor * send_cursor, Chunk * ch,
 
     // @NOTE(traks) height map NBT
     {
-        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR(""));
+        // NOTE(traks): the protocol doesn't include the name of the root
+        // compound
+        WriteU8(send_cursor, NBT_TAG_COMPOUND);
 
         nbt_write_key(send_cursor, NBT_TAG_LONG_ARRAY, STR("MOTION_BLOCKING"));
         // number of elements in long array
@@ -1407,8 +1401,6 @@ send_chunk_fully(Cursor * send_cursor, Chunk * ch,
     u64 zero_sky_light_mask = 0;
     u64 zero_block_light_mask = 0;
 
-    // @TODO(traks) figure out what trust edges actually does
-    WriteU8(send_cursor, 1); // trust edges
     WriteVarU32(send_cursor, 1);
     WriteU64(send_cursor, sky_light_mask);
     WriteVarU32(send_cursor, 1);
@@ -1610,7 +1602,7 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
     BeginTimings(TickPlayer);
 
     // TODO(traks): should we wait with actually creating the player and ticking
-    // the player until the login packets have been sent?
+    // the player until the login packet has been sent?
 
     // @TODO(traks) remove
     if (0) {
@@ -1837,249 +1829,6 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
 
 bail:
     EndTimings(TickPlayer);
-}
-
-static void
-nbt_write_dimension_type(Cursor * send_cursor,
-        dimension_type * dim_type) {
-    if (dim_type->fixed_time != -1) {
-        nbt_write_key(send_cursor, NBT_TAG_INT, STR("fixed_time"));
-        WriteU32(send_cursor, dim_type->fixed_time);
-    }
-
-    nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("has_skylight"));
-    WriteU8(send_cursor, !!(dim_type->flags & DIMENSION_HAS_SKYLIGHT));
-
-    nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("has_ceiling"));
-    WriteU8(send_cursor, !!(dim_type->flags & DIMENSION_HAS_CEILING));
-
-    nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("ultrawarm"));
-    WriteU8(send_cursor, !!(dim_type->flags & DIMENSION_ULTRAWARM));
-
-    nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("natural"));
-    WriteU8(send_cursor, !!(dim_type->flags & DIMENSION_NATURAL));
-
-    nbt_write_key(send_cursor, NBT_TAG_DOUBLE, STR("coordinate_scale"));
-    WriteF64(send_cursor, dim_type->coordinate_scale);
-
-    nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("piglin_safe"));
-    WriteU8(send_cursor, !!(dim_type->flags & DIMENSION_PIGLIN_SAFE));
-
-    nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("bed_works"));
-    WriteU8(send_cursor, !!(dim_type->flags & DIMENSION_BED_WORKS));
-
-    nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("respawn_anchor_works"));
-    WriteU8(send_cursor, !!(dim_type->flags & DIMENSION_RESPAWN_ANCHOR_WORKS));
-
-    nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("has_raids"));
-    WriteU8(send_cursor, !!(dim_type->flags & DIMENSION_HAS_RAIDS));
-
-    // TODO(traks): this actually defines a sampler, e.g. an int range.
-    // Currently we just do constant 0 for simplicity.
-    nbt_write_key(send_cursor, NBT_TAG_INT, STR("monster_spawn_light_level"));
-    WriteU32(send_cursor, 0);
-
-    nbt_write_key(send_cursor, NBT_TAG_INT, STR("monster_spawn_block_light_limit"));
-    WriteU32(send_cursor, dim_type->monsterSpawnMaxBlockLight);
-
-    nbt_write_key(send_cursor, NBT_TAG_INT, STR("min_y"));
-    WriteU32(send_cursor, dim_type->min_y);
-
-    nbt_write_key(send_cursor, NBT_TAG_INT, STR("height"));
-    WriteU32(send_cursor, dim_type->height);
-
-    nbt_write_key(send_cursor, NBT_TAG_INT, STR("logical_height"));
-    WriteU32(send_cursor, dim_type->logical_height);
-
-    nbt_write_key(send_cursor, NBT_TAG_STRING, STR("infiniburn"));
-    String infiniburn = {
-        .data = dim_type->infiniburn,
-        .size = dim_type->infiniburn_size
-    };
-    nbt_write_string(send_cursor, infiniburn);
-
-    nbt_write_key(send_cursor, NBT_TAG_STRING, STR("effects"));
-    String effects = {
-        .data = dim_type->effects,
-        .size = dim_type->effects_size
-    };
-    nbt_write_string(send_cursor, effects);
-
-    nbt_write_key(send_cursor, NBT_TAG_FLOAT, STR("ambient_light"));
-    WriteF32(send_cursor, dim_type->ambient_light);
-}
-
-static void
-nbt_write_biome(Cursor * send_cursor, biome * b) {
-    nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("has_precipitation"));
-    WriteU8(send_cursor, b->has_precipitation);
-
-    nbt_write_key(send_cursor, NBT_TAG_FLOAT, STR("temperature"));
-    WriteF32(send_cursor, b->temperature);
-
-    if (b->temperature_mod != BIOME_TEMPERATURE_MOD_NONE) {
-        nbt_write_key(send_cursor, NBT_TAG_STRING, STR("temperature_modifier"));
-        switch (b->temperature_mod) {
-        case BIOME_TEMPERATURE_MOD_FROZEN:
-            nbt_write_string(send_cursor, STR("frozen"));
-            break;
-        default:
-            assert(0);
-        }
-    }
-
-    nbt_write_key(send_cursor, NBT_TAG_FLOAT, STR("downfall"));
-    WriteF32(send_cursor, b->downfall);
-
-    // TODO(traks): there are more options for these special effects I think.
-    // Just using the required ones for now. Can fill in the optional ones later
-
-    // special effects
-    nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("effects"));
-
-    nbt_write_key(send_cursor, NBT_TAG_INT, STR("fog_color"));
-    WriteU32(send_cursor, b->fog_colour);
-
-    nbt_write_key(send_cursor, NBT_TAG_INT, STR("water_color"));
-    WriteU32(send_cursor, b->water_colour);
-
-    nbt_write_key(send_cursor, NBT_TAG_INT, STR("water_fog_color"));
-    WriteU32(send_cursor, b->water_fog_colour);
-
-    nbt_write_key(send_cursor, NBT_TAG_INT, STR("sky_color"));
-    WriteU32(send_cursor, b->sky_colour);
-
-    if (b->foliage_colour_override != -1) {
-        nbt_write_key(send_cursor, NBT_TAG_INT, STR("foliage_color"));
-        WriteU32(send_cursor, b->foliage_colour_override);
-    }
-
-    if (b->grass_colour_override != -1) {
-        nbt_write_key(send_cursor, NBT_TAG_INT, STR("grass_color"));
-        WriteU32(send_cursor, b->grass_colour_override);
-    }
-
-    if (b->grass_colour_mod != BIOME_GRASS_COLOUR_MOD_NONE) {
-        nbt_write_key(send_cursor, NBT_TAG_STRING, STR("grass_color_modifier"));
-        switch (b->grass_colour_mod) {
-        case BIOME_GRASS_COLOUR_MOD_DARK_FOREST:
-            nbt_write_string(send_cursor, STR("dark_forest"));
-            break;
-        case BIOME_GRASS_COLOUR_MOD_SWAMP:
-            nbt_write_string(send_cursor, STR("swamp"));
-            break;
-        default:
-            assert(0);
-        }
-    }
-
-    // @TODO(traks) ambient particle effects
-
-    if (b->ambient_sound_size > 0) {
-        nbt_write_key(send_cursor, NBT_TAG_STRING, STR("ambient_sound"));
-        String ambient_sound = {
-            .data = b->ambient_sound,
-            .size = b->ambient_sound_size
-        };
-        nbt_write_string(send_cursor, ambient_sound);
-    }
-
-    if (b->mood_sound_size > 0) {
-        // mood sound
-        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("mood_sound"));
-
-        nbt_write_key(send_cursor, NBT_TAG_STRING, STR("sound"));
-        String mood_sound = {
-            .data = b->mood_sound,
-            .size = b->mood_sound_size
-        };
-        nbt_write_string(send_cursor, mood_sound);
-
-        nbt_write_key(send_cursor, NBT_TAG_INT, STR("tick_delay"));
-        WriteU32(send_cursor, b->mood_sound_tick_delay);
-
-        nbt_write_key(send_cursor, NBT_TAG_INT, STR("block_search_extent"));
-        WriteU32(send_cursor, b->mood_sound_block_search_extent);
-
-        nbt_write_key(send_cursor, NBT_TAG_DOUBLE, STR("offset"));
-        WriteU32(send_cursor, b->mood_sound_offset);
-
-        WriteU8(send_cursor, NBT_TAG_END);
-        // mood sound end
-    }
-
-    if (b->additions_sound_size > 0) {
-        // additions sound
-        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("additions_sound"));
-
-        nbt_write_key(send_cursor, NBT_TAG_STRING, STR("sound"));
-        String additions_sound = {
-            .data = b->additions_sound,
-            .size = b->additions_sound_size
-        };
-        nbt_write_string(send_cursor, additions_sound);
-
-        nbt_write_key(send_cursor, NBT_TAG_DOUBLE, STR("tick_chance"));
-        WriteU32(send_cursor, b->additions_sound_tick_chance);
-
-        WriteU8(send_cursor, NBT_TAG_END);
-        // additions sound end
-    }
-
-    if (b->music_sound_size > 0) {
-        // music
-        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("music"));
-
-        nbt_write_key(send_cursor, NBT_TAG_STRING, STR("sound"));
-        String music_sound = {
-            .data = b->music_sound,
-            .size = b->music_sound_size
-        };
-        nbt_write_string(send_cursor, music_sound);
-
-        nbt_write_key(send_cursor, NBT_TAG_INT, STR("min_delay"));
-        WriteU32(send_cursor, b->music_min_delay);
-
-        nbt_write_key(send_cursor, NBT_TAG_INT, STR("max_delay"));
-        WriteU32(send_cursor, b->music_max_delay);
-
-        nbt_write_key(send_cursor, NBT_TAG_BYTE, STR("replace_current_music"));
-        WriteU8(send_cursor, b->music_replace_current_music);
-
-        WriteU8(send_cursor, NBT_TAG_END);
-        // music end
-    }
-
-    WriteU8(send_cursor, NBT_TAG_END);
-    // special effects end
-}
-
-static void NbtWriteDamageTypeWithScaling(Cursor * send_cursor, i32 id, char * name, char * messageId, f32 exhaustion, char * scaling) {
-    {
-        nbt_write_key(send_cursor, NBT_TAG_STRING, STR("name"));
-        nbt_write_string(send_cursor, STR(name));
-
-        nbt_write_key(send_cursor, NBT_TAG_INT, STR("id"));
-        WriteU32(send_cursor, id);
-
-        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("element"));
-        {
-            nbt_write_key(send_cursor, NBT_TAG_FLOAT, STR("exhaustion"));
-            WriteF32(send_cursor, exhaustion);
-
-            nbt_write_key(send_cursor, NBT_TAG_STRING, STR("message_id"));
-            nbt_write_string(send_cursor, STR(messageId));
-
-            nbt_write_key(send_cursor, NBT_TAG_STRING, STR("scaling"));
-            nbt_write_string(send_cursor, STR(scaling));
-        }
-        WriteU8(send_cursor, NBT_TAG_END);
-    }
-    WriteU8(send_cursor, NBT_TAG_END);
-}
-
-static void NbtWriteDamageType(Cursor * send_cursor, i32 id, char * name, char * messageId, f32 exhaustion) {
-    NbtWriteDamageTypeWithScaling(send_cursor, id, name, messageId, exhaustion, "when_caused_by_living_non_player");
 }
 
 static void
@@ -2352,9 +2101,7 @@ start_tracking_entity(entity_base * player,
 
         BeginPacket(send_cursor, CBP_ADD_ENTITY);
         WriteVarU32(send_cursor, entity->eid);
-        // @TODO(traks) appropriate UUID
-        WriteU64(send_cursor, 0);
-        WriteU64(send_cursor, entity->eid);
+        WriteUUID(send_cursor, entity->uuid);
         WriteVarU32(send_cursor, entity->type);
         WriteF64(send_cursor, entity->x);
         WriteF64(send_cursor, entity->y);
@@ -2396,9 +2143,7 @@ start_tracking_entity(entity_base * player,
         // FinishPlayerPacket(send_cursor, player);
         BeginPacket(send_cursor, CBP_ADD_ENTITY);
         WriteVarU32(send_cursor, entity->eid);
-        // @TODO(traks) appropriate UUID
-        WriteU64(send_cursor, 0);
-        WriteU64(send_cursor, entity->eid);
+        WriteUUID(send_cursor, entity->uuid);
         WriteVarU32(send_cursor, entity->type);
         WriteF64(send_cursor, entity->x);
         WriteF64(send_cursor, entity->y);
@@ -2612,265 +2357,17 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     if (!(player->flags & PLAYER_DID_INIT_PACKETS)) {
         player->flags |= PLAYER_DID_INIT_PACKETS;
 
-        if (PACKET_COMPRESSION_ENABLED) {
-            // send login compression packet
-            BeginPacket(send_cursor, 3);
-            WriteVarU32(send_cursor, 0);
-            FinishPlayerPacket(send_cursor, player);
-
-            player->flags |= PLAYER_PACKET_COMPRESSION;
-        }
-
-        // send game profile packet
-        BeginPacket(send_cursor, 2);
-        // @TODO(traks) send UUID
-        WriteU64(send_cursor, 0);
-        WriteU64(send_cursor, player->eid);
-        String username = {
-            .size = player->player.username_size,
-            .data = player->player.username
-        };
-        WriteVarString(send_cursor, username);
-        WriteVarU32(send_cursor, 0); // no properties for now
-        FinishPlayerPacket(send_cursor, player);
-
-        String level_name = STR("blaze:main");
+        String levelName = STR("blaze:main");
 
         BeginPacket(send_cursor, CBP_LOGIN);
         WriteU32(send_cursor, player->eid);
         WriteU8(send_cursor, 0); // hardcore
-        WriteU8(send_cursor, player->player.gamemode); // current gamemode
-        WriteU8(send_cursor, 255); // previous gamemode, -1 = none
 
-        // all levels/worlds currently available on the server
-        // @NOTE(traks) This list is used for tab completions
-        WriteVarU32(send_cursor, 1); // number of levels
-        WriteVarString(send_cursor, level_name);
+        // list of levels on the server
+        // TODO(traks): what do we do if we want to update this list?
+        WriteVarU32(send_cursor, 1);
+        WriteVarString(send_cursor, levelName);
 
-        // send all synchronised registries
-        Cursor nbtCursor = *send_cursor;
-        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR(""));
-
-        // write dimension types
-        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("minecraft:dimension_type"));
-        {
-            nbt_write_key(send_cursor, NBT_TAG_STRING, STR("type"));
-            nbt_write_string(send_cursor, STR("minecraft:dimension_type"));
-
-            nbt_write_key(send_cursor, NBT_TAG_LIST, STR("value"));
-            WriteU8(send_cursor, NBT_TAG_COMPOUND);
-            WriteU32(send_cursor, serv->dimension_type_count);
-            for (int i = 0; i < serv->dimension_type_count; i++) {
-                dimension_type * dim_type = serv->dimension_types + i;
-
-                nbt_write_key(send_cursor, NBT_TAG_STRING, STR("name"));
-                String name = {
-                    .data = dim_type->name,
-                    .size = dim_type->name_size
-                };
-                nbt_write_string(send_cursor, name);
-
-                nbt_write_key(send_cursor, NBT_TAG_INT, STR("id"));
-                WriteU32(send_cursor, i);
-
-                nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("element"));
-                {
-                    nbt_write_dimension_type(send_cursor, dim_type);
-                }
-                WriteU8(send_cursor, NBT_TAG_END);
-
-                WriteU8(send_cursor, NBT_TAG_END);
-            }
-        }
-        WriteU8(send_cursor, NBT_TAG_END);
-
-        // write biomes
-        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("minecraft:worldgen/biome"));
-        {
-            nbt_write_key(send_cursor, NBT_TAG_STRING, STR("type"));
-            nbt_write_string(send_cursor, STR("minecraft:worldgen/biome"));
-
-            nbt_write_key(send_cursor, NBT_TAG_LIST, STR("value"));
-            WriteU8(send_cursor, NBT_TAG_COMPOUND);
-            WriteU32(send_cursor, serv->biome_count);
-            for (int i = 0; i < serv->biome_count; i++) {
-                biome * b = serv->biomes + i;
-
-                nbt_write_key(send_cursor, NBT_TAG_STRING, STR("name"));
-                String name = {
-                    .data = b->name,
-                    .size = b->name_size
-                };
-                nbt_write_string(send_cursor, name);
-
-                nbt_write_key(send_cursor, NBT_TAG_INT, STR("id"));
-                WriteU32(send_cursor, i);
-
-                nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("element"));
-                {
-                    nbt_write_biome(send_cursor, b);
-                }
-                WriteU8(send_cursor, NBT_TAG_END);
-
-                WriteU8(send_cursor, NBT_TAG_END);
-            }
-        }
-        WriteU8(send_cursor, NBT_TAG_END);
-
-        // write chat types
-        // TODO(traks): make this whole chat type business neater...
-        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("minecraft:chat_type"));
-        {
-            nbt_write_key(send_cursor, NBT_TAG_STRING, STR("type"));
-            nbt_write_string(send_cursor, STR("minecraft:chat_type"));
-
-            nbt_write_key(send_cursor, NBT_TAG_LIST, STR("value"));
-            WriteU8(send_cursor, NBT_TAG_COMPOUND);
-            WriteU32(send_cursor, 1);
-
-            // chat
-            {
-                nbt_write_key(send_cursor, NBT_TAG_STRING, STR("name"));
-                nbt_write_string(send_cursor, STR("minecraft:chat"));
-                nbt_write_key(send_cursor, NBT_TAG_INT, STR("id"));
-                WriteU32(send_cursor, 0);
-                nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("element"));
-                {
-                    nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("chat"));
-                    {
-                        nbt_write_key(send_cursor, NBT_TAG_STRING, STR("translation_key"));
-                        nbt_write_string(send_cursor, STR("chat.type.text"));
-
-                        nbt_write_key(send_cursor, NBT_TAG_LIST, STR("parameters"));
-                        WriteU8(send_cursor, NBT_TAG_STRING);
-                        WriteU32(send_cursor, 2);
-                        nbt_write_string(send_cursor, STR("sender"));
-                        nbt_write_string(send_cursor, STR("content"));
-                    }
-                    WriteU8(send_cursor, NBT_TAG_END);
-
-                    nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("narration"));
-                    {
-                        nbt_write_key(send_cursor, NBT_TAG_STRING, STR("translation_key"));
-                        nbt_write_string(send_cursor, STR("chat.type.text.narrate"));
-
-                        nbt_write_key(send_cursor, NBT_TAG_LIST, STR("parameters"));
-                        WriteU8(send_cursor, NBT_TAG_STRING);
-                        WriteU32(send_cursor, 2);
-                        nbt_write_string(send_cursor, STR("sender"));
-                        nbt_write_string(send_cursor, STR("content"));
-                    }
-                    WriteU8(send_cursor, NBT_TAG_END);
-                }
-                WriteU8(send_cursor, NBT_TAG_END);
-            }
-            WriteU8(send_cursor, NBT_TAG_END);
-        }
-        WriteU8(send_cursor, NBT_TAG_END);
-
-        // write trim materials
-        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("minecraft:trim_material"));
-        {
-            nbt_write_key(send_cursor, NBT_TAG_STRING, STR("type"));
-            nbt_write_string(send_cursor, STR("minecraft:trim_material"));
-
-            nbt_write_key(send_cursor, NBT_TAG_LIST, STR("value"));
-            WriteU8(send_cursor, NBT_TAG_COMPOUND);
-            WriteU32(send_cursor, 0);
-        }
-        WriteU8(send_cursor, NBT_TAG_END);
-
-        // write trim patterns
-        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("minecraft:trim_pattern"));
-        {
-            nbt_write_key(send_cursor, NBT_TAG_STRING, STR("type"));
-            nbt_write_string(send_cursor, STR("minecraft:trim_pattern"));
-
-            nbt_write_key(send_cursor, NBT_TAG_LIST, STR("value"));
-            WriteU8(send_cursor, NBT_TAG_COMPOUND);
-            WriteU32(send_cursor, 0);
-        }
-        WriteU8(send_cursor, NBT_TAG_END);
-
-        // write damage types
-        // NOTE(traks): Currently (1.19.4), we must send ALL vanilla damage
-        // types to the client. Otherwise it'll throw internally and it'll be
-        // stuck on the login screen. The client doesn't disconnect, and no
-        // error message pops up on the screen.
-        nbt_write_key(send_cursor, NBT_TAG_COMPOUND, STR("minecraft:damage_type"));
-        {
-            nbt_write_key(send_cursor, NBT_TAG_STRING, STR("type"));
-            nbt_write_string(send_cursor, STR("minecraft:damage_type"));
-
-            nbt_write_key(send_cursor, NBT_TAG_LIST, STR("value"));
-            WriteU8(send_cursor, NBT_TAG_COMPOUND);
-            WriteU32(send_cursor, 42);
-
-            // TODO(traks): these IDs don't seem to be the same as vanilla. Does
-            // that matter? I wouldn't think so
-            NbtWriteDamageType(send_cursor, 0, "minecraft:in_fire", "inFire", 0.1f);
-            NbtWriteDamageType(send_cursor, 1, "minecraft:lightning_bolt", "lightningBolt", 0.1f);
-            NbtWriteDamageType(send_cursor, 2, "minecraft:on_fire", "onFire", 0.0f);
-            NbtWriteDamageType(send_cursor, 3, "minecraft:lava", "lava", 0.1f);
-            NbtWriteDamageType(send_cursor, 4, "minecraft:hot_floor", "hotFloor", 0.1f);
-            NbtWriteDamageType(send_cursor, 5, "minecraft:in_wall", "inWall", 0.0f);
-            NbtWriteDamageType(send_cursor, 6, "minecraft:cramming", "cramming", 0.0f);
-            NbtWriteDamageType(send_cursor, 7, "minecraft:drown", "drown", 0.0f);
-            NbtWriteDamageType(send_cursor, 8, "minecraft:starve", "starve", 0.0f);
-            NbtWriteDamageType(send_cursor, 9, "minecraft:cactus", "cactus", 0.1f);
-            NbtWriteDamageType(send_cursor, 10, "minecraft:fall", "fall", 0.0f);
-            NbtWriteDamageType(send_cursor, 11, "minecraft:fly_into_wall", "flyIntoWall", 0.0f);
-            NbtWriteDamageType(send_cursor, 12, "minecraft:out_of_world", "outOfWorld", 0.0f);
-            NbtWriteDamageType(send_cursor, 13, "minecraft:generic", "generic", 0.0f);
-            NbtWriteDamageType(send_cursor, 14, "minecraft:magic", "magic", 0.0f);
-            NbtWriteDamageType(send_cursor, 15, "minecraft:wither", "wither", 0.0f);
-            NbtWriteDamageType(send_cursor, 16, "minecraft:dragon_breath", "dragonBreath", 0.0f);
-            NbtWriteDamageType(send_cursor, 17, "minecraft:dry_out", "dryout", 0.1f);
-            NbtWriteDamageType(send_cursor, 18, "minecraft:sweet_berry_bush", "sweetBerryBush", 0.1f);
-            NbtWriteDamageType(send_cursor, 19, "minecraft:freeze", "freeze", 0.0f);
-            NbtWriteDamageType(send_cursor, 20, "minecraft:stalagmite", "stalagmite", 0.0f);
-            NbtWriteDamageType(send_cursor, 21, "minecraft:falling_block", "fallingBlock", 0.1f);
-            NbtWriteDamageType(send_cursor, 22, "minecraft:falling_anvil", "anvil", 0.1f);
-            NbtWriteDamageType(send_cursor, 23, "minecraft:falling_stalactite", "fallingStalactite", 0.1f);
-            NbtWriteDamageType(send_cursor, 24, "minecraft:sting", "sting", 0.1f);
-            NbtWriteDamageType(send_cursor, 25, "minecraft:mob_attack", "mob", 0.1f);
-            NbtWriteDamageType(send_cursor, 26, "minecraft:mob_attack_no_aggro", "mob", 0.1f);
-            NbtWriteDamageType(send_cursor, 27, "minecraft:player_attack", "player", 0.1f);
-            NbtWriteDamageType(send_cursor, 28, "minecraft:arrow", "arrow", 0.1f);
-            NbtWriteDamageType(send_cursor, 29, "minecraft:trident", "trident", 0.1f);
-            NbtWriteDamageType(send_cursor, 30, "minecraft:mob_projectile", "mob", 0.1f);
-            NbtWriteDamageType(send_cursor, 31, "minecraft:fireworks", "fireworks", 0.1f);
-            NbtWriteDamageType(send_cursor, 32, "minecraft:fireball", "onFire", 0.1f);
-            NbtWriteDamageType(send_cursor, 33, "minecraft:unattributed_fireball", "fireball", 0.1f);
-            NbtWriteDamageType(send_cursor, 34, "minecraft:wither_skull", "witherSkull", 0.1f);
-            NbtWriteDamageType(send_cursor, 35, "minecraft:thrown", "thrown", 0.1f);
-            NbtWriteDamageType(send_cursor, 36, "minecraft:indirect_magic", "indirectMagic", 0.0f);
-            NbtWriteDamageType(send_cursor, 37, "minecraft:thorns", "thorns", 0.1f);
-            NbtWriteDamageTypeWithScaling(send_cursor, 38, "minecraft:explosion", "explosion", 0.1f, "always");
-            NbtWriteDamageTypeWithScaling(send_cursor, 39, "minecraft:player_explosion", "explosion.player", 0.1f, "always");
-            NbtWriteDamageTypeWithScaling(send_cursor, 40, "minecraft:sonic_boom", "sonic_boom", 0.0f, "always");
-            NbtWriteDamageTypeWithScaling(send_cursor, 41, "minecraft:bad_respawn_point", "badRespawnPoint", 0.1f, "always");
-        }
-        WriteU8(send_cursor, NBT_TAG_END);
-
-        WriteU8(send_cursor, NBT_TAG_END); // end of registries
-
-        nbtCursor.size = send_cursor->size;
-        // NOTE(traks): for debugging purposes
-        // NbtCompound nbtCompound = NbtRead(&nbtCursor, tick_arena);
-        // NbtPrint(&nbtCompound);
-
-        // dimension type of level player is joining
-        String dimTypeName = {
-            .data = serv->dimension_types[0].name,
-            .size = serv->dimension_types[0].name_size
-        };
-        WriteVarString(send_cursor, dimTypeName);
-
-        // level name the player is joining
-        WriteVarString(send_cursor, level_name);
-
-        WriteU64(send_cursor, 0); // hashed seed
         WriteVarU32(send_cursor, 0); // max players (ignored by client)
         WriteVarU32(send_cursor, player->player.nextChunkCacheRadius - 1); // chunk radius
         // @TODO(traks) figure out why the client needs to know the simulation
@@ -2878,14 +2375,21 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         WriteVarU32(send_cursor, player->player.nextChunkCacheRadius - 1); // simulation distance
         WriteU8(send_cursor, 0); // reduced debug info
         WriteU8(send_cursor, 1); // show death screen on death
-        WriteU8(send_cursor, 0); // is debug
+        WriteU8(send_cursor, 0); // limited crafting
+        WriteVarU32(send_cursor, 0); // id of dimension type, minecraft:overworld
+        WriteVarString(send_cursor, levelName); // level being spawned into
+        WriteU64(send_cursor, 0); // hashed seed
+        WriteU8(send_cursor, player->player.gamemode); // current gamemode
+        WriteU8(send_cursor, -1); // previous gamemode
+        WriteU8(send_cursor, 0); // is debug world
         WriteU8(send_cursor, 0); // is flat
-        WriteU8(send_cursor, 0); // has death location, world + block pos after if true
+        WriteU8(send_cursor, 0); // has death location, world + pos after if true
+        WriteVarU32(send_cursor, 0); // portal cooldown
+        WriteU8(send_cursor, 0); // enforces secure chat
         FinishPlayerPacket(send_cursor, player);
 
         BeginPacket(send_cursor, CBP_SET_CARRIED_ITEM);
-        WriteU8(send_cursor,
-                player->player.selected_slot - PLAYER_FIRST_HOTBAR_SLOT);
+        WriteU8(send_cursor, player->player.selected_slot - PLAYER_FIRST_HOTBAR_SLOT);
         FinishPlayerPacket(send_cursor, player);
 
         BeginPacket(send_cursor, CBP_UPDATE_TAGS);
@@ -2945,24 +2449,10 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
 
         send_changed_entity_data(send_cursor, player, player, player->changed_data);
 
-        BeginPacket(send_cursor, CBP_SERVER_DATA);
-        String prefix = STR("{\"text\":\"");
-        String suffix = STR("\"}");
-        // TODO(traks): not sure what this version of the MOTD is used for. But
-        // should be the same as server list MOTD probably
-        WriteVarString(send_cursor, STR("{\"text\":\"Running Blaze\"}"));
-        WriteU8(send_cursor, 0); // no icon data
-        // NOTE(traks): Not sure what this is all used for. In case all chat
-        // messages are sent as system chat, setting this to true disables the
-        // popup that warns you about secure chat when joining the server.
-        u8 enforcesSecureChat = 1;
-        WriteU8(send_cursor, enforcesSecureChat);
-        FinishPlayerPacket(send_cursor, player);
-
         // NOTE(traks): sync the player location, and then send the spawn
         // location packet, which tells the client to close the
         // "Loading terrain..." screen as soon as it can render the chunk the
-        // player is in
+        // player is in. -- Is this still the case for the latest MC version?
 
         // TODO(traks): Only do this after we have sent the player a couple of
         // chunks around the spawn chunk, so they can move around immediately
@@ -2976,6 +2466,13 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         // TODO(traks): specific value not important for now
         WriteBlockPos(send_cursor, (BlockPos) {0, 0, 0});
         WriteF32(send_cursor, 0); // yaw
+        FinishPlayerPacket(send_cursor, player);
+
+        // NOTE(traks): seems pointless, but is required to get the client
+        // eventually of the world loading screen
+        BeginPacket(send_cursor, CBP_GAME_EVENT);
+        WriteU8(send_cursor, PACKET_GAME_EVENT_LEVEL_CHUNKS_LOAD_START);
+        WriteF32(send_cursor, 0);
         FinishPlayerPacket(send_cursor, player);
 
         // reset changed data, because all data is sent already and we don't
@@ -3004,7 +2501,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
 
     if (player->changed_data & PLAYER_GAMEMODE_CHANGED) {
         BeginPacket(send_cursor, CBP_GAME_EVENT);
-        WriteU8(send_cursor, PACKET_GAME_EVENT_CHANGE_GAMEMODE);
+        WriteU8(send_cursor, PACKET_GAME_EVENT_CHANGE_GAME_MODE);
         WriteF32(send_cursor, player->player.gamemode);
         FinishPlayerPacket(send_cursor, player);
     }
@@ -3185,9 +2682,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                 // required data in the tab list array, so we don't need to
                 // resolve entities.
                 // assert(tabListPlayer->type == ENTITY_PLAYER);
-                // @TODO(traks) write UUID
-                WriteU64(send_cursor, 0);
-                WriteU64(send_cursor, eid);
+                WriteUUID(send_cursor, tabListPlayer->uuid);
                 String username = {
                     .data = tabListPlayer->player.username,
                     .size = tabListPlayer->player.username_size
@@ -3209,7 +2704,9 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
 
             for (int i = 0; i < serv->tab_list_removed_count; i++) {
                 entity_id eid = serv->tab_list_removed[i];
-                // @TODO(traks) write UUID
+                // TODO(traks): should store the UUID of the player separately
+                // from the player, so we don't need the player entity to get
+                // the UUID. The player may be missing here I think
                 WriteU64(send_cursor, 0);
                 WriteU64(send_cursor, eid);
             }
@@ -3241,9 +2738,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                 // required data in the tab list array, so we don't need to
                 // resolve entities.
                 // assert(tabListPlayer->type == ENTITY_PLAYER);
-                // @TODO(traks) write UUID
-                WriteU64(send_cursor, 0);
-                WriteU64(send_cursor, eid);
+                WriteUUID(send_cursor, tabListPlayer->uuid);
 
                 // NOTE(traks): after the UUID, write all the data of the player
                 // per action, in order
@@ -3276,9 +2771,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                 BeginPacket(send_cursor, CBP_PLAYER_INFO_UPDATE);
                 WriteVarU32(send_cursor, 0b000100); // action: update gamemode
                 WriteVarU32(send_cursor, 1); // changed entries
-                // @TODO(traks) write uuid
-                WriteU64(send_cursor, 0);
-                WriteU64(send_cursor, entity->eid);
+                WriteUUID(send_cursor, entity->uuid);
                 WriteVarU32(send_cursor, entity->player.gamemode);
                 FinishPlayerPacket(send_cursor, player);
             }
@@ -3414,8 +2907,6 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         disconnect_player_now(player);
         goto bail;
     }
-
-    BeginTimings(FinalisePackets);
 
     Cursor final_cursor_ = {
         .data = player->player.send_buf,

@@ -161,6 +161,7 @@ f64 ReadF64(Cursor * cursor);
 String ReadVarString(Cursor * cursor, i32 maxSize);
 BlockPos ReadBlockPos(Cursor * cursor);
 i32 ReadBool(Cursor * cursor);
+UUID ReadUUID(Cursor * cursor);
 
 void WriteVarU32(Cursor * cursor, u32 value);
 void WriteVarU64(Cursor * cursor, u64 value);
@@ -172,6 +173,7 @@ void WriteF32(Cursor * cursor, f32 value);
 void WriteF64(Cursor * cursor, f64 value);
 void WriteVarString(Cursor * cursor, String value);
 void WriteBlockPos(Cursor * cursor, BlockPos value);
+void WriteUUID(Cursor * cursor, UUID value);
 void WriteData(Cursor * cursor, u8 * restrict data, i32 size);
 
 #endif

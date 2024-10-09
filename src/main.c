@@ -312,6 +312,8 @@ try_reserve_entity(unsigned type) {
             }
 
             entity->eid = eid;
+            // TODO(traks): Proper UUID creation. For players we overwrite this
+            entity->uuid = (UUID) {.low = eid, .high = 0};
             entity->type = type;
             entity->flags |= ENTITY_IN_USE;
             serv->next_entity_generations[i] = (generation + 1) & 0xfff;
@@ -1105,87 +1107,6 @@ load_tags(char * file_name, char * list_name, tag_list * tags, resource_loc_tabl
     }
 }
 
-static void
-init_dimension_types(void) {
-    dimension_type * overworld = serv->dimension_types + serv->dimension_type_count;
-    serv->dimension_type_count++;
-
-    *overworld = (dimension_type) {
-        .fixed_time = -1,
-        .coordinate_scale = 1,
-        .min_y = MIN_WORLD_Y,
-        .height = WORLD_HEIGHT,
-        .logical_height = WORLD_HEIGHT,
-        .ambient_light = 0
-    };
-
-    String overworld_name = STR("minecraft:overworld");
-    memcpy(overworld->name, overworld_name.data, overworld_name.size);
-    overworld->name_size = overworld_name.size;
-
-    String overworld_infiniburn = STR("#minecraft:infiniburn_overworld");
-    memcpy(overworld->infiniburn, overworld_infiniburn.data, overworld_infiniburn.size);
-    overworld->infiniburn_size = overworld_infiniburn.size;
-
-    String overworld_effects = STR("minecraft:overworld");
-    memcpy(overworld->effects, overworld_effects.data, overworld_effects.size);
-    overworld->effects_size = overworld_effects.size;
-
-    overworld->flags |= DIMENSION_HAS_SKYLIGHT | DIMENSION_NATURAL
-            | DIMENSION_BED_WORKS | DIMENSION_HAS_RAIDS;
-
-    // @TODO(traks) add all the vanilla dimension types
-}
-
-static void
-init_biomes(void) {
-    biome * ocean = serv->biomes + serv->biome_count;
-    serv->biome_count++;
-
-    *ocean = (biome) {
-        .has_precipitation = 1,
-        .temperature = 0.5,
-        .downfall = 0.5,
-        .temperature_mod = BIOME_TEMPERATURE_MOD_NONE,
-
-        .fog_colour = 12638463,
-        .water_colour = 4159204,
-        .water_fog_colour = 329011,
-        .sky_colour = 8103167,
-        .foliage_colour_override = -1,
-        .grass_colour_override = -1,
-        .grass_colour_mod = BIOME_GRASS_COLOUR_MOD_NONE,
-    };
-
-    String ocean_name = STR("minecraft:ocean");
-    memcpy(ocean->name, ocean_name.data, ocean_name.size);
-    ocean->name_size = ocean_name.size;
-
-    biome * plains = serv->biomes + serv->biome_count;
-    serv->biome_count++;
-
-    *plains = (biome) {
-        .has_precipitation = 1,
-        .temperature = 0.8,
-        .downfall = 0.4,
-        .temperature_mod = BIOME_TEMPERATURE_MOD_NONE,
-
-        .fog_colour = 12638463,
-        .water_colour = 4159204,
-        .water_fog_colour = 329011,
-        .sky_colour = 7907327,
-        .foliage_colour_override = -1,
-        .grass_colour_override = -1,
-        .grass_colour_mod = BIOME_GRASS_COLOUR_MOD_NONE,
-    };
-
-    String plains_name = STR("minecraft:plains");
-    memcpy(plains->name, plains_name.data, plains_name.size);
-    plains->name_size = plains_name.size;
-
-    // @TODO(traks) add all the vanilla biomes
-}
-
 int
 main(void) {
     InitNanoTime();
@@ -1270,9 +1191,6 @@ main(void) {
     load_tags("entitytags.txt", "minecraft:entity_type", &serv->entity_tags, &serv->entity_resource_table);
     load_tags("fluidtags.txt", "minecraft:fluid", &serv->fluid_tags, &serv->fluid_resource_table);
     load_tags("gameeventtags.txt", "minecraft:game_event", &serv->game_event_tags, &serv->game_event_resource_table);
-
-    init_dimension_types();
-    init_biomes();
 
     // @NOTE(traks) chunk sections assume that no changes happen in tick 0, so
     // initialise tick number to something larger than 0 to be safe

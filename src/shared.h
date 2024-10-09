@@ -49,6 +49,8 @@ static_assert(BITS_PER_BLOCK_STATE <= MAX_BITS_PER_BLOCK_STATE, "Unsupported bit
 // whether all play packets should be compressed or not
 #define PACKET_COMPRESSION_ENABLED (1)
 
+#define MAX_PLAYER_LOCALE_SIZE (16)
+
 // NOTE(traks): for block positions: 26 bits X, 26 bits Z, 12 bits Y
 // NOTE(traks): for chunk positions: 22 bits X, 22 bits Z
 // NOTE(traks): for world ID: 12 bits
@@ -1514,79 +1516,87 @@ typedef struct {
 // we figure out all the actual vanilla uses and start using them ourselves
 enum level_event_type {
     LEVEL_EVENT_SOUND_DISPENSER_DISPENSE = 1000,
-    LEVEL_EVENT_SOUND_DISPENSER_FAIL,
-    LEVEL_EVENT_SOUND_DISPENSER_PROJECTILE_LAUNCH,
-    LEVEL_EVENT_SOUND_ENDER_EYE_LAUNCH,
-    LEVEL_EVENT_SOUND_FIREWORK_SHOOT,
-    LEVEL_EVENT_SOUND_OPEN_IRON_DOOR,
-    LEVEL_EVENT_SOUND_OPEN_WOODEN_DOOR,
-    LEVEL_EVENT_SOUND_OPEN_WOODEN_TRAP_DOOR,
-    LEVEL_EVENT_SOUND_OPEN_FENCE_GATE,
-    LEVEL_EVENT_SOUND_EXTINGUISH_FIRE,
-    LEVEL_EVENT_SOUND_PLAY_RECORDING,
-    LEVEL_EVENT_SOUND_CLOSE_IRON_DOOR,
-    LEVEL_EVENT_SOUND_CLOSE_WOODEN_DOOR,
-    LEVEL_EVENT_SOUND_CLOSE_WOODEN_TRAP_DOOR,
-    LEVEL_EVENT_SOUND_CLOSE_FENCE_GATE,
-    LEVEL_EVENT_SOUND_GHAST_WARNING,
-    LEVEL_EVENT_SOUND_GHAST_FIREBALL,
-    LEVEL_EVENT_SOUND_DRAGON_FIREBALL,
-    LEVEL_EVENT_SOUND_BLAZE_FIREBALL,
-    LEVEL_EVENT_SOUND_ZOMBIE_WOODEN_DOOR,
-    LEVEL_EVENT_SOUND_ZOMBIE_IRON_DOOR,
-    LEVEL_EVENT_SOUND_ZOMBIE_DOOR_CRASH,
-    LEVEL_EVENT_SOUND_WITHER_BLOCK_BREAK,
-    LEVEL_EVENT_SOUND_WITHER_BOSS_SPAWN,
-    LEVEL_EVENT_SOUND_WITHER_BOSS_SHOOT,
-    LEVEL_EVENT_SOUND_BAT_LIFTOFF,
-    LEVEL_EVENT_SOUND_ZOMBIE_INFECTED,
-    LEVEL_EVENT_SOUND_ZOMBIE_CONVERTED,
-    LEVEL_EVENT_SOUND_DRAGON_DEATH,
-    LEVEL_EVENT_SOUND_ANVIL_BROKEN,
-    LEVEL_EVENT_SOUND_ANVIL_USED,
-    LEVEL_EVENT_SOUND_ANVIL_LAND,
-    LEVEL_EVENT_SOUND_PORTAL_TRAVEL,
-    LEVEL_EVENT_SOUND_CHORUS_GROW,
-    LEVEL_EVENT_SOUND_CHORUS_DEATH,
-    LEVEL_EVENT_SOUND_BREWING_STAND_BREW,
-    LEVEL_EVENT_SOUND_CLOSE_IRON_TRAP_DOOR,
-    LEVEL_EVENT_SOUND_OPEN_IRON_TRAP_DOOR,
-    LEVEL_EVENT_SOUND_END_PORTAL_SPAWN,
-    LEVEL_EVENT_SOUND_PHANTOM_BITE,
-    LEVEL_EVENT_SOUND_ZOMBIE_TO_DROWNED,
-    LEVEL_EVENT_SOUND_HUSK_TO_ZOMBIE,
-    LEVEL_EVENT_SOUND_GRINDSTONE_USED,
-    LEVEL_EVENT_SOUND_PAGE_TURN,
-    LEVEL_EVENT_SOUND_SMITHING_TABLE_USED,
-    LEVEL_EVENT_SOUND_POINTED_DRIPSTONE_LAND,
-    LEVEL_EVENT_SOUND_DRIP_LAVA_INTO_CAULDRON,
-    LEVEL_EVENT_SOUND_DRIP_WATER_INTO_CAULDRON,
-    LEVEL_EVENT_SOUND_SKELETON_TO_STRAY,
-
+    LEVEL_EVENT_SOUND_DISPENSER_FAIL = 1001,
+    LEVEL_EVENT_SOUND_DISPENSER_PROJECTILE_LAUNCH = 1002,
+    LEVEL_EVENT_SOUND_FIREWORK_SHOOT = 1004,
+    LEVEL_EVENT_SOUND_EXTINGUISH_FIRE = 1009,
+    LEVEL_EVENT_SOUND_PLAY_JUKEBOX_SONG = 1010,
+    LEVEL_EVENT_SOUND_STOP_JUKEBOX_SONG = 1011,
+    LEVEL_EVENT_SOUND_GHAST_WARNING = 1015,
+    LEVEL_EVENT_SOUND_GHAST_FIREBALL = 1016,
+    LEVEL_EVENT_SOUND_DRAGON_FIREBALL = 1017,
+    LEVEL_EVENT_SOUND_BLAZE_FIREBALL = 1018,
+    LEVEL_EVENT_SOUND_ZOMBIE_WOODEN_DOOR = 1019,
+    LEVEL_EVENT_SOUND_ZOMBIE_IRON_DOOR = 1020,
+    LEVEL_EVENT_SOUND_ZOMBIE_DOOR_CRASH = 1021,
+    LEVEL_EVENT_SOUND_WITHER_BLOCK_BREAK = 1022,
+    LEVEL_EVENT_SOUND_WITHER_BOSS_SPAWN = 1023,
+    LEVEL_EVENT_SOUND_WITHER_BOSS_SHOOT = 1024,
+    LEVEL_EVENT_SOUND_BAT_LIFTOFF = 1025,
+    LEVEL_EVENT_SOUND_ZOMBIE_INFECTED = 1026,
+    LEVEL_EVENT_SOUND_ZOMBIE_CONVERTED = 1027,
+    LEVEL_EVENT_SOUND_DRAGON_DEATH = 1028,
+    LEVEL_EVENT_SOUND_ANVIL_BROKEN = 1029,
+    LEVEL_EVENT_SOUND_ANVIL_USED = 1030,
+    LEVEL_EVENT_SOUND_ANVIL_LAND = 1031,
+    LEVEL_EVENT_SOUND_PORTAL_TRAVEL = 1032,
+    LEVEL_EVENT_SOUND_CHORUS_GROW = 1033,
+    LEVEL_EVENT_SOUND_CHORUS_DEATH = 1034,
+    LEVEL_EVENT_SOUND_BREWING_STAND_BREW = 1035,
+    LEVEL_EVENT_SOUND_END_PORTAL_SPAWN = 1038,
+    LEVEL_EVENT_SOUND_PHANTOM_BITE = 1039,
+    LEVEL_EVENT_SOUND_ZOMBIE_TO_DROWNED = 1040,
+    LEVEL_EVENT_SOUND_HUSK_TO_ZOMBIE = 1041,
+    LEVEL_EVENT_SOUND_GRINDSTONE_USED = 1042,
+    LEVEL_EVENT_SOUND_PAGE_TURN = 1043,
+    LEVEL_EVENT_SOUND_SMITHING_TABLE_USED = 1044,
+    LEVEL_EVENT_SOUND_POINTED_DRIPSTONE_LAND = 1045,
+    LEVEL_EVENT_SOUND_DRIP_LAVA_INTO_CAULDRON = 1046,
+    LEVEL_EVENT_SOUND_DRIP_WATER_INTO_CAULDRON = 1047,
+    LEVEL_EVENT_SOUND_SKELETON_TO_STRAY = 1048,
+    LEVEL_EVENT_SOUND_CRAFTER_CRAFT = 1049,
+    LEVEL_EVENT_SOUND_CRAFTER_FAIL = 1050,
+    LEVEL_EVENT_SOUND_WIND_CHARGE_SHOOT = 1051,
     LEVEL_EVENT_COMPOSTER_FILL = 1500,
-    LEVEL_EVENT_LAVA_FIZZ,
-    LEVEL_EVENT_REDSTONE_TORCH_BURNOUT,
-    LEVEL_EVENT_END_PORTAL_FRAME_FILL,
-    LEVEL_EVENT_DRIPSTONE_DRIP,
-    LEVEL_EVENT_PARTICLES_AND_SOUND_PLANT_GROWTH,
-
-    LEVEL_EVENT_PARTICLES_SHOOT = 2000,
-    LEVEL_EVENT_PARTICLES_DESTROY_BLOCK,
-    LEVEL_EVENT_PARTICLES_SPELL_POTION_SPLASH,
-    LEVEL_EVENT_PARTICLES_EYE_OF_ENDER_DEATH,
-    LEVEL_EVENT_PARTICLES_MOBBLOCK_SPAWN,
-    LEVEL_EVENT_PARTICLES_PLANT_GROWTH,
-    LEVEL_EVENT_PARTICLES_DRAGON_FIREBALL_SPLASH,
-    LEVEL_EVENT_PARTICLES_INSTANT_POTION_SPLASH,
-    LEVEL_EVENT_PARTICLES_DRAGON_BLOCK_BREAK,
-    LEVEL_EVENT_PARTICLES_WATER_EVAPORATING,
-
+    LEVEL_EVENT_LAVA_FIZZ = 1501,
+    LEVEL_EVENT_REDSTONE_TORCH_BURNOUT = 1502,
+    LEVEL_EVENT_END_PORTAL_FRAME_FILL = 1503,
+    LEVEL_EVENT_DRIPSTONE_DRIP = 1504,
+    LEVEL_EVENT_PARTICLES_AND_SOUND_PLANT_GROWTH = 1505,
+    LEVEL_EVENT_PARTICLES_SHOOT_SMOKE = 2000,
+    LEVEL_EVENT_PARTICLES_DESTROY_BLOCK = 2001,
+    LEVEL_EVENT_PARTICLES_SPELL_POTION_SPLASH = 2002,
+    LEVEL_EVENT_PARTICLES_EYE_OF_ENDER_DEATH = 2003,
+    LEVEL_EVENT_PARTICLES_MOBBLOCK_SPAWN = 2004,
+    LEVEL_EVENT_PARTICLES_DRAGON_FIREBALL_SPLASH = 2006,
+    LEVEL_EVENT_PARTICLES_INSTANT_POTION_SPLASH = 2007,
+    LEVEL_EVENT_PARTICLES_DRAGON_BLOCK_BREAK = 2008,
+    LEVEL_EVENT_PARTICLES_WATER_EVAPORATING = 2009,
+    LEVEL_EVENT_PARTICLES_SHOOT_WHITE_SMOKE = 2010,
+    LEVEL_EVENT_PARTICLES_BEE_GROWTH = 2011,
+    LEVEL_EVENT_PARTICLES_TURTLE_EGG_PLACEMENT = 2012,
+    LEVEL_EVENT_PARTICLES_SMASH_ATTACK = 2013,
     LEVEL_EVENT_ANIMATION_END_GATEWAY_SPAWN = 3000,
-    LEVEL_EVENT_ANIMATION_DRAGON_SUMMON_ROAR,
-    LEVEL_EVENT_PARTICLES_ELECTRIC_SPARK,
-    LEVEL_EVENT_PARTICLES_AND_SOUND_WAX_ON,
-    LEVEL_EVENT_PARTICLES_WAX_OFF,
-    LEVEL_EVENT_PARTICLES_SCRAPE,
+    LEVEL_EVENT_ANIMATION_DRAGON_SUMMON_ROAR = 3001,
+    LEVEL_EVENT_PARTICLES_ELECTRIC_SPARK = 3002,
+    LEVEL_EVENT_PARTICLES_AND_SOUND_WAX_ON = 3003,
+    LEVEL_EVENT_PARTICLES_WAX_OFF = 3004,
+    LEVEL_EVENT_PARTICLES_SCRAPE = 3005,
+    LEVEL_EVENT_PARTICLES_SCULK_CHARGE = 3006,
+    LEVEL_EVENT_PARTICLES_SCULK_SHRIEK = 3007,
+    LEVEL_EVENT_PARTICLES_AND_SOUND_BRUSH_BLOCK_COMPLETE = 3008,
+    LEVEL_EVENT_PARTICLES_EGG_CRACK = 3009,
+    LEVEL_EVENT_PARTICLES_TRIAL_SPAWNER_SPAWN = 3011,
+    LEVEL_EVENT_PARTICLES_TRIAL_SPAWNER_SPAWN_MOB_AT = 3012,
+    LEVEL_EVENT_PARTICLES_TRIAL_SPAWNER_DETECT_PLAYER = 3013,
+    LEVEL_EVENT_ANIMATION_TRIAL_SPAWNER_EJECT_ITEM = 3014,
+    LEVEL_EVENT_ANIMATION_VAULT_ACTIVATE = 3015,
+    LEVEL_EVENT_ANIMATION_VAULT_DEACTIVATE = 3016,
+    LEVEL_EVENT_ANIMATION_VAULT_EJECT_ITEM = 3017,
+    LEVEL_EVENT_ANIMATION_SPAWN_COBWEB = 3018,
+    LEVEL_EVENT_PARTICLES_TRIAL_SPAWNER_DETECT_PLAYER_OMINOUS = 3019,
+    LEVEL_EVENT_PARTICLES_TRIAL_SPAWNER_BECOME_OMINOUS = 3020,
+    LEVEL_EVENT_PARTICLES_TRIAL_SPAWNER_SPAWN_ITEM = 3021,
 };
 
 // NOTE(traks): generated in network order
@@ -1759,7 +1769,7 @@ enum packet_game_event_type {
     PACKET_GAME_EVENT_NO_RESPAWN_BLOCK_AVAILABLE,
     PACKET_GAME_EVENT_START_RAINING,
     PACKET_GAME_EVENT_STOP_RAINING,
-    PACKET_GAME_EVENT_CHANGE_GAMEMODE,
+    PACKET_GAME_EVENT_CHANGE_GAME_MODE,
     PACKET_GAME_EVENT_WIN_GAME,
     PACKET_GAME_EVENT_DEMO_EVENT,
     PACKET_GAME_EVENT_ARROW_HIT_PLAYER,
@@ -1768,6 +1778,8 @@ enum packet_game_event_type {
     PACKET_GAME_EVENT_PUFFER_FISH_STING,
     PACKET_GAME_EVENT_GUARDIAN_ELDER_EFFECT,
     PACKET_GAME_EVENT_IMMEDIATE_RESPAWN,
+    PACKET_GAME_EVENT_LIMITED_CRAFTING,
+    PACKET_GAME_EVENT_LEVEL_CHUNKS_LOAD_START,
 };
 
 enum entity_data_type {
@@ -2000,16 +2012,14 @@ typedef struct {
 
     i32 current_teleport_id;
 
-    unsigned char language[16];
-    int language_size;
-    i32 chat_visibility;
-    u8 sees_chat_colours;
-    u8 model_customisation;
-    i32 main_hand;
-    u8 text_filtering;
-    // @TODO(traks) respect this setting or just don't display usernames in
-    // status ping responses
-    u8 allowInStatusList;
+    u8 locale[MAX_PLAYER_LOCALE_SIZE];
+    i32 localeSize;
+    i32 chatMode;
+    i32 seesChatColours;
+    u8 skinCustomisation;
+    i32 mainHand;
+    i32 textFiltering;
+    i32 showInStatusList;
 
     i64 last_keep_alive_sent_tick;
 
@@ -2085,6 +2095,8 @@ typedef struct {
     entity_id eid;
     unsigned type;
     i32 worldId;
+
+    UUID uuid;
 
     // centre of bottom of entity's bounding box
     double x;
@@ -2165,126 +2177,6 @@ typedef struct {
     u16 max_ids;
 } resource_loc_table;
 
-// Currently dimension types have the following configurable properties that are
-// shared with the client. These have the effects:
-//
-//  - fixed_time (optional long): time of day always equals this
-//  - has_skylight (bool): sky light levels, whether it can
-//    thunder, whether daylight sensors work, phantom spawning
-//  - has_ceiling (bool): affects thunder, map rendering, mob
-//    spawning algorithm, respawn logic
-//  - ultrawarm (bool): whether water can be placed, affects ice
-//    melting, and how far and how fast lava flows
-//  - natural (bool): whether players can sleep and whether
-//    zombified piglin can spawn from portals
-//  - coordinate_scale (double): vanilla overworld has 1 and vanilla
-//    nether has 8. affects teleporting between worlds
-//  - piglin_safe (bool): false if piglins convert to zombified
-//    piglins as in the vanilla overworld
-//  - bed_works (bool): true if beds can set spawn point. else beds will
-//    explode when used
-//  - respawn_anchor_works (bool): true if respawn anchors can
-//    set spawn point. else they explode when used
-//  - has_raids (bool): whether raids spawn
-//  - min_y (int in [-2016, 2047]): min block coordinate in the world
-//  - height (int in [16, 4064]): height above min_y of the world. Restricted
-//    by 12-bit y coordinate in compact block pos.
-//  - logical_height (int in [16, 4064]): seems to only affect
-//    chorus fruit teleportation and nether portal spawning, not
-//    the actual maximum world height
-//  - infiniburn (resource loc): the resource location of a
-//    block tag that is used to check whether fire should keep
-//    burning forever on tagged blocks
-//  - effects (resource loc): affects cloud height, fog, sky colour, etc. for
-//    the client
-//  - ambient_light (float): affects brightness visually and some mob AI
-//  - monsterSpawnMaxBlockLight (int in [0, 15]): max block light monsters can spawn in
-
-#define DIMENSION_HAS_SKYLIGHT ((unsigned) (0x1 << 0))
-
-#define DIMENSION_HAS_CEILING ((unsigned) (0x1 << 1))
-
-#define DIMENSION_ULTRAWARM ((unsigned) (0x1 << 2))
-
-#define DIMENSION_NATURAL ((unsigned) (0x1 << 3))
-
-#define DIMENSION_PIGLIN_SAFE ((unsigned) (0x1 << 4))
-
-#define DIMENSION_BED_WORKS ((unsigned) (0x1 << 5))
-
-#define DIMENSION_RESPAWN_ANCHOR_WORKS ((unsigned) (0x1 << 6))
-
-#define DIMENSION_HAS_RAIDS ((unsigned) (0x1 << 7))
-
-typedef struct {
-    unsigned char name[64];
-    unsigned char name_size;
-    i64 fixed_time; // -1 if not used
-    unsigned flags;
-    double coordinate_scale;
-    i32 min_y;
-    i32 height;
-    i32 logical_height;
-    unsigned char infiniburn[128];
-    unsigned char infiniburn_size;
-    unsigned char effects[128];
-    unsigned char effects_size;
-    float ambient_light;
-    i32 monsterSpawnMaxBlockLight;
-} dimension_type;
-
-enum biome_temperature_modifier {
-    BIOME_TEMPERATURE_MOD_NONE,
-    BIOME_TEMPERATURE_MOD_FROZEN,
-};
-
-enum biome_grass_colour_modifier {
-    BIOME_GRASS_COLOUR_MOD_NONE,
-    BIOME_GRASS_COLOUR_MOD_DARK_FOREST,
-    BIOME_GRASS_COLOUR_MOD_SWAMP,
-};
-
-// @TODO(traks) description of all fields in the biome struct
-// TODO(traks): incorporate new fields
-
-typedef struct {
-    unsigned char name[64];
-    unsigned char name_size;
-    unsigned char has_precipitation;
-    float temperature;
-    float downfall;
-    unsigned temperature_mod;
-
-    i32 fog_colour;
-    i32 water_colour;
-    i32 water_fog_colour;
-    i32 sky_colour;
-    i32 foliage_colour_override; // -1 if not used
-    i32 grass_colour_override; // -1 if not used
-    unsigned char grass_colour_mod;
-
-    // @TODO(traks) complex ambient particle settings
-
-    unsigned char ambient_sound[64];
-    unsigned char ambient_sound_size;
-
-    unsigned char mood_sound[64];
-    unsigned char mood_sound_size;
-    i32 mood_sound_tick_delay;
-    i32 mood_sound_block_search_extent;
-    double mood_sound_offset;
-
-    unsigned char additions_sound[64];
-    unsigned char additions_sound_size;
-    double additions_sound_tick_chance;
-
-    unsigned char music_sound[64];
-    unsigned char music_sound_size;
-    i32 music_min_delay;
-    i32 music_max_delay;
-    u8 music_replace_current_music;
-} biome;
-
 typedef struct {
     WorldBlockPos pos;
     int from_direction;
@@ -2359,12 +2251,6 @@ typedef struct {
     u8 emittedLightByState[MAX_BLOCK_STATES];
     BlockBehaviours blockBehavioursByType[ACTUAL_BLOCK_TYPE_COUNT];
     u8 lightCanPropagate[BLOCK_MODEL_COUNT * BLOCK_MODEL_COUNT];
-
-    dimension_type dimension_types[32];
-    int dimension_type_count;
-
-    biome biomes[128];
-    int biome_count;
 
     // block state -> block type
     u16 block_type_by_state[MAX_BLOCK_STATES];
