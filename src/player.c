@@ -5,7 +5,6 @@
 #include <string.h>
 #include <math.h>
 #include <stdlib.h>
-#include <zlib.h>
 #include "shared.h"
 #include "nbt.h"
 #include "chunk.h"
