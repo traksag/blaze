@@ -1,10 +1,14 @@
 # Blaze
 
-Handmade game server for Minecraft Java Edition 1.19.4.
+Handmade game server for Minecraft Java Edition 1.21.1.
 
-Currently a principal goal of this project is to make it easy to update it to newer versions of the game. Other goals are speed and stability: the server shouldn't have CPU spikes, memory spikes, a very slow and expensive start up, and should contain as little failure cases as possible (i.e. stuff Java can't). Users should be able to determine and control the maximum memory usage easily in advance.
+Currently the principal goal of this project is to make an efficient server for the latest version of Minecraft.
+I've considered using Java for this, but I feel C is a lot more interesting in terms of optimisation potential.
+Many vanilla game mechanics will be implemented, though the goal is not to recreate the full vanilla experience.
+Some things are not planned to be implemented: world generation, world upgrading and entity AI.
+Eventually it might be possible to write plugins for these kinds of things, if this project ever gets that far.
 
-Some side effects of these goals are the following: we don't implement world generation, we don't support world upgrading, and we don't implement entity AI. Maybe it will be possible to write plugins for these kinds of things, if this project ever gets that far.
+Many thanks to the authors of [https://wiki.vg](https://wiki.vg) for their documentation of the Minecraft protocol!
 
 ## Licence
 
@@ -18,7 +22,7 @@ If you're using a different compiler, a different operating system or exotic har
 
 * Integers are represented using two's complement representation and bitwise operations such as 'and', work as expected on signed integers.
 * Signed right shift works by sign extension.
-* Casting an integer to another unsigned or signed integer type works by reduction modulo the range of the target type.
+* Casting one integer type to another integer type works by modulo reduction to the range of the target type.
 * Several preprocessor macros and intrinsics must be available. These may give you compilation errors.
 * Floats and doubles are encoded as IEEE 754 binary32 and binary64 respectively.
 
@@ -50,4 +54,4 @@ Contributions are welcome, provided you agree to put your contribution in the pu
 
 A fair warning: I may deny a pull request if it doesn't fall in line with my goals (e.g. too complex). I may also deny a pull request and use parts of it to stitch together something myself.
 
-If you have questions, remarks and otherwise, feel free to contact me by email via the email address I use to commit, or on Discord at traks#2633.
+If you have questions, remarks and otherwise, feel free to contact me by email via the email address I use to commit. You can also contact me on Discord, my username is traksag.
