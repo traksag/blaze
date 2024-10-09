@@ -2469,7 +2469,7 @@ init_block_data(void) {
     InitSimpleFullBlock("minecraft:end_stone_bricks");
 
     props = BeginNextBlock("minecraft:torchflower_crop");
-    add_block_property(props, BLOCK_PROPERTY_AGE_2, "0");
+    add_block_property(props, BLOCK_PROPERTY_AGE_1, "0");
     SetAllModelsForAllStates(props, BLOCK_MODEL_EMPTY);
     AddBlockBehaviour(props, BLOCK_BEHAVIOUR_NEED_FARMLAND_BELOW);
 

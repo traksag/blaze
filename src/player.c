@@ -424,25 +424,7 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
     case SBP_CHAT_COMMAND: {
         LogInfo("Packet chat command");
         String command = ReadVarString(rec_cursor, 256);
-        u64 timestamp = ReadU64(rec_cursor);
-        u64 salt = ReadU64(rec_cursor);
-
-        // @NOTE(traks) signatures for command arguments or something. Not sure
-        // if anything is being done with them in 1.19.
-        u32 argumentCount = ReadVarU32(rec_cursor);
-        argumentCount = MIN(argumentCount, 8);
-        for (u32 argIndex = 0; argIndex < argumentCount; argIndex++) {
-            String key = ReadVarString(rec_cursor, 16);
-            i32 valueSize = ReadVarU32(rec_cursor);
-            valueSize = MIN(MAX(valueSize, 0), rec_cursor->size);
-            u8 * value = rec_cursor->data + rec_cursor->index;
-        }
-
-        // NOTE(traks): last seen messages acknowledgement
-        u32 offset = ReadVarU32(rec_cursor);
-        for (i32 ackIndex = 0; ackIndex < 3; ackIndex++) {
-            u8 ackData = ReadU8(rec_cursor);
-        }
+        // TODO(traks): handle packet
         break;
     }
     case SBP_CHAT_COMMAND_SIGNED: {
@@ -532,7 +514,7 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
         // chunks. This clamps the view distance between the minimum
         // of 2 and the server maximum.
         i32 viewDistance = ReadU8(rec_cursor);
-        player->nextChunkCacheRadius = MIN(MAX(viewDistance, 2), MAX_CHUNK_CACHE_RADIUS - 1) + 1;
+        player->nextChunkCacheRadius = MIN(MAX(viewDistance, 2), MAX_RENDER_DISTANCE) + 1;
         player->chatMode = ReadVarU32(rec_cursor);
         player->seesChatColours = ReadU8(rec_cursor);
         player->skinCustomisation = ReadU8(rec_cursor);
@@ -577,21 +559,13 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
         for (int i = 0; i < changed_slot_count; i++) {
             u16 changed_slot = ReadU16(rec_cursor);
             // @TODO(traks) read item function
-            u8 has_item = ReadU8(rec_cursor);
-            if (has_item) {
+            i32 stackSize = ReadVarU32(rec_cursor);
+            if (stackSize > 0) {
                 // @TODO(traks) is this the new item stack or what?
-                item_stack new_iss = {0};
-                item_stack * new_is = &new_iss;
-                new_is->type = ReadVarU32(rec_cursor);
-                new_is->size = ReadU8(rec_cursor);
-                // @TODO(traks) validate size and type as below
-
-                NbtCompound itemNbt = NbtRead(rec_cursor, process_arena);
-                if (rec_cursor->error) {
-                    break;
-                }
-
-                // @TODO(traks) use NBT data to construct item stack
+                i32 itemType = ReadVarU32(rec_cursor);
+                i32 addComponentsSize = ReadVarU32(rec_cursor);
+                i32 removeComponentsSize = ReadVarU32(rec_cursor);
+                // TODO(traks): validate stuff, read the component arrays
             }
         }
 
@@ -599,30 +573,13 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
             break;
         }
 
-        u8 has_item = ReadU8(rec_cursor);
-        item_stack cursor_iss = {0};
-        item_stack * cursor_is = &cursor_iss;
-
-        if (has_item) {
-            cursor_is->type = ReadVarU32(rec_cursor);
-            cursor_is->size = ReadU8(rec_cursor);
-
-            if (cursor_is->type < 0 || cursor_is->type >= ITEM_TYPE_COUNT || cursor_is->size == 0) {
-                cursor_is->type = 0;
-                // @TODO(traks) handle error (send slot updates?)
-            }
-            u8 max_size = get_max_stack_size(cursor_is->type);
-            if (cursor_is->size > max_size) {
-                cursor_is->size = max_size;
-                // @TODO(traks) handle error (send slot updates?)
-            }
-
-            NbtCompound itemNbt = NbtRead(rec_cursor, process_arena);
-            if (rec_cursor->error) {
-                break;
-            }
-
-            // @TODO(traks) use NBT data to construct item stack
+        // TODO(traks): this is the mouse cursor, do something with it?
+        i32 stackSize = ReadVarU32(rec_cursor);
+        if (stackSize > 0) {
+            i32 itemType = ReadVarU32(rec_cursor);
+            i32 addComponentsSize = ReadVarU32(rec_cursor);
+            i32 removeComponentsSize = ReadVarU32(rec_cursor);
+            // TODO(traks): validate stuff, read the component arrays
         }
 
         // @TODO(traks) actually handle the event
@@ -1084,7 +1041,7 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
     case SBP_SET_CREATIVE_MODE_SLOT: {
         LogInfo("Set creative mode slot");
         u16 slot = ReadU16(rec_cursor);
-        u8 has_item = ReadU8(rec_cursor);
+        i32 stackSize = ReadVarU32(rec_cursor);
 
         if (slot >= PLAYER_SLOTS) {
             rec_cursor->error = 1;
@@ -1094,33 +1051,26 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
         item_stack * is = player->slots + slot;
         *is = (item_stack) {0};
 
-        if (has_item) {
-            is->type = ReadVarU32(rec_cursor);
-            is->size = ReadU8(rec_cursor);
+        if (stackSize > 0) {
+            i32 itemType = ReadVarU32(rec_cursor);
 
-            if (is->type < 0 || is->type >= ITEM_TYPE_COUNT || is->size == 0) {
-                is->type = 0;
-                player->slots_needing_update |=
-                        (u64) 1 << slot;
-            }
-
-            String type_name = get_resource_loc(is->type, &serv->item_resource_table);
-            LogInfo("Set creative slot: %.*s", (int) type_name.size, type_name.data);
-
-            u8 max_size = get_max_stack_size(is->type);
-            if (is->size > max_size) {
-                is->size = max_size;
-                player->slots_needing_update |=
-                        (u64) 1 << slot;
-            }
-
-            // @TODO(traks) better value than 64 for the max level
-            NbtCompound itemNbt = NbtRead(rec_cursor, process_arena);
-            if (rec_cursor->error) {
+            if (itemType < 0 || itemType >= ITEM_TYPE_COUNT) {
+                rec_cursor->error = 1;
                 break;
             }
 
-            // @TODO(traks) use NBT data to construct item stack
+            String itemTypeName = get_resource_loc(itemType, &serv->item_resource_table);
+            LogInfo("Set creative slot: %.*s", (int) itemTypeName.size, itemTypeName.data);
+
+            // TODO(traks): default components, validate stack size against max
+            // stack size, etc.
+            i32 addComponentsSize = ReadVarU32(rec_cursor);
+            i32 removeComponentsSize = ReadVarU32(rec_cursor);
+            // TODO(traks): read item component arrays
+            rec_cursor->index = rec_cursor->size;
+
+            is->size = stackSize;
+            is->type = itemType;
         }
         break;
     }
@@ -1219,6 +1169,8 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
         LogInfo("Packet use item");
         i32 hand = ReadVarU32(rec_cursor);
         u32 sequenceNumber = ReadVarU32(rec_cursor);
+        f32 rotY = ReadF32(rec_cursor);
+        f32 rotX = ReadF32(rec_cursor);
 
         AckBlockChange(player, sequenceNumber);
         break;
@@ -1544,7 +1496,7 @@ degree_diff(float to, float from) {
 
 static void
 merge_stack_to_player_slot(entity_base * player, int slot, item_stack * to_add) {
-    // @TODO(traks) also ensure damage levels and NBT data are similar
+    // @TODO(traks) also ensure item components are similar
     item_stack * is = player->player.slots + slot;
 
     if (is->type == to_add->type) {
@@ -1661,7 +1613,7 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
     } else {
         player->player.rec_cursor += rec_size;
 
-        Cursor rec_cursor = {
+        Cursor * rec_cursor = &(Cursor) {
             .data = player->player.rec_buf,
             .size = player->player.rec_cursor
         };
@@ -1669,99 +1621,39 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
         // @TODO(traks) rate limit incoming packets per player
 
         for (;;) {
-            Cursor packet_cursor = rec_cursor;
-            i32 packet_size = ReadVarU32(&packet_cursor);
+            MemoryArena * loopArena = &(MemoryArena) {0};
+            *loopArena = *tick_arena;
 
-            if (packet_cursor.error != 0) {
-                // packet size not fully received yet
-                break;
-            }
-            if (packet_size > player->player.rec_buf_size - 5 || packet_size <= 0) {
+            Cursor * packetCursor = &(Cursor) {0};
+            *packetCursor = TryReadPacket(rec_cursor, loopArena, !!(player->flags & PLAYER_PACKET_COMPRESSION), player->player.rec_buf_size);
+
+            if (rec_cursor->error) {
+                LogInfo("Player incoming packet error");
                 disconnect_player_now(player);
                 break;
             }
-            if (packet_size > packet_cursor.size - packet_cursor.index) {
-                // packet not fully received yet
+            if (packetCursor->size == 0) {
+                // NOTE(traks): packet not ready yet
                 break;
             }
 
-            MemoryArena process_arena = *tick_arena;
-            packet_cursor.size = packet_cursor.index + packet_size;
-            rec_cursor.index = packet_cursor.size;
+            process_packet(player, packetCursor, loopArena);
 
-            if (player->flags & PLAYER_PACKET_COMPRESSION) {
-                // ignore the uncompressed packet size, since we require all
-                // packets to be compressed
-                ReadVarU32(&packet_cursor);
-
-                // @TODO(traks) move to a zlib alternative that is optimised
-                // for single pass inflate/deflate. If we don't end up doing
-                // this, make sure the code below is actually correct (when
-                // do we need to clean stuff up?)!
-
-                z_stream zstream;
-                zstream.zalloc = Z_NULL;
-                zstream.zfree = Z_NULL;
-                zstream.opaque = Z_NULL;
-
-                if (inflateInit2(&zstream, 0) != Z_OK) {
-                    LogInfo("inflateInit failed");
-                    disconnect_player_now(player);
-                    break;
-                }
-
-                zstream.next_in = packet_cursor.data + packet_cursor.index;
-                zstream.avail_in = packet_cursor.size - packet_cursor.index;
-
-                size_t max_uncompressed_size = 2 * (1 << 20);
-                unsigned char * uncompressed = MallocInArena(&process_arena,
-                        max_uncompressed_size);
-
-                zstream.next_out = uncompressed;
-                zstream.avail_out = max_uncompressed_size;
-
-                if (inflate(&zstream, Z_FINISH) != Z_STREAM_END) {
-                    LogInfo("Failed to finish inflating packet: %s", zstream.msg);
-                    disconnect_player_now(player);
-                    break;
-                }
-
-                if (inflateEnd(&zstream) != Z_OK) {
-                    LogInfo("inflateEnd failed");
-                    disconnect_player_now(player);
-                    break;
-                }
-
-                if (zstream.avail_in != 0) {
-                    LogInfo("Didn't inflate entire packet");
-                    disconnect_player_now(player);
-                    break;
-                }
-
-                packet_cursor = (Cursor) {
-                    .data = uncompressed,
-                    .size = zstream.total_out,
-                };
-            }
-
-            process_packet(player, &packet_cursor, &process_arena);
-
-            if (packet_cursor.error != 0) {
+            if (packetCursor->error) {
                 LogInfo("Player protocol error occurred");
                 disconnect_player_now(player);
                 break;
             }
 
-            if (packet_cursor.index != packet_cursor.size) {
+            if (packetCursor->index != packetCursor->size) {
                 LogInfo("Player protocol packet not fully read");
                 disconnect_player_now(player);
                 break;
             }
         }
 
-        memmove(rec_cursor.data, rec_cursor.data + rec_cursor.index,
-                rec_cursor.size - rec_cursor.index);
-        player->player.rec_cursor = rec_cursor.size - rec_cursor.index;
+        memmove(rec_cursor->data, rec_cursor->data + rec_cursor->index, rec_cursor->size - rec_cursor->index);
+        player->player.rec_cursor = rec_cursor->size - rec_cursor->index;
     }
 
     // @TODO(traks) only here because players could be disconnected and get
@@ -1898,12 +1790,14 @@ send_changed_entity_data(Cursor * send_cursor, entity_base * player,
         if (changed_data & (1 << ENTITY_DATA_ITEM)) {
             WriteU8(send_cursor, ENTITY_DATA_ITEM);
             WriteVarU32(send_cursor, ENTITY_DATA_TYPE_ITEM_STACK);
-            WriteU8(send_cursor, 1); // has item
             item_stack * is = &entity->item.contents;
-            WriteVarU32(send_cursor, is->type);
-            WriteU8(send_cursor, is->size);
-            // @TODO(traks) write NBT (currently just a single end tag)
-            WriteU8(send_cursor, NBT_TAG_END);
+            WriteVarU32(send_cursor, is->size);
+            if (is->size > 0) {
+                WriteVarU32(send_cursor, is->type);
+                // TODO(traks): item components added & removed
+                WriteVarU32(send_cursor, 0);
+                WriteVarU32(send_cursor, 0);
+            }
         }
         break;
     }
@@ -2223,8 +2117,10 @@ static void UpdateChunkCache(entity_base * player, Cursor * sendCursor) {
 
     if (player->player.chunkCacheRadius != player->player.nextChunkCacheRadius) {
         // TODO(traks): also send set simulation distance packet?
+        // NOTE(traks): this sets the render/view distance of the client, NOT
+        // the chunk cache radius as we define it
         BeginPacket(sendCursor, CBP_SET_CHUNK_CACHE_RADIUS);
-        WriteVarU32(sendCursor, player->player.nextChunkCacheRadius);
+        WriteVarU32(sendCursor, player->player.nextChunkCacheRadius - 1);
         FinishPlayerPacket(sendCursor, player);
     }
 
@@ -2247,8 +2143,8 @@ static void UpdateChunkCache(entity_base * player, Cursor * sendCursor) {
 
             if (cacheEntry->flags & PLAYER_CHUNK_SENT) {
                 BeginPacket(sendCursor, CBP_FORGET_LEVEL_CHUNK);
-                WriteU32(sendCursor, x);
                 WriteU32(sendCursor, z);
+                WriteU32(sendCursor, x);
                 FinishPlayerPacket(sendCursor, player);
             }
 
@@ -2308,8 +2204,6 @@ static void SendTrackedBlockChanges(entity_base * player, Cursor * sendCursor, M
                     | ((u64) (pos.z & 0x3fffff) << 20)
                     | (u64) (sectionY & 0xfffff);
             WriteU64(sendCursor, section_pos);
-            // @TODO(traks) appropriate value for this
-            WriteU8(sendCursor, 1); // suppress light updates
             WriteVarU32(sendCursor, section->changedBlockCount);
 
             for (i32 i = 0; i < section->changedBlockSetMask + 1; i++) {
@@ -2385,7 +2279,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         WriteU8(send_cursor, 0); // is flat
         WriteU8(send_cursor, 0); // has death location, world + pos after if true
         WriteVarU32(send_cursor, 0); // portal cooldown
-        WriteU8(send_cursor, 0); // enforces secure chat
+        WriteU8(send_cursor, ENFORCE_SECURE_CHAT); // enforces secure chat
         FinishPlayerPacket(send_cursor, player);
 
         BeginPacket(send_cursor, CBP_SET_CARRIED_ITEM);
@@ -2634,24 +2528,18 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         // around this?
 
         BeginPacket(send_cursor, CBP_CONTAINER_SET_SLOT);
-        // @NOTE(traks) container ids:
-        // -2 = own inventory
-        // -1 = item held in cursor
-        // 0 = inventory menu
-        // 1, 2, ... = other container menus
-        WriteU8(send_cursor, 0 ); // container id
+        WriteU8(send_cursor, 0); // own container id
         // @TODO(traks) figure out what this is used for
         WriteVarU32(send_cursor, 0); // state id
         WriteU16(send_cursor, i);
+        WriteVarU32(send_cursor, is->size);
 
-        if (is->type == 0) {
-            WriteU8(send_cursor, 0); // has item
-        } else {
-            WriteU8(send_cursor, 1); // has item
+        if (is->size > 0) {
+            assert(is->type != 0);
             WriteVarU32(send_cursor, is->type);
-            WriteU8(send_cursor, is->size);
-            // @TODO(traks) write NBT (currently just a single end tag)
-            WriteU8(send_cursor, 0);
+            // TODO(traks): write item components added & removed
+            WriteVarU32(send_cursor, 0);
+            WriteVarU32(send_cursor, 0);
         }
         FinishPlayerPacket(send_cursor, player);
     }
@@ -2857,43 +2745,12 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
 
     for (int msgIndex = 0; msgIndex < serv->global_msg_count; msgIndex++) {
         global_msg * msg = serv->global_msgs + msgIndex;
-
-        // @TODO(traks) formatted messages and such
-        unsigned char buf[1024];
-        int buf_index = 0;
-        String prefix = STR("{\"text\":\"");
-        String suffix = STR("\"}");
-
-        memcpy(buf + buf_index, prefix.data, prefix.size);
-        buf_index += prefix.size;
-
-        for (int i = 0; i < msg->size; i++) {
-            if (msg->text[i] == '"' || msg->text[i] == '\\') {
-                buf[buf_index] = '\\';
-                buf_index++;
-            }
-            buf[buf_index] = msg->text[i];
-            buf_index++;
-        }
-
-        memcpy(buf + buf_index, suffix.data, suffix.size);
-        buf_index += suffix.size;
-
-        String jsonMessage = {
-            .size = buf_index,
-            .data = buf,
-        };
-
         // TODO(traks): use player chat packet for this with annoying signing.
         // Also will make chat narration work properly as "sender says message"
-        // (see the chat types we define in the login packet).
         BeginPacket(send_cursor, CBP_SYSTEM_CHAT);
-        WriteVarString(send_cursor, jsonMessage);
+        WriteU8(send_cursor, NBT_TAG_STRING);
+        nbt_write_string(send_cursor, (String) {.data = msg->text, .size = msg->size});
         WriteU8(send_cursor, 0); // action bar or chat log
-        // @TODO(traks) write sender UUID. If UUID equals 0, client displays it
-        // regardless of client settings
-        // WriteU64(send_cursor, 0);
-        // WriteU64(send_cursor, 0);
         FinishPlayerPacket(send_cursor, player);
     }
 

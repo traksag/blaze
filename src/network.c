@@ -49,7 +49,7 @@ typedef struct {
 
     u8 locale[MAX_PLAYER_LOCALE_SIZE];
     i32 localeSize;
-    i32 nextChunkCacheRadius;
+    i32 chunkCacheRadius;
     i32 chatMode;
     i32 seesChatColours;
     u8 skinCustomisation;
@@ -591,7 +591,8 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
 
         // TODO(traks): support secure chat
         response_size += sprintf((char *) response + response_size,
-                "]},\"description\":{\"text\":\"Running Blaze\"},\"enforcesSecureChat\":false}");
+                "]},\"description\":{\"text\":\"Running Blaze\"},\"enforcesSecureChat\":%s}",
+                ENFORCE_SECURE_CHAT ? "true" : "false");
 
         // NOTE(traks): write status response packet
         BeginPacket(sendCursor, 0);
@@ -704,12 +705,8 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
             String locale = ReadVarString(recCursor, MAX_PLAYER_LOCALE_SIZE);
             memcpy(client->locale, locale.data, locale.size);
             client->localeSize = locale.size;
-            // NOTE(traks): View distance is without the extra border of chunks,
-            // while chunk cache radius is with the extra border of
-            // chunks. This clamps the view distance between the minimum
-            // of 2 and the server maximum.
             i32 viewDistance = ReadU8(recCursor);
-            client->nextChunkCacheRadius = MIN(MAX(viewDistance, 2), MAX_CHUNK_CACHE_RADIUS - 1) + 1;
+            client->chunkCacheRadius = MIN(MAX(viewDistance, 2), MAX_RENDER_DISTANCE) + 1;
             client->chatMode = ReadVarU32(recCursor);
             client->seesChatColours = ReadU8(recCursor);
             client->skinCustomisation = ReadU8(recCursor);
@@ -837,7 +834,6 @@ static void ClientProcessAllPackets(Client * client) {
     Cursor * sendCursor = &(Cursor) {
         .data = MallocInArena(processingArena, sendCursorAllocSize),
         .size = sendCursorAllocSize,
-        .index = 0,
     };
 
     for (;;) {
@@ -977,8 +973,7 @@ static void ClientTick(Client * client) {
         player->mainHand = client->mainHand;
         player->textFiltering = client->textFiltering;
         player->showInStatusList = client->showInStatusList;
-        player->chunkCacheRadius = -1;
-        player->nextChunkCacheRadius = client->nextChunkCacheRadius;
+        player->nextChunkCacheRadius = client->chunkCacheRadius;
 
         player->last_keep_alive_sent_tick = serv->current_tick;
         entity->flags |= PLAYER_GOT_ALIVE_RESPONSE;

@@ -21,7 +21,9 @@
 #define BITS_PER_BLOCK_STATE (15)
 static_assert(BITS_PER_BLOCK_STATE <= MAX_BITS_PER_BLOCK_STATE, "Unsupported bits per block state");
 
-#define MAX_CHUNK_CACHE_RADIUS (10)
+#define MAX_RENDER_DISTANCE (10)
+
+#define MAX_CHUNK_CACHE_RADIUS (MAX_RENDER_DISTANCE + 1)
 
 #define MAX_CHUNK_CACHE_DIAM (2 * MAX_CHUNK_CACHE_RADIUS + 1)
 
@@ -50,6 +52,9 @@ static_assert(BITS_PER_BLOCK_STATE <= MAX_BITS_PER_BLOCK_STATE, "Unsupported bit
 #define PACKET_COMPRESSION_ENABLED (1)
 
 #define MAX_PLAYER_LOCALE_SIZE (16)
+
+// NOTE(traks): set this to 1 just to get rid of the annoying pop-up
+#define ENFORCE_SECURE_CHAT (1)
 
 // NOTE(traks): for block positions: 26 bits X, 26 bits Z, 12 bits Y
 // NOTE(traks): for chunk positions: 22 bits X, 22 bits Z
@@ -1801,6 +1806,7 @@ enum entity_data_type {
     ENTITY_DATA_TYPE_OPTIONAL_BLOCK_STATE,
     ENTITY_DATA_TYPE_NBT,
     ENTITY_DATA_TYPE_PARTICLE,
+    ENTITY_DATA_TYPE_PARTICLES,
     ENTITY_DATA_TYPE_VILLAGER_DATA,
     ENTITY_DATA_TYPE_OPTIONAL_UINT,
     ENTITY_DATA_TYPE_POSE,
@@ -1840,7 +1846,7 @@ enum entity_data {
     // player data
     ENTITY_DATA_ABSORPTION = ENTITY_DATA_LIVING_NEXT,
     ENTITY_DATA_SCORE,
-    ENTITY_DATA_MODEL_CUSTOMISATION,
+    ENTITY_DATA_SKIN_CUSTOMISATION,
     ENTITY_DATA_MAIN_HAND,
     ENTITY_DATA_LEFT_SHOULDER_ENTITY,
     ENTITY_DATA_RIGHT_SHOULDER_ENTITY,
@@ -2000,13 +2006,14 @@ typedef struct {
     int send_buf_size;
     int send_cursor;
 
-    // The radius of the client's view distance, excluding the centre chunk,
-    // and including an extra outer rim the client doesn't render but uses
-    // for connected blocks and such.
+    // NOTE(traks): Render/view distance is the client setting. It doesn't
+    // include the chunk at the centre, and doesn't include an extra outer
+    // border that's used for lighting, connected blocks like chests, etc. The
+    // chunk cache radius FOR US does include the extra outer border.
     i32 chunkCacheRadius;
+    i32 nextChunkCacheRadius;
     i32 chunkCacheCentreX;
     i32 chunkCacheCentreZ;
-    i32 nextChunkCacheRadius;
     // @TODO(traks) maybe this should just be a bitmap
     PlayerChunkCacheEntry chunkCache[MAX_CHUNK_CACHE_DIAM * MAX_CHUNK_CACHE_DIAM];
 
