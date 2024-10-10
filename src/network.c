@@ -552,9 +552,10 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
         memcpy(list, serv->tab_list, list_bytes);
         int sample_size = MIN(12, list_size);
 
-        unsigned char * response = MallocInArena(scratchArena, 2048);
+        i32 maxResponseSize = 2048;
+        unsigned char * response = MallocInArena(scratchArena, maxResponseSize);
         int response_size = 0;
-        response_size += sprintf((char *) response + response_size,
+        response_size += snprintf((char *) response + response_size, maxResponseSize - response_size,
                 "{\"version\":{\"name\":\"%s\",\"protocol\":%d},"
                 "\"players\":{\"max\":%d,\"online\":%d,\"sample\":[",
                 SERVER_GAME_VERSION, SERVER_PROTOCOL_VERSION,
@@ -580,7 +581,7 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
             // move all initial session stuff to a separate thread.
             assert(entity->type == ENTITY_PLAYER);
             // @TODO(traks) actual UUID
-            response_size += sprintf((char *) response + response_size,
+            response_size += snprintf((char *) response + response_size, maxResponseSize - response_size,
                     "{\"id\":\"01234567-89ab-cdef-0123-456789abcdef\","
                     "\"name\":\"%.*s\"}",
                     (int) entity->player.username_size,
@@ -590,7 +591,7 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
         }
 
         // TODO(traks): support secure chat
-        response_size += sprintf((char *) response + response_size,
+        response_size += snprintf((char *) response + response_size, maxResponseSize - response_size,
                 "]},\"description\":{\"text\":\"Running Blaze\"},\"enforcesSecureChat\":%s}",
                 ENFORCE_SECURE_CHAT ? "true" : "false");
 
@@ -1003,6 +1004,15 @@ static void ClientTick(Client * client) {
         client->flags |= CLIENT_DID_TRANSFER_TO_PLAYER;
 
         LogInfo("Player '%.*s' joined", (int) client->usernameSize, client->username);
+        if (serv->global_msg_count < (i32) ARRAY_SIZE(serv->global_msgs)) {
+            global_msg * msg = serv->global_msgs + serv->global_msg_count;
+            serv->global_msg_count++;
+            int textSize = snprintf(
+                    (void *) msg->text, sizeof msg->text,
+                    "%.*s joined the game",
+                    (int) player->username_size, player->username);
+            msg->size = textSize;
+        }
     }
 }
 

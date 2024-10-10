@@ -456,8 +456,9 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
         if (serv->global_msg_count < (i32) ARRAY_SIZE(serv->global_msgs)) {
             global_msg * msg = serv->global_msgs + serv->global_msg_count;
             serv->global_msg_count++;
-            int text_size = sprintf(
-                    (void *) msg->text, "<%.*s> %.*s",
+            int text_size = snprintf(
+                    (void *) msg->text, sizeof msg->text,
+                    "<%.*s> %.*s",
                     (int) player->username_size,
                     player->username,
                     (int) chat.size, chat.data);
@@ -1573,8 +1574,9 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
             if (serv->global_msg_count < (i32) ARRAY_SIZE(serv->global_msgs)) {
                 global_msg * msg = serv->global_msgs + serv->global_msg_count;
                 serv->global_msg_count++;
-                int text_size = sprintf(
-                        (void *) msg->text, "sky light %d, block light %d, max height: %d",
+                int text_size = snprintf(
+                        (void *) msg->text, sizeof msg->text,
+                        "sky light %d, block light %d, max height: %d",
                         skyLight, blockLight, maxHeight);
                 msg->size = text_size;
             }
@@ -1598,8 +1600,10 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
     //
     // We also should actually also respond to server list pings as soon as
     // possible, so the client's ping counter is accurate.
+    BeginTimings(SystemRecv);
     ssize_t rec_size = recv(sock, player->player.rec_buf + player->player.rec_cursor,
             player->player.rec_buf_size - player->player.rec_cursor, 0);
+    EndTimings(SystemRecv);
 
     if (rec_size == 0) {
         disconnect_player_now(player);
@@ -1664,6 +1668,8 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
     }
 
     // try to pick up nearby items
+    BeginTimings(PickupItems);
+
     for (int i = 0; i < (i32) ARRAY_SIZE(serv->entities); i++) {
         entity_base * entity = serv->entities + i;
         if ((entity->flags & ENTITY_IN_USE) == 0) {
@@ -1717,6 +1723,8 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
             }
         }
     }
+
+    EndTimings(PickupItems);
 
 bail:
     EndTimings(TickPlayer);
@@ -2645,6 +2653,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             FinishPlayerPacket(send_cursor, player);
         }
 
+        // TODO(traks): pull this out and run this once per tick
         for (int i = 0; i < MAX_ENTITIES; i++) {
             entity_base * entity = serv->entities + i;
             if (!(entity->flags & ENTITY_IN_USE)) {

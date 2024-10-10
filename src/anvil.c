@@ -72,7 +72,7 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
     }
 
     unsigned char file_name[64];
-    int file_name_size = sprintf((void *) file_name, "%s/region/r.%d.%d.mca", worldName, region_x, region_z);
+    int file_name_size = snprintf((void *) file_name, sizeof file_name, "%s/region/r.%d.%d.mca", worldName, region_x, region_z);
 
     region_fd = open((void *) file_name, O_RDONLY);
     if (region_fd == -1) {

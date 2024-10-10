@@ -208,11 +208,7 @@ Cursor TryReadPacket(Cursor * recCursor, MemoryArena * arena, i32 shouldDecompre
         zstream.next_out = uncompressed;
         zstream.avail_out = maxUncompressedSize;
 
-        if (inflate(&zstream, Z_FINISH) != Z_STREAM_END) {
-            LogInfo("Failed to finish inflating packet: %s", zstream.msg);
-            recCursor->error = 1;
-            return res;
-        }
+        inflate(&zstream, Z_FINISH);
 
         if (inflateEnd(&zstream) != Z_OK) {
             LogInfo("inflateEnd failed");
