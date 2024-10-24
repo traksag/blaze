@@ -2131,6 +2131,7 @@ static void UpdateChunkCache(entity_base * player, Cursor * sendCursor) {
         FinishPlayerPacket(sendCursor, player);
     }
 
+    // TODO(traks): technically we don't need to send forget packets
     // NOTE(traks): untrack old chunks
     for (i32 x = chunkCacheMinX; x <= chunkCacheMaxX; x++) {
         for (i32 z = chunkCacheMinZ; z <= chunkCacheMaxZ; z++) {
@@ -2350,14 +2351,16 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
 
         send_changed_entity_data(send_cursor, player, player, player->changed_data);
 
-        // NOTE(traks): sync the player location, and then send the spawn
-        // location packet, which tells the client to close the
-        // "Loading terrain..." screen as soon as it can render the chunk the
-        // player is in. -- Is this still the case for the latest MC version?
-
         // TODO(traks): Only do this after we have sent the player a couple of
         // chunks around the spawn chunk, so they can move around immediately
-        // after the screen closes?
+        // after the loading screen closes?
+        //
+        // Currently, it looks like the client will simulate falling into the
+        // void after being teleported into unsent chunks. The game event packet
+        // will eventually cause the world to be shown, because the player
+        // leaves the world boundaries when falling into the void (I think
+        // that's why at least). This happens even if the player's current chunk
+        // is still unsent.
 
         // NOTE(traks): ensure player is teleporting
         player->flags |= ENTITY_TELEPORTING;
@@ -2370,7 +2373,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         FinishPlayerPacket(send_cursor, player);
 
         // NOTE(traks): seems pointless, but is required to get the client
-        // eventually of the world loading screen
+        // eventually off the world loading screen
         BeginPacket(send_cursor, CBP_GAME_EVENT);
         WriteU8(send_cursor, PACKET_GAME_EVENT_LEVEL_CHUNKS_LOAD_START);
         WriteF32(send_cursor, 0);
