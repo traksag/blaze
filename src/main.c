@@ -17,6 +17,7 @@
 #include "buffer.h"
 #include "chunk.h"
 #include "network.h"
+#include "player.h"
 
 #if defined(__APPLE__) && defined(__MACH__)
 #include <mach/mach_time.h>
@@ -283,40 +284,31 @@ find_property_value_index(block_property_spec * prop_spec, String val) {
     }
 }
 
-entity_base *
-resolve_entity(entity_id eid) {
-    u32 index = eid & ENTITY_INDEX_MASK;
-    entity_base * entity = serv->entities + index;
-    if (entity->eid != eid || !(entity->flags & ENTITY_IN_USE)) {
-        // return the null entity
+Entity * ResolveEntity(EntityId id) {
+    u32 index = id & ENTITY_INDEX_MASK;
+    Entity * res = serv->entities + index;
+    if (res->id != id || !(res->flags & ENTITY_IN_USE)) {
+        // NOTE(traks): return the null entity
         return serv->entities;
     }
-    return entity;
+    return res;
 }
 
-entity_base *
-try_reserve_entity(unsigned type) {
-    for (uint32_t i = 0; i < MAX_ENTITIES; i++) {
-        entity_base * entity = serv->entities + i;
+Entity * TryReserveEntity(i32 type) {
+    for (i32 entityIndex = 0; entityIndex < MAX_ENTITIES; entityIndex++) {
+        Entity * entity = serv->entities + entityIndex;
         if (!(entity->flags & ENTITY_IN_USE)) {
-            u16 generation = serv->next_entity_generations[i];
-            entity_id eid = ((u32) generation << 20) | i;
+            u16 generation = serv->next_entity_generations[entityIndex];
+            EntityId entityId = ((u32) generation << 20) | entityIndex;
 
-            *entity = (entity_base) {0};
-            // @NOTE(traks) default initialisation is only guaranteed to
-            // initialise the first union member, so we have to manually
-            // default initialise the union member based on the entity type
-            switch (type) {
-            case ENTITY_PLAYER: entity->player = (entity_player) {0}; break;
-            case ENTITY_ITEM: entity->item = (entity_item) {0}; break;
-            }
+            *entity = (Entity) {0};
 
-            entity->eid = eid;
+            entity->id = entityId;
             // TODO(traks): Proper UUID creation. For players we overwrite this
-            entity->uuid = (UUID) {.low = eid, .high = 0};
+            entity->uuid = (UUID) {.low = entityId, .high = 0};
             entity->type = type;
             entity->flags |= ENTITY_IN_USE;
-            serv->next_entity_generations[i] = (generation + 1) & 0xfff;
+            serv->next_entity_generations[entityIndex] = (generation + 1) & 0xfff;
             serv->entity_count++;
             return entity;
         }
@@ -325,17 +317,22 @@ try_reserve_entity(unsigned type) {
     return serv->entities;
 }
 
-void
-evict_entity(entity_id eid) {
-    entity_base * entity = resolve_entity(eid);
+void EvictEntity(EntityId id) {
+    Entity * entity = ResolveEntity(id);
     if (entity->type != ENTITY_NULL) {
+        // TODO(traks): this should probably not get rid of the entity
+        // immediately. We should probably wait until the end of the tick to
+        // actually remove entities. It's kinda dangerous to mess with entity
+        // removal. E.g. if some piece of code resolves an entity ID and some
+        // call involving the reference evicts the entity, the entity reference
+        // could be garbage.
         entity->flags &= ~ENTITY_IN_USE;
         serv->entity_count--;
     }
 }
 
 static void
-move_entity(entity_base * entity) {
+move_entity(Entity * entity) {
     // @TODO(traks) Currently our collision system seems to be very different
     // from Minecraft's collision system, which causes client-server desyncs
     // when dropping item entities, etc. There are currently also uses with
@@ -556,24 +553,21 @@ move_entity(entity_base * entity) {
 }
 
 static void
-tick_entity(entity_base * entity, MemoryArena * tick_arena) {
+tick_entity(Entity * entity, MemoryArena * tick_arena) {
     // @TODO(traks) currently it's possible that an entity is spawned and ticked
     // the same tick. Is that an issue or not? Maybe that causes undesirable
     // off-by-one tick behaviour.
 
     switch (entity->type) {
-    case ENTITY_PLAYER:
-        tick_player(entity, tick_arena);
-        break;
     case ENTITY_ITEM: {
-        if (entity->item.contents.type == ITEM_AIR) {
-            evict_entity(entity->eid);
+        if (entity->contents.type == ITEM_AIR) {
+            EvictEntity(entity->id);
             return;
         }
 
-        if (entity->item.pickup_timeout > 0
-                && entity->item.pickup_timeout != 32767) {
-            entity->item.pickup_timeout--;
+        if (entity->pickup_timeout > 0
+                && entity->pickup_timeout != 32767) {
+            entity->pickup_timeout--;
         }
 
         // gravity acceleration
@@ -639,11 +633,21 @@ server_tick(void) {
 
     EndTimings(ScheduledUpdates);
 
+    BeginTimings(TickPlayers);
+    {
+        MemoryArena tick_arena = {
+            .data = serv->short_lived_scratch,
+            .size = serv->short_lived_scratch_size
+        };
+        TickPlayers(&tick_arena);
+    }
+    EndTimings(TickPlayers);
+
     // update entities
     BeginTimings(TickEntities);
 
     for (int i = 0; i < (i32) ARRAY_SIZE(serv->entities); i++) {
-        entity_base * entity = serv->entities + i;
+        Entity * entity = serv->entities + i;
         if ((entity->flags & ENTITY_IN_USE) == 0) {
             continue;
         }
@@ -662,50 +666,37 @@ server_tick(void) {
 
     // remove players from tab list if necessary
     for (int i = 0; i < serv->tab_list_size; i++) {
-        entity_id eid = serv->tab_list[i];
-        entity_base * entity = resolve_entity(eid);
-        if (entity->type == ENTITY_NULL) {
+        UUID uuid = serv->tab_list[i];
+        PlayerController * control = ResolvePlayer(uuid);
+        if (control == NULL) {
             // @TODO(traks) make sure this can never happen instead of hoping
             assert(serv->tab_list_removed_count < (i32) ARRAY_SIZE(serv->tab_list_removed));
-            serv->tab_list_removed[serv->tab_list_removed_count] = eid;
+            serv->tab_list_removed[serv->tab_list_removed_count] = uuid;
             serv->tab_list_removed_count++;
             serv->tab_list[i] = serv->tab_list[serv->tab_list_size - 1];
             serv->tab_list_size--;
             i--;
-            continue;
         }
-        // @TODO(traks) make sure this can never happen instead of hoping
-        assert(entity->type == ENTITY_PLAYER);
     }
 
     // add players to live tab list
     for (int i = 0; i < serv->tab_list_added_count; i++) {
-        entity_id eid = serv->tab_list_added[i];
+        UUID uuid = serv->tab_list_added[i];
         assert(serv->tab_list_size < (i32) ARRAY_SIZE(serv->tab_list));
-        serv->tab_list[serv->tab_list_size] = eid;
+        serv->tab_list[serv->tab_list_size] = uuid;
         serv->tab_list_size++;
     }
 
     EndTimings(UpdateTabList);
 
     BeginTimings(SendPlayers);
-
-    for (int i = 0; i < (i32) ARRAY_SIZE(serv->entities); i++) {
-        entity_base * entity = serv->entities + i;
-        if (entity->type != ENTITY_PLAYER) {
-            continue;
-        }
-        if ((entity->flags & ENTITY_IN_USE) == 0) {
-            continue;
-        }
-
+    {
         MemoryArena tick_arena = {
             .data = serv->short_lived_scratch,
             .size = serv->short_lived_scratch_size
         };
-        send_packets_to_player(entity, &tick_arena);
+        SendPacketsToPlayers(&tick_arena);
     }
-
     EndTimings(SendPlayers);
 
     // clear global messages
@@ -718,7 +709,7 @@ server_tick(void) {
     BeginTimings(ClearEntityChanges);
 
     for (int i = 0; i < (i32) ARRAY_SIZE(serv->entities); i++) {
-        entity_base * entity = serv->entities + i;
+        Entity * entity = serv->entities + i;
         if ((entity->flags & ENTITY_IN_USE) == 0) {
             continue;
         }

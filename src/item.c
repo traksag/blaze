@@ -2,6 +2,7 @@
 #include <string.h>
 #include "shared.h"
 #include "chunk.h"
+#include "player.h"
 
 #define PLACE_REPLACING ((unsigned) (1 << 0))
 #define PLACE_CAN_PLACE ((unsigned) (1 << 1))
@@ -14,7 +15,7 @@ typedef struct {
 } place_target;
 
 typedef struct {
-    entity_base * player;
+    Entity * player;
     WorldBlockPos clicked_pos;
     i32 clicked_face;
     float click_offset_x;
@@ -559,7 +560,7 @@ place_horizontal_facing(place_context context, i32 place_type) {
     }
 
     block_state_info place_info = describe_default_block_state(place_type);
-    place_info.horizontal_facing = get_opposite_direction(get_player_facing(context.player));
+    place_info.horizontal_facing = get_opposite_direction(GetPlayerFacing(context.player));
 
     u16 place_state = make_block_state(&place_info);
     WorldSetBlockState(target.pos, place_state);
@@ -575,7 +576,7 @@ place_end_portal_frame(place_context context, i32 place_type) {
     }
 
     block_state_info place_info = describe_default_block_state(place_type);
-    place_info.horizontal_facing = get_opposite_direction(get_player_facing(context.player));
+    place_info.horizontal_facing = get_opposite_direction(GetPlayerFacing(context.player));
     place_info.eye = 0;
 
     u16 place_state = make_block_state(&place_info);
@@ -596,15 +597,15 @@ place_trapdoor(place_context context, i32 place_type) {
         place_info.half = context.clicked_face == DIRECTION_POS_Y ?
                 BLOCK_HALF_BOTTOM : BLOCK_HALF_TOP;
         place_info.horizontal_facing = get_opposite_direction(
-                get_player_facing(context.player));
+                GetPlayerFacing(context.player));
     } else if (context.clicked_face == DIRECTION_POS_Y) {
         place_info.half = BLOCK_HALF_BOTTOM;
         place_info.horizontal_facing = get_opposite_direction(
-                get_player_facing(context.player));
+                GetPlayerFacing(context.player));
     } else if (context.clicked_face == DIRECTION_NEG_Y) {
         place_info.half = BLOCK_HALF_TOP;
         place_info.horizontal_facing = get_opposite_direction(
-                get_player_facing(context.player));
+                GetPlayerFacing(context.player));
     } else {
         place_info.half = context.click_offset_y > 0.5f ?
                 BLOCK_HALF_TOP : BLOCK_HALF_BOTTOM;
@@ -628,7 +629,7 @@ place_fence_gate(place_context context, i32 place_type) {
     }
 
     block_state_info place_info = describe_default_block_state(place_type);
-    int player_facing = get_player_facing(context.player);
+    int player_facing = GetPlayerFacing(context.player);
     place_info.horizontal_facing = player_facing;
     if (player_facing == DIRECTION_POS_X || player_facing == DIRECTION_NEG_X) {
         int neighbour_state_pos = WorldGetBlockState(WorldBlockPosRel(target.pos, DIRECTION_POS_Z));
@@ -831,7 +832,7 @@ typedef struct {
 } direction_list;
 
 static direction_list
-get_directions_by_player_rot(entity_base * player) {
+get_directions_by_player_rot(Entity * player) {
     direction_list res = {0};
 
     float sin_rot_y = sinf(player->rot_y * RADIANS_PER_DEGREE);
@@ -1122,7 +1123,7 @@ place_door(place_context context, i32 place_type) {
     }
 
     block_state_info place_info = describe_default_block_state(place_type);
-    place_info.horizontal_facing = get_player_facing(context.player);
+    place_info.horizontal_facing = GetPlayerFacing(context.player);
     place_info.double_block_half = DOUBLE_BLOCK_HALF_LOWER;
     // @TODO(traks) determine side of the hinge
     place_info.door_hinge = DOOR_HINGE_LEFT;
@@ -1154,7 +1155,7 @@ place_bed(place_context context, i32 place_type, int dye_colour) {
         return;
     }
 
-    int facing = get_player_facing(context.player);
+    int facing = GetPlayerFacing(context.player);
     WorldBlockPos head_pos = WorldBlockPosRel(target.pos, facing);
     u16 neighbour_state = WorldGetBlockState(head_pos);
     i32 neighbour_type = serv->block_type_by_state[neighbour_state];
@@ -1241,7 +1242,7 @@ place_stairs(place_context context, i32 place_type) {
     }
 
     block_state_info place_info = describe_default_block_state(place_type);
-    place_info.horizontal_facing = get_player_facing(context.player);
+    place_info.horizontal_facing = GetPlayerFacing(context.player);
     if (context.clicked_face == DIRECTION_POS_Y || context.click_offset_y <= 0.5f) {
         place_info.half = BLOCK_HALF_BOTTOM;
     } else {
@@ -1329,7 +1330,7 @@ place_rail(place_context context, i32 place_type) {
     // @TODO(traks) check if rail can survive on block below and place rail in
     // the correct state (ascending and turned).
     block_state_info place_info = describe_default_block_state(place_type);
-    int player_facing = get_player_facing(context.player);
+    int player_facing = GetPlayerFacing(context.player);
     place_info.rail_shape = player_facing == DIRECTION_NEG_X
             || player_facing == DIRECTION_POS_X ? RAIL_SHAPE_X : RAIL_SHAPE_Z;
 
@@ -1370,11 +1371,11 @@ place_lever_or_button(place_context context, i32 place_type) {
     switch (selected_dir) {
     case DIRECTION_POS_Y:
         place_info.attach_face = ATTACH_FACE_CEILING;
-        place_info.horizontal_facing = get_player_facing(context.player);
+        place_info.horizontal_facing = GetPlayerFacing(context.player);
         break;
     case DIRECTION_NEG_Y:
         place_info.attach_face = ATTACH_FACE_FLOOR;
-        place_info.horizontal_facing = get_player_facing(context.player);
+        place_info.horizontal_facing = GetPlayerFacing(context.player);
         break;
     default:
         // attach to horizontal wall
@@ -1402,11 +1403,11 @@ place_grindstone(place_context context, i32 place_type) {
     switch (selected_dir) {
     case DIRECTION_POS_Y:
         place_info.attach_face = ATTACH_FACE_CEILING;
-        place_info.horizontal_facing = get_player_facing(context.player);
+        place_info.horizontal_facing = GetPlayerFacing(context.player);
         break;
     case DIRECTION_NEG_Y:
         place_info.attach_face = ATTACH_FACE_FLOOR;
-        place_info.horizontal_facing = get_player_facing(context.player);
+        place_info.horizontal_facing = GetPlayerFacing(context.player);
         break;
     default:
         // attach to horizontal wall
@@ -1470,10 +1471,11 @@ place_amethyst_cluster(place_context context, i32 place_type) {
 }
 
 void
-process_use_item_on_packet(entity_base * player,
+process_use_item_on_packet(PlayerController * control,
         i32 hand, BlockPos packetClickedPos, i32 clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
         u8 is_inside, MemoryArena * scratch_arena) {
+    Entity * player = ResolveEntity(control->entityId);
     if (player->flags & ENTITY_TELEPORTING) {
         // ignore
         return;
@@ -1481,9 +1483,9 @@ process_use_item_on_packet(entity_base * player,
 
     WorldBlockPos clickedPos = {.worldId = player->worldId, .xyz = packetClickedPos};
 
-    int sel_slot = player->player.selected_slot;
-    item_stack * main = player->player.slots + sel_slot;
-    item_stack * off = player->player.slots + PLAYER_OFF_HAND_SLOT;
+    int sel_slot = player->selected_slot;
+    item_stack * main = player->slots + sel_slot;
+    item_stack * off = player->slots + PLAYER_OFF_HAND_SLOT;
     item_stack * used = hand == PLAYER_MAIN_HAND ? main : off;
 
     int max_updates = 512;
@@ -1507,7 +1509,7 @@ process_use_item_on_packet(entity_base * player,
     // the clicked block
     if (!(player->flags & ENTITY_SHIFTING)
             || (main->type == ITEM_AIR && off->type == ITEM_AIR)) {
-        int used_block = use_block(player,
+        int used_block = use_block(control,
                 hand, clickedPos, clicked_face,
                 click_offset_x, click_offset_y, click_offset_z,
                 is_inside, &buc);
@@ -4099,14 +4101,14 @@ process_use_item_on_packet(entity_base * player,
 
     // @TODO(traks) we shouldn't assert here
     WorldBlockPos changed_pos = clickedPos;
-    assert(player->player.changed_block_count < ARRAY_SIZE(player->player.changed_blocks));
-    player->player.changed_blocks[player->player.changed_block_count] = changed_pos;
-    player->player.changed_block_count++;
+    assert(control->changed_block_count < ARRAY_SIZE(control->changed_blocks));
+    control->changed_blocks[control->changed_block_count] = changed_pos;
+    control->changed_block_count++;
 
     changed_pos = WorldBlockPosRel(clickedPos, clicked_face);
-    assert(player->player.changed_block_count < ARRAY_SIZE(player->player.changed_blocks));
-    player->player.changed_blocks[player->player.changed_block_count] = changed_pos;
-    player->player.changed_block_count++;
+    assert(control->changed_block_count < ARRAY_SIZE(control->changed_blocks));
+    control->changed_blocks[control->changed_block_count] = changed_pos;
+    control->changed_block_count++;
 }
 
 u8

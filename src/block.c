@@ -2693,7 +2693,7 @@ propagate_block_updates(block_update_context * buc) {
 }
 
 int
-use_block(entity_base * player,
+use_block(Entity * player,
         i32 hand, WorldBlockPos clicked_pos, i32 clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
         u8 is_inside, block_update_context * buc) {
@@ -2884,7 +2884,7 @@ use_block(entity_base * player,
         if (cur_info.open) {
             cur_info.open = 0;
         } else {
-            int player_facing = get_player_facing(player);
+            int player_facing = GetPlayerFacing(player);
             if (cur_info.horizontal_facing == get_opposite_direction(player_facing)) {
                 cur_info.horizontal_facing = player_facing;
             }
@@ -3155,8 +3155,8 @@ use_block(entity_base * player,
     case BLOCK_GREEN_CANDLE:
     case BLOCK_RED_CANDLE:
     case BLOCK_BLACK_CANDLE: {
-        item_stack * main = player->player.slots + player->player.selected_slot;
-        item_stack * off = player->player.slots + PLAYER_OFF_HAND_SLOT;
+        item_stack * main = player->slots + player->selected_slot;
+        item_stack * off = player->slots + PLAYER_OFF_HAND_SLOT;
         item_stack * used = hand == PLAYER_MAIN_HAND ? main : off;
 
         if ((player->flags & PLAYER_CAN_BUILD) && used->size == 0 && cur_info.lit) {

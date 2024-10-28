@@ -9,6 +9,14 @@
 #include "nbt.h"
 #include "chunk.h"
 #include "packet.h"
+#include "player.h"
+
+typedef struct {
+    PlayerController * players[MAX_PLAYERS];
+    i32 playerCount;
+} PlayerList;
+
+static PlayerList playerList;
 
 #define DEFAULT_PACKET_MAX_STRING_SIZE (0x7fff)
 
@@ -353,33 +361,25 @@ static PacketItemStack ReadItemStack(Cursor * cursor) {
     return res;
 }
 
-void
-teleport_player(entity_base * entity,
-        double new_x, double new_y, double new_z,
-        float new_rot_x, float new_rot_y) {
-    entity_player * player = &entity->player;
-    player->current_teleport_id++;
-    entity->flags |= ENTITY_TELEPORTING;
-    // NOTE(traks): invalidate any in-progress teleports
-    entity->flags &= ~PLAYER_SENT_TELEPORT;
-
-    entity->x = new_x;
-    entity->y = new_y;
-    entity->z = new_z;
-    entity->rot_x = new_rot_x;
-    entity->rot_y = new_rot_y;
+void TeleportPlayer(Entity * player, f64 x, f64 y, f64 z, f32 rotX, f32 rotY) {
+    player->currentTeleportId++;
+    player->flags |= ENTITY_TELEPORTING;
+    player->x = x;
+    player->y = y;
+    player->z = z;
+    player->rot_x = rotX;
+    player->rot_y = rotY;
 }
 
-void
-set_player_gamemode(entity_base * player, int new_gamemode) {
-    if (player->player.gamemode != new_gamemode) {
+void SetPlayerGamemode(Entity * player, i32 newGamemode) {
+    if (player->gamemode != newGamemode) {
         player->changed_data |= PLAYER_GAMEMODE_CHANGED;
     }
 
-    player->player.gamemode = new_gamemode;
+    player->gamemode = newGamemode;
     unsigned old_flags = player->flags;
 
-    switch (new_gamemode) {
+    switch (newGamemode) {
     case GAMEMODE_SURVIVAL:
         player->flags &= ~PLAYER_FLYING;
         player->flags &= ~PLAYER_CAN_FLY;
@@ -447,7 +447,7 @@ set_player_gamemode(entity_base * player, int new_gamemode) {
 }
 
 static void
-process_move_player_packet(entity_base * player,
+process_move_player_packet(PlayerController * control, Entity * player,
         double new_x, double new_y, double new_z,
         float new_head_rot_x, float new_head_rot_y, int on_ground) {
     if ((player->flags & ENTITY_TELEPORTING) != 0) {
@@ -470,8 +470,8 @@ process_move_player_packet(entity_base * player,
 }
 
 static int
-drop_item(entity_base * player, item_stack * is, unsigned char drop_size) {
-    entity_base * item = try_reserve_entity(ENTITY_ITEM);
+drop_item(Entity * player, item_stack * is, unsigned char drop_size) {
+    Entity * item = TryReserveEntity(ENTITY_ITEM);
     if (item->type == ENTITY_NULL) {
         return 0;
     }
@@ -487,9 +487,9 @@ drop_item(entity_base * player, item_stack * is, unsigned char drop_size) {
     item->collision_width = 0.25;
     item->collision_height = 0.25;
 
-    item->item.contents = *is;
-    item->item.contents.size = drop_size;
-    item->item.pickup_timeout = 40;
+    item->contents = *is;
+    item->contents.size = drop_size;
+    item->pickup_timeout = 40;
 
     float sin_rot_y = sinf(player->rot_y * RADIANS_PER_DEGREE);
     float cos_rot_y = cosf(player->rot_y * RADIANS_PER_DEGREE);
@@ -504,13 +504,13 @@ drop_item(entity_base * player, item_stack * is, unsigned char drop_size) {
 }
 
 static void
-AckBlockChange(entity_player * player, u32 sequenceNumber) {
+AckBlockChange(PlayerController * control, u32 sequenceNumber) {
     // TODO(traks): disconnect player if sequence number negative?
     i32 signedNumber = sequenceNumber;
-    player->lastAckedBlockChange = MAX(player->lastAckedBlockChange, signedNumber);
+    control->lastAckedBlockChange = MAX(control->lastAckedBlockChange, signedNumber);
 }
 
-static void ProcessPacket(entity_base * entity, Cursor * recCursor, MemoryArena * processArena) {
+static void ProcessPacket(PlayerController * control, Cursor * recCursor, MemoryArena * processArena) {
     // NOTE(traks): we need to handle packets in the order in which they arive,
     // so e.g. the client can move the player to a position, perform some
     // action, and then move the player a bit further, all in the same tick.
@@ -519,20 +519,19 @@ static void ProcessPacket(entity_base * entity, Cursor * recCursor, MemoryArena 
     // information about the player's position when they perform a certain
     // action.
 
-    entity_player * player = &entity->player;
+    Entity * player = ResolveEntity(control->entityId);
     i32 packetId = ReadVarU32(recCursor);
 
     switch (packetId) {
     case SBP_ACCEPT_TELEPORTATION: {
         LogInfo("Packet accept teleportation");
-        i32 teleportId = ReadVarU32(recCursor);
+        u32 teleportId = ReadVarU32(recCursor);
 
-        if ((entity->flags & ENTITY_TELEPORTING)
-                && (entity->flags & PLAYER_SENT_TELEPORT)
-                && teleportId == player->current_teleport_id) {
+        if ((player->flags & ENTITY_TELEPORTING)
+                && teleportId == control->lastSentTeleportId
+                && teleportId == player->currentTeleportId) {
             LogInfo("The teleport ID is correct!");
-            entity->flags &= ~ENTITY_TELEPORTING;
-            entity->flags &= ~PLAYER_SENT_TELEPORT;
+            player->flags &= ~ENTITY_TELEPORTING;
         }
         break;
     }
@@ -599,8 +598,8 @@ static void ProcessPacket(entity_base * entity, Cursor * recCursor, MemoryArena 
             int text_size = snprintf(
                     (void *) msg->text, sizeof msg->text,
                     "<%.*s> %.*s",
-                    (int) player->username_size,
-                    player->username,
+                    (int) control->username_size,
+                    control->username,
                     (int) chat.size, chat.data);
             msg->size = text_size;
             // LogInfo("%.*s", msg->size, msg->text);
@@ -641,20 +640,20 @@ static void ProcessPacket(entity_base * entity, Cursor * recCursor, MemoryArena 
     case SBP_CLIENT_INFORMATION: {
         LogInfo("Packet client information");
         String locale = ReadVarString(recCursor, MAX_PLAYER_LOCALE_SIZE);
-        memcpy(player->locale, locale.data, locale.size);
-        player->localeSize = locale.size;
+        memcpy(control->locale, locale.data, locale.size);
+        control->localeSize = locale.size;
         // NOTE(traks): View distance is without the extra border of chunks,
         // while chunk cache radius is with the extra border of
         // chunks. This clamps the view distance between the minimum
         // of 2 and the server maximum.
         i32 viewDistance = ReadU8(recCursor);
-        player->nextChunkCacheRadius = MIN(MAX(viewDistance, 2), MAX_RENDER_DISTANCE) + 1;
-        player->chatMode = ReadVarU32(recCursor);
-        player->seesChatColours = ReadBool(recCursor);
-        player->skinCustomisation = ReadU8(recCursor);
-        player->mainHand = ReadVarU32(recCursor);
-        player->textFiltering = ReadBool(recCursor);
-        player->showInStatusList = ReadBool(recCursor);
+        control->nextChunkCacheRadius = MIN(MAX(viewDistance, 2), MAX_RENDER_DISTANCE) + 1;
+        control->chatMode = ReadVarU32(recCursor);
+        control->seesChatColours = ReadBool(recCursor);
+        control->skinCustomisation = ReadU8(recCursor);
+        control->mainHand = ReadVarU32(recCursor);
+        control->textFiltering = ReadBool(recCursor);
+        control->showInStatusList = ReadBool(recCursor);
         break;
     }
     case SBP_COMMAND_SUGGESTION: {
@@ -804,8 +803,8 @@ static void ProcessPacket(entity_base * entity, Cursor * recCursor, MemoryArena 
     }
     case SBP_KEEP_ALIVE: {
         i64 transactionId = ReadU64(recCursor);
-        if (player->last_keep_alive_sent_tick == transactionId) {
-            entity->flags |= PLAYER_GOT_ALIVE_RESPONSE;
+        if (control->last_keep_alive_sent_tick == transactionId) {
+            control->flags |= PLAYER_CONTROL_GOT_ALIVE_RESPONSE;
         }
         break;
     }
@@ -820,7 +819,7 @@ static void ProcessPacket(entity_base * entity, Cursor * recCursor, MemoryArena 
         double y = ReadF64(recCursor);
         double z = ReadF64(recCursor);
         i32 onGround = ReadBool(recCursor);
-        process_move_player_packet(entity, x, y, z, entity->rot_x, entity->rot_y, onGround);
+        process_move_player_packet(control, player, x, y, z, player->rot_x, player->rot_y, onGround);
         break;
     }
     case SBP_MOVE_PLAYER_POS_ROT: {
@@ -830,19 +829,19 @@ static void ProcessPacket(entity_base * entity, Cursor * recCursor, MemoryArena 
         float headRotY = ReadF32(recCursor);
         float headRotX = ReadF32(recCursor);
         i32 onGround = ReadBool(recCursor);
-        process_move_player_packet(entity, x, y, z, headRotX, headRotY, onGround);
+        process_move_player_packet(control, player, x, y, z, headRotX, headRotY, onGround);
         break;
     }
     case SBP_MOVE_PLAYER_ROT: {
         float headRotY = ReadF32(recCursor);
         float headRotX = ReadF32(recCursor);
         i32 onGround = ReadU8(recCursor);
-        process_move_player_packet(entity, entity->x, entity->y, entity->z, headRotX, headRotY, onGround);
+        process_move_player_packet(control, player, player->x, player->y, player->z, headRotX, headRotY, onGround);
         break;
     }
     case SBP_MOVE_PLAYER_STATUS_ONLY: {
         i32 onGround = ReadU8(recCursor);
-        process_move_player_packet(entity, entity->x, entity->y, entity->z, entity->rot_x, entity->rot_y, onGround);
+        process_move_player_packet(control, player, player->x, player->y, player->z, player->rot_x, player->rot_y, onGround);
         break;
     }
     case SBP_MOVE_VEHICLE: {
@@ -888,13 +887,13 @@ static void ProcessPacket(entity_base * entity, Cursor * recCursor, MemoryArena 
         i32 flying = !!(flags & 0x2);
         // TODO(traks): validate whether the player can toggle fly mode
         if (flying) {
-            if (entity->flags & PLAYER_CAN_FLY) {
-                entity->flags |= PLAYER_FLYING;
+            if (player->flags & PLAYER_CAN_FLY) {
+                player->flags |= PLAYER_FLYING;
             } else {
-                entity->changed_data |= PLAYER_ABILITIES_CHANGED;
+                player->changed_data |= PLAYER_ABILITIES_CHANGED;
             }
         } else {
-            entity->flags &= ~PLAYER_FLYING;
+            player->flags &= ~PLAYER_FLYING;
         }
         break;
     }
@@ -935,7 +934,7 @@ static void ProcessPacket(entity_base * entity, Cursor * recCursor, MemoryArena 
                 // with the world ID properly (e.g. it's an invalid world while
                 // the player is teleporting).
 
-                WorldBlockPos destroyPos = {.worldId = entity->worldId, .xyz = blockPos};
+                WorldBlockPos destroyPos = {.worldId = player->worldId, .xyz = blockPos};
                 SetBlockResult destroy = WorldSetBlockState(destroyPos, get_default_block_state(BLOCK_AIR));
                 if (destroy.failed) {
                     break;
@@ -954,20 +953,20 @@ static void ProcessPacket(entity_base * entity, Cursor * recCursor, MemoryArena 
                 };
                 push_direct_neighbour_block_updates(destroyPos, &buc);
                 propagate_block_updates(&buc);
-                AckBlockChange(player, sequenceNumber);
+                AckBlockChange(control, sequenceNumber);
             }
             break;
         }
         case 1: { // abort destroy block
             // NOTE(traks): player stopped mining the block before it breaks
             // TODO(traks): handle
-            AckBlockChange(player, sequenceNumber);
+            AckBlockChange(control, sequenceNumber);
             break;
         }
         case 2: { // stop destroy block
             // NOTE(traks): player stopped mining the block because it broke
             // TODO(traks): handle
-            AckBlockChange(player, sequenceNumber);
+            AckBlockChange(control, sequenceNumber);
             break;
         }
         case 3: { // drop all items
@@ -977,7 +976,7 @@ static void ProcessPacket(entity_base * entity, Cursor * recCursor, MemoryArena 
             // itself, so no need to send updates for the slot if nothing
             // special happens
             if (is->size > 0) {
-                if (drop_item(entity, is, is->size)) {
+                if (drop_item(player, is, is->size)) {
                     is->size = 0;
                     is->type = ITEM_AIR;
                 } else {
@@ -993,7 +992,7 @@ static void ProcessPacket(entity_base * entity, Cursor * recCursor, MemoryArena 
             // itself, so no need to send updates for the slot if nothing
             // special happens
             if (is->size > 0) {
-                if (drop_item(entity, is, 1)) {
+                if (drop_item(player, is, 1)) {
                     is->size -= 1;
                     if (is->size == 0) {
                         is->type = ITEM_AIR;
@@ -1033,29 +1032,29 @@ static void ProcessPacket(entity_base * entity, Cursor * recCursor, MemoryArena 
 
         switch (action) {
         case 0: // press shift key
-            entity->flags |= ENTITY_SHIFTING;
-            entity->changed_data |= 1 << ENTITY_DATA_FLAGS;
-            if (!(entity->flags & PLAYER_FLYING)) {
-                entity->pose = ENTITY_POSE_CROUCHING;
-                entity->changed_data |= 1 << ENTITY_DATA_POSE;
+            player->flags |= ENTITY_SHIFTING;
+            player->changed_data |= 1 << ENTITY_DATA_FLAGS;
+            if (!(player->flags & PLAYER_FLYING)) {
+                player->pose = ENTITY_POSE_CROUCHING;
+                player->changed_data |= 1 << ENTITY_DATA_POSE;
             }
             break;
         case 1: // release shift key
-            entity->flags &= ~ENTITY_SHIFTING;
-            entity->changed_data |= 1 << ENTITY_DATA_FLAGS;
-            entity->pose = ENTITY_POSE_STANDING;
-            entity->changed_data |= 1 << ENTITY_DATA_POSE;
+            player->flags &= ~ENTITY_SHIFTING;
+            player->changed_data |= 1 << ENTITY_DATA_FLAGS;
+            player->pose = ENTITY_POSE_STANDING;
+            player->changed_data |= 1 << ENTITY_DATA_POSE;
             break;
         case 2: // stop sleeping
             // TODO(traks): handle
             break;
         case 3: // start sprinting
-            entity->flags |= ENTITY_SPRINTING;
-            entity->changed_data |= 1 << ENTITY_DATA_FLAGS;
+            player->flags |= ENTITY_SPRINTING;
+            player->changed_data |= 1 << ENTITY_DATA_FLAGS;
             break;
         case 4: // stop sprinting
-            entity->flags &= ~ENTITY_SPRINTING;
-            entity->changed_data |= 1 << ENTITY_DATA_FLAGS;
+            player->flags &= ~ENTITY_SPRINTING;
+            player->changed_data |= 1 << ENTITY_DATA_FLAGS;
             break;
         case 5: // start riding jump
             // TODO(traks): handle
@@ -1297,8 +1296,8 @@ static void ProcessPacket(entity_base * entity, Cursor * recCursor, MemoryArena 
         // target position as well, so no assertions fire when setting the block
         // in the chunk (e.g. because of negative y)
 
-        process_use_item_on_packet(entity, hand, clickedPos, clickedFace, clickOffsetX, clickOffsetY, clickOffsetZ, isInside, processArena);
-        AckBlockChange(player, sequenceNumber);
+        process_use_item_on_packet(control, hand, clickedPos, clickedFace, clickOffsetX, clickOffsetY, clickOffsetZ, isInside, processArena);
+        AckBlockChange(control, sequenceNumber);
         break;
     }
     case SBP_USE_ITEM: {
@@ -1308,7 +1307,7 @@ static void ProcessPacket(entity_base * entity, Cursor * recCursor, MemoryArena 
         f32 rotY = ReadF32(recCursor);
         f32 rotX = ReadF32(recCursor);
 
-        AckBlockChange(player, sequenceNumber);
+        AckBlockChange(control, sequenceNumber);
         break;
     }
     default: {
@@ -1328,8 +1327,8 @@ chunk_cache_index(ChunkPos pos) {
     return (x * MAX_CHUNK_CACHE_DIAM + z) % n;
 }
 
-static void FinishPlayerPacket(Cursor * cursor, entity_base * player) {
-    FinishPacket(cursor, !!(player->flags & PLAYER_PACKET_COMPRESSION));
+static void FinishPlayerPacket(Cursor * cursor, PlayerController * control) {
+    FinishPacket(cursor, !!(control->flags & PLAYER_CONTROL_PACKET_COMPRESSION));
 }
 
 static void PackLightSection(Cursor * targetCursor, u8 * source) {
@@ -1344,7 +1343,7 @@ static void PackLightSection(Cursor * targetCursor, u8 * source) {
 
 void
 send_chunk_fully(Cursor * send_cursor, Chunk * ch,
-        entity_base * entity, MemoryArena * tick_arena) {
+        PlayerController * control, MemoryArena * tick_arena) {
     BeginTimings(SendChunkFully);
 
     // TODO(traks): make uncompressed data as compact as possible, so the
@@ -1512,14 +1511,14 @@ send_chunk_fully(Cursor * send_cursor, Chunk * ch,
 
     EndTimings(WriteLight);
 
-    FinishPlayerPacket(send_cursor, entity);
+    FinishPlayerPacket(send_cursor, control);
 
     EndTimings(SendChunkFully);
 }
 
 static void
 send_light_update(Cursor * send_cursor, ChunkPos pos, Chunk * ch,
-        entity_base * entity, MemoryArena * tick_arena) {
+        PlayerController * control, MemoryArena * tick_arena) {
     BeginTimings(SendLightUpdate);
 
     // @TODO(traks) send the real lighting data
@@ -1565,12 +1564,12 @@ send_light_update(Cursor * send_cursor, ChunkPos pos, Chunk * ch,
         }
     }
 
-    FinishPlayerPacket(send_cursor, entity);
+    FinishPlayerPacket(send_cursor, control);
 
     EndTimings(SendLightUpdate);
 }
 
-static void SendPlayerTeleport(entity_base * player, Cursor * send_cursor) {
+static void SendPlayerTeleport(PlayerController * control, Entity * player, Cursor * send_cursor) {
     BeginPacket(send_cursor, CBP_PLAYER_POSITION);
     WriteF64(send_cursor, player->x);
     WriteF64(send_cursor, player->y);
@@ -1578,10 +1577,9 @@ static void SendPlayerTeleport(entity_base * player, Cursor * send_cursor) {
     WriteF32(send_cursor, player->rot_y);
     WriteF32(send_cursor, player->rot_x);
     WriteU8(send_cursor, 0); // relative arguments
-    WriteVarU32(send_cursor, player->player.current_teleport_id);
-    FinishPlayerPacket(send_cursor, player);
-
-    player->flags |= PLAYER_SENT_TELEPORT;
+    WriteVarU32(send_cursor, player->currentTeleportId);
+    FinishPlayerPacket(send_cursor, control);
+    control->lastSentTeleportId = player->currentTeleportId;
 }
 
 // TODO(traks): Perhaps we shouldn't remove players mid-tick. As of writing
@@ -1595,31 +1593,31 @@ static void SendPlayerTeleport(entity_base * player, Cursor * send_cursor) {
 // It's probably fine to remove players mid tick. The tab list system should be
 // changed so you don't need to resolve entities to send tab list data.
 static void
-disconnect_player_now(entity_base * entity) {
+disconnect_player_now(PlayerController * control, Entity * player) {
     // TODO(traks): send disconnect message and wait a bit before closing the
     // socket, so the disconnect messages has a chance of reaching the client
-    entity_player * player = &entity->player;
-    close(player->sock);
+    close(control->sock);
 
-    i32 chunk_cache_min_x = player->chunkCacheCentreX - player->chunkCacheRadius;
-    i32 chunk_cache_max_x = player->chunkCacheCentreX + player->chunkCacheRadius;
-    i32 chunk_cache_min_z = player->chunkCacheCentreZ - player->chunkCacheRadius;
-    i32 chunk_cache_max_z = player->chunkCacheCentreZ + player->chunkCacheRadius;
+    i32 chunk_cache_min_x = control->chunkCacheCentreX - control->chunkCacheRadius;
+    i32 chunk_cache_max_x = control->chunkCacheCentreX + control->chunkCacheRadius;
+    i32 chunk_cache_min_z = control->chunkCacheCentreZ - control->chunkCacheRadius;
+    i32 chunk_cache_max_z = control->chunkCacheCentreZ + control->chunkCacheRadius;
 
     for (i32 x = chunk_cache_min_x; x <= chunk_cache_max_x; x++) {
         for (i32 z = chunk_cache_min_z; z <= chunk_cache_max_z; z++) {
-            WorldChunkPos pos = {.worldId = entity->worldId, .x = x, .z = z};
-            PlayerChunkCacheEntry * cacheEntry = player->chunkCache + chunk_cache_index(pos.xz);
+            WorldChunkPos pos = {.worldId = control->chunkCacheWorldId, .x = x, .z = z};
+            PlayerChunkCacheEntry * cacheEntry = control->chunkCache + chunk_cache_index(pos.xz);
             if (cacheEntry->flags & PLAYER_CHUNK_ADDED_INTEREST) {
                 AddChunkInterest(pos, -1);
             }
         }
     }
 
-    free(player->rec_buf);
-    free(player->send_buf);
+    free(control->rec_buf);
+    free(control->send_buf);
 
-    evict_entity(entity->eid);
+    EvictEntity(control->entityId);
+    control->flags |= PLAYER_CONTROL_DISCONNECTED;
 }
 
 static float
@@ -1631,9 +1629,9 @@ degree_diff(float to, float from) {
 }
 
 static void
-merge_stack_to_player_slot(entity_base * player, int slot, item_stack * to_add) {
+merge_stack_to_player_slot(Entity * player, int slot, item_stack * to_add) {
     // @TODO(traks) also ensure item components are similar
-    item_stack * is = player->player.slots + slot;
+    item_stack * is = player->slots + slot;
 
     if (is->type == to_add->type) {
         int max_stack_size = get_max_stack_size(is->type);
@@ -1645,14 +1643,14 @@ merge_stack_to_player_slot(entity_base * player, int slot, item_stack * to_add) 
         }
 
         if (add != 0) {
-            player->player.slots_needing_update |= (u64) 1 << slot;
+            player->slots_needing_update |= (u64) 1 << slot;
         }
     }
 }
 
 void
-add_stack_to_player_inventory(entity_base * player, item_stack * to_add) {
-    merge_stack_to_player_slot(player, player->player.selected_slot, to_add);
+add_stack_to_player_inventory(Entity * player, item_stack * to_add) {
+    merge_stack_to_player_slot(player, player->selected_slot, to_add);
     merge_stack_to_player_slot(player, PLAYER_OFF_HAND_SLOT, to_add);
 
     for (int i = PLAYER_FIRST_HOTBAR_SLOT; i <= PLAYER_LAST_HOTBAR_SLOT; i++) {
@@ -1665,20 +1663,20 @@ add_stack_to_player_inventory(entity_base * player, item_stack * to_add) {
     if (to_add->size != 0) {
         // try to put remaining stack in empty spot of inventory
         for (int i = PLAYER_FIRST_HOTBAR_SLOT; i <= PLAYER_LAST_HOTBAR_SLOT; i++) {
-            item_stack * is = player->player.slots + i;
+            item_stack * is = player->slots + i;
             if (is->type == ITEM_AIR) {
                 *is = *to_add;
                 *to_add = (item_stack) {0};
-                player->player.slots_needing_update |= (u64) 1 << i;
+                player->slots_needing_update |= (u64) 1 << i;
                 return;
             }
         }
         for (int i = PLAYER_FIRST_MAIN_INV_SLOT; i <= PLAYER_LAST_MAIN_INV_SLOT; i++) {
-            item_stack * is = player->player.slots + i;
+            item_stack * is = player->slots + i;
             if (is->type == ITEM_AIR) {
                 *is = *to_add;
                 *to_add = (item_stack) {0};
-                player->player.slots_needing_update |= (u64) 1 << i;
+                player->slots_needing_update |= (u64) 1 << i;
                 return;
             }
         }
@@ -1686,7 +1684,7 @@ add_stack_to_player_inventory(entity_base * player, item_stack * to_add) {
 }
 
 void
-tick_player(entity_base * player, MemoryArena * tick_arena) {
+tick_player(PlayerController * control, Entity * player, MemoryArena * tick_arena) {
     BeginTimings(TickPlayer);
 
     // TODO(traks): should we wait with actually creating the player and ticking
@@ -1720,7 +1718,8 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
     }
 
     assert(player->type == ENTITY_PLAYER);
-    int sock = player->player.sock;
+    assert(!(control->flags & PLAYER_CONTROL_DISCONNECTED));
+    int sock = control->sock;
 
     // TODO(traks): We might want to move this to an event-based system (such as
     // epoll/kqueue/etc.). Not sure if offloading some of the work to a
@@ -1737,24 +1736,24 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
     // We also should actually also respond to server list pings as soon as
     // possible, so the client's ping counter is accurate.
     BeginTimings(SystemRecv);
-    ssize_t rec_size = recv(sock, player->player.rec_buf + player->player.rec_cursor,
-            player->player.rec_buf_size - player->player.rec_cursor, 0);
+    ssize_t rec_size = recv(sock, control->rec_buf + control->rec_cursor,
+            control->rec_buf_size - control->rec_cursor, 0);
     EndTimings(SystemRecv);
 
     if (rec_size == 0) {
-        disconnect_player_now(player);
+        disconnect_player_now(control, player);
     } else if (rec_size == -1) {
         // EAGAIN means no data received
         if (errno != EAGAIN) {
             LogErrno("Couldn't receive protocol data from player: %s");
-            disconnect_player_now(player);
+            disconnect_player_now(control, player);
         }
     } else {
-        player->player.rec_cursor += rec_size;
+        control->rec_cursor += rec_size;
 
         Cursor * rec_cursor = &(Cursor) {
-            .data = player->player.rec_buf,
-            .size = player->player.rec_cursor
+            .data = control->rec_buf,
+            .size = control->rec_cursor
         };
 
         // @TODO(traks) rate limit incoming packets per player
@@ -1764,11 +1763,11 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
             *loopArena = *tick_arena;
 
             Cursor * packetCursor = &(Cursor) {0};
-            *packetCursor = TryReadPacket(rec_cursor, loopArena, !!(player->flags & PLAYER_PACKET_COMPRESSION), player->player.rec_buf_size);
+            *packetCursor = TryReadPacket(rec_cursor, loopArena, !!(control->flags & PLAYER_CONTROL_PACKET_COMPRESSION), control->rec_buf_size);
 
             if (rec_cursor->error) {
                 LogInfo("Player incoming packet error");
-                disconnect_player_now(player);
+                disconnect_player_now(control, player);
                 break;
             }
             if (packetCursor->size == 0) {
@@ -1776,23 +1775,23 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
                 break;
             }
 
-            ProcessPacket(player, packetCursor, loopArena);
+            ProcessPacket(control, packetCursor, loopArena);
 
             if (packetCursor->error) {
                 LogInfo("Player protocol error occurred");
-                disconnect_player_now(player);
+                disconnect_player_now(control, player);
                 break;
             }
 
             if (packetCursor->index != packetCursor->size) {
                 LogInfo("Player protocol packet not fully read");
-                disconnect_player_now(player);
+                disconnect_player_now(control, player);
                 break;
             }
         }
 
         memmove(rec_cursor->data, rec_cursor->data + rec_cursor->index, rec_cursor->size - rec_cursor->index);
-        player->player.rec_cursor = rec_cursor->size - rec_cursor->index;
+        control->rec_cursor = rec_cursor->size - rec_cursor->index;
     }
 
     // @TODO(traks) only here because players could be disconnected and get
@@ -1807,7 +1806,7 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
     BeginTimings(PickupItems);
 
     for (int i = 0; i < (i32) ARRAY_SIZE(serv->entities); i++) {
-        entity_base * entity = serv->entities + i;
+        Entity * entity = serv->entities + i;
         if ((entity->flags & ENTITY_IN_USE) == 0) {
             continue;
         }
@@ -1817,7 +1816,7 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
         if (entity->worldId != player->worldId) {
             continue;
         }
-        if (entity->item.pickup_timeout != 0) {
+        if (entity->pickup_timeout != 0) {
             continue;
         }
 
@@ -1840,7 +1839,7 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
                 && test_min_z <= bb_max_z && test_max_z >= bb_min_z) {
             // boxes intersect
 
-            item_stack * contents = &entity->item.contents;
+            item_stack * contents = &entity->contents;
             int initial_size = contents->size;
             add_stack_to_player_inventory(player, contents);
 
@@ -1848,9 +1847,9 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
 
             if (picked_up_size != 0) {
                 // prepare to send a packet for the pickup animation
-                player->player.picked_up_item_id = entity->eid;
-                player->player.picked_up_item_size = picked_up_size;
-                player->player.picked_up_tick = serv->current_tick;
+                player->picked_up_item_id = entity->id;
+                player->picked_up_item_size = picked_up_size;
+                player->picked_up_tick = serv->current_tick;
 
                 // @TODO(traks) we currently restrict to at most one pickup per
                 // tick. Should this be increased? 1 stack per tick is probably
@@ -1867,14 +1866,14 @@ bail:
 }
 
 static void
-send_changed_entity_data(Cursor * send_cursor, entity_base * player,
-        entity_base * entity, u32 changed_data) {
+send_changed_entity_data(Cursor * send_cursor, PlayerController * control,
+        Entity * entity, u32 changed_data) {
     if (changed_data == 0) {
         return;
     }
 
     BeginPacket(send_cursor, CBP_SET_ENTITY_DATA);
-    WriteVarU32(send_cursor, entity->eid);
+    WriteVarU32(send_cursor, entity->id);
 
     if (changed_data & (1 << ENTITY_DATA_FLAGS)) {
         WriteU8(send_cursor, ENTITY_DATA_FLAGS);
@@ -1933,7 +1932,7 @@ send_changed_entity_data(Cursor * send_cursor, entity_base * player,
         if (changed_data & (1 << ENTITY_DATA_ITEM)) {
             WriteU8(send_cursor, ENTITY_DATA_ITEM);
             WriteVarU32(send_cursor, ENTITY_DATA_TYPE_ITEM_STACK);
-            item_stack * is = &entity->item.contents;
+            item_stack * is = &entity->contents;
             WriteVarU32(send_cursor, is->size);
             if (is->size > 0) {
                 WriteVarU32(send_cursor, is->type);
@@ -1947,23 +1946,23 @@ send_changed_entity_data(Cursor * send_cursor, entity_base * player,
     }
 
     WriteU8(send_cursor, 0xff); // end of entity data
-    FinishPlayerPacket(send_cursor, player);
+    FinishPlayerPacket(send_cursor, control);
 }
 
 static void
-send_take_item_entity_packet(entity_base * player, Cursor * send_cursor,
-        entity_id taker_id, entity_id pickup_id, u8 pickup_size) {
+send_take_item_entity_packet(PlayerController * control, Cursor * send_cursor,
+        EntityId taker_id, EntityId pickup_id, u8 pickup_size) {
     BeginPacket(send_cursor, CBP_TAKE_ITEM_ENTITY);
     WriteVarU32(send_cursor, pickup_id);
     WriteVarU32(send_cursor, taker_id);
     WriteVarU32(send_cursor, pickup_size);
-    FinishPlayerPacket(send_cursor, player);
+    FinishPlayerPacket(send_cursor, control);
 }
 
 static void
-try_update_tracked_entity(entity_base * player,
+try_update_tracked_entity(PlayerController * control,
         Cursor * send_cursor, MemoryArena * tick_arena,
-        tracked_entity * tracked, entity_base * entity) {
+        tracked_entity * tracked, Entity * entity) {
     // TODO(traks): There are a bunch of timers in play here. The update
     // interval timer, the TP packet timer, the position packet timer, etc. If
     // these happen to line up at the same tick for a bunch of players (e.g. if
@@ -2021,29 +2020,29 @@ try_update_tracked_entity(entity_base * player,
 
         if (sent_pos && sent_rot) {
             BeginPacket(send_cursor, CBP_MOVE_ENTITY_POS_ROT);
-            WriteVarU32(send_cursor, entity->eid);
+            WriteVarU32(send_cursor, entity->id);
             WriteU16(send_cursor, encoded_dx);
             WriteU16(send_cursor, encoded_dy);
             WriteU16(send_cursor, encoded_dz);
             WriteU8(send_cursor, encoded_rot_y);
             WriteU8(send_cursor, encoded_rot_x);
-            WriteU8(send_cursor, !!(player->flags & ENTITY_ON_GROUND));
-            FinishPlayerPacket(send_cursor, player);
+            WriteU8(send_cursor, !!(entity->flags & ENTITY_ON_GROUND));
+            FinishPlayerPacket(send_cursor, control);
         } else if (sent_pos) {
             BeginPacket(send_cursor, CBP_MOVE_ENTITY_POS);
-            WriteVarU32(send_cursor, entity->eid);
+            WriteVarU32(send_cursor, entity->id);
             WriteU16(send_cursor, encoded_dx);
             WriteU16(send_cursor, encoded_dy);
             WriteU16(send_cursor, encoded_dz);
-            WriteU8(send_cursor, !!(player->flags & ENTITY_ON_GROUND));
-            FinishPlayerPacket(send_cursor, player);
+            WriteU8(send_cursor, !!(entity->flags & ENTITY_ON_GROUND));
+            FinishPlayerPacket(send_cursor, control);
         } else if (sent_rot) {
             BeginPacket(send_cursor, CBP_MOVE_ENTITY_ROT);
-            WriteVarU32(send_cursor, entity->eid);
+            WriteVarU32(send_cursor, entity->id);
             WriteU8(send_cursor, encoded_rot_y);
             WriteU8(send_cursor, encoded_rot_x);
-            WriteU8(send_cursor, !!(player->flags & ENTITY_ON_GROUND));
-            FinishPlayerPacket(send_cursor, player);
+            WriteU8(send_cursor, !!(entity->flags & ENTITY_ON_GROUND));
+            FinishPlayerPacket(send_cursor, control);
         }
 
         if (sent_pos) {
@@ -2062,14 +2061,14 @@ try_update_tracked_entity(entity_base * player,
         }
     } else {
         BeginPacket(send_cursor, CBP_TELEPORT_ENTITY);
-        WriteVarU32(send_cursor, entity->eid);
+        WriteVarU32(send_cursor, entity->id);
         WriteF64(send_cursor, entity->x);
         WriteF64(send_cursor, entity->y);
         WriteF64(send_cursor, entity->z);
         WriteU8(send_cursor, encoded_rot_y);
         WriteU8(send_cursor, encoded_rot_x);
-        WriteU8(send_cursor, !!(player->flags & ENTITY_ON_GROUND));
-        FinishPlayerPacket(send_cursor, player);
+        WriteU8(send_cursor, !!(entity->flags & ENTITY_ON_GROUND));
+        FinishPlayerPacket(send_cursor, control);
 
         tracked->last_tp_packet_tick = serv->current_tick;
 
@@ -2083,11 +2082,11 @@ try_update_tracked_entity(entity_base * player,
 
     if (entity->type != ENTITY_PLAYER) {
         BeginPacket(send_cursor, CBP_SET_ENTITY_MOTION);
-        WriteVarU32(send_cursor, entity->eid);
+        WriteVarU32(send_cursor, entity->id);
         WriteU16(send_cursor, CLAMP(entity->vx, -3.9, 3.9) * 8000);
         WriteU16(send_cursor, CLAMP(entity->vy, -3.9, 3.9) * 8000);
         WriteU16(send_cursor, CLAMP(entity->vz, -3.9, 3.9) * 8000);
-        FinishPlayerPacket(send_cursor, player);
+        FinishPlayerPacket(send_cursor, control);
     }
 
     switch (entity->type) {
@@ -2096,29 +2095,29 @@ try_update_tracked_entity(entity_base * player,
             tracked->last_sent_head_rot_y = encoded_rot_y;
 
             BeginPacket(send_cursor, CBP_ROTATE_HEAD);
-            WriteVarU32(send_cursor, entity->eid);
+            WriteVarU32(send_cursor, entity->id);
             WriteU8(send_cursor, encoded_rot_y);
-            FinishPlayerPacket(send_cursor, player);
+            FinishPlayerPacket(send_cursor, control);
         }
 
-        if (entity->player.picked_up_tick == serv->current_tick) {
-            send_take_item_entity_packet(player, send_cursor,
-                    entity->eid, entity->player.picked_up_item_id,
-                    entity->player.picked_up_item_size);
+        if (entity->picked_up_tick == serv->current_tick) {
+            send_take_item_entity_packet(control, send_cursor,
+                    entity->id, entity->picked_up_item_id,
+                    entity->picked_up_item_size);
         }
         break;
     }
     }
 
-    send_changed_entity_data(send_cursor, player, entity, entity->changed_data);
+    send_changed_entity_data(send_cursor, control, entity, entity->changed_data);
 }
 
 static void
-start_tracking_entity(entity_base * player,
+start_tracking_entity(PlayerController * control,
         Cursor * send_cursor, MemoryArena * tick_arena,
-        tracked_entity * tracked, entity_base * entity) {
+        tracked_entity * tracked, Entity * entity) {
     *tracked = (tracked_entity) {0};
-    tracked->eid = entity->eid;
+    tracked->entityId = entity->id;
 
     tracked->last_sent_x = entity->x;
     tracked->last_sent_y = entity->y;
@@ -2137,7 +2136,7 @@ start_tracking_entity(entity_base * player,
         tracked->update_interval = 2;
 
         BeginPacket(send_cursor, CBP_ADD_ENTITY);
-        WriteVarU32(send_cursor, entity->eid);
+        WriteVarU32(send_cursor, entity->id);
         WriteUUID(send_cursor, entity->uuid);
         WriteVarU32(send_cursor, entity->type);
         WriteF64(send_cursor, entity->x);
@@ -2152,7 +2151,7 @@ start_tracking_entity(entity_base * player,
         WriteU16(send_cursor, 0);
         WriteU16(send_cursor, 0);
         WriteU16(send_cursor, 0);
-        FinishPlayerPacket(send_cursor, player);
+        FinishPlayerPacket(send_cursor, control);
 
         tracked->last_sent_head_rot_y = encoded_rot_y;
         break;
@@ -2179,7 +2178,7 @@ start_tracking_entity(entity_base * player,
         // WriteU16(send_cursor, 0);
         // FinishPlayerPacket(send_cursor, player);
         BeginPacket(send_cursor, CBP_ADD_ENTITY);
-        WriteVarU32(send_cursor, entity->eid);
+        WriteVarU32(send_cursor, entity->id);
         WriteUUID(send_cursor, entity->uuid);
         WriteVarU32(send_cursor, entity->type);
         WriteF64(send_cursor, entity->x);
@@ -2197,23 +2196,23 @@ start_tracking_entity(entity_base * player,
         WriteU16(send_cursor, 0);
         WriteU16(send_cursor, 0);
         WriteU16(send_cursor, 0);
-        FinishPlayerPacket(send_cursor, player);
+        FinishPlayerPacket(send_cursor, control);
 
         BeginPacket(send_cursor, CBP_SET_ENTITY_MOTION);
-        WriteVarU32(send_cursor, entity->eid);
+        WriteVarU32(send_cursor, entity->id);
         WriteU16(send_cursor, CLAMP(entity->vx, -3.9, 3.9) * 8000);
         WriteU16(send_cursor, CLAMP(entity->vy, -3.9, 3.9) * 8000);
         WriteU16(send_cursor, CLAMP(entity->vz, -3.9, 3.9) * 8000);
-        FinishPlayerPacket(send_cursor, player);
+        FinishPlayerPacket(send_cursor, control);
         break;
     }
     }
 
-    send_changed_entity_data(send_cursor, player, entity, 0xffffffff);
+    send_changed_entity_data(send_cursor, control, entity, 0xffffffff);
 }
 
 static void
-send_player_abilities(Cursor * send_cursor, entity_base * player) {
+send_player_abilities(Cursor * send_cursor, PlayerController * control, Entity * player) {
     BeginPacket(send_cursor, CBP_PLAYER_ABILITIES);
     u8 ability_flags = 0;
 
@@ -2233,50 +2232,54 @@ send_player_abilities(Cursor * send_cursor, entity_base * player) {
     WriteU8(send_cursor, ability_flags);
     WriteF32(send_cursor, 0.05); // flying speed
     WriteF32(send_cursor, 0.1); // walking speed
-    FinishPlayerPacket(send_cursor, player);
+    FinishPlayerPacket(send_cursor, control);
 }
 
-static void UpdateChunkCache(entity_base * player, Cursor * sendCursor) {
-    i32 chunkCacheMinX = player->player.chunkCacheCentreX - player->player.chunkCacheRadius;
-    i32 chunkCacheMinZ = player->player.chunkCacheCentreZ - player->player.chunkCacheRadius;
-    i32 chunkCacheMaxX = player->player.chunkCacheCentreX + player->player.chunkCacheRadius;
-    i32 chunkCacheMaxZ = player->player.chunkCacheCentreZ + player->player.chunkCacheRadius;
+static void UpdateChunkCache(PlayerController * control, Entity * player, Cursor * sendCursor) {
+    i32 chunkCacheMinX = control->chunkCacheCentreX - control->chunkCacheRadius;
+    i32 chunkCacheMinZ = control->chunkCacheCentreZ - control->chunkCacheRadius;
+    i32 chunkCacheMaxX = control->chunkCacheCentreX + control->chunkCacheRadius;
+    i32 chunkCacheMaxZ = control->chunkCacheCentreZ + control->chunkCacheRadius;
 
     i32 nextChunkCacheCentreX = (i32) floor(player->x) >> 4;
     i32 nextChunkCacheCentreZ = (i32) floor(player->z) >> 4;
-    assert(player->player.nextChunkCacheRadius <= MAX_CHUNK_CACHE_RADIUS);
-    i32 nextChunkCacheMinX = nextChunkCacheCentreX - player->player.nextChunkCacheRadius;
-    i32 nextChunkCacheMinZ = nextChunkCacheCentreZ - player->player.nextChunkCacheRadius;
-    i32 nextChunkCacheMaxX = nextChunkCacheCentreX + player->player.nextChunkCacheRadius;
-    i32 nextChunkCacheMaxZ = nextChunkCacheCentreZ + player->player.nextChunkCacheRadius;
+    i32 nextChunkCacheWorldId = player->worldId;
+    assert(control->nextChunkCacheRadius <= MAX_CHUNK_CACHE_RADIUS);
+    i32 nextChunkCacheMinX = nextChunkCacheCentreX - control->nextChunkCacheRadius;
+    i32 nextChunkCacheMinZ = nextChunkCacheCentreZ - control->nextChunkCacheRadius;
+    i32 nextChunkCacheMaxX = nextChunkCacheCentreX + control->nextChunkCacheRadius;
+    i32 nextChunkCacheMaxZ = nextChunkCacheCentreZ + control->nextChunkCacheRadius;
 
-    if (player->player.chunkCacheCentreX != nextChunkCacheCentreX
-            || player->player.chunkCacheCentreZ != nextChunkCacheCentreZ) {
+    if (control->chunkCacheCentreX != nextChunkCacheCentreX
+            || control->chunkCacheCentreZ != nextChunkCacheCentreZ
+            // NOTE(traks): is it really necessary to check this?
+            || control->chunkCacheWorldId != nextChunkCacheWorldId) {
         BeginPacket(sendCursor, CBP_SET_CHUNK_CACHE_CENTER);
         WriteVarU32(sendCursor, nextChunkCacheCentreX);
         WriteVarU32(sendCursor, nextChunkCacheCentreZ);
-        FinishPlayerPacket(sendCursor, player);
+        FinishPlayerPacket(sendCursor, control);
     }
 
-    if (player->player.chunkCacheRadius != player->player.nextChunkCacheRadius) {
+    if (control->chunkCacheRadius != control->nextChunkCacheRadius) {
         // TODO(traks): also send set simulation distance packet?
         // NOTE(traks): this sets the render/view distance of the client, NOT
         // the chunk cache radius as we define it
         BeginPacket(sendCursor, CBP_SET_CHUNK_CACHE_RADIUS);
-        WriteVarU32(sendCursor, player->player.nextChunkCacheRadius - 1);
-        FinishPlayerPacket(sendCursor, player);
+        WriteVarU32(sendCursor, control->nextChunkCacheRadius - 1);
+        FinishPlayerPacket(sendCursor, control);
     }
 
     // TODO(traks): technically we don't need to send forget packets
     // NOTE(traks): untrack old chunks
     for (i32 x = chunkCacheMinX; x <= chunkCacheMaxX; x++) {
         for (i32 z = chunkCacheMinZ; z <= chunkCacheMaxZ; z++) {
-            WorldChunkPos pos = {.worldId = player->worldId, .x = x, .z = z};
+            WorldChunkPos pos = {.worldId = control->chunkCacheWorldId, .x = x, .z = z};
             i32 index = chunk_cache_index(pos.xz);
-            PlayerChunkCacheEntry * cacheEntry = player->player.chunkCache + index;
+            PlayerChunkCacheEntry * cacheEntry = control->chunkCache + index;
 
             if (x >= nextChunkCacheMinX && x <= nextChunkCacheMaxX
-                    && z >= nextChunkCacheMinZ && z <= nextChunkCacheMaxZ) {
+                    && z >= nextChunkCacheMinZ && z <= nextChunkCacheMaxZ
+                    && nextChunkCacheWorldId == control->chunkCacheWorldId) {
                 // NOTE(traks): old chunk still in new region
                 continue;
             }
@@ -2289,29 +2292,30 @@ static void UpdateChunkCache(entity_base * player, Cursor * sendCursor) {
                 BeginPacket(sendCursor, CBP_FORGET_LEVEL_CHUNK);
                 WriteU32(sendCursor, z);
                 WriteU32(sendCursor, x);
-                FinishPlayerPacket(sendCursor, player);
+                FinishPlayerPacket(sendCursor, control);
             }
 
             *cacheEntry = (PlayerChunkCacheEntry) {0};
         }
     }
 
-    player->player.chunkCacheRadius = player->player.nextChunkCacheRadius;
-    player->player.chunkCacheCentreX = nextChunkCacheCentreX;
-    player->player.chunkCacheCentreZ = nextChunkCacheCentreZ;
+    control->chunkCacheRadius = control->nextChunkCacheRadius;
+    control->chunkCacheCentreX = nextChunkCacheCentreX;
+    control->chunkCacheCentreZ = nextChunkCacheCentreZ;
+    control->chunkCacheWorldId = nextChunkCacheWorldId;
 }
 
-static void SendTrackedBlockChanges(entity_base * player, Cursor * sendCursor, MemoryArena * tickArena) {
-    i32 chunkCacheDiam = 2 * player->player.chunkCacheRadius + 1;
-    i32 chunkCacheMinX = player->player.chunkCacheCentreX - player->player.chunkCacheRadius;
-    i32 chunkCacheMaxX = player->player.chunkCacheCentreX + player->player.chunkCacheRadius;
-    i32 chunkCacheMinZ = player->player.chunkCacheCentreZ - player->player.chunkCacheRadius;
-    i32 chunkCacheMaxZ = player->player.chunkCacheCentreZ + player->player.chunkCacheRadius;
+static void SendTrackedBlockChanges(PlayerController * control, Cursor * sendCursor, MemoryArena * tickArena) {
+    i32 chunkCacheDiam = 2 * control->chunkCacheRadius + 1;
+    i32 chunkCacheMinX = control->chunkCacheCentreX - control->chunkCacheRadius;
+    i32 chunkCacheMaxX = control->chunkCacheCentreX + control->chunkCacheRadius;
+    i32 chunkCacheMinZ = control->chunkCacheCentreZ - control->chunkCacheRadius;
+    i32 chunkCacheMaxZ = control->chunkCacheCentreZ + control->chunkCacheRadius;
     Chunk * * changedChunks = CallocInArena(tickArena, MAX_CHUNK_CACHE_DIAM * MAX_CHUNK_CACHE_DIAM * sizeof (Chunk *));
     BeginTimings(CollectLoadedChunks);
     i32 changedChunkCount = CollectChangedChunks(
-            (WorldChunkPos) {.worldId = player->worldId, .x = chunkCacheMinX, .z = chunkCacheMinZ},
-            (WorldChunkPos) {.worldId = player->worldId, .x = chunkCacheMaxX, .z = chunkCacheMaxZ},
+            (WorldChunkPos) {.worldId = control->chunkCacheWorldId, .x = chunkCacheMinX, .z = chunkCacheMinZ},
+            (WorldChunkPos) {.worldId = control->chunkCacheWorldId, .x = chunkCacheMaxX, .z = chunkCacheMaxZ},
             changedChunks);
     EndTimings(CollectLoadedChunks);
 
@@ -2319,7 +2323,7 @@ static void SendTrackedBlockChanges(entity_base * player, Cursor * sendCursor, M
         Chunk * chunk = changedChunks[chunkIndex];
         WorldChunkPos pos = chunk->pos;
         i32 index = chunk_cache_index(pos.xz);
-        PlayerChunkCacheEntry * cacheEntry = player->player.chunkCache + index;
+        PlayerChunkCacheEntry * cacheEntry = control->chunkCache + index;
 
         if (!(cacheEntry->flags & PLAYER_CHUNK_SENT)) {
             continue;
@@ -2359,7 +2363,7 @@ static void SendTrackedBlockChanges(entity_base * player, Cursor * sendCursor, M
                 }
             }
 
-            FinishPlayerPacket(sendCursor, player);
+            FinishPlayerPacket(sendCursor, control);
         }
 
         if (ch->lastLocalEventTick == serv->current_tick) {
@@ -2371,7 +2375,7 @@ static void SendTrackedBlockChanges(entity_base * player, Cursor * sendCursor, M
                 WriteBlockPos(sendCursor, event->pos);
                 WriteU32(sendCursor, event->data);
                 WriteU8(sendCursor, 0); // is global event
-                FinishPlayerPacket(sendCursor, player);
+                FinishPlayerPacket(sendCursor, control);
             }
         }
     }
@@ -2382,7 +2386,7 @@ static void SendTrackedBlockChanges(entity_base * player, Cursor * sendCursor, M
 // cache compressed chunk packets, copy packets that get sent to all players,
 // use the CPU cache better, etc.
 void
-send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
+send_packets_to_player(PlayerController * control, Entity * player, MemoryArena * tick_arena) {
     BeginTimings(SendPackets);
 
     size_t max_uncompressed_packet_size = 1 << 20;
@@ -2392,13 +2396,13 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     };
     Cursor * send_cursor = &send_cursor_;
 
-    if (!(player->flags & PLAYER_DID_INIT_PACKETS)) {
-        player->flags |= PLAYER_DID_INIT_PACKETS;
+    if (!(control->flags & PLAYER_CONTROL_DID_INIT_PACKETS)) {
+        control->flags |= PLAYER_CONTROL_DID_INIT_PACKETS;
 
         String levelName = STR("blaze:main");
 
         BeginPacket(send_cursor, CBP_LOGIN);
-        WriteU32(send_cursor, player->eid);
+        WriteU32(send_cursor, control->entityId);
         WriteU8(send_cursor, 0); // hardcore
 
         // list of levels on the server
@@ -2407,28 +2411,28 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         WriteVarString(send_cursor, levelName);
 
         WriteVarU32(send_cursor, 0); // max players (ignored by client)
-        WriteVarU32(send_cursor, player->player.nextChunkCacheRadius - 1); // chunk radius
+        WriteVarU32(send_cursor, control->nextChunkCacheRadius - 1); // chunk radius
         // @TODO(traks) figure out why the client needs to know the simulation
         // distance and what it uses it for
-        WriteVarU32(send_cursor, player->player.nextChunkCacheRadius - 1); // simulation distance
+        WriteVarU32(send_cursor, control->nextChunkCacheRadius - 1); // simulation distance
         WriteU8(send_cursor, 0); // reduced debug info
         WriteU8(send_cursor, 1); // show death screen on death
         WriteU8(send_cursor, 0); // limited crafting
         WriteVarU32(send_cursor, 0); // id of dimension type, minecraft:overworld
         WriteVarString(send_cursor, levelName); // level being spawned into
         WriteU64(send_cursor, 0); // hashed seed
-        WriteU8(send_cursor, player->player.gamemode); // current gamemode
+        WriteU8(send_cursor, player->gamemode); // current gamemode
         WriteU8(send_cursor, -1); // previous gamemode
         WriteU8(send_cursor, 0); // is debug world
         WriteU8(send_cursor, 0); // is flat
         WriteU8(send_cursor, 0); // has death location, world + pos after if true
         WriteVarU32(send_cursor, 0); // portal cooldown
         WriteU8(send_cursor, ENFORCE_SECURE_CHAT); // enforces secure chat
-        FinishPlayerPacket(send_cursor, player);
+        FinishPlayerPacket(send_cursor, control);
 
         BeginPacket(send_cursor, CBP_SET_CARRIED_ITEM);
-        WriteU8(send_cursor, player->player.selected_slot - PLAYER_FIRST_HOTBAR_SLOT);
-        FinishPlayerPacket(send_cursor, player);
+        WriteU8(send_cursor, player->selected_slot - PLAYER_FIRST_HOTBAR_SLOT);
+        FinishPlayerPacket(send_cursor, control);
 
         BeginPacket(send_cursor, CBP_UPDATE_TAGS);
 
@@ -2469,23 +2473,23 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                 }
             }
         }
-        FinishPlayerPacket(send_cursor, player);
+        FinishPlayerPacket(send_cursor, control);
 
         BeginPacket(send_cursor, CBP_CUSTOM_PAYLOAD);
         String brand_str = STR("minecraft:brand");
         String brand = STR("Blaze");
         WriteVarString(send_cursor, brand_str);
         WriteVarString(send_cursor, brand);
-        FinishPlayerPacket(send_cursor, player);
+        FinishPlayerPacket(send_cursor, control);
 
         BeginPacket(send_cursor, CBP_CHANGE_DIFFICULTY);
         WriteU8(send_cursor, 2); // difficulty normal
         WriteU8(send_cursor, 0); // locked
-        FinishPlayerPacket(send_cursor, player);
+        FinishPlayerPacket(send_cursor, control);
 
-        send_player_abilities(send_cursor, player);
+        send_player_abilities(send_cursor, control, player);
 
-        send_changed_entity_data(send_cursor, player, player, player->changed_data);
+        send_changed_entity_data(send_cursor, control, player, player->changed_data);
 
         // TODO(traks): Only do this after we have sent the player a couple of
         // chunks around the spawn chunk, so they can move around immediately
@@ -2500,75 +2504,74 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
 
         // NOTE(traks): ensure player is teleporting
         player->flags |= ENTITY_TELEPORTING;
-        SendPlayerTeleport(player, send_cursor);
+        SendPlayerTeleport(control, player, send_cursor);
 
         BeginPacket(send_cursor, CBP_SET_DEFAULT_SPAWN_POSITION);
         // TODO(traks): specific value not important for now
         WriteBlockPos(send_cursor, (BlockPos) {0, 0, 0});
         WriteF32(send_cursor, 0); // yaw
-        FinishPlayerPacket(send_cursor, player);
+        FinishPlayerPacket(send_cursor, control);
 
         // NOTE(traks): seems pointless, but is required to get the client
         // eventually off the world loading screen
         BeginPacket(send_cursor, CBP_GAME_EVENT);
         WriteU8(send_cursor, PACKET_GAME_EVENT_LEVEL_CHUNKS_LOAD_START);
         WriteF32(send_cursor, 0);
-        FinishPlayerPacket(send_cursor, player);
+        FinishPlayerPacket(send_cursor, control);
 
         // reset changed data, because all data is sent already and we don't
         // want to send the same data twice
         player->changed_data = 0;
 
-        player->player.lastAckedBlockChange = -1;
+        control->lastAckedBlockChange = -1;
     }
 
     // send keep alive packet every so often
-    if (serv->current_tick - player->player.last_keep_alive_sent_tick >= KEEP_ALIVE_SPACING
-            && (player->flags & PLAYER_GOT_ALIVE_RESPONSE)) {
+    if (serv->current_tick - control->last_keep_alive_sent_tick >= KEEP_ALIVE_SPACING
+            && (control->flags & PLAYER_CONTROL_GOT_ALIVE_RESPONSE)) {
         BeginPacket(send_cursor, CBP_KEEP_ALIVE);
         WriteU64(send_cursor, serv->current_tick);
-        FinishPlayerPacket(send_cursor, player);
+        FinishPlayerPacket(send_cursor, control);
 
-        player->player.last_keep_alive_sent_tick = serv->current_tick;
-        player->flags &= ~PLAYER_GOT_ALIVE_RESPONSE;
+        control->last_keep_alive_sent_tick = serv->current_tick;
+        control->flags &= ~PLAYER_CONTROL_GOT_ALIVE_RESPONSE;
     }
 
-    if ((player->flags & ENTITY_TELEPORTING)
-            && !(player->flags & PLAYER_SENT_TELEPORT)) {
+    if ((player->flags & ENTITY_TELEPORTING) && player->currentTeleportId != control->lastSentTeleportId) {
         LogInfo("Sending teleport to player");
-        SendPlayerTeleport(player, send_cursor);
+        SendPlayerTeleport(control, player, send_cursor);
     }
 
     if (player->changed_data & PLAYER_GAMEMODE_CHANGED) {
         BeginPacket(send_cursor, CBP_GAME_EVENT);
         WriteU8(send_cursor, PACKET_GAME_EVENT_CHANGE_GAME_MODE);
-        WriteF32(send_cursor, player->player.gamemode);
-        FinishPlayerPacket(send_cursor, player);
+        WriteF32(send_cursor, player->gamemode);
+        FinishPlayerPacket(send_cursor, control);
     }
 
     if (player->changed_data & PLAYER_ABILITIES_CHANGED) {
-        send_player_abilities(send_cursor, player);
+        send_player_abilities(send_cursor, control, player);
     }
 
-    send_changed_entity_data(send_cursor, player, player, player->changed_data);
+    send_changed_entity_data(send_cursor, control, player, player->changed_data);
 
-    if (player->player.picked_up_tick == serv->current_tick) {
-        send_take_item_entity_packet(player, send_cursor,
-                player->eid, player->player.picked_up_item_id,
-                player->player.picked_up_item_size);
+    if (player->picked_up_tick == serv->current_tick) {
+        send_take_item_entity_packet(control, send_cursor,
+                player->id, player->picked_up_item_id,
+                player->picked_up_item_size);
     }
 
     // NOTE(traks): send block change ack
-    if (player->player.lastAckedBlockChange >= 0) {
+    if (control->lastAckedBlockChange >= 0) {
         BeginPacket(send_cursor, CBP_BLOCK_CHANGED_ACK);
-        WriteVarU32(send_cursor, player->player.lastAckedBlockChange);
-        FinishPlayerPacket(send_cursor, player);
-        player->player.lastAckedBlockChange = -1;
+        WriteVarU32(send_cursor, control->lastAckedBlockChange);
+        FinishPlayerPacket(send_cursor, control);
+        control->lastAckedBlockChange = -1;
     }
 
     // send block changes for this player only
-    for (int i = 0; i < player->player.changed_block_count; i++) {
-        WorldBlockPos pos = player->player.changed_blocks[i];
+    for (int i = 0; i < control->changed_block_count; i++) {
+        WorldBlockPos pos = control->changed_blocks[i];
         if (pos.worldId != player->worldId) {
             continue;
         }
@@ -2581,16 +2584,16 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         BeginPacket(send_cursor, CBP_BLOCK_UPDATE);
         WriteBlockPos(send_cursor, pos.xyz);
         WriteVarU32(send_cursor, block_state);
-        FinishPlayerPacket(send_cursor, player);
+        FinishPlayerPacket(send_cursor, control);
     }
-    player->player.changed_block_count = 0;
+    control->changed_block_count = 0;
 
     BeginTimings(UpdateChunkCache);
-    UpdateChunkCache(player, send_cursor);
+    UpdateChunkCache(control, player, send_cursor);
     EndTimings(UpdateChunkCache);
 
     BeginTimings(SendTrackedBlockChanges);
-    SendTrackedBlockChanges(player, send_cursor, tick_arena);
+    SendTrackedBlockChanges(control, send_cursor, tick_arena);
     EndTimings(SendTrackedBlockChanges);
 
     // load and send tracked chunks
@@ -2614,17 +2617,17 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     // players to move around much earlier.
     int newly_sent_chunks = 0;
     int newInterestAdded = 0;
-    int chunk_cache_diam = 2 * player->player.chunkCacheRadius + 1;
+    int chunk_cache_diam = 2 * control->chunkCacheRadius + 1;
     int chunk_cache_area = chunk_cache_diam * chunk_cache_diam;
     int off_x = 0;
     int off_z = 0;
     int step_x = 1;
     int step_z = 0;
     for (int i = 0; i < chunk_cache_area; i++) {
-        int x = player->player.chunkCacheCentreX + off_x;
-        int z = player->player.chunkCacheCentreZ + off_z;
+        int x = control->chunkCacheCentreX + off_x;
+        int z = control->chunkCacheCentreZ + off_z;
         int cache_index = chunk_cache_index((ChunkPos) {.x = x, .z = z});
-        PlayerChunkCacheEntry * cacheEntry = player->player.chunkCache + cache_index;
+        PlayerChunkCacheEntry * cacheEntry = control->chunkCache + cache_index;
         WorldChunkPos pos = {.worldId = player->worldId, .x = x, .z = z};
 
         if (!(cacheEntry->flags & PLAYER_CHUNK_ADDED_INTEREST)
@@ -2639,7 +2642,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             Chunk * ch = GetChunkIfLoaded(pos);
             if (ch != NULL) {
                 // send chunk blocks and lighting
-                send_chunk_fully(send_cursor, ch, player, tick_arena);
+                send_chunk_fully(send_cursor, ch, control, tick_arena);
                 cacheEntry->flags |= PLAYER_CHUNK_SENT;
                 newly_sent_chunks++;
             }
@@ -2662,12 +2665,12 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     BeginTimings(SendInventory);
 
     for (int i = 0; i < PLAYER_SLOTS; i++) {
-        if (!(player->player.slots_needing_update & ((u64) 1 << i))) {
+        if (!(player->slots_needing_update & ((u64) 1 << i))) {
             continue;
         }
 
         LogInfo("Sending slot update for %d", i);
-        item_stack * is = player->player.slots + i;
+        item_stack * is = player->slots + i;
 
         // @TODO(traks) under certain conditions, the client may not modify its
         // local version of the inventory menu when we send this packet. Work
@@ -2687,20 +2690,19 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             WriteVarU32(send_cursor, 0);
             WriteVarU32(send_cursor, 0);
         }
-        FinishPlayerPacket(send_cursor, player);
+        FinishPlayerPacket(send_cursor, control);
     }
 
-    player->player.slots_needing_update = 0;
-    memcpy(player->player.slots_prev_tick, player->player.slots,
-            sizeof player->player.slots);
+    player->slots_needing_update = 0;
+    memcpy(player->slots_prev_tick, player->slots, sizeof player->slots);
 
     EndTimings(SendInventory);
 
     // tab list updates
     BeginTimings(SendTabList);
 
-    if (!(player->flags & PLAYER_INITIALISED_TAB_LIST)) {
-        player->flags |= PLAYER_INITIALISED_TAB_LIST;
+    if (!(control->flags & PLAYER_CONTROL_INITIALISED_TAB_LIST)) {
+        control->flags |= PLAYER_CONTROL_INITIALISED_TAB_LIST;
         if (serv->tab_list_size > 0) {
             BeginPacket(send_cursor, CBP_PLAYER_INFO_UPDATE);
             u8 actionBits = 0b111111; // everything
@@ -2708,8 +2710,8 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             WriteVarU32(send_cursor, serv->tab_list_size);
 
             for (int i = 0; i < serv->tab_list_size; i++) {
-                entity_id eid = serv->tab_list[i];
-                entity_base * tabListPlayer = resolve_entity(eid);
+                UUID uuid = serv->tab_list[i];
+                PlayerController * tabListPlayer = ResolvePlayer(uuid);
                 // TODO(traks): If a player disconnects mid tick (e.g. due to a
                 // networking error), this assert can fail, because the player
                 // entity will be gone. Fix this. For example by storing all
@@ -2718,18 +2720,19 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                 // assert(tabListPlayer->type == ENTITY_PLAYER);
                 WriteUUID(send_cursor, tabListPlayer->uuid);
                 String username = {
-                    .data = tabListPlayer->player.username,
-                    .size = tabListPlayer->player.username_size
+                    .data = tabListPlayer->username,
+                    .size = tabListPlayer->username_size
                 };
                 WriteVarString(send_cursor, username);
                 WriteVarU32(send_cursor, 0); // num properties
                 WriteU8(send_cursor, 0); // has message signing key
-                WriteVarU32(send_cursor, tabListPlayer->player.gamemode);
+                Entity * tabListEntity = ResolveEntity(tabListPlayer->entityId);
+                WriteVarU32(send_cursor, tabListEntity->gamemode);
                 WriteU8(send_cursor, 1); // listed
                 WriteVarU32(send_cursor, 0); // latency
                 WriteU8(send_cursor, 0); // has display name
             }
-            FinishPlayerPacket(send_cursor, player);
+            FinishPlayerPacket(send_cursor, control);
         }
     } else {
         if (serv->tab_list_removed_count > 0) {
@@ -2737,14 +2740,10 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             WriteVarU32(send_cursor, serv->tab_list_removed_count);
 
             for (int i = 0; i < serv->tab_list_removed_count; i++) {
-                entity_id eid = serv->tab_list_removed[i];
-                // TODO(traks): should store the UUID of the player separately
-                // from the player, so we don't need the player entity to get
-                // the UUID. The player may be missing here I think
-                WriteU64(send_cursor, 0);
-                WriteU64(send_cursor, eid);
+                UUID uuid = serv->tab_list_removed[i];
+                WriteUUID(send_cursor, uuid);
             }
-            FinishPlayerPacket(send_cursor, player);
+            FinishPlayerPacket(send_cursor, control);
         }
         if (serv->tab_list_added_count > 0) {
             BeginPacket(send_cursor, CBP_PLAYER_INFO_UPDATE);
@@ -2764,8 +2763,8 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             WriteVarU32(send_cursor, serv->tab_list_added_count);
 
             for (int i = 0; i < serv->tab_list_added_count; i++) {
-                entity_id eid = serv->tab_list_added[i];
-                entity_base * tabListPlayer = resolve_entity(eid);
+                UUID uuid = serv->tab_list_added[i];
+                PlayerController * tabListPlayer = ResolvePlayer(uuid);
                 // TODO(traks): If a player disconnects mid tick (e.g. due to a
                 // networking error), this assert can fail, because the player
                 // entity will be gone. Fix this. For example by storing all
@@ -2778,23 +2777,24 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                 // per action, in order
 
                 String username = {
-                    .data = tabListPlayer->player.username,
-                    .size = tabListPlayer->player.username_size
+                    .data = tabListPlayer->username,
+                    .size = tabListPlayer->username_size
                 };
                 WriteVarString(send_cursor, username);
                 WriteVarU32(send_cursor, 0); // num properties
                 WriteU8(send_cursor, 0); // has message signing key
-                WriteVarU32(send_cursor, tabListPlayer->player.gamemode);
+                Entity * tabListEntity = ResolveEntity(tabListPlayer->entityId);
+                WriteVarU32(send_cursor, tabListEntity->gamemode);
                 WriteU8(send_cursor, 1); // listed
                 WriteVarU32(send_cursor, 0); // latency
                 WriteU8(send_cursor, 0); // has display name
             }
-            FinishPlayerPacket(send_cursor, player);
+            FinishPlayerPacket(send_cursor, control);
         }
 
         // TODO(traks): pull this out and run this once per tick
         for (int i = 0; i < MAX_ENTITIES; i++) {
-            entity_base * entity = serv->entities + i;
+            Entity * entity = serv->entities + i;
             if (!(entity->flags & ENTITY_IN_USE)) {
                 continue;
             }
@@ -2807,8 +2807,8 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                 WriteVarU32(send_cursor, 0b000100); // action: update gamemode
                 WriteVarU32(send_cursor, 1); // changed entries
                 WriteUUID(send_cursor, entity->uuid);
-                WriteVarU32(send_cursor, entity->player.gamemode);
-                FinishPlayerPacket(send_cursor, player);
+                WriteVarU32(send_cursor, entity->gamemode);
+                FinishPlayerPacket(send_cursor, control);
             }
         }
     }
@@ -2818,13 +2818,13 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     // entity tracking
     BeginTimings(TrackEntities);
 
-    entity_id removed_entities[64];
+    EntityId removed_entities[64];
     int removed_entity_count = 0;
 
     for (int j = 1; j < MAX_ENTITIES; j++) {
-        entity_base * candidate = serv->entities + j;
-        tracked_entity * tracked = player->player.tracked_entities + j;
-        int is_tracking_candidate = (tracked->eid == candidate->eid);
+        Entity * candidate = serv->entities + j;
+        tracked_entity * tracked = control->tracked_entities + j;
+        int is_tracking_candidate = (tracked->entityId == candidate->id);
 
         if ((candidate->flags & ENTITY_IN_USE)
                 && is_tracking_candidate) {
@@ -2833,7 +2833,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
             double dy = candidate->y - player->y;
             double dz = candidate->z - player->z;
             if (candidate->worldId == player->worldId && dx * dx + dy * dy + dz * dz < 45 * 45) {
-                try_update_tracked_entity(player,
+                try_update_tracked_entity(control,
                         send_cursor, tick_arena, tracked, candidate);
                 continue;
             }
@@ -2843,19 +2843,19 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         // we aren't tracking it yet, or the currently tracked entity was
         // removed, or the tracked entity is out of range
 
-        if (tracked->eid != 0) {
+        if (tracked->entityId != 0) {
             // remove tracked entity if we were tracking an entity
             if (removed_entity_count == ARRAY_SIZE(removed_entities)) {
                 // no more space to untrack, try again next tick
                 continue;
             }
 
-            removed_entities[removed_entity_count] = tracked->eid;
-            tracked->eid = 0;
+            removed_entities[removed_entity_count] = tracked->entityId;
+            tracked->entityId = 0;
             removed_entity_count++;
         }
 
-        if ((candidate->flags & ENTITY_IN_USE) && candidate->eid != player->eid
+        if ((candidate->flags & ENTITY_IN_USE) && candidate->id != player->id
                 && !is_tracking_candidate) {
             // candidate is a valid entity and wasn't tracked already
             double dx = candidate->x - player->x;
@@ -2871,7 +2871,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
                 continue;
             }
 
-            start_tracking_entity(player,
+            start_tracking_entity(control,
                     send_cursor, tick_arena, tracked, candidate);
         }
     }
@@ -2882,7 +2882,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         for (int i = 0; i < removed_entity_count; i++) {
             WriteVarU32(send_cursor, removed_entities[i]);
         }
-        FinishPlayerPacket(send_cursor, player);
+        FinishPlayerPacket(send_cursor, control);
     }
 
     EndTimings(TrackEntities);
@@ -2898,7 +2898,7 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         WriteU8(send_cursor, NBT_TAG_STRING);
         nbt_write_string(send_cursor, (String) {.data = msg->text, .size = msg->size});
         WriteU8(send_cursor, 0); // action bar or chat log
-        FinishPlayerPacket(send_cursor, player);
+        FinishPlayerPacket(send_cursor, control);
     }
 
     EndTimings(SendChat);
@@ -2908,14 +2908,14 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     if (send_cursor->error != 0) {
         // just disconnect the player
         LogInfo("Failed to create packets");
-        disconnect_player_now(player);
+        disconnect_player_now(control, player);
         goto bail;
     }
 
     Cursor final_cursor_ = {
-        .data = player->player.send_buf,
-        .size = player->player.send_buf_size,
-        .index = player->player.send_cursor
+        .data = control->send_buf,
+        .size = control->send_buf_size,
+        .index = control->send_cursor
     };
     Cursor * final_cursor = &final_cursor_;
 
@@ -2924,12 +2924,12 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
     if (final_cursor->error != 0) {
         // just disconnect the player
         LogInfo("Failed to finalise packets");
-        disconnect_player_now(player);
+        disconnect_player_now(control, player);
         goto bail;
     }
 
     BeginTimings(SystemSend);
-    ssize_t send_size = send(player->player.sock, final_cursor->data,
+    ssize_t send_size = send(control->sock, final_cursor->data,
             final_cursor->index, 0);
     EndTimings(SystemSend);
 
@@ -2937,20 +2937,19 @@ send_packets_to_player(entity_base * player, MemoryArena * tick_arena) {
         // EAGAIN means no data sent
         if (errno != EAGAIN) {
             LogErrno("Couldn't send protocol data to player: %s");
-            disconnect_player_now(player);
+            disconnect_player_now(control, player);
         }
     } else {
         memmove(final_cursor->data, final_cursor->data + send_size,
                 final_cursor->index - send_size);
-        player->player.send_cursor = final_cursor->index - send_size;
+        control->send_cursor = final_cursor->index - send_size;
     }
 
 bail:
     EndTimings(SendPackets);
 }
 
-int
-get_player_facing(entity_base * player) {
+i32 GetPlayerFacing(Entity * player) {
     float rot_y = player->rot_y;
     int int_rot = (int) floor(rot_y / 90.0f + 0.5f) & 0x3;
     switch (int_rot) {
@@ -2961,5 +2960,76 @@ get_player_facing(entity_base * player) {
     default:
         assert(0);
         return -1;
+    }
+}
+
+PlayerController * CreatePlayer(void) {
+    if (playerList.playerCount >= (i32) ARRAY_SIZE(playerList.players)) {
+        return NULL;
+    }
+    PlayerController * res = calloc(1, sizeof *res);
+    playerList.players[playerList.playerCount] = res;
+    playerList.playerCount++;
+    return res;
+}
+
+void DeletePlayer(PlayerController * control) {
+    control->flags |= PLAYER_CONTROL_DISCONNECTED;
+}
+
+PlayerController * ResolvePlayer(UUID uuid) {
+    for (i32 playerIndex = 0; playerIndex < playerList.playerCount; playerIndex++) {
+        PlayerController * control = playerList.players[playerIndex];
+        if (control->flags & PLAYER_CONTROL_DISCONNECTED) {
+            continue;
+        }
+        if (memcmp(&control->uuid, &uuid, sizeof uuid) == 0) {
+            return control;
+        }
+    }
+    return NULL;
+}
+
+void TickPlayers(MemoryArena * arena) {
+    for (i32 playerIndex = 0; playerIndex < playerList.playerCount; playerIndex++) {
+        MemoryArena * singleTickArena = &(MemoryArena) {0};
+        *singleTickArena = *arena;
+        PlayerController * control = playerList.players[playerIndex];
+        if (control->flags & PLAYER_CONTROL_DISCONNECTED) {
+            continue;
+        }
+        Entity * player = ResolveEntity(control->entityId);
+        tick_player(control, player, singleTickArena);
+    }
+    for (i32 playerIndex = 0; playerIndex < playerList.playerCount; playerIndex++) {
+        PlayerController * control = playerList.players[playerIndex];
+        if (control->flags & PLAYER_CONTROL_DISCONNECTED) {
+            free(control);
+            playerList.players[playerIndex] = playerList.players[playerList.playerCount - 1];
+            playerIndex--;
+            playerList.playerCount--;
+        }
+    }
+}
+
+void SendPacketsToPlayers(MemoryArena * arena) {
+    for (i32 playerIndex = 0; playerIndex < playerList.playerCount; playerIndex++) {
+        MemoryArena * singleTickArena = &(MemoryArena) {0};
+        *singleTickArena = *arena;
+        PlayerController * control = playerList.players[playerIndex];
+        if (control->flags & PLAYER_CONTROL_DISCONNECTED) {
+            continue;
+        }
+        Entity * player = ResolveEntity(control->entityId);
+        send_packets_to_player(control, player, singleTickArena);
+    }
+    for (i32 playerIndex = 0; playerIndex < playerList.playerCount; playerIndex++) {
+        PlayerController * control = playerList.players[playerIndex];
+        if (control->flags & PLAYER_CONTROL_DISCONNECTED) {
+            free(control);
+            playerList.players[playerIndex] = playerList.players[playerList.playerCount - 1];
+            playerIndex--;
+            playerList.playerCount--;
+        }
     }
 }

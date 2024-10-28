@@ -10,6 +10,7 @@
 #include "shared.h"
 #include "buffer.h"
 #include "packet.h"
+#include "player.h"
 
 #define CLIENT_SHOULD_TERMINATE ((u32) 1 << 0)
 #define CLIENT_DID_TRANSFER_TO_PLAYER ((u32) 1 << 1)
@@ -547,8 +548,8 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
         *scratchArena = *arena;
 
         int list_size = serv->tab_list_size;
-        size_t list_bytes = list_size * sizeof (entity_id);
-        entity_id * list = MallocInArena(scratchArena, list_bytes);
+        size_t list_bytes = list_size * sizeof (UUID);
+        UUID * list = MallocInArena(scratchArena, list_bytes);
         memcpy(list, serv->tab_list, list_bytes);
         int sample_size = MIN(12, list_size);
 
@@ -567,25 +568,21 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
         // amount of online players?)
         for (int sampleIndex = 0; sampleIndex < sample_size; sampleIndex++) {
             int target = sampleIndex + (rand() % (list_size - sampleIndex));
-            entity_id * sampled = list + target;
+            UUID * sampled = list + target;
 
             if (sampleIndex > 0) {
                 response[response_size] = ',';
                 response_size += 1;
             }
 
-            entity_base * entity = resolve_entity(*sampled);
-            // @TODO(traks) this assert fired, not sure how that
-            // happened. Can leave it for now, since these things
-            // will may need to be rewritten anyway if we decide to
-            // move all initial session stuff to a separate thread.
-            assert(entity->type == ENTITY_PLAYER);
+            PlayerController * control = ResolvePlayer(*sampled);
+            assert(control != NULL);
             // @TODO(traks) actual UUID
             response_size += snprintf((char *) response + response_size, maxResponseSize - response_size,
                     "{\"id\":\"01234567-89ab-cdef-0123-456789abcdef\","
                     "\"name\":\"%.*s\"}",
-                    (int) entity->player.username_size,
-                    entity->player.username);
+                    (int) control->username_size,
+                    control->username);
 
             *sampled = list[sampleIndex];
         }
@@ -926,15 +923,20 @@ static void ClientTick(Client * client) {
         // NOTE(traks): start the PLAY state and transfer the connection to the
         // player entity
 
-        entity_base * entity = try_reserve_entity(ENTITY_PLAYER);
-
-        if (entity->type == ENTITY_NULL) {
-            // @TODO(traks) send some message and disconnect
+        PlayerController * control = CreatePlayer();
+        if (control == NULL) {
+            // TODO(traks): send some message and disconnect
             ClientMarkTerminate(client);
             return;
         }
 
-        entity_player * player = &entity->player;
+        Entity * player = TryReserveEntity(ENTITY_PLAYER);
+        if (player->type == ENTITY_NULL) {
+            // TODO(traks): send some message and disconnect
+            DeletePlayer(control);
+            ClientMarkTerminate(client);
+            return;
+        }
 
         // @TODO(traks) don't malloc this much when a player joins. AAA
         // games send a lot less than 1MB/tick. For example, according
@@ -946,56 +948,59 @@ static void ClientTick(Client * client) {
         // buffer/send buffer when we're done here with the initial processing.
         // However, perhaps we should make sure and copy over anything to the
         // player's receive and send buffer?
-        player->rec_buf_size = 1 << 16;
-        player->rec_buf = malloc(player->rec_buf_size);
+        control->rec_buf_size = 1 << 16;
+        control->rec_buf = malloc(control->rec_buf_size);
 
-        player->send_buf_size = 1 << 20;
-        player->send_buf = malloc(player->send_buf_size);
+        control->send_buf_size = 1 << 20;
+        control->send_buf = malloc(control->send_buf_size);
 
-        if (player->rec_buf == NULL || player->send_buf == NULL) {
+        if (control->rec_buf == NULL || control->send_buf == NULL) {
             // @TODO(traks) send some message on disconnect
-            free(player->send_buf);
-            free(player->rec_buf);
-            evict_entity(entity->eid);
+            free(control->send_buf);
+            free(control->rec_buf);
+            EvictEntity(player->id);
+            DeletePlayer(control);
             ClientMarkTerminate(client);
             return;
         }
 
-        player->sock = client->socket;
-        memcpy(player->username, client->username, client->usernameSize);
-        player->username_size = client->usernameSize;
-        entity->uuid = client->uuid;
+        control->entityId = player->id;
+        control->sock = client->socket;
+        memcpy(control->username, client->username, client->usernameSize);
+        control->username_size = client->usernameSize;
+        control->uuid = client->uuid;
+        player->uuid = client->uuid;
 
-        memcpy(player->locale, client->locale, client->localeSize);
-        player->localeSize = client->localeSize;
-        player->chatMode = client->chatMode;
-        player->seesChatColours = client->seesChatColours;
-        player->skinCustomisation = client->skinCustomisation;
-        player->mainHand = client->mainHand;
-        player->textFiltering = client->textFiltering;
-        player->showInStatusList = client->showInStatusList;
-        player->nextChunkCacheRadius = client->chunkCacheRadius;
+        memcpy(control->locale, client->locale, client->localeSize);
+        control->localeSize = client->localeSize;
+        control->chatMode = client->chatMode;
+        control->seesChatColours = client->seesChatColours;
+        control->skinCustomisation = client->skinCustomisation;
+        control->mainHand = client->mainHand;
+        control->textFiltering = client->textFiltering;
+        control->showInStatusList = client->showInStatusList;
+        control->nextChunkCacheRadius = client->chunkCacheRadius;
 
-        player->last_keep_alive_sent_tick = serv->current_tick;
-        entity->flags |= PLAYER_GOT_ALIVE_RESPONSE;
+        control->last_keep_alive_sent_tick = serv->current_tick;
+        control->flags |= PLAYER_CONTROL_GOT_ALIVE_RESPONSE;
         if (client->flags & CLIENT_PACKET_COMPRESSION) {
-            entity->flags |= PLAYER_PACKET_COMPRESSION;
+            control->flags |= PLAYER_CONTROL_PACKET_COMPRESSION;
         }
         player->selected_slot = PLAYER_FIRST_HOTBAR_SLOT;
         // @TODO(traks) collision width and height of player depending
         // on player pose
-        entity->collision_width = 0.6;
-        entity->collision_height = 1.8;
-        set_player_gamemode(entity, GAMEMODE_CREATIVE);
+        player->collision_width = 0.6;
+        player->collision_height = 1.8;
+        SetPlayerGamemode(player, GAMEMODE_CREATIVE);
 
-        entity->worldId = 1;
-        // teleport_player(entity, 88, 70, 73, 0, 0);
-        teleport_player(entity, 0.5, 140, 0.5, 0, 0);
+        player->worldId = 1;
+        // TeleportPlayer(player, 88, 70, 73, 0, 0);
+        TeleportPlayer(player, 0.5, 140, 0.5, 0, 0);
 
         // @TODO(traks) ensure this can never happen instead of assering
         // it never will hopefully happen
         assert(serv->tab_list_added_count < (i32) ARRAY_SIZE(serv->tab_list_added));
-        serv->tab_list_added[serv->tab_list_added_count] = entity->eid;
+        serv->tab_list_added[serv->tab_list_added_count] = control->uuid;
         serv->tab_list_added_count++;
 
         // NOTE(traks): updating the connection will be done on a player basis
@@ -1010,7 +1015,7 @@ static void ClientTick(Client * client) {
             int textSize = snprintf(
                     (void *) msg->text, sizeof msg->text,
                     "%.*s joined the game",
-                    (int) player->username_size, player->username);
+                    (int) control->username_size, control->username);
             msg->size = textSize;
         }
     }

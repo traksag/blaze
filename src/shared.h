@@ -1746,7 +1746,7 @@ enum entity_type {
 // index into the entity table. Bits actually used for the index depends on
 // MAX_ENTITIES.
 static_assert(MAX_ENTITIES <= (1UL << 20), "MAX_ENTITIES too large");
-typedef u32 entity_id;
+typedef u32 EntityId;
 
 // NOTE(traks): in network order
 enum entity_pose {
@@ -1958,7 +1958,7 @@ typedef struct {
 } PlayerChunkCacheEntry;
 
 typedef struct {
-    entity_id eid;
+    EntityId entityId;
 
     i64 last_tp_packet_tick;
     i64 last_send_pos_tick;
@@ -1975,80 +1975,6 @@ typedef struct {
     unsigned char last_sent_rot_y;
     unsigned char last_sent_head_rot_y;
 } tracked_entity;
-
-typedef struct {
-    unsigned char username[16];
-    int username_size;
-
-    item_stack slots_prev_tick[PLAYER_SLOTS];
-    item_stack slots[PLAYER_SLOTS];
-    static_assert(PLAYER_SLOTS <= 64, "Too many player slots");
-    u64 slots_needing_update;
-    unsigned char selected_slot;
-
-    entity_id picked_up_item_id;
-    u8 picked_up_item_size;
-    i64 picked_up_tick;
-
-    unsigned char gamemode;
-
-    // @NOTE(traks) the server doesn't tell clients the body rotation of
-    // players. The client determines the body rotation based on the player's
-    // movement and their head rotation. However, we do need to send a players
-    // head rotation using the designated packet, otherwise heads won't rotate.
-
-    int sock;
-    unsigned char * rec_buf;
-    int rec_buf_size;
-    int rec_cursor;
-
-    unsigned char * send_buf;
-    int send_buf_size;
-    int send_cursor;
-
-    // NOTE(traks): Render/view distance is the client setting. It doesn't
-    // include the chunk at the centre, and doesn't include an extra outer
-    // border that's used for lighting, connected blocks like chests, etc. The
-    // chunk cache radius FOR US does include the extra outer border.
-    i32 chunkCacheRadius;
-    i32 nextChunkCacheRadius;
-    i32 chunkCacheCentreX;
-    i32 chunkCacheCentreZ;
-    // @TODO(traks) maybe this should just be a bitmap
-    PlayerChunkCacheEntry chunkCache[MAX_CHUNK_CACHE_DIAM * MAX_CHUNK_CACHE_DIAM];
-
-    i32 current_teleport_id;
-
-    u8 locale[MAX_PLAYER_LOCALE_SIZE];
-    i32 localeSize;
-    i32 chatMode;
-    i32 seesChatColours;
-    u8 skinCustomisation;
-    i32 mainHand;
-    i32 textFiltering;
-    i32 showInStatusList;
-
-    i64 last_keep_alive_sent_tick;
-
-    entity_id eid;
-
-    // @TODO(traks) this feels a bit silly, but very simple
-    tracked_entity tracked_entities[MAX_ENTITIES];
-
-    WorldBlockPos changed_blocks[8];
-    u8 changed_block_count;
-
-    // @NOTE(traks) -1 if nothing to acknowledge
-    i32 lastAckedBlockChange;
-} entity_player;
-
-typedef struct {
-    // entity data
-    item_stack contents;
-    // minecraft calls this pickup delay. If equal to 32767, this item can't
-    // ever be picked up (by players, foxes, etc.)
-    i16 pickup_timeout;
-} entity_item;
 
 #define ENTITY_IN_USE ((unsigned) (1 << 0))
 #define ENTITY_TELEPORTING ((unsigned) (1 << 1))
@@ -2069,11 +1995,6 @@ typedef struct {
 
 #define LIVING_EFFECT_AMBIENCE ((unsigned) (1 << 14))
 
-#define PLAYER_DID_INIT_PACKETS ((unsigned) (1 << 16))
-#define PLAYER_SENT_TELEPORT ((unsigned) (1 << 17))
-#define PLAYER_GOT_ALIVE_RESPONSE ((unsigned) (1 << 18))
-#define PLAYER_INITIALISED_TAB_LIST ((unsigned) (1 << 19))
-#define PLAYER_PACKET_COMPRESSION ((unsigned) (1 << 20))
 #define PLAYER_SPIN_ATTACKING ((unsigned) (1 << 21))
 #define PLAYER_FLYING ((unsigned) (1 << 22))
 #define PLAYER_CAN_FLY ((unsigned) (1 << 23))
@@ -2099,9 +2020,10 @@ typedef struct {
 // - ???
 
 typedef struct {
-    entity_id eid;
+    EntityId id;
     unsigned type;
     i32 worldId;
+    u32 currentTeleportId;
 
     UUID uuid;
 
@@ -2137,11 +2059,25 @@ typedef struct {
     unsigned char pose;
     i32 effect_colour; // living entities
 
-    union {
-        entity_player player;
-        entity_item item;
-    };
-} entity_base;
+    EntityId picked_up_item_id;
+    u8 picked_up_item_size;
+    i64 picked_up_tick;
+
+    // item entity data
+    item_stack contents;
+    // minecraft calls this pickup delay. If equal to 32767, this item can't
+    // ever be picked up (by players, foxes, etc.)
+    i16 pickup_timeout;
+
+    // player stuff
+    item_stack slots_prev_tick[PLAYER_SLOTS];
+    item_stack slots[PLAYER_SLOTS];
+    static_assert(PLAYER_SLOTS <= 64, "Too many player slots");
+    unsigned char selected_slot;
+    u64 slots_needing_update;
+
+    i32 gamemode;
+} Entity;
 
 typedef struct {
     u16 size;
@@ -2205,7 +2141,7 @@ typedef struct {
     i64 current_tick;
     i64 currentTickStartNanos;
 
-    entity_base entities[MAX_ENTITIES];
+    Entity entities[MAX_ENTITIES];
     u16 next_entity_generations[MAX_ENTITIES];
     i32 entity_count;
 
@@ -2218,11 +2154,11 @@ typedef struct {
 
     // TODO(traks): make sure we don't overflow these and choose good defaults.
     // How many tab list changes do we want to allow per tick?
-    entity_id tab_list_added[1024];
+    UUID tab_list_added[1024];
     int tab_list_added_count;
-    entity_id tab_list_removed[1024];
+    UUID tab_list_removed[1024];
     int tab_list_removed_count;
-    entity_id tab_list[MAX_PLAYERS];
+    UUID tab_list[MAX_PLAYERS];
     int tab_list_size;
 
     tag_list block_tags;
@@ -2292,31 +2228,15 @@ find_property_value_index(block_property_spec * prop_spec, String val);
 block_entity_base *
 try_get_block_entity(WorldBlockPos pos);
 
-entity_base *
-resolve_entity(entity_id eid);
+Entity * ResolveEntity(EntityId id);
 
-entity_base *
-try_reserve_entity(unsigned type);
+Entity * TryReserveEntity(i32 type);
 
-void
-evict_entity(entity_id eid);
+void EvictEntity(EntityId id);
 
-void
-teleport_player(entity_base * entity,
-        double new_x, double new_y, double new_z,
-        float new_rot_x, float new_rot_y);
+void TeleportPlayer(Entity * player, f64 x, f64 y, f64 z, f32 rotX, f32 rotY);
 
-void
-set_player_gamemode(entity_base * player, int new_gamemode);
-
-void
-add_stack_to_player_inventory(entity_base * player, item_stack * to_add);
-
-void
-tick_player(entity_base * entity, MemoryArena * tick_arena);
-
-void
-send_packets_to_player(entity_base * entity, MemoryArena * tick_arena);
+void SetPlayerGamemode(Entity * player, i32 newGamemode);
 
 void
 register_resource_loc(String resource_loc, i16 id,
@@ -2330,18 +2250,6 @@ get_resource_loc(u16 id, resource_loc_table * table);
 
 int
 net_string_equal(String a, String b);
-
-void
-process_use_item_on_packet(entity_base * player,
-        i32 hand, BlockPos packetClickedPos, i32 clicked_face,
-        float click_offset_x, float click_offset_y, float click_offset_z,
-        u8 is_inside, MemoryArena * scratch_arena);
-
-int
-use_block(entity_base * player,
-        i32 hand, WorldBlockPos clicked_pos, i32 clicked_face,
-        float click_offset_x, float click_offset_y, float click_offset_z,
-        u8 is_inside, block_update_context * buc);
 
 u8
 get_max_stack_size(i32 item_type);
@@ -2388,8 +2296,7 @@ void
 update_wall_shape(WorldBlockPos pos,
         block_state_info * cur_info, int from_direction);
 
-int
-get_player_facing(entity_base * player);
+i32 GetPlayerFacing(Entity * player);
 
 void
 push_direct_neighbour_block_updates(WorldBlockPos pos,
