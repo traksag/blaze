@@ -236,7 +236,7 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
         .size = zstream.total_out
     };
 
-    NbtCompound chunkNbt = NbtRead(&cursor, scratchArena);
+    NbtCompound chunkNbt = NbtRead(&cursor, 1, scratchArena);
 
     if (cursor.error) {
         LogInfo("Failed to load NBT data");

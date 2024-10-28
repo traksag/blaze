@@ -45,7 +45,7 @@ enum NbtTag {
     NBT_TAG_LONG_ARRAY,
 };
 
-NbtCompound NbtRead(Cursor * buf, MemoryArena * arena);
+NbtCompound NbtRead(Cursor * buf, i32 namedRoot, MemoryArena * arena);
 void NbtPrint(NbtCompound * compound);
 
 // TODO(traks): It would be nice if these functions did some sort of error

@@ -176,7 +176,7 @@ static NbtValue * MakeNbtListEntry(NbtLevel * level, MemoryArena * arena) {
 
 // TODO(traks): improve error reporting for debugging purposes, when we need to
 // write nbt data ourselves
-NbtCompound NbtRead(Cursor * buf, MemoryArena * arena) {
+NbtCompound NbtRead(Cursor * buf, i32 namedRoot, MemoryArena * arena) {
     BeginTimings(NbtRead);
     DebugPuts("-----");
 
@@ -197,13 +197,19 @@ NbtCompound NbtRead(Cursor * buf, MemoryArena * arena) {
 
     // skip key
     unsigned char * key = buf->data + buf->index;
-    uint16_t keySize = ReadU16(buf);
-    if (buf->size - buf->index < keySize) {
-        DebugPuts("Key too large");
-        buf->error = 1;
-        goto bail;
+    uint16_t keySize = 0;
+    if (namedRoot) {
+        keySize = ReadU16(buf);
+        if (buf->size - buf->index < keySize) {
+            DebugPuts("Key too large");
+            buf->error = 1;
+            goto bail;
+        }
+        buf->index += keySize;
     }
-    buf->index += keySize;
+
+    // TODO(traks): if arena allocations fail, we should return an empty
+    // compound! Will make packet processing safe
 
     // @TODO(traks) more appropriate max level
     int maxLevels = 64;

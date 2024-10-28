@@ -10,9 +10,13 @@
 #include "chunk.h"
 #include "packet.h"
 
-// Implicit packet IDs for ease of updating. Updating packet IDs manually is a
-// pain because packet types are ordered alphabetically and Mojang doesn't
-// provide an explicit list of packet IDs.
+#define DEFAULT_PACKET_MAX_STRING_SIZE (0x7fff)
+
+#define PACKET_CHAT_SIGNATURE_SIZE (256)
+
+// NOTE(traks): Implicit packet IDs for ease of updating. Updating packet IDs
+// manually is a pain because packet types are ordered alphabetically and Mojang
+// doesn't provide an explicit list of packet IDs.
 enum serverbound_packet_type {
     SBP_ACCEPT_TELEPORTATION,
     SBP_BLOCK_ENTITY_TAG_QUERY,
@@ -216,6 +220,139 @@ nbt_write_string(Cursor * cursor, String val) {
     WriteData(cursor, val.data, val.size);
 }
 
+enum ItemComponentType {
+    ITEM_COMPONENT_CUSTOM_DATA,
+    ITEM_COMPONENT_MAX_STACK_SIZE,
+    ITEM_COMPONENT_MAX_DAMAGE,
+    ITEM_COMPONENT_DAMAGE,
+    ITEM_COMPONENT_UNBREAKABLE,
+    ITEM_COMPONENT_CUSTOM_NAME,
+    ITEM_COMPONENT_ITEM_NAME,
+    ITEM_COMPONENT_LORE,
+    ITEM_COMPONENT_RARITY,
+    ITEM_COMPONENT_ENCHANTMENTS,
+    ITEM_COMPONENT_CAN_PLACE_ON,
+    ITEM_COMPONENT_CAN_BREAK,
+    ITEM_COMPONENT_ATTRIBUTE_MODIFIERS,
+    ITEM_COMPONENT_CUSTOM_MODEL_DATA,
+    ITEM_COMPONENT_HIDE_ADDITIONAL_TOOLTIP,
+    ITEM_COMPONENT_HIDE_TOOLTIP,
+    ITEM_COMPONENT_REPAIR_COST,
+    ITEM_COMPONENT_CREATIVE_SLOT_LOCK,
+    ITEM_COMPONENT_ENCHANTMENT_GLINT_OVERRIDE,
+    ITEM_COMPONENT_INTANGIBLE_PROJECTILE,
+    ITEM_COMPONENT_FOOD,
+    ITEM_COMPONENT_FIRE_RESISTANT,
+    ITEM_COMPONENT_TOOL,
+    ITEM_COMPONENT_STORED_ENCHANTMENTS,
+    ITEM_COMPONENT_DYED_COLOR,
+    ITEM_COMPONENT_MAP_COLOR,
+    ITEM_COMPONENT_MAP_ID,
+    ITEM_COMPONENT_MAP_DECORATIONS,
+    ITEM_COMPONENT_MAP_POST_PROCESSING,
+    ITEM_COMPONENT_CHARGED_PROJECTILES,
+    ITEM_COMPONENT_BUNDLE_CONTENTS,
+    ITEM_COMPONENT_POTION_CONTENTS,
+    ITEM_COMPONENT_SUSPICIOUS_STEW_EFFECTS,
+    ITEM_COMPONENT_WRITABLE_BOOK_CONTENT,
+    ITEM_COMPONENT_WRITTEN_BOOK_CONTENT,
+    ITEM_COMPONENT_TRIM,
+    ITEM_COMPONENT_DEBUG_STICK_STATE,
+    ITEM_COMPONENT_ENTITY_DATA,
+    ITEM_COMPONENT_BUCKET_ENTITY_DATA,
+    ITEM_COMPONENT_BLOCK_ENTITY_DATA,
+    ITEM_COMPONENT_INSTRUMENT,
+    ITEM_COMPONENT_OMINOUS_BOTTLE_AMPLIFIER,
+    ITEM_COMPONENT_JUKEBOX_PLAYABLE,
+    ITEM_COMPONENT_RECIPES,
+    ITEM_COMPONENT_LODESTONE_TRACKER,
+    ITEM_COMPONENT_FIREWORK_EXPLOSION,
+    ITEM_COMPONENT_FIREWORKS,
+    ITEM_COMPONENT_PROFILE,
+    ITEM_COMPONENT_NOTE_BLOCK_SOUND,
+    ITEM_COMPONENT_BANNER_PATTERNS,
+    ITEM_COMPONENT_BASE_COLOR,
+    ITEM_COMPONENT_POT_DECORATIONS,
+    ITEM_COMPONENT_CONTAINER,
+    ITEM_COMPONENT_BLOCK_STATE,
+    ITEM_COMPONENT_BEES,
+    ITEM_COMPONENT_LOCK,
+    ITEM_COMPONENT_CONTAINER_LOOT,
+    ITEM_COMPONENT_COUNT,
+};
+
+#define PACKET_ITEM_COMPONENT_DEFAULT (0)
+#define PACKET_ITEM_COMPONENT_OVERWRITE (1)
+#define PACKET_ITEM_COMPONENT_CLEAR (2)
+
+typedef struct {
+    u8 toggle;
+} PacketItemComponent;
+
+typedef struct {
+    i32 size;
+    i32 typeId;
+    PacketItemComponent components[ITEM_COMPONENT_COUNT];
+} PacketItemStack;
+
+static PacketItemStack ReadItemStack(Cursor * cursor) {
+    PacketItemStack res = {0};
+    res.size = ReadVarU32(cursor);
+    if (res.size < 0) {
+        cursor->error = 1;
+        return (PacketItemStack) {0};
+    }
+    if (res.size > 0) {
+        res.typeId = ReadVarU32(cursor);
+        if (res.typeId <= 0) {
+            cursor->error = 1;
+            return (PacketItemStack) {0};
+        }
+
+        i32 overwriteComponentCount = ReadVarU32(cursor);
+        if (overwriteComponentCount < 0 || overwriteComponentCount > ITEM_COMPONENT_COUNT) {
+            cursor->error = 1;
+            return (PacketItemStack) {0};
+        }
+        i32 clearComponentCount = ReadVarU32(cursor);
+        if (clearComponentCount < 0 || clearComponentCount > ITEM_COMPONENT_COUNT) {
+            cursor->error = 1;
+            return (PacketItemStack) {0};
+        }
+
+        for (i32 componentIndex = 0; componentIndex < overwriteComponentCount; componentIndex++) {
+            i32 componentType = ReadVarU32(cursor);
+            if (componentType < 0 || componentType >= ITEM_COMPONENT_COUNT) {
+                cursor->error = 1;
+                return (PacketItemStack) {0};
+            }
+            PacketItemComponent * component = &res.components[componentType];
+            if (component->toggle != PACKET_ITEM_COMPONENT_DEFAULT) {
+                cursor->error = 1;
+                return (PacketItemStack) {0};
+            }
+            component->toggle = PACKET_ITEM_COMPONENT_OVERWRITE;
+            // TODO(traks): read item component instead of erroring
+            cursor->error = 1;
+            return (PacketItemStack) {0};
+        }
+        for (i32 componentIndex = 0; componentIndex < clearComponentCount; componentIndex++) {
+            i32 componentType = ReadVarU32(cursor);
+            if (componentType < 0 || componentType >= ITEM_COMPONENT_COUNT) {
+                cursor->error = 1;
+                return (PacketItemStack) {0};
+            }
+            PacketItemComponent * component = &res.components[componentType];
+            if (component->toggle != PACKET_ITEM_COMPONENT_DEFAULT) {
+                cursor->error = 1;
+                return (PacketItemStack) {0};
+            }
+            component->toggle = PACKET_ITEM_COMPONENT_CLEAR;
+        }
+    }
+    return res;
+}
+
 void
 teleport_player(entity_base * entity,
         double new_x, double new_y, double new_z,
@@ -373,10 +510,8 @@ AckBlockChange(entity_player * player, u32 sequenceNumber) {
     player->lastAckedBlockChange = MAX(player->lastAckedBlockChange, signedNumber);
 }
 
-static void
-process_packet(entity_base * entity, Cursor * rec_cursor,
-        MemoryArena * process_arena) {
-    // @NOTE(traks) we need to handle packets in the order in which they arive,
+static void ProcessPacket(entity_base * entity, Cursor * recCursor, MemoryArena * processArena) {
+    // NOTE(traks): we need to handle packets in the order in which they arive,
     // so e.g. the client can move the player to a position, perform some
     // action, and then move the player a bit further, all in the same tick.
     //
@@ -385,16 +520,16 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
     // action.
 
     entity_player * player = &entity->player;
-    i32 packet_id = ReadVarU32(rec_cursor);
+    i32 packetId = ReadVarU32(recCursor);
 
-    switch (packet_id) {
+    switch (packetId) {
     case SBP_ACCEPT_TELEPORTATION: {
         LogInfo("Packet accept teleportation");
-        i32 teleport_id = ReadVarU32(rec_cursor);
+        i32 teleportId = ReadVarU32(recCursor);
 
         if ((entity->flags & ENTITY_TELEPORTING)
                 && (entity->flags & PLAYER_SENT_TELEPORT)
-                && teleport_id == player->current_teleport_id) {
+                && teleportId == player->current_teleport_id) {
             LogInfo("The teleport ID is correct!");
             entity->flags &= ~ENTITY_TELEPORTING;
             entity->flags &= ~PLAYER_SENT_TELEPORT;
@@ -403,55 +538,60 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
     }
     case SBP_BLOCK_ENTITY_TAG_QUERY: {
         LogInfo("Packet block entity tag query");
-        i32 id = ReadVarU32(rec_cursor);
-        u64 block_pos = ReadU64(rec_cursor);
-        // @TODO(traks) handle packet
+        i32 transactionId = ReadVarU32(recCursor);
+        BlockPos blockPos = ReadBlockPos(recCursor);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_CHANGE_DIFFICULTY: {
         LogInfo("Packet change difficulty");
-        u8 difficulty = ReadU8(rec_cursor);
-        // @TODO(traks) handle packet
+        u8 difficulty = ReadU8(recCursor);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_CHAT_ACK: {
         LogInfo("Chat ack");
-        u32 offset = ReadVarU32(rec_cursor);
+        u32 offset = ReadVarU32(recCursor);
         // TODO(traks): handle packet
         break;
     }
     case SBP_CHAT_COMMAND: {
         LogInfo("Packet chat command");
-        String command = ReadVarString(rec_cursor, 256);
+        String command = ReadVarString(recCursor, DEFAULT_PACKET_MAX_STRING_SIZE);
         // TODO(traks): handle packet
         break;
     }
     case SBP_CHAT_COMMAND_SIGNED: {
         LogInfo("Packet chat command signed");
-        // TODO(traks): parse and process
+        String command = ReadVarString(recCursor, DEFAULT_PACKET_MAX_STRING_SIZE);
+        i64 timeEpoch = ReadU64(recCursor);
+        i64 salt = ReadU64(recCursor);
+        i32 signedArgumentCount = ReadVarU32(recCursor);
+        if (signedArgumentCount < 0 || signedArgumentCount >= 8) {
+            recCursor->error = 1;
+            break;
+        }
+        for (i32 argIndex = 0; argIndex < signedArgumentCount; argIndex++) {
+            String argumentName = ReadVarString(recCursor, 16);
+            u8 * signature = ReadData(recCursor, PACKET_CHAT_SIGNATURE_SIZE);
+        }
+        i32 seenMessageCount = ReadVarU32(recCursor);
+        u8 * seenMessageAcks = ReadData(recCursor, 3);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_CHAT: {
-        String chat = ReadVarString(rec_cursor, 256);
-        u64 timestamp = ReadU64(rec_cursor);
-        u64 salt = ReadU64(rec_cursor);
-
-        // @TODO(traks) validate signature?
-        i32 hasSignature = ReadU8(rec_cursor);
-        if (hasSignature) {
-            i32 signatureSize = ReadVarU32(rec_cursor);
-            signatureSize = MIN(MAX(signatureSize, 0), rec_cursor->size);
-            u8 * signature = rec_cursor->data + rec_cursor->index;
-            rec_cursor->index += signatureSize;
+        String chat = ReadVarString(recCursor, 256);
+        i64 timeEpoch = ReadU64(recCursor);
+        i64 salt = ReadU64(recCursor);
+        if (ReadBool(recCursor)) {
+            u8 * signature = ReadData(recCursor, PACKET_CHAT_SIGNATURE_SIZE);
         }
+        i32 seenMessageCount = ReadVarU32(recCursor);
+        u8 * seenMessageAcks = ReadData(recCursor, 3);
 
-        // NOTE(traks): last seen messages acknowledgement
-        u32 offset = ReadVarU32(rec_cursor);
-        for (i32 ackIndex = 0; ackIndex < 3; ackIndex++) {
-            u8 ackData = ReadU8(rec_cursor);
-        }
-
-        // TODO(traks): filter out bad characters from the message
+        // TODO(traks): filter out bad characters from the message, handle
+        // signature, seen messages, etc.
 
         if (serv->global_msg_count < (i32) ARRAY_SIZE(serv->global_msgs)) {
             global_msg * msg = serv->global_msgs + serv->global_msg_count;
@@ -469,310 +609,284 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
     }
     case SBP_CHAT_SESSION_UPDATE: {
         LogInfo("Packet chat session update");
-        // NOTE(traks): some UUID
-        UUID uuid = ReadUUID(rec_cursor);
-        u64 timestamp = ReadU64(rec_cursor);
-        // NOTE(traks): public key data
-        CursorSkip(rec_cursor, 512);
-        // NOTE(traks): signature data
-        CursorSkip(rec_cursor, 4096);
-
+        UUID uuid = ReadUUID(recCursor);
+        i64 expirationEpoch = ReadU64(recCursor);
+        i32 publicKeySize = ReadVarU32(recCursor);
+        if (publicKeySize < 0 || publicKeySize > 512) {
+            recCursor->error = 1;
+            break;
+        }
+        u8 * publicKey = ReadData(recCursor, publicKeySize);
+        i32 keySignatureSize = ReadVarU32(recCursor);
+        if (keySignatureSize < 0 || keySignatureSize > 4096) {
+            recCursor->error = 1;
+            break;
+        }
+        u8 * keySignature = ReadData(recCursor, keySignatureSize);
         // TODO(traks): handle packet
         break;
     }
     case SBP_CHUNK_BATCH_RECEIVED: {
         LogInfo("Packet chunk batch received");
-        f32 clientDesiredChunksPerTick = ReadF32(rec_cursor);
+        f32 clientDesiredChunksPerTick = ReadF32(recCursor);
         // TODO(traks): handle packet
         break;
     }
     case SBP_CLIENT_COMMAND: {
         LogInfo("Packet client command");
-        i32 action = ReadVarU32(rec_cursor);
-        switch (action) {
-        case 0: { // perform respawn
-            // @TODO(traks) implement
-            break;
-        }
-        case 1: { // request statistics
-            // @TODO(traks) implement
-            break;
-        }
-        default: {
-            rec_cursor->error = 1;
-        }
-        }
+        i32 action = ReadVarU32(recCursor);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_CLIENT_INFORMATION: {
         LogInfo("Packet client information");
-        String locale = ReadVarString(rec_cursor, MAX_PLAYER_LOCALE_SIZE);
+        String locale = ReadVarString(recCursor, MAX_PLAYER_LOCALE_SIZE);
         memcpy(player->locale, locale.data, locale.size);
         player->localeSize = locale.size;
         // NOTE(traks): View distance is without the extra border of chunks,
         // while chunk cache radius is with the extra border of
         // chunks. This clamps the view distance between the minimum
         // of 2 and the server maximum.
-        i32 viewDistance = ReadU8(rec_cursor);
+        i32 viewDistance = ReadU8(recCursor);
         player->nextChunkCacheRadius = MIN(MAX(viewDistance, 2), MAX_RENDER_DISTANCE) + 1;
-        player->chatMode = ReadVarU32(rec_cursor);
-        player->seesChatColours = ReadU8(rec_cursor);
-        player->skinCustomisation = ReadU8(rec_cursor);
-        player->mainHand = ReadVarU32(rec_cursor);
-        player->textFiltering = ReadU8(rec_cursor);
-        player->showInStatusList = ReadU8(rec_cursor);
+        player->chatMode = ReadVarU32(recCursor);
+        player->seesChatColours = ReadBool(recCursor);
+        player->skinCustomisation = ReadU8(recCursor);
+        player->mainHand = ReadVarU32(recCursor);
+        player->textFiltering = ReadBool(recCursor);
+        player->showInStatusList = ReadBool(recCursor);
         break;
     }
     case SBP_COMMAND_SUGGESTION: {
         LogInfo("Packet command suggestion");
-        i32 id = ReadVarU32(rec_cursor);
-        String command = ReadVarString(rec_cursor, 32500);
+        i32 transactionId = ReadVarU32(recCursor);
+        String command = ReadVarString(recCursor, 32500);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_CONFIGURATION_ACKNOWLEDGED: {
         LogInfo("Packet configuration acknowledged");
-        // TODO(traks): parse and process
+        // TODO(traks): handle packet
         break;
     }
     case SBP_CONTAINER_BUTTON_CLICK: {
         LogInfo("Packet container button click");
-        u8 container_id = ReadU8(rec_cursor);
-        u8 button_id = ReadU8(rec_cursor);
+        i32 containerId = ReadVarU32(recCursor);
+        i32 buttonId = ReadVarU32(recCursor);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_CONTAINER_CLICK: {
         LogInfo("Packet container click");
-        u8 container_id = ReadU8(rec_cursor);
-        i32 state_id = ReadVarU32(rec_cursor);
-        u16 slot = ReadU16(rec_cursor);
-        u8 button = ReadU8(rec_cursor);
-        i32 click_type = ReadVarU32(rec_cursor);
-        i32 changed_slot_count = ReadVarU32(rec_cursor);
-        if (changed_slot_count > 100 || changed_slot_count < 0) {
-            // @TODO(traks) better filtering of high values
-            rec_cursor->error = 1;
+        u8 containerId = ReadU8(recCursor);
+        i32 statId = ReadVarU32(recCursor);
+        i32 slot = ReadU16(recCursor);
+        i32 button = ReadU8(recCursor);
+        i32 clickType = ReadVarU32(recCursor);
+        i32 changedSlotCount = ReadVarU32(recCursor);
+        if (changedSlotCount > 128 || changedSlotCount < 0) {
+            recCursor->error = 1;
             break;
         }
-
-        // @TODO(traks) do something with the changed slots?
-
-        for (int i = 0; i < changed_slot_count; i++) {
-            u16 changed_slot = ReadU16(rec_cursor);
-            // @TODO(traks) read item function
-            i32 stackSize = ReadVarU32(rec_cursor);
-            if (stackSize > 0) {
-                // @TODO(traks) is this the new item stack or what?
-                i32 itemType = ReadVarU32(rec_cursor);
-                i32 addComponentsSize = ReadVarU32(rec_cursor);
-                i32 removeComponentsSize = ReadVarU32(rec_cursor);
-                // TODO(traks): validate stuff, read the component arrays
-            }
+        for (int changeIndex = 0; changeIndex < changedSlotCount; changeIndex++) {
+            i32 changedSlot = ReadU16(recCursor);
+            PacketItemStack slotItem = ReadItemStack(recCursor);
         }
-
-        if (rec_cursor->error) {
-            break;
-        }
-
-        // TODO(traks): this is the mouse cursor, do something with it?
-        i32 stackSize = ReadVarU32(rec_cursor);
-        if (stackSize > 0) {
-            i32 itemType = ReadVarU32(rec_cursor);
-            i32 addComponentsSize = ReadVarU32(rec_cursor);
-            i32 removeComponentsSize = ReadVarU32(rec_cursor);
-            // TODO(traks): validate stuff, read the component arrays
-        }
-
-        // @TODO(traks) actually handle the event
+        PacketItemStack cursor = ReadItemStack(recCursor);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_CONTAINER_CLOSE: {
         LogInfo("Packet container close");
-        u8 container_id = ReadU8(rec_cursor);
+        i32 containerId = ReadU8(recCursor);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_CONTAINER_SLOT_STATE_CHANGED: {
         LogInfo("Packet contained slot state changed");
-        // TODO(traks): parse and process
+        i32 slotId = ReadVarU32(recCursor);
+        i32 containerId = ReadVarU32(recCursor);
+        i32 newState = ReadBool(recCursor);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_COOKIE_RESPONSE: {
         LogInfo("Packet cookie response");
-        // TODO(traks): parse and process
+        String id = ReadVarString(recCursor, DEFAULT_PACKET_MAX_STRING_SIZE);
+        if (ReadBool(recCursor)) {
+            i32 payloadSize = ReadVarU32(recCursor);
+            if (payloadSize < 0 || payloadSize > 5120) {
+                recCursor->error = 1;
+                break;
+            }
+            u8 * payload = ReadData(recCursor, payloadSize);
+        }
+        // TODO(traks): handle packet
         break;
     }
     case SBP_CUSTOM_PAYLOAD: {
         LogInfo("Packet custom payload");
-        String id = ReadVarString(rec_cursor, 32767);
-        unsigned char * payload = rec_cursor->data + rec_cursor->index;
-        i32 payload_size = rec_cursor->size - rec_cursor->index;
-
-        if (payload_size > 32767) {
-            // custom payload size too large
-            rec_cursor->error = 1;
+        String id = ReadVarString(recCursor, DEFAULT_PACKET_MAX_STRING_SIZE);
+        i32 payloadSize = CursorRemaining(recCursor);
+        if (payloadSize > 32767) {
+            recCursor->error = 1;
             break;
         }
-
-        rec_cursor->index += payload_size;
+        u8 * payload = ReadData(recCursor, payloadSize);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_DEBUG_SAMPLE_SUBSCRIPTION: {
         LogInfo("Packet debug sample subscription");
-        // TODO(traks): parse and process
+        i32 type = ReadVarU32(recCursor);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_EDIT_BOOK: {
         LogInfo("Packet edit book");
-        i32 slot = ReadVarU32(rec_cursor);
-        i32 page_count = ReadVarU32(rec_cursor);
-        if (page_count > 200 || page_count < 0) {
-            rec_cursor->error = 1;
+        i32 slot = ReadVarU32(recCursor);
+        i32 pageCount = ReadVarU32(recCursor);
+        if (pageCount < 0 || pageCount > 200) {
+            recCursor->error = 1;
             break;
         }
-        for (int i = 0; i < page_count; i++) {
-            String page = ReadVarString(rec_cursor, 8192);
+        for (i32 pageIndex = 0; pageIndex < pageCount; pageIndex++) {
+            String page = ReadVarString(recCursor, 8192);
         }
-
-        u8 has_title = ReadU8(rec_cursor);
-        String title = {0};
-        if (has_title) {
-            title = ReadVarString(rec_cursor, 128);
+        if (ReadU8(recCursor)) {
+            String title = ReadVarString(recCursor, 128);
         }
-
-        // @TODO(traks) handle the packet
+        // TODO(traks): handle packet
         break;
     }
     case SBP_ENTITY_TAG_QUERY: {
         LogInfo("Packet entity tag query");
-        i32 transaction_id = ReadVarU32(rec_cursor);
-        i32 entity_id = ReadVarU32(rec_cursor);
+        i32 transactionId = ReadVarU32(recCursor);
+        i32 entityId = ReadVarU32(recCursor);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_INTERACT: {
         LogInfo("Packet interact");
-        i32 entity_id = ReadVarU32(rec_cursor);
-        i32 action = ReadVarU32(rec_cursor);
-
+        i32 entityId = ReadVarU32(recCursor);
+        i32 action = ReadVarU32(recCursor);
         switch (action) {
         case 0: { // interact
-            i32 hand = ReadVarU32(rec_cursor);
-            u8 secondary_action = ReadU8(rec_cursor);
-            // @TODO(traks) implement
+            i32 hand = ReadVarU32(recCursor);
+            u8 isSecondaryAction = ReadU8(recCursor);
             break;
         }
         case 1: { // attack
-            u8 secondary_action = ReadU8(rec_cursor);
-            // @TODO(traks) implement
+            u8 isSecondaryAction = ReadU8(recCursor);
             break;
         }
         case 2: { // interact at
-            float x = ReadF32(rec_cursor);
-            float y = ReadF32(rec_cursor);
-            float z = ReadF32(rec_cursor);
-            i32 hand = ReadVarU32(rec_cursor);
-            u8 secondary_action = ReadU8(rec_cursor);
-            // @TODO(traks) implement
+            float x = ReadF32(recCursor);
+            float y = ReadF32(recCursor);
+            float z = ReadF32(recCursor);
+            i32 hand = ReadVarU32(recCursor);
+            u8 isSecondaryAction = ReadU8(recCursor);
             break;
         }
         default:
-            rec_cursor->error = 1;
+            recCursor->error = 1;
         }
+        // TODO(traks): handle packet
         break;
     }
     case SBP_JIGSAW_GENERATE: {
         LogInfo("Packet jigsaw generate");
-        BlockPos block_pos = ReadBlockPos(rec_cursor);
-        i32 levels = ReadVarU32(rec_cursor);
-        u8 keep_jigsaws = ReadU8(rec_cursor);
-        // @TODO(traks) processing
+        BlockPos blockPos = ReadBlockPos(recCursor);
+        i32 levels = ReadVarU32(recCursor);
+        i32 keepJigsaws = ReadBool(recCursor);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_KEEP_ALIVE: {
-        i64 id = ReadU64(rec_cursor);
-        if (player->last_keep_alive_sent_tick == id) {
+        i64 transactionId = ReadU64(recCursor);
+        if (player->last_keep_alive_sent_tick == transactionId) {
             entity->flags |= PLAYER_GOT_ALIVE_RESPONSE;
         }
         break;
     }
     case SBP_LOCK_DIFFICULTY: {
         LogInfo("Packet lock difficulty");
-        u8 locked = ReadU8(rec_cursor);
+        i32 locked = ReadBool(recCursor);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_MOVE_PLAYER_POS: {
-        double x = ReadF64(rec_cursor);
-        double y = ReadF64(rec_cursor);
-        double z = ReadF64(rec_cursor);
-        int on_ground = ReadU8(rec_cursor);
-        process_move_player_packet(entity, x, y, z,
-                entity->rot_x, entity->rot_y, on_ground);
+        double x = ReadF64(recCursor);
+        double y = ReadF64(recCursor);
+        double z = ReadF64(recCursor);
+        i32 onGround = ReadBool(recCursor);
+        process_move_player_packet(entity, x, y, z, entity->rot_x, entity->rot_y, onGround);
         break;
     }
     case SBP_MOVE_PLAYER_POS_ROT: {
-        double x = ReadF64(rec_cursor);
-        double y = ReadF64(rec_cursor);
-        double z = ReadF64(rec_cursor);
-        float head_rot_y = ReadF32(rec_cursor);
-        float head_rot_x = ReadF32(rec_cursor);
-        int on_ground = ReadU8(rec_cursor);
-        process_move_player_packet(entity, x, y, z,
-                head_rot_x, head_rot_y, on_ground);
+        double x = ReadF64(recCursor);
+        double y = ReadF64(recCursor);
+        double z = ReadF64(recCursor);
+        float headRotY = ReadF32(recCursor);
+        float headRotX = ReadF32(recCursor);
+        i32 onGround = ReadBool(recCursor);
+        process_move_player_packet(entity, x, y, z, headRotX, headRotY, onGround);
         break;
     }
     case SBP_MOVE_PLAYER_ROT: {
-        float head_rot_y = ReadF32(rec_cursor);
-        float head_rot_x = ReadF32(rec_cursor);
-        int on_ground = ReadU8(rec_cursor);
-        process_move_player_packet(entity,
-                entity->x, entity->y, entity->z,
-                head_rot_x, head_rot_y, on_ground);
+        float headRotY = ReadF32(recCursor);
+        float headRotX = ReadF32(recCursor);
+        i32 onGround = ReadU8(recCursor);
+        process_move_player_packet(entity, entity->x, entity->y, entity->z, headRotX, headRotY, onGround);
         break;
     }
     case SBP_MOVE_PLAYER_STATUS_ONLY: {
-        int on_ground = ReadU8(rec_cursor);
-        process_move_player_packet(entity,
-                entity->x, entity->y, entity->z,
-                entity->rot_x, entity->rot_y, on_ground);
+        i32 onGround = ReadU8(recCursor);
+        process_move_player_packet(entity, entity->x, entity->y, entity->z, entity->rot_x, entity->rot_y, onGround);
         break;
     }
     case SBP_MOVE_VEHICLE: {
         LogInfo("Packet move vehicle");
-        double x = ReadF64(rec_cursor);
-        double y = ReadF64(rec_cursor);
-        double z = ReadF64(rec_cursor);
-        float rot_y = ReadF32(rec_cursor);
-        float rot_x = ReadF32(rec_cursor);
-        // @TODO(traks) handle packet
+        double x = ReadF64(recCursor);
+        double y = ReadF64(recCursor);
+        double z = ReadF64(recCursor);
+        float rotY = ReadF32(recCursor);
+        float rotX = ReadF32(recCursor);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_PADDLE_BOAT: {
         LogInfo("Packet paddle boat");
-        u8 left = ReadU8(rec_cursor);
-        u8 right = ReadU8(rec_cursor);
+        i32 leftPaddleTurning = ReadBool(recCursor);
+        i32 rightPaddleTurning = ReadBool(recCursor);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_PICK_ITEM: {
         LogInfo("Packet pick item");
-        i32 slot = ReadVarU32(rec_cursor);
+        i32 slot = ReadVarU32(recCursor);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_PING_REQUEST: {
         LogInfo("Packet ping request");
-        // TODO(traks): parse and process
+        i64 payload = ReadU64(recCursor);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_PLACE_RECIPE: {
         LogInfo("Packet place recipe");
-        u8 container_id = ReadU8(rec_cursor);
-        String recipe = ReadVarString(rec_cursor, 32767);
-        u8 shift_down = ReadU8(rec_cursor);
-        // @TODO(traks) handle packet
+        u8 containerId = ReadU8(recCursor);
+        String recipe = ReadVarString(recCursor, DEFAULT_PACKET_MAX_STRING_SIZE);
+        i32 shiftDown = ReadBool(recCursor);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_PLAYER_ABILITIES: {
         LogInfo("Packet player abilities");
-        u8 flags = ReadU8(rec_cursor);
-        u8 flying = flags & 0x2;
-        // @TODO(traks) validate whether the player can toggle fly
+        u8 flags = ReadU8(recCursor);
+        i32 flying = !!(flags & 0x2);
+        // TODO(traks): validate whether the player can toggle fly mode
         if (flying) {
             if (entity->flags & PLAYER_CAN_FLY) {
                 entity->flags |= PLAYER_FLYING;
@@ -785,13 +899,13 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
         break;
     }
     case SBP_PLAYER_ACTION: {
-        i32 action = ReadVarU32(rec_cursor);
-        // @TODO(traks) validate block pos inside world
-        BlockPos block_pos = ReadBlockPos(rec_cursor);
-        u8 direction = ReadU8(rec_cursor);
-        u32 sequenceNumber = ReadVarU32(rec_cursor);
+        i32 action = ReadVarU32(recCursor);
+        // TODO(traks): validate block pos inside world
+        BlockPos blockPos = ReadBlockPos(recCursor);
+        i32 direction = ReadU8(recCursor);
+        i32 sequenceNumber = ReadVarU32(recCursor);
 
-        // @NOTE(traks) destroying blocks in survival works as follows:
+        // NOTE(traks): destroying blocks in survival works as follows:
         //
         //  1. first client sends start packet
         //  2. if player stops mining before block is broken, client sends
@@ -806,37 +920,38 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
         // It seems that stopping mining and continuing mining with saved mining
         // progress, is handled client side and not server side.
 
+        // TODO(traks): does the above still hold in the latest version of the
+        // game? That note was written a while back
+
         switch (action) {
         case 0: { // start destroy block
-            // The player started mining the block. If the player is in
-            // creative mode, the stop and abort packets are not sent.
-            // @TODO(traks) implementation for other gamemodes
+            // NOTE(traks): The player started mining the block. If the player
+            // is in creative mode, the stop and abort packets are not sent.
+            // TODO(traks): implementation for other gamemodes
             if (player->gamemode == GAMEMODE_CREATIVE) {
-                // @TODO(traks) ensure block pos is close to the
+                // TODO(traks): ensure block pos is close to the
                 // player and the chunk is sent to the player. Ensure not in
                 // teleport, etc. Might get handled automatically if we deal
                 // with the world ID properly (e.g. it's an invalid world while
                 // the player is teleporting).
 
-                WorldBlockPos destroyPos = {.worldId = entity->worldId, .xyz = block_pos};
+                WorldBlockPos destroyPos = {.worldId = entity->worldId, .xyz = blockPos};
                 SetBlockResult destroy = WorldSetBlockState(destroyPos, get_default_block_state(BLOCK_AIR));
                 if (destroy.failed) {
                     break;
                 }
 
-                // @TODO(traks) better block breaking logic. E.g. new state
+                // TODO(traks): better block breaking logic. E.g. new state
                 // should be water source block if waterlogged block is broken.
                 // Should move this stuff to some generic block breaking
                 // function, so we can do proper block updating of redstone dust
                 // and stuff.
-                int max_updates = 512;
+                i32 maxUpdates = 512;
                 block_update_context buc = {
-                    .blocks_to_update = MallocInArena(process_arena,
-                            max_updates * sizeof (block_update)),
+                    .blocks_to_update = MallocInArena(processArena, maxUpdates * sizeof (block_update)),
                     .update_count = 0,
-                    .max_updates = max_updates
+                    .max_updates = maxUpdates
                 };
-
                 push_direct_neighbour_block_updates(destroyPos, &buc);
                 propagate_block_updates(&buc);
                 AckBlockChange(player, sequenceNumber);
@@ -844,23 +959,21 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
             break;
         }
         case 1: { // abort destroy block
-            // The player stopped mining the block before it breaks.
-            // @TODO(traks)
+            // NOTE(traks): player stopped mining the block before it breaks
+            // TODO(traks): handle
             AckBlockChange(player, sequenceNumber);
             break;
         }
         case 2: { // stop destroy block
-            // The player stopped mining the block because it broke.
-            // @TODO(traks)
+            // NOTE(traks): player stopped mining the block because it broke
+            // TODO(traks): handle
             AckBlockChange(player, sequenceNumber);
             break;
         }
         case 3: { // drop all items
-            // @TODO(traks) create item entities
-            int sel_slot = player->selected_slot;
-            item_stack * is = player->slots + sel_slot;
-
-            // @NOTE(traks) client updates its view of the item stack size
+            i32 selectedSlot = player->selected_slot;
+            item_stack * is = player->slots + selectedSlot;
+            // NOTE(traks): client updates its view of the item stack size
             // itself, so no need to send updates for the slot if nothing
             // special happens
             if (is->size > 0) {
@@ -868,16 +981,15 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
                     is->size = 0;
                     is->type = ITEM_AIR;
                 } else {
-                    player->slots_needing_update |= (u64) 1 << sel_slot;
+                    player->slots_needing_update |= (u64) 1 << selectedSlot;
                 }
             }
             break;
         }
         case 4: { // drop item
-            int sel_slot = player->selected_slot;
-            item_stack * is = player->slots + sel_slot;
-
-            // @NOTE(traks) client updates its view of the item stack size
+            i32 selectedSlot = player->selected_slot;
+            item_stack * is = player->slots + selectedSlot;
+            // NOTE(traks): client updates its view of the item stack size
             // itself, so no need to send updates for the slot if nothing
             // special happens
             if (is->size > 0) {
@@ -887,37 +999,37 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
                         is->type = ITEM_AIR;
                     }
                 } else {
-                    player->slots_needing_update |= (u64) 1 << sel_slot;
+                    player->slots_needing_update |= (u64) 1 << selectedSlot;
                 }
             }
             break;
         }
         case 5: { // release use item
-            // @TODO(traks)
+            // TODO(traks): handle
             break;
         }
         case 6: { // swap held items
-            int sel_slot = player->selected_slot;
-            item_stack * sel = player->slots + sel_slot;
-            item_stack * off = player->slots + PLAYER_OFF_HAND_SLOT;
-            item_stack sel_copy = *sel;
-            *sel = *off;
-            *off = sel_copy;
-            // client doesn't update its view of the inventory for
+            i32 selectedSlot = player->selected_slot;
+            item_stack * selectedStack = player->slots + selectedSlot;
+            item_stack * offHandStack = player->slots + PLAYER_OFF_HAND_SLOT;
+            item_stack selectedCopy = *selectedStack;
+            *selectedStack = *offHandStack;
+            *offHandStack = selectedCopy;
+            // NOTE(traks): client doesn't update its view of the inventory for
             // this packet, so send updates to the client
-            player->slots_needing_update |= (u64) 1 << sel_slot;
+            player->slots_needing_update |= (u64) 1 << selectedSlot;
             player->slots_needing_update |= (u64) 1 << PLAYER_OFF_HAND_SLOT;
             break;
         }
         default:
-            rec_cursor->error = 1;
+            recCursor->error = 1;
         }
         break;
     }
     case SBP_PLAYER_COMMAND: {
-        i32 id = ReadVarU32(rec_cursor);
-        i32 action = ReadVarU32(rec_cursor);
-        i32 data = ReadVarU32(rec_cursor);
+        i32 id = ReadVarU32(recCursor);
+        i32 action = ReadVarU32(recCursor);
+        i32 data = ReadVarU32(recCursor);
 
         switch (action) {
         case 0: // press shift key
@@ -935,7 +1047,7 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
             entity->changed_data |= 1 << ENTITY_DATA_POSE;
             break;
         case 2: // stop sleeping
-            // @TODO(traks)
+            // TODO(traks): handle
             break;
         case 3: // start sprinting
             entity->flags |= ENTITY_SPRINTING;
@@ -946,75 +1058,105 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
             entity->changed_data |= 1 << ENTITY_DATA_FLAGS;
             break;
         case 5: // start riding jump
-            // @TODO(traks)
+            // TODO(traks): handle
             break;
         case 6: // stop riding jump
-            // @TODO(traks)
+            // TODO(traks): handle
             break;
         case 7: // open inventory
-            // @TODO(traks)
+            // TODO(traks): handle
             break;
         case 8: // start fall flying
-            // @TODO(traks)
+            // TODO(traks): handle
             break;
         default:
-            rec_cursor->error = 1;
+            recCursor->error = 1;
         }
         break;
     }
     case SBP_PLAYER_INPUT: {
         LogInfo("Packet player input");
-        // @TODO(traks) read packet
+        f32 moveLeft = ReadF32(recCursor);
+        f32 moveForward = ReadF32(recCursor);
+        u8 flags = ReadU8(recCursor);
+        i32 jumping = !!(flags & 0x1);
+        i32 shiftKeyDown = !!(flags & 0x2);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_PONG: {
         LogInfo("Packet pong");
-        i32 id = ReadU32(rec_cursor);
-        // @TODO(traks) read packet
+        i32 transactionId = ReadU32(recCursor);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_RECIPE_BOOK_CHANGE_SETTINGS: {
         LogInfo("Packet recipe book change settings");
-        // @TODO(traks) read packet
+        i32 bookType = ReadVarU32(recCursor);
+        i32 open = ReadBool(recCursor);
+        i32 filtering = ReadBool(recCursor);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_RECIPE_BOOK_SEEN_RECIPE: {
         LogInfo("Packet recipe book seen recipe");
-        // @TODO(traks) read packet
+        String recipe = ReadVarString(recCursor, DEFAULT_PACKET_MAX_STRING_SIZE);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_RENAME_ITEM: {
         LogInfo("Packet rename item");
-        String name = ReadVarString(rec_cursor, 32767);
+        String name = ReadVarString(recCursor, DEFAULT_PACKET_MAX_STRING_SIZE);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_RESOURCE_PACK: {
         LogInfo("Packet resource pack");
-        i32 action = ReadVarU32(rec_cursor);
+        UUID packUuid = ReadUUID(recCursor);
+        i32 resultType = ReadVarU32(recCursor);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_SEEN_ADVANCEMENTS: {
         LogInfo("Packet seen advancements");
-        i32 action = ReadVarU32(rec_cursor);
-        // @TODO(traks) further processing
+        i32 action = ReadVarU32(recCursor);
+        switch (action) {
+        case 0: { // open tab
+            String tabName = ReadVarString(recCursor, DEFAULT_PACKET_MAX_STRING_SIZE);
+            break;
+        }
+        case 1: { // close
+            break;
+        }
+        default: {
+            recCursor->error = 1;
+        }
+        }
+        // TODO(traks): handle packet
         break;
     }
     case SBP_SELECT_TRADE: {
         LogInfo("Packet select trade");
-        i32 item = ReadVarU32(rec_cursor);
+        i32 slot = ReadVarU32(recCursor);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_SET_BEACON: {
         LogInfo("Packet set beacon");
-        i32 primary_effect = ReadVarU32(rec_cursor);
-        i32 secondary_effect = ReadVarU32(rec_cursor);
+        if (ReadBool(recCursor)) {
+            i32 primaryEffectId = ReadVarU32(recCursor);
+        }
+        if (ReadBool(recCursor)) {
+            i32 secondaryEffectId = ReadVarU32(recCursor);
+        }
+        // TODO(traks): handle packet
         break;
     }
     case SBP_SET_CARRIED_ITEM: {
         LogInfo("Set carried item");
-        u16 slot = ReadU16(rec_cursor);
-        if (slot > PLAYER_LAST_HOTBAR_SLOT - PLAYER_FIRST_HOTBAR_SLOT) {
-            rec_cursor->error = 1;
+        i32 slot = ReadU16(recCursor);
+        if (slot < 0 || slot > PLAYER_LAST_HOTBAR_SLOT - PLAYER_FIRST_HOTBAR_SLOT) {
+            recCursor->error = 1;
             break;
         }
         player->selected_slot = PLAYER_FIRST_HOTBAR_SLOT + slot;
@@ -1022,162 +1164,156 @@ process_packet(entity_base * entity, Cursor * rec_cursor,
     }
     case SBP_SET_COMMAND_BLOCK: {
         LogInfo("Packet set command block");
-        u64 block_pos = ReadU64(rec_cursor);
-        String command = ReadVarString(rec_cursor, 32767);
-        i32 mode = ReadVarU32(rec_cursor);
-        u8 flags = ReadU8(rec_cursor);
-        u8 track_output = (flags & 0x1);
-        u8 conditional = (flags & 0x2);
-        u8 automatic = (flags & 0x4);
+        BlockPos blockPos = ReadBlockPos(recCursor);
+        String command = ReadVarString(recCursor, DEFAULT_PACKET_MAX_STRING_SIZE);
+        i32 mode = ReadVarU32(recCursor);
+        u8 flags = ReadU8(recCursor);
+        i32 trackOutput = !!(flags & 0x1);
+        i32 conditional = !!(flags & 0x2);
+        i32 automatic = !!(flags & 0x4);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_SET_COMMAND_MINECART: {
         LogInfo("Packet set command minecart");
-        i32 entity_id = ReadVarU32(rec_cursor);
-        String command = ReadVarString(rec_cursor, 32767);
-        u8 track_output = ReadU8(rec_cursor);
+        i32 entityId = ReadVarU32(recCursor);
+        String command = ReadVarString(recCursor, DEFAULT_PACKET_MAX_STRING_SIZE);
+        i32 trackOutput = ReadBool(recCursor);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_SET_CREATIVE_MODE_SLOT: {
         LogInfo("Set creative mode slot");
-        u16 slot = ReadU16(rec_cursor);
-        i32 stackSize = ReadVarU32(rec_cursor);
+        i32 slot = ReadU16(recCursor);
 
-        if (slot >= PLAYER_SLOTS) {
-            rec_cursor->error = 1;
+        if (slot < 0 || slot >= PLAYER_SLOTS) {
+            recCursor->error = 1;
             break;
         }
 
+        PacketItemStack stack = ReadItemStack(recCursor);
         item_stack * is = player->slots + slot;
         *is = (item_stack) {0};
+        // TODO(traks): item components
+        is->size = stack.size;
+        is->type = stack.typeId;
 
-        if (stackSize > 0) {
-            i32 itemType = ReadVarU32(rec_cursor);
-
-            if (itemType < 0 || itemType >= ITEM_TYPE_COUNT) {
-                rec_cursor->error = 1;
-                break;
-            }
-
-            String itemTypeName = get_resource_loc(itemType, &serv->item_resource_table);
-            LogInfo("Set creative slot: %.*s", (int) itemTypeName.size, itemTypeName.data);
-
-            // TODO(traks): default components, validate stack size against max
-            // stack size, etc.
-            i32 addComponentsSize = ReadVarU32(rec_cursor);
-            i32 removeComponentsSize = ReadVarU32(rec_cursor);
-            // TODO(traks): read item component arrays
-            rec_cursor->index = rec_cursor->size;
-
-            is->size = stackSize;
-            is->type = itemType;
-        }
+        String itemTypeName = get_resource_loc(is->type, &serv->item_resource_table);
+        LogInfo("Set creative slot: %.*s", (int) itemTypeName.size, itemTypeName.data);
         break;
     }
     case SBP_SET_JIGSAW_BLOCK: {
         LogInfo("Packet set jigsaw block");
-        u64 block_pos = ReadU64(rec_cursor);
-        String name = ReadVarString(rec_cursor, 32767);
-        String target = ReadVarString(rec_cursor, 32767);
-        String pool = ReadVarString(rec_cursor, 32767);
-        String final_state = ReadVarString(rec_cursor, 32767);
-        String joint = ReadVarString(rec_cursor, 32767);
-        // @TODO(traks) handle packet
+        BlockPos blockPos = ReadBlockPos(recCursor);
+        String name = ReadVarString(recCursor, DEFAULT_PACKET_MAX_STRING_SIZE);
+        String target = ReadVarString(recCursor, DEFAULT_PACKET_MAX_STRING_SIZE);
+        String pool = ReadVarString(recCursor, DEFAULT_PACKET_MAX_STRING_SIZE);
+        String finalState = ReadVarString(recCursor, DEFAULT_PACKET_MAX_STRING_SIZE);
+        String joint = ReadVarString(recCursor, DEFAULT_PACKET_MAX_STRING_SIZE);
+        i32 selectionPriority = ReadVarU32(recCursor);
+        i32 placementPriority = ReadVarU32(recCursor);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_SET_STRUCTURE_BLOCK: {
         LogInfo("Packet set structure block");
-        u64 block_pos = ReadU64(rec_cursor);
-        i32 update_type = ReadVarU32(rec_cursor);
-        i32 mode = ReadVarU32(rec_cursor);
-        String name = ReadVarString(rec_cursor, 32767);
-        // @TODO(traks) read signed bytes instead
-        u8 offset_x = ReadU8(rec_cursor);
-        u8 offset_y = ReadU8(rec_cursor);
-        u8 offset_z = ReadU8(rec_cursor);
-        u8 size_x = ReadU8(rec_cursor);
-        u8 size_y = ReadU8(rec_cursor);
-        u8 size_z = ReadU8(rec_cursor);
-        i32 mirror = ReadVarU32(rec_cursor);
-        i32 rotation = ReadVarU32(rec_cursor);
-        String data = ReadVarString(rec_cursor, 12);
-        // @TODO(traks) further reading
+        BlockPos blockPos = ReadBlockPos(recCursor);
+        i32 updateType = ReadVarU32(recCursor);
+        i32 mode = ReadVarU32(recCursor);
+        String name = ReadVarString(recCursor, DEFAULT_PACKET_MAX_STRING_SIZE);
+        i32 offsetX = (i8) ReadU8(recCursor);
+        i32 offsetY = (i8) ReadU8(recCursor);
+        i32 offsetZ = (i8) ReadU8(recCursor);
+        i32 sizeX = ReadU8(recCursor);
+        i32 sizeY = ReadU8(recCursor);
+        i32 sizeZ = ReadU8(recCursor);
+        i32 mirror = ReadVarU32(recCursor);
+        i32 rotation = ReadVarU32(recCursor);
+        String data = ReadVarString(recCursor, DEFAULT_PACKET_MAX_STRING_SIZE);
+        f32 integrity = ReadF32(recCursor);
+        i64 seed = ReadVarU64(recCursor);
+        u8 flags = ReadU8(recCursor);
+        i32 ignoreEntities = !!(flags & 0x1);
+        i32 showAir = !!(flags & 0x2);
+        i32 showBoundingBox = !!(flags & 0x4);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_SIGN_UPDATE: {
         LogInfo("Packet sign update");
-        u64 block_pos = ReadU64(rec_cursor);
+        BlockPos blockPos = ReadBlockPos(recCursor);
+        i32 isFront = ReadBool(recCursor);
         String lines[4];
-        for (int i = 0; i < (i32) ARRAY_SIZE(lines); i++) {
-            lines[i] = ReadVarString(rec_cursor, 384);
+        for (i32 lineIndex = 0; lineIndex < (i32) ARRAY_SIZE(lines); lineIndex++) {
+            lines[lineIndex] = ReadVarString(recCursor, 384);
         }
+        // TODO(traks): handle packet
         break;
     }
     case SBP_SWING: {
         // LogInfo("Packet swing");
-        i32 hand = ReadVarU32(rec_cursor);
+        i32 hand = ReadVarU32(recCursor);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_TELEPORT_TO_ENTITY: {
         LogInfo("Packet teleport to entity");
-        // TODO(traks): process
-        UUID targetUUID = ReadUUID(rec_cursor);
+        UUID targetUuid = ReadUUID(recCursor);
+        // TODO(traks): handle packet
         break;
     }
     case SBP_USE_ITEM_ON: {
         LogInfo("Packet use item on");
-        i32 hand = ReadVarU32(rec_cursor);
-        BlockPos clicked_pos = ReadBlockPos(rec_cursor);
-        i32 clicked_face = ReadVarU32(rec_cursor);
-        float click_offset_x = ReadF32(rec_cursor);
-        float click_offset_y = ReadF32(rec_cursor);
-        float click_offset_z = ReadF32(rec_cursor);
-        // @TODO(traks) figure out what this is used for
-        u8 is_inside = ReadU8(rec_cursor);
-        u32 sequenceNumber = ReadVarU32(rec_cursor);
+        i32 hand = ReadVarU32(recCursor);
+        BlockPos clickedPos = ReadBlockPos(recCursor);
+        i32 clickedFace = ReadVarU32(recCursor);
+        float clickOffsetX = ReadF32(recCursor);
+        float clickOffsetY = ReadF32(recCursor);
+        float clickOffsetZ = ReadF32(recCursor);
+        // TODO(traks): figure out what this is used for
+        u8 isInside = ReadU8(recCursor);
+        i32 sequenceNumber = ReadVarU32(recCursor);
 
-        // @TODO(traks) if we cancel at any point and don't kick the
+        // TODO(traks): if we cancel at any point and don't kick the
         // client, send some packets to the client to make the
         // original blocks reappear, otherwise we'll get a desync
 
         if (hand != 0 && hand != 1) {
-            rec_cursor->error = 1;
+            recCursor->error = 1;
             break;
         }
-        if (clicked_face < 0 || clicked_face >= 6) {
-            rec_cursor->error = 1;
+        if (clickedFace < 0 || clickedFace >= 6) {
+            recCursor->error = 1;
             break;
         }
-        if (click_offset_x < 0 || click_offset_x > 1
-                || click_offset_y < 0 || click_offset_y > 1
-                || click_offset_z < 0 || click_offset_z > 1) {
-            rec_cursor->error = 1;
+        if (clickOffsetX < 0 || clickOffsetX > 1
+                || clickOffsetY < 0 || clickOffsetY > 1
+                || clickOffsetZ < 0 || clickOffsetZ > 1) {
+            recCursor->error = 1;
             break;
         }
 
-        // @TODO(traks) ensure clicked pos is inside the world and the eventual
+        // TODO(traks): ensure clicked pos is inside the world and the eventual
         // target position as well, so no assertions fire when setting the block
         // in the chunk (e.g. because of negative y)
 
-        process_use_item_on_packet(entity, hand, clicked_pos,
-                clicked_face, click_offset_x, click_offset_y, click_offset_z,
-                is_inside, process_arena);
+        process_use_item_on_packet(entity, hand, clickedPos, clickedFace, clickOffsetX, clickOffsetY, clickOffsetZ, isInside, processArena);
         AckBlockChange(player, sequenceNumber);
         break;
     }
     case SBP_USE_ITEM: {
         LogInfo("Packet use item");
-        i32 hand = ReadVarU32(rec_cursor);
-        u32 sequenceNumber = ReadVarU32(rec_cursor);
-        f32 rotY = ReadF32(rec_cursor);
-        f32 rotX = ReadF32(rec_cursor);
+        i32 hand = ReadVarU32(recCursor);
+        i32 sequenceNumber = ReadVarU32(recCursor);
+        f32 rotY = ReadF32(recCursor);
+        f32 rotX = ReadF32(recCursor);
 
         AckBlockChange(player, sequenceNumber);
         break;
     }
     default: {
-        LogInfo("Unknown player packet id %jd", (intmax_t) packet_id);
-        rec_cursor->error = 1;
+        LogInfo("Unknown player packet id %jd", (intmax_t) packetId);
+        recCursor->error = 1;
     }
     }
 }
@@ -1640,7 +1776,7 @@ tick_player(entity_base * player, MemoryArena * tick_arena) {
                 break;
             }
 
-            process_packet(player, packetCursor, loopArena);
+            ProcessPacket(player, packetCursor, loopArena);
 
             if (packetCursor->error) {
                 LogInfo("Player protocol error occurred");

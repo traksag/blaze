@@ -83,6 +83,7 @@ f64 ReadF64(Cursor * cursor) {
 }
 
 String ReadVarString(Cursor * cursor, i32 maxSize) {
+    // TODO(traks): validate UTF-8?
     i64 size = ReadVarU32(cursor);
     u8 * data = cursor->data + cursor->index;
     if (CursorSkip(cursor, size)) {
@@ -115,6 +116,11 @@ UUID ReadUUID(Cursor * cursor) {
     u64 low = ReadU64(cursor);
     UUID res = {.low = low, .high = high};
     return res;
+}
+
+u8 * ReadData(Cursor * cursor, i32 size) {
+    u8 * res = cursor->data + cursor->index;
+    return CursorSkip(cursor, size) ? res : NULL;
 }
 
 void WriteVarU32(Cursor * cursor, u32 value) {

@@ -46,6 +46,7 @@ static inline u64 ReadDirectU64(u8 * data) {
 }
 
 static inline f32 ReadDirectF32(u8 * data) {
+    // TODO(traks): filter out sNaNs?
     union {
         u32 u;
         f32 f;
@@ -56,6 +57,7 @@ static inline f32 ReadDirectF32(u8 * data) {
 }
 
 static inline f64 ReadDirectF64(u8 * data) {
+    // TODO(traks): filter out sNaNs?
     union {
         u64 u;
         f64 f;
@@ -130,12 +132,12 @@ static inline i32 CursorRemaining(Cursor * cursor) {
 
 static inline i32 CursorSkip(Cursor * cursor, i32 skip) {
     assert(skip >= 0);
-    if (cursor->index <= cursor->size - skip) {
+    if (skip >= 0 && cursor->index <= cursor->size - skip) {
         cursor->index += skip;
         return 1;
     } else {
         cursor->error = 1;
-        // @NOTE(traks) Especially for reading buffers, don't let errors break
+        // NOTE(traks): Especially for reading buffers, don't let errors break
         // progress assumptions, so we don't end up in infinite loops, etc.
         // For writing it doesn't matter whether we skip in case of errors,
         // since the buffer will be discarded anyway due to the error.
@@ -162,6 +164,7 @@ String ReadVarString(Cursor * cursor, i32 maxSize);
 BlockPos ReadBlockPos(Cursor * cursor);
 i32 ReadBool(Cursor * cursor);
 UUID ReadUUID(Cursor * cursor);
+u8 * ReadData(Cursor * cursor, i32 size);
 
 void WriteVarU32(Cursor * cursor, u32 value);
 void WriteVarU64(Cursor * cursor, u64 value);
