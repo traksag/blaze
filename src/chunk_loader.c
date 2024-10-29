@@ -327,6 +327,9 @@ void AddChunkInterest(WorldChunkPos pos, i32 interest) {
 }
 
 Chunk * GetChunkIfLoaded(WorldChunkPos pos) {
+    if (chunkIndex.arraySize == 0) {
+        return NULL;
+    }
     Chunk * res = NULL;
     PackedWorldChunkPos packedPos = PackWorldChunkPos(pos);
     u32 hash = HashWorldChunkPos(packedPos);
@@ -341,6 +344,9 @@ Chunk * GetChunkIfLoaded(WorldChunkPos pos) {
 }
 
 Chunk * GetChunkInternal(WorldChunkPos pos) {
+    if (chunkIndex.arraySize == 0) {
+        return NULL;
+    }
     Chunk * res = NULL;
     PackedWorldChunkPos packedPos = PackWorldChunkPos(pos);
     u32 hash = HashWorldChunkPos(packedPos);

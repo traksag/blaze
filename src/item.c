@@ -1476,7 +1476,7 @@ process_use_item_on_packet(PlayerController * control,
         float click_offset_x, float click_offset_y, float click_offset_z,
         u8 is_inside, MemoryArena * scratch_arena) {
     Entity * player = ResolveEntity(control->entityId);
-    if (player->flags & ENTITY_TELEPORTING) {
+    if (control->flags & PLAYER_CONTROL_AWAITING_TELEPORT) {
         // ignore
         return;
     }

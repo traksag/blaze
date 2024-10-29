@@ -361,16 +361,6 @@ static PacketItemStack ReadItemStack(Cursor * cursor) {
     return res;
 }
 
-void TeleportPlayer(Entity * player, f64 x, f64 y, f64 z, f32 rotX, f32 rotY) {
-    player->currentTeleportId++;
-    player->flags |= ENTITY_TELEPORTING;
-    player->x = x;
-    player->y = y;
-    player->z = z;
-    player->rot_x = rotX;
-    player->rot_y = rotY;
-}
-
 void SetPlayerGamemode(Entity * player, i32 newGamemode) {
     if (player->gamemode != newGamemode) {
         player->changed_data |= PLAYER_GAMEMODE_CHANGED;
@@ -450,7 +440,7 @@ static void
 process_move_player_packet(PlayerController * control, Entity * player,
         double new_x, double new_y, double new_z,
         float new_head_rot_x, float new_head_rot_y, int on_ground) {
-    if ((player->flags & ENTITY_TELEPORTING) != 0) {
+    if ((control->flags & PLAYER_CONTROL_AWAITING_TELEPORT) != 0) {
         return;
     }
 
@@ -527,11 +517,9 @@ static void ProcessPacket(PlayerController * control, Cursor * recCursor, Memory
         LogInfo("Packet accept teleportation");
         u32 teleportId = ReadVarU32(recCursor);
 
-        if ((player->flags & ENTITY_TELEPORTING)
-                && teleportId == control->lastSentTeleportId
-                && teleportId == player->currentTeleportId) {
+        if ((control->flags & PLAYER_CONTROL_AWAITING_TELEPORT) && teleportId == control->lastSentTeleportId) {
             LogInfo("The teleport ID is correct!");
-            player->flags &= ~ENTITY_TELEPORTING;
+            control->flags &= ~PLAYER_CONTROL_AWAITING_TELEPORT;
         }
         break;
     }
@@ -1580,6 +1568,7 @@ static void SendPlayerTeleport(PlayerController * control, Entity * player, Curs
     WriteVarU32(send_cursor, player->currentTeleportId);
     FinishPlayerPacket(send_cursor, control);
     control->lastSentTeleportId = player->currentTeleportId;
+    control->flags |= PLAYER_CONTROL_AWAITING_TELEPORT;
 }
 
 // TODO(traks): Perhaps we shouldn't remove players mid-tick. As of writing
@@ -2502,8 +2491,6 @@ send_packets_to_player(PlayerController * control, Entity * player, MemoryArena 
         // that's why at least). This happens even if the player's current chunk
         // is still unsent.
 
-        // NOTE(traks): ensure player is teleporting
-        player->flags |= ENTITY_TELEPORTING;
         SendPlayerTeleport(control, player, send_cursor);
 
         BeginPacket(send_cursor, CBP_SET_DEFAULT_SPAWN_POSITION);
@@ -2537,7 +2524,7 @@ send_packets_to_player(PlayerController * control, Entity * player, MemoryArena 
         control->flags &= ~PLAYER_CONTROL_GOT_ALIVE_RESPONSE;
     }
 
-    if ((player->flags & ENTITY_TELEPORTING) && player->currentTeleportId != control->lastSentTeleportId) {
+    if (player->currentTeleportId != control->lastSentTeleportId) {
         LogInfo("Sending teleport to player");
         SendPlayerTeleport(control, player, send_cursor);
     }

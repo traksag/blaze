@@ -993,9 +993,8 @@ static void ClientTick(Client * client) {
         player->collision_height = 1.8;
         SetPlayerGamemode(player, GAMEMODE_CREATIVE);
 
-        player->worldId = 1;
-        // TeleportPlayer(player, 88, 70, 73, 0, 0);
-        TeleportPlayer(player, 0.5, 140, 0.5, 0, 0);
+        // TeleportEntity(player, 1, 88, 70, 73, 0, 0);
+        TeleportEntity(player, 1, 0.5, 140, 0.5, 0, 0);
 
         // @TODO(traks) ensure this can never happen instead of assering
         // it never will hopefully happen

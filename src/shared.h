@@ -72,6 +72,14 @@ static_assert(BITS_PER_BLOCK_STATE <= MAX_BITS_PER_BLOCK_STATE, "Unsupported bit
 #define MAX_WORLD_Y (255 + 64)
 #define WORLD_HEIGHT (MAX_WORLD_Y - MIN_WORLD_Y + 1)
 
+// NOTE(traks): vanilla limits even in spectator mode
+#define MIN_ENTITY_XZ (-29999999.0)
+#define MAX_ENTITY_XZ (29999999.0)
+// NOTE(traks): vanilla /tp limits, but you can move higher/lower after
+// teleporting in vanilla. We don't allow moving higher/lower
+#define MIN_ENTITY_Y (-20000000.0)
+#define MAX_ENTITY_Y (19999999.0)
+
 #define MIN_SECTION (MIN_WORLD_Y >> 4)
 #define MAX_SECTION (MAX_WORLD_Y >> 4)
 #define SECTIONS_PER_CHUNK (MAX_SECTION - MIN_SECTION + 1)
@@ -1977,7 +1985,6 @@ typedef struct {
 } tracked_entity;
 
 #define ENTITY_IN_USE ((unsigned) (1 << 0))
-#define ENTITY_TELEPORTING ((unsigned) (1 << 1))
 #define ENTITY_ON_GROUND ((unsigned) (1 << 2))
 #define ENTITY_CUSTOM_NAME_VISIBLE ((unsigned) (1 << 3))
 #define ENTITY_NO_GRAVITY ((unsigned) (1 << 4))
@@ -2022,15 +2029,15 @@ typedef struct {
 typedef struct {
     EntityId id;
     unsigned type;
-    i32 worldId;
     u32 currentTeleportId;
 
     UUID uuid;
 
     // centre of bottom of entity's bounding box
-    double x;
-    double y;
-    double z;
+    i32 worldId;
+    f64 x;
+    f64 y;
+    f64 z;
 
     // for players the head rotation
     // not used for items
@@ -2234,7 +2241,7 @@ Entity * TryReserveEntity(i32 type);
 
 void EvictEntity(EntityId id);
 
-void TeleportPlayer(Entity * player, f64 x, f64 y, f64 z, f32 rotX, f32 rotY);
+void TeleportEntity(Entity * player, i32 worldId, f64 x, f64 y, f64 z, f32 rotX, f32 rotY);
 
 void SetPlayerGamemode(Entity * player, i32 newGamemode);
 

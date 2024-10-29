@@ -8,6 +8,7 @@
 #define PLAYER_CONTROL_INITIALISED_TAB_LIST ((u32) 1 << 3)
 #define PLAYER_CONTROL_PACKET_COMPRESSION ((u32) 1 << 4)
 #define PLAYER_CONTROL_DISCONNECTED ((u32) 1 << 5)
+#define PLAYER_CONTROL_AWAITING_TELEPORT ((u32) 1 << 6)
 
 typedef struct {
     unsigned char username[16];
