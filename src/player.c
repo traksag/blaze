@@ -1571,42 +1571,10 @@ static void SendPlayerTeleport(PlayerController * control, Entity * player, Curs
     control->flags |= PLAYER_CONTROL_AWAITING_TELEPORT;
 }
 
-// TODO(traks): Perhaps we shouldn't remove players mid-tick. As of writing
-// this, this is causing some issues. If a network error occurs, the player will
-// be disconnected immediately. But they might still be in the tab list
-// (live/added/removed). If another player updates its tablist then, it will try
-// to resolve the disconnected player and will fail, because the player entity
-// has already been removed. The entire tab list system is written to be only
-// updated once per tick, so this causes issues.
-//
-// It's probably fine to remove players mid tick. The tab list system should be
-// changed so you don't need to resolve entities to send tab list data.
-static void
-disconnect_player_now(PlayerController * control, Entity * player) {
-    // TODO(traks): send disconnect message and wait a bit before closing the
-    // socket, so the disconnect messages has a chance of reaching the client
-    close(control->sock);
-
-    i32 chunk_cache_min_x = control->chunkCacheCentreX - control->chunkCacheRadius;
-    i32 chunk_cache_max_x = control->chunkCacheCentreX + control->chunkCacheRadius;
-    i32 chunk_cache_min_z = control->chunkCacheCentreZ - control->chunkCacheRadius;
-    i32 chunk_cache_max_z = control->chunkCacheCentreZ + control->chunkCacheRadius;
-
-    for (i32 x = chunk_cache_min_x; x <= chunk_cache_max_x; x++) {
-        for (i32 z = chunk_cache_min_z; z <= chunk_cache_max_z; z++) {
-            WorldChunkPos pos = {.worldId = control->chunkCacheWorldId, .x = x, .z = z};
-            PlayerChunkCacheEntry * cacheEntry = control->chunkCache + chunk_cache_index(pos.xz);
-            if (cacheEntry->flags & PLAYER_CHUNK_ADDED_INTEREST) {
-                AddChunkInterest(pos, -1);
-            }
-        }
-    }
-
-    free(control->rec_buf);
-    free(control->send_buf);
-
-    EvictEntity(control->entityId);
-    control->flags |= PLAYER_CONTROL_DISCONNECTED;
+static void DisconnectPlayer(PlayerController * control, Entity * player) {
+    control->flags |= PLAYER_CONTROL_SHOULD_DISCONNECT;
+    // NOTE(traks): detach player from world
+    player->worldId = 0;
 }
 
 static float
@@ -1707,7 +1675,6 @@ tick_player(PlayerController * control, Entity * player, MemoryArena * tick_aren
     }
 
     assert(player->type == ENTITY_PLAYER);
-    assert(!(control->flags & PLAYER_CONTROL_DISCONNECTED));
     int sock = control->sock;
 
     // TODO(traks): We might want to move this to an event-based system (such as
@@ -1725,24 +1692,24 @@ tick_player(PlayerController * control, Entity * player, MemoryArena * tick_aren
     // We also should actually also respond to server list pings as soon as
     // possible, so the client's ping counter is accurate.
     BeginTimings(SystemRecv);
-    ssize_t rec_size = recv(sock, control->rec_buf + control->rec_cursor,
-            control->rec_buf_size - control->rec_cursor, 0);
+    ssize_t recSize = recv(sock, control->recBuffer + control->recWriteCursor, control->recBufferSize - control->recWriteCursor, 0);
     EndTimings(SystemRecv);
 
-    if (rec_size == 0) {
-        disconnect_player_now(control, player);
-    } else if (rec_size == -1) {
+    if (recSize == 0) {
+        DisconnectPlayer(control, player);
+    } else if (recSize == -1) {
         // EAGAIN means no data received
         if (errno != EAGAIN) {
             LogErrno("Couldn't receive protocol data from player: %s");
-            disconnect_player_now(control, player);
+            DisconnectPlayer(control, player);
         }
     } else {
-        control->rec_cursor += rec_size;
+        BeginTimings(ReadAndProcessPackets);
+        control->recWriteCursor += recSize;
 
         Cursor * rec_cursor = &(Cursor) {
-            .data = control->rec_buf,
-            .size = control->rec_cursor
+            .data = control->recBuffer,
+            .size = control->recWriteCursor
         };
 
         // @TODO(traks) rate limit incoming packets per player
@@ -1752,11 +1719,11 @@ tick_player(PlayerController * control, Entity * player, MemoryArena * tick_aren
             *loopArena = *tick_arena;
 
             Cursor * packetCursor = &(Cursor) {0};
-            *packetCursor = TryReadPacket(rec_cursor, loopArena, !!(control->flags & PLAYER_CONTROL_PACKET_COMPRESSION), control->rec_buf_size);
+            *packetCursor = TryReadPacket(rec_cursor, loopArena, !!(control->flags & PLAYER_CONTROL_PACKET_COMPRESSION), control->recBufferSize);
 
             if (rec_cursor->error) {
                 LogInfo("Player incoming packet error");
-                disconnect_player_now(control, player);
+                DisconnectPlayer(control, player);
                 break;
             }
             if (packetCursor->size == 0) {
@@ -1768,32 +1735,24 @@ tick_player(PlayerController * control, Entity * player, MemoryArena * tick_aren
 
             if (packetCursor->error) {
                 LogInfo("Player protocol error occurred");
-                disconnect_player_now(control, player);
+                DisconnectPlayer(control, player);
                 break;
             }
 
             if (packetCursor->index != packetCursor->size) {
                 LogInfo("Player protocol packet not fully read");
-                disconnect_player_now(control, player);
+                DisconnectPlayer(control, player);
                 break;
             }
         }
 
         memmove(rec_cursor->data, rec_cursor->data + rec_cursor->index, rec_cursor->size - rec_cursor->index);
-        control->rec_cursor = rec_cursor->size - rec_cursor->index;
-    }
-
-    // @TODO(traks) only here because players could be disconnected and get
-    // all their data cleaned up immediately if some packet handling error
-    // occurs above. Eventually we should handle errors more gracefully.
-    // Then this check shouldn't be necessary anymore.
-    if (!(player->flags & ENTITY_IN_USE)) {
-        goto bail;
+        control->recWriteCursor = rec_cursor->size - rec_cursor->index;
+        EndTimings(ReadAndProcessPackets);
     }
 
     // try to pick up nearby items
     BeginTimings(PickupItems);
-
     for (int i = 0; i < (i32) ARRAY_SIZE(serv->entities); i++) {
         Entity * entity = serv->entities + i;
         if ((entity->flags & ENTITY_IN_USE) == 0) {
@@ -1847,10 +1806,8 @@ tick_player(PlayerController * control, Entity * player, MemoryArena * tick_aren
             }
         }
     }
-
     EndTimings(PickupItems);
 
-bail:
     EndTimings(TickPlayer);
 }
 
@@ -2895,14 +2852,14 @@ send_packets_to_player(PlayerController * control, Entity * player, MemoryArena 
     if (send_cursor->error != 0) {
         // just disconnect the player
         LogInfo("Failed to create packets");
-        disconnect_player_now(control, player);
+        DisconnectPlayer(control, player);
         goto bail;
     }
 
     Cursor final_cursor_ = {
-        .data = control->send_buf,
-        .size = control->send_buf_size,
-        .index = control->send_cursor
+        .data = control->sendBuffer,
+        .size = control->sendBufferSize,
+        .index = control->sendWriteCursor
     };
     Cursor * final_cursor = &final_cursor_;
 
@@ -2911,7 +2868,7 @@ send_packets_to_player(PlayerController * control, Entity * player, MemoryArena 
     if (final_cursor->error != 0) {
         // just disconnect the player
         LogInfo("Failed to finalise packets");
-        disconnect_player_now(control, player);
+        DisconnectPlayer(control, player);
         goto bail;
     }
 
@@ -2924,12 +2881,12 @@ send_packets_to_player(PlayerController * control, Entity * player, MemoryArena 
         // EAGAIN means no data sent
         if (errno != EAGAIN) {
             LogErrno("Couldn't send protocol data to player: %s");
-            disconnect_player_now(control, player);
+            DisconnectPlayer(control, player);
         }
     } else {
         memmove(final_cursor->data, final_cursor->data + send_size,
                 final_cursor->index - send_size);
-        control->send_cursor = final_cursor->index - send_size;
+        control->sendWriteCursor = final_cursor->index - send_size;
     }
 
 bail:
@@ -2960,16 +2917,9 @@ PlayerController * CreatePlayer(void) {
     return res;
 }
 
-void DeletePlayer(PlayerController * control) {
-    control->flags |= PLAYER_CONTROL_DISCONNECTED;
-}
-
 PlayerController * ResolvePlayer(UUID uuid) {
     for (i32 playerIndex = 0; playerIndex < playerList.playerCount; playerIndex++) {
         PlayerController * control = playerList.players[playerIndex];
-        if (control->flags & PLAYER_CONTROL_DISCONNECTED) {
-            continue;
-        }
         if (memcmp(&control->uuid, &uuid, sizeof uuid) == 0) {
             return control;
         }
@@ -2977,25 +2927,41 @@ PlayerController * ResolvePlayer(UUID uuid) {
     return NULL;
 }
 
+static void DestroyPlayer(PlayerController * control) {
+    // TODO(traks): send disconnect message and wait a bit before closing the
+    // socket, so the disconnect message has a chance of reaching the client
+    BeginTimings(SystemClose);
+    close(control->sock);
+    EndTimings(SystemClose);
+
+    i32 chunk_cache_min_x = control->chunkCacheCentreX - control->chunkCacheRadius;
+    i32 chunk_cache_max_x = control->chunkCacheCentreX + control->chunkCacheRadius;
+    i32 chunk_cache_min_z = control->chunkCacheCentreZ - control->chunkCacheRadius;
+    i32 chunk_cache_max_z = control->chunkCacheCentreZ + control->chunkCacheRadius;
+
+    for (i32 x = chunk_cache_min_x; x <= chunk_cache_max_x; x++) {
+        for (i32 z = chunk_cache_min_z; z <= chunk_cache_max_z; z++) {
+            WorldChunkPos pos = {.worldId = control->chunkCacheWorldId, .x = x, .z = z};
+            PlayerChunkCacheEntry * cacheEntry = control->chunkCache + chunk_cache_index(pos.xz);
+            if (cacheEntry->flags & PLAYER_CHUNK_ADDED_INTEREST) {
+                AddChunkInterest(pos, -1);
+            }
+        }
+    }
+
+    free(control->recBuffer);
+    free(control->sendBuffer);
+    EvictEntity(control->entityId);
+    free(control);
+}
+
 void TickPlayers(MemoryArena * arena) {
     for (i32 playerIndex = 0; playerIndex < playerList.playerCount; playerIndex++) {
         MemoryArena * singleTickArena = &(MemoryArena) {0};
         *singleTickArena = *arena;
         PlayerController * control = playerList.players[playerIndex];
-        if (control->flags & PLAYER_CONTROL_DISCONNECTED) {
-            continue;
-        }
         Entity * player = ResolveEntity(control->entityId);
         tick_player(control, player, singleTickArena);
-    }
-    for (i32 playerIndex = 0; playerIndex < playerList.playerCount; playerIndex++) {
-        PlayerController * control = playerList.players[playerIndex];
-        if (control->flags & PLAYER_CONTROL_DISCONNECTED) {
-            free(control);
-            playerList.players[playerIndex] = playerList.players[playerList.playerCount - 1];
-            playerIndex--;
-            playerList.playerCount--;
-        }
     }
 }
 
@@ -3004,16 +2970,13 @@ void SendPacketsToPlayers(MemoryArena * arena) {
         MemoryArena * singleTickArena = &(MemoryArena) {0};
         *singleTickArena = *arena;
         PlayerController * control = playerList.players[playerIndex];
-        if (control->flags & PLAYER_CONTROL_DISCONNECTED) {
-            continue;
-        }
         Entity * player = ResolveEntity(control->entityId);
         send_packets_to_player(control, player, singleTickArena);
     }
     for (i32 playerIndex = 0; playerIndex < playerList.playerCount; playerIndex++) {
         PlayerController * control = playerList.players[playerIndex];
-        if (control->flags & PLAYER_CONTROL_DISCONNECTED) {
-            free(control);
+        if (control->flags & PLAYER_CONTROL_SHOULD_DISCONNECT) {
+            DestroyPlayer(control);
             playerList.players[playerIndex] = playerList.players[playerList.playerCount - 1];
             playerIndex--;
             playerList.playerCount--;

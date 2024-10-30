@@ -923,20 +923,7 @@ static void ClientTick(Client * client) {
         // NOTE(traks): start the PLAY state and transfer the connection to the
         // player entity
 
-        PlayerController * control = CreatePlayer();
-        if (control == NULL) {
-            // TODO(traks): send some message and disconnect
-            ClientMarkTerminate(client);
-            return;
-        }
-
         Entity * player = TryReserveEntity(ENTITY_PLAYER);
-        if (player->type == ENTITY_NULL) {
-            // TODO(traks): send some message and disconnect
-            DeletePlayer(control);
-            ClientMarkTerminate(client);
-            return;
-        }
 
         // @TODO(traks) don't malloc this much when a player joins. AAA
         // games send a lot less than 1MB/tick. For example, according
@@ -948,24 +935,37 @@ static void ClientTick(Client * client) {
         // buffer/send buffer when we're done here with the initial processing.
         // However, perhaps we should make sure and copy over anything to the
         // player's receive and send buffer?
-        control->rec_buf_size = 1 << 16;
-        control->rec_buf = malloc(control->rec_buf_size);
+        i32 recBufferSize = 1 << 16;
+        u8 * recBuffer = malloc(recBufferSize);
 
-        control->send_buf_size = 1 << 20;
-        control->send_buf = malloc(control->send_buf_size);
+        i32 sendBufferSize = 1 << 20;
+        u8 * sendBuffer = malloc(sendBufferSize);
 
-        if (control->rec_buf == NULL || control->send_buf == NULL) {
+        if (player->type != ENTITY_PLAYER || recBuffer == NULL || sendBuffer == NULL) {
             // @TODO(traks) send some message on disconnect
-            free(control->send_buf);
-            free(control->rec_buf);
+            free(sendBuffer);
+            free(recBuffer);
             EvictEntity(player->id);
-            DeletePlayer(control);
+            ClientMarkTerminate(client);
+            return;
+        }
+
+        PlayerController * control = CreatePlayer();
+        if (control == NULL) {
+            // TODO(traks): send some message and disconnect
+            free(control->sendBuffer);
+            free(control->recBuffer);
+            EvictEntity(player->id);
             ClientMarkTerminate(client);
             return;
         }
 
         control->entityId = player->id;
         control->sock = client->socket;
+        control->recBufferSize = recBufferSize;
+        control->recBuffer = recBuffer;
+        control->sendBufferSize = sendBufferSize;
+        control->sendBuffer = sendBuffer;
         memcpy(control->username, client->username, client->usernameSize);
         control->username_size = client->usernameSize;
         control->uuid = client->uuid;

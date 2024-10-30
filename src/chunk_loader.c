@@ -307,6 +307,10 @@ static ChunkHashEntry * GetOrCreateChunk(WorldChunkPos pos) {
 }
 
 void AddChunkInterest(WorldChunkPos pos, i32 interest) {
+    if (pos.worldId == 0) {
+        // NOTE(traks): null world, no interest to be added
+        return;
+    }
     for (i32 dx = -1; dx <= 1; dx++) {
         for (i32 dz = -1; dz <= 1; dz++) {
             WorldChunkPos actualPos = pos;

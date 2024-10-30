@@ -3,12 +3,38 @@
 
 #include "shared.h"
 
+#define PLAYER_CHUNK_SENT (0x1 << 0)
+#define PLAYER_CHUNK_ADDED_INTEREST (0x1 << 1)
+
+typedef struct {
+    u8 flags;
+} PlayerChunkCacheEntry;
+
+typedef struct {
+    EntityId entityId;
+
+    i64 last_tp_packet_tick;
+    i64 last_send_pos_tick;
+    i64 last_update_tick;
+
+    unsigned char update_interval;
+
+    double last_sent_x;
+    double last_sent_y;
+    double last_sent_z;
+
+    // these are always 0 for some entities
+    unsigned char last_sent_rot_x;
+    unsigned char last_sent_rot_y;
+    unsigned char last_sent_head_rot_y;
+} tracked_entity;
+
 #define PLAYER_CONTROL_DID_INIT_PACKETS ((u32) 1 << 0)
 #define PLAYER_CONTROL_GOT_ALIVE_RESPONSE ((u32) 1 << 2)
 #define PLAYER_CONTROL_INITIALISED_TAB_LIST ((u32) 1 << 3)
 #define PLAYER_CONTROL_PACKET_COMPRESSION ((u32) 1 << 4)
-#define PLAYER_CONTROL_DISCONNECTED ((u32) 1 << 5)
 #define PLAYER_CONTROL_AWAITING_TELEPORT ((u32) 1 << 6)
+#define PLAYER_CONTROL_SHOULD_DISCONNECT ((u32) 1 << 7)
 
 typedef struct {
     unsigned char username[16];
@@ -25,13 +51,14 @@ typedef struct {
     // head rotation using the designated packet, otherwise heads won't rotate.
 
     int sock;
-    unsigned char * rec_buf;
-    int rec_buf_size;
-    int rec_cursor;
 
-    unsigned char * send_buf;
-    int send_buf_size;
-    int send_cursor;
+    u8 * recBuffer;
+    i32 recBufferSize;
+    i32 recWriteCursor;
+
+    u8 * sendBuffer;
+    i32 sendBufferSize;
+    i32 sendWriteCursor;
 
     // NOTE(traks): Render/view distance is the client setting. It doesn't
     // include the chunk at the centre, and doesn't include an extra outer
@@ -83,7 +110,6 @@ use_block(PlayerController * control,
         u8 is_inside, block_update_context * buc);
 
 PlayerController * CreatePlayer(void);
-void DeletePlayer(PlayerController * control);
 PlayerController * ResolvePlayer(UUID uuid);
 
 void TickPlayers(MemoryArena * arena);

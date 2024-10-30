@@ -1958,32 +1958,6 @@ enum game_event {
 #define PLAYER_LAST_HOTBAR_SLOT (44)
 #define PLAYER_OFF_HAND_SLOT (45)
 
-#define PLAYER_CHUNK_SENT (0x1 << 0)
-#define PLAYER_CHUNK_ADDED_INTEREST (0x1 << 1)
-
-typedef struct {
-    u8 flags;
-} PlayerChunkCacheEntry;
-
-typedef struct {
-    EntityId entityId;
-
-    i64 last_tp_packet_tick;
-    i64 last_send_pos_tick;
-    i64 last_update_tick;
-
-    unsigned char update_interval;
-
-    double last_sent_x;
-    double last_sent_y;
-    double last_sent_z;
-
-    // these are always 0 for some entities
-    unsigned char last_sent_rot_x;
-    unsigned char last_sent_rot_y;
-    unsigned char last_sent_head_rot_y;
-} tracked_entity;
-
 #define ENTITY_IN_USE ((unsigned) (1 << 0))
 #define ENTITY_ON_GROUND ((unsigned) (1 << 2))
 #define ENTITY_CUSTOM_NAME_VISIBLE ((unsigned) (1 << 3))
