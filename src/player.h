@@ -36,8 +36,10 @@ typedef struct {
 #define PLAYER_CONTROL_AWAITING_TELEPORT ((u32) 1 << 6)
 #define PLAYER_CONTROL_SHOULD_DISCONNECT ((u32) 1 << 7)
 
+#define MAX_PLAYER_NAME_SIZE (16)
+
 typedef struct {
-    unsigned char username[16];
+    unsigned char username[MAX_PLAYER_NAME_SIZE];
     int username_size;
     UUID uuid;
 
@@ -109,10 +111,44 @@ use_block(PlayerController * control,
         float click_offset_x, float click_offset_y, float click_offset_z,
         u8 is_inside, block_update_context * buc);
 
-PlayerController * CreatePlayer(void);
 PlayerController * ResolvePlayer(UUID uuid);
 
 void TickPlayers(MemoryArena * arena);
 void SendPacketsToPlayers(MemoryArena * arena);
+
+typedef struct {
+    UUID uuid;
+    u8 username[MAX_PLAYER_NAME_SIZE];
+    i32 usernameSize;
+} PlayerListEntry;
+
+void InitPlayerControl(void);
+i32 CopyPlayerList(PlayerListEntry * entryArray, i32 arraySize);
+
+typedef struct {
+    int socket;
+
+    i32 packetCompression;
+
+    UUID uuid;
+    u8 username[MAX_PLAYER_NAME_SIZE];
+    i32 usernameSize;
+
+    // TODO(traks): this stuff is sent by the client during the initial
+    // configuration phase. We should really be handling the configuration phase
+    // with the player controller, since configuration phases can happen during
+    // the play phase too
+    u8 locale[MAX_PLAYER_LOCALE_SIZE];
+    i32 localeSize;
+    i32 chunkCacheRadius;
+    i32 chatMode;
+    i32 seesChatColours;
+    u8 skinCustomisation;
+    i32 mainHand;
+    i32 textFiltering;
+    i32 showInStatusList;
+} JoinRequest;
+
+i32 QueuePlayerJoin(JoinRequest request);
 
 #endif

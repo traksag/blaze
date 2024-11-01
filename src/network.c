@@ -7,10 +7,18 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include "shared.h"
 #include "buffer.h"
 #include "packet.h"
 #include "player.h"
+
+// TODO(traks): should increase this
+#define MAX_INITIAL_CONNECTIONS (32)
+
+#define INITIAL_CONNECTION_TIMEOUT_MILLIS ((i32) 10 * 1000)
+
+#define MAX_ACCEPT_ROUNDS (16)
 
 #define CLIENT_SHOULD_TERMINATE ((u32) 1 << 0)
 #define CLIENT_DID_TRANSFER_TO_PLAYER ((u32) 1 << 1)
@@ -24,6 +32,7 @@ enum ProtocolState {
     PROTOCOL_HANDSHAKE,
     PROTOCOL_AWAIT_STATUS_REQUEST,
     PROTOCOL_AWAIT_PING_REQUEST,
+    PROTOCOL_AWAIT_CLOSE,
     PROTOCOL_AWAIT_HELLO,
     PROTOCOL_AWAIT_LOGIN_ACK,
     PROTOCOL_CONFIGURATION,
@@ -32,7 +41,7 @@ enum ProtocolState {
 
 typedef struct {
     u8 * data;
-    i32 cursor;
+    i32 writeCursor;
     i32 size;
 } Buffer;
 
@@ -43,10 +52,12 @@ typedef struct {
     Buffer recBuf;
     Buffer sendBuf;
 
-    int protocolState;
+    i64 lastUpdateNanos;
+
+    i32 protocolState;
     UUID uuid;
-    unsigned char username[16];
-    int usernameSize;
+    u8 username[MAX_PLAYER_NAME_SIZE];
+    i32 usernameSize;
 
     u8 locale[MAX_PLAYER_LOCALE_SIZE];
     i32 localeSize;
@@ -60,26 +71,17 @@ typedef struct {
 } Client;
 
 typedef struct {
-    Client * * clientArray;
-    i32 clientArraySize;
+    Client * clientArray[MAX_INITIAL_CONNECTIONS];
+    struct pollfd pollArray[MAX_INITIAL_CONNECTIONS + 1];
+    i32 clientCount;
     int serverSocket;
+    pthread_t thread;
+    MemoryArena pollArena;
 } Network;
 
 static Network network;
 
-static void CreateClient(int clientSocket) {
-    i32 clientIndex;
-    for (clientIndex = 0; clientIndex < network.clientArraySize; clientIndex++) {
-        if (network.clientArray[clientIndex] == NULL) {
-            break;
-        }
-    }
-    if (clientIndex >= network.clientArraySize) {
-        LogInfo("No space for more clients");
-        close(clientSocket);
-        return;
-    }
-
+static void CreateClient(int clientSocket, i64 nanoTime) {
     int flags = fcntl(clientSocket, F_GETFL, 0);
     if (flags == -1) {
         LogInfo("Client failed to get socket flags");
@@ -104,6 +106,14 @@ static void CreateClient(int clientSocket) {
         close(clientSocket);
         return;
     }
+
+    i32 clientIndex = network.clientCount;
+    if (clientIndex >= (i32) ARRAY_SIZE(network.clientArray)) {
+        LogInfo("No space for more clients");
+        close(clientSocket);
+        return;
+    }
+    network.clientCount++;
 
     // @TODO(traks) should we lower the receive and send buffer sizes? For
     // hanshakes/status/login they don't need to be as large as the default
@@ -150,6 +160,7 @@ static void CreateClient(int clientSocket) {
 
     Client * client = calloc(1, sizeof *client);
     client->socket = clientSocket;
+    client->lastUpdateNanos = nanoTime;
 
     // TODO(traks): Should be large enough to:
     //
@@ -547,11 +558,10 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
         MemoryArena * scratchArena = &(MemoryArena) {0};
         *scratchArena = *arena;
 
-        int list_size = serv->tab_list_size;
-        size_t list_bytes = list_size * sizeof (UUID);
-        UUID * list = MallocInArena(scratchArena, list_bytes);
-        memcpy(list, serv->tab_list, list_bytes);
-        int sample_size = MIN(12, list_size);
+        i32 listSize = MAX_PLAYERS;
+        PlayerListEntry * list = MallocInArena(scratchArena, listSize * sizeof *list);
+        listSize = CopyPlayerList(list, listSize);
+        i32 sampleSize = MIN(12, listSize);
 
         i32 maxResponseSize = 2048;
         unsigned char * response = MallocInArena(scratchArena, maxResponseSize);
@@ -560,34 +570,31 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
                 "{\"version\":{\"name\":\"%s\",\"protocol\":%d},"
                 "\"players\":{\"max\":%d,\"online\":%d,\"sample\":[",
                 SERVER_GAME_VERSION, SERVER_PROTOCOL_VERSION,
-                (int) MAX_PLAYERS, (int) list_size);
+                (int) MAX_PLAYERS, (int) listSize);
 
         // TODO(traks): don't display players with "Allow server listings"
-        // turned off, and don't display players we have not yet fully joined
+        // turned off, and don't display players who have not yet fully joined
         // (maybe we do this already? should also not count those towards the
         // amount of online players?)
-        for (int sampleIndex = 0; sampleIndex < sample_size; sampleIndex++) {
-            int target = sampleIndex + (rand() % (list_size - sampleIndex));
-            UUID * sampled = list + target;
+        for (i32 sampleIndex = 0; sampleIndex < sampleSize; sampleIndex++) {
+            i32 targetIndex = sampleIndex + (rand() % (listSize - sampleIndex));
+            PlayerListEntry * sampled = &list[targetIndex];
 
             if (sampleIndex > 0) {
                 response[response_size] = ',';
                 response_size += 1;
             }
 
-            PlayerController * control = ResolvePlayer(*sampled);
-            assert(control != NULL);
-            // @TODO(traks) actual UUID
+            // TODO(traks): actual UUID
             response_size += snprintf((char *) response + response_size, maxResponseSize - response_size,
                     "{\"id\":\"01234567-89ab-cdef-0123-456789abcdef\","
                     "\"name\":\"%.*s\"}",
-                    (int) control->username_size,
-                    control->username);
+                    (int) sampled->usernameSize,
+                    sampled->username);
 
             *sampled = list[sampleIndex];
         }
 
-        // TODO(traks): support secure chat
         response_size += snprintf((char *) response + response_size, maxResponseSize - response_size,
                 "]},\"description\":{\"text\":\"Running Blaze\"},\"enforcesSecureChat\":%s}",
                 ENFORCE_SECURE_CHAT ? "true" : "false");
@@ -613,9 +620,12 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
         WriteU64(sendCursor, payload);
         FinishPacket(sendCursor, 0);
 
-        // TODO(traks): we should really be waiting a bit for the packets to
-        // flow to the client
-        ClientMarkTerminate(client);
+        client->protocolState = PROTOCOL_AWAIT_CLOSE;
+        break;
+    }
+    case PROTOCOL_AWAIT_CLOSE: {
+        // NOTE(traks): shouldn't be receiving any packets
+        recCursor->error = 1;
         break;
     }
     case PROTOCOL_AWAIT_HELLO: {
@@ -792,7 +802,7 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
 }
 
 static void ClientProcessAllPackets(Client * client) {
-    if (client->recBuf.cursor == client->recBuf.size) {
+    if (client->recBuf.writeCursor == client->recBuf.size) {
         // NOTE(traks): Should never happen. If there's a full packet in the
         // buffer, we always drain it. Maybe some parse error occurred and we
         // didn't kick the client?
@@ -801,7 +811,7 @@ static void ClientProcessAllPackets(Client * client) {
         return;
     }
 
-    ssize_t receiveSize = recv(client->socket, client->recBuf.data + client->recBuf.cursor, client->recBuf.size - client->recBuf.cursor, 0);
+    ssize_t receiveSize = recv(client->socket, client->recBuf.data + client->recBuf.writeCursor, client->recBuf.size - client->recBuf.writeCursor, 0);
 
     if (receiveSize == -1) {
         // TODO(traks): or EWOULDBLOCK?
@@ -810,23 +820,18 @@ static void ClientProcessAllPackets(Client * client) {
         } else {
             LogErrno("Couldn't receive protocol data from client: %s");
             ClientMarkTerminate(client);
-            return;
         }
-    } else {
-        client->recBuf.cursor += receiveSize;
+        return;
     }
+    client->recBuf.writeCursor += receiveSize;
 
     Cursor * recCursor = &(Cursor) {
         .data = client->recBuf.data,
-        .size = client->recBuf.cursor,
+        .size = client->recBuf.writeCursor,
     };
 
-    // TODO(traks): bad idea to just clobber the entire scratch space, in
-    // case anyone else is using it
-    MemoryArena * processingArena = &(MemoryArena) {
-        .data = serv->short_lived_scratch,
-        .size = serv->short_lived_scratch_size
-    };
+    MemoryArena * processingArena = &(MemoryArena) {0};
+    *processingArena = network.pollArena;
 
     i32 sendCursorAllocSize = 1 << 20;
     Cursor * sendCursor = &(Cursor) {
@@ -872,12 +877,12 @@ static void ClientProcessAllPackets(Client * client) {
 
     // NOTE(traks): compact the receive buffer
     memmove(recCursor->data, recCursor->data + recCursor->index, recCursor->size - recCursor->index);
-    client->recBuf.cursor = recCursor->size - recCursor->index;
+    client->recBuf.writeCursor -= recCursor->index;
 
     Cursor * finalCursor = &(Cursor) {
         .data = client->sendBuf.data,
         .size = client->sendBuf.size,
-        .index = client->sendBuf.cursor,
+        .index = client->sendBuf.writeCursor,
     };
 
     FinalisePackets(finalCursor, sendCursor);
@@ -888,166 +893,189 @@ static void ClientProcessAllPackets(Client * client) {
         return;
     }
 
-    client->sendBuf.cursor = finalCursor->index;
-}
-
-static void ClientTick(Client * client) {
-    assert(client != NULL);
-
-    // NOTE(traks): read incoming data
-
-    BeginTimings(ClientProcessAllPackets);
-    ClientProcessAllPackets(client);
-    EndTimings(ClientProcessAllPackets);
-
-    // NOTE(traks): send outgoing packets
-
-    ssize_t sendSize = send(client->socket, client->sendBuf.data, client->sendBuf.cursor, 0);
-
-    if (sendSize == -1) {
-        if (errno == EAGAIN) {
-            // NOTE(traks): The socket's internal send buffer is full
-            // TODO(traks): If this error keeps happening, we should probably
-            // kick the client
-        } else {
-            LogErrno("Couldn't send protocol data to client: %s");
-            ClientMarkTerminate(client);
-            return;
-        }
-    } else {
-        memmove(client->sendBuf.data, client->sendBuf.data + sendSize, client->sendBuf.cursor - sendSize);
-        client->sendBuf.cursor -= sendSize;
-    }
+    client->sendBuf.writeCursor = finalCursor->index;
 
     if (client->protocolState == PROTOCOL_JOIN && !(client->flags & CLIENT_SHOULD_TERMINATE)) {
         // NOTE(traks): start the PLAY state and transfer the connection to the
         // player entity
-
-        Entity * player = TryReserveEntity(ENTITY_PLAYER);
-
-        // @TODO(traks) don't malloc this much when a player joins. AAA
-        // games send a lot less than 1MB/tick. For example, according
-        // to some website, Fortnite sends about 1.5KB/tick. Although we
-        // sometimes have to send a bunch of chunk data, which can be
-        // tens of KB. Minecraft even allows up to 2MB of chunk data.
-
-        // TODO(traks): There shouldn't be anything left in the receive
-        // buffer/send buffer when we're done here with the initial processing.
-        // However, perhaps we should make sure and copy over anything to the
-        // player's receive and send buffer?
-        i32 recBufferSize = 1 << 16;
-        u8 * recBuffer = malloc(recBufferSize);
-
-        i32 sendBufferSize = 1 << 20;
-        u8 * sendBuffer = malloc(sendBufferSize);
-
-        if (player->type != ENTITY_PLAYER || recBuffer == NULL || sendBuffer == NULL) {
-            // @TODO(traks) send some message on disconnect
-            free(sendBuffer);
-            free(recBuffer);
-            EvictEntity(player->id);
+        if (client->sendBuf.writeCursor > 0 || client->recBuf.writeCursor > 0) {
+            // NOTE(traks): we still have inbound/outbound pending data, huh?
             ClientMarkTerminate(client);
+            LogInfo("Client is still transferring data while joining");
             return;
         }
 
-        PlayerController * control = CreatePlayer();
-        if (control == NULL) {
-            // TODO(traks): send some message and disconnect
-            free(control->sendBuffer);
-            free(control->recBuffer);
-            EvictEntity(player->id);
+        JoinRequest request = {0};
+        request.socket = client->socket;
+        request.packetCompression = !!(client->flags & CLIENT_PACKET_COMPRESSION);
+        request.uuid = client->uuid;
+        memcpy(request.username, client->username, client->usernameSize);
+        request.usernameSize = client->usernameSize;
+        memcpy(request.locale, client->locale, client->localeSize);
+        request.localeSize = client->localeSize;
+        request.chunkCacheRadius = client->chunkCacheRadius;
+        request.chatMode = client->chatMode;
+        request.seesChatColours = client->seesChatColours;
+        request.skinCustomisation = client->skinCustomisation;
+        request.mainHand = client->mainHand;
+        request.textFiltering = client->textFiltering;
+        request.showInStatusList = client->showInStatusList;
+        if (!QueuePlayerJoin(request)) {
+            LogInfo("Join queue is full");
             ClientMarkTerminate(client);
-            return;
-        }
-
-        control->entityId = player->id;
-        control->sock = client->socket;
-        control->recBufferSize = recBufferSize;
-        control->recBuffer = recBuffer;
-        control->sendBufferSize = sendBufferSize;
-        control->sendBuffer = sendBuffer;
-        memcpy(control->username, client->username, client->usernameSize);
-        control->username_size = client->usernameSize;
-        control->uuid = client->uuid;
-        player->uuid = client->uuid;
-
-        memcpy(control->locale, client->locale, client->localeSize);
-        control->localeSize = client->localeSize;
-        control->chatMode = client->chatMode;
-        control->seesChatColours = client->seesChatColours;
-        control->skinCustomisation = client->skinCustomisation;
-        control->mainHand = client->mainHand;
-        control->textFiltering = client->textFiltering;
-        control->showInStatusList = client->showInStatusList;
-        control->nextChunkCacheRadius = client->chunkCacheRadius;
-
-        control->last_keep_alive_sent_tick = serv->current_tick;
-        control->flags |= PLAYER_CONTROL_GOT_ALIVE_RESPONSE;
-        if (client->flags & CLIENT_PACKET_COMPRESSION) {
-            control->flags |= PLAYER_CONTROL_PACKET_COMPRESSION;
-        }
-        player->selected_slot = PLAYER_FIRST_HOTBAR_SLOT;
-        // @TODO(traks) collision width and height of player depending
-        // on player pose
-        player->collision_width = 0.6;
-        player->collision_height = 1.8;
-        SetPlayerGamemode(player, GAMEMODE_CREATIVE);
-
-        // TeleportEntity(player, 1, 88, 70, 73, 0, 0);
-        TeleportEntity(player, 1, 0.5, 140, 0.5, 0, 0);
-
-        // @TODO(traks) ensure this can never happen instead of assering
-        // it never will hopefully happen
-        assert(serv->tab_list_added_count < (i32) ARRAY_SIZE(serv->tab_list_added));
-        serv->tab_list_added[serv->tab_list_added_count] = control->uuid;
-        serv->tab_list_added_count++;
-
-        // NOTE(traks): updating the connection will be done on a player basis
-        // instead of during initial connection processing
-        assert(!(client->flags & CLIENT_SHOULD_TERMINATE));
-        client->flags |= CLIENT_DID_TRANSFER_TO_PLAYER;
-
-        LogInfo("Player '%.*s' joined", (int) client->usernameSize, client->username);
-        if (serv->global_msg_count < (i32) ARRAY_SIZE(serv->global_msgs)) {
-            global_msg * msg = serv->global_msgs + serv->global_msg_count;
-            serv->global_msg_count++;
-            int textSize = snprintf(
-                    (void *) msg->text, sizeof msg->text,
-                    "%.*s joined the game",
-                    (int) control->username_size, control->username);
-            msg->size = textSize;
+        } else {
+            LogInfo("Transferring client to player");
+            client->flags |= CLIENT_DID_TRANSFER_TO_PLAYER;
         }
     }
 }
 
-void TickInitialConnections(void) {
-    BeginTimings(AcceptInitialConnections);
-
+// NOTE(traks): It is kind of imperative we read/write asynchronously from the
+// main tick loop, instead of e.g. reading/writing only on the main thread at
+// the start/end of each tick. This allows us to respond immediately to ping
+// requests during status requests and during normal gameplay. This is necessary
+// to compute accurate ping times.
+//
+// It is also important because it allows us to continuously write to clients.
+// If the OS write buffer can't hold all the packets we're trying to send, this
+// method allows us to still flush all the packets before the next tick ends.
+// For example, we can stream more chunks to clients this way.
+static void * RunNetwork(void * arg) {
     for (;;) {
-        int accepted = accept(network.serverSocket, NULL, NULL);
-        if (accepted == -1) {
-            break;
-        }
-        CreateClient(accepted);
-    }
-
-    EndTimings(AcceptInitialConnections);
-
-    BeginTimings(TickClients);
-
-    for (i32 clientIndex = 0; clientIndex < network.clientArraySize; clientIndex++) {
-        Client * client = network.clientArray[clientIndex];
-        if (client != NULL) {
-            ClientTick(client);
-            if (client->flags & CLIENT_SHOULD_TERMINATE) {
-                DeleteClient(clientIndex);
-            } else if (client->flags & CLIENT_DID_TRANSFER_TO_PLAYER) {
-                FreeClientNoClose(clientIndex);
+        // NOTE(traks): build new poll structs
+        BeginTimings(BuildPollStructs);
+        i32 pollCount = 0;
+        network.pollArray[pollCount++] = (struct pollfd) {.fd = network.serverSocket, .events = POLLRDNORM};
+        for (i32 clientIndex = 0; clientIndex < network.clientCount; clientIndex++) {
+            Client * client = network.clientArray[clientIndex];
+            struct pollfd * pollEntry = &network.pollArray[pollCount++];
+            *pollEntry = (struct pollfd) {.fd = client->socket};
+            pollEntry->events |= POLLRDNORM;
+            if (client->sendBuf.writeCursor > 0) {
+                pollEntry->events |= POLLWRNORM;
             }
         }
+        EndTimings(BuildPollStructs);
+
+        int pollTimeout = -1;
+        if (pollCount > 1) {
+            pollTimeout = INITIAL_CONNECTION_TIMEOUT_MILLIS;
+        }
+
+        i32 readyCount = poll(network.pollArray, pollCount, pollTimeout);
+        if (readyCount == -1) {
+            if (errno == EINTR) {
+                continue;
+            }
+            LogErrno("Failed to poll network connections: %s");
+            break;
+        }
+
+        i64 nanoTime = NanoTime();
+
+        // NOTE(traks): run updates
+        BeginTimings(ProcessPollUpdates);
+        {
+            struct pollfd * pollEntry = &network.pollArray[0];
+            if (pollEntry->revents & (POLLERR | POLLNVAL | POLLHUP)) {
+                LogInfo("Failed to poll network server socket");
+                break;
+            }
+            if (pollEntry->revents & POLLRDNORM) {
+                for (i32 round = 0; round < MAX_ACCEPT_ROUNDS; round++) {
+                    int accepted = accept(network.serverSocket, NULL, NULL);
+                    if (accepted == -1) {
+                        if (errno == EINTR) {
+                            continue;
+                        }
+                        if (errno == EWOULDBLOCK) {
+                            // NOTE(traks): no more new connections
+                            break;
+                        }
+                        LogErrno("Failed to accept socket: %s");
+                        break;
+                    }
+                    CreateClient(accepted, nanoTime);
+                }
+            }
+        }
+        // NOTE(traks): the accept loop above could have created more clients.
+        // Be careful not to check the poll structs for those!
+        for (i32 clientIndex = 0; clientIndex < pollCount - 1; clientIndex++) {
+            Client * client = network.clientArray[clientIndex];
+            struct pollfd * pollEntry = &network.pollArray[clientIndex + 1];
+            assert(client->socket == pollEntry->fd);
+
+            if (pollEntry->revents == 0) {
+                if (nanoTime - client->lastUpdateNanos > INITIAL_CONNECTION_TIMEOUT_MILLIS * (i64) 1000000) {
+                    LogInfo("Client was inactive for too long");
+                    ClientMarkTerminate(client);
+                }
+                continue;
+            }
+
+            client->lastUpdateNanos = nanoTime;
+
+            if (pollEntry->revents & (POLLERR | POLLNVAL)) {
+                LogInfo("Bad poll");
+                ClientMarkTerminate(client);
+            }
+            if (pollEntry->revents & POLLRDNORM) {
+                // NOTE(traks): first read, then write, because reading may
+                // generate more outbound data
+                ClientProcessAllPackets(client);
+            }
+            if (pollEntry->revents & POLLWRNORM) {
+                ssize_t sendSize = send(client->socket, client->sendBuf.data, client->sendBuf.writeCursor, 0);
+                if (sendSize == -1) {
+                    LogErrno("Couldn't send protocol data to client: %s");
+                    ClientMarkTerminate(client);
+                    continue;
+                }
+                memmove(client->sendBuf.data, client->sendBuf.data + sendSize, client->sendBuf.writeCursor - sendSize);
+                client->sendBuf.writeCursor -= sendSize;
+            }
+            if (pollEntry->revents & POLLHUP) {
+                // NOTE(traks): do this after reading, because there may
+                // still be some data for us left to read after a disconnect
+                LogInfo("Client disconnected");
+                ClientMarkTerminate(client);
+            }
+        }
+        EndTimings(ProcessPollUpdates);
+
+        // NOTE(traks): clean up closed sockets
+        BeginTimings(PollCleanup);
+        for (i32 clientIndex = 0; clientIndex < network.clientCount; clientIndex++) {
+            Client * client = network.clientArray[clientIndex];
+            if (client->flags & CLIENT_DID_TRANSFER_TO_PLAYER) {
+                // NOTE(traks): don't terminate even if the termination flag is
+                // set, because the socket has been transferred to the player
+                // controller now
+                FreeClientNoClose(clientIndex);
+                network.clientArray[clientIndex] = network.clientArray[network.clientCount - 1];
+                network.clientCount--;
+                clientIndex--;
+            } else if (client->flags & CLIENT_SHOULD_TERMINATE) {
+                LogInfo("Terminating client");
+                DeleteClient(clientIndex);
+                network.clientArray[clientIndex] = network.clientArray[network.clientCount - 1];
+                network.clientCount--;
+                clientIndex--;
+            }
+        }
+        EndTimings(PollCleanup);
     }
 
-    EndTimings(TickClients);
+    // NOTE(traks): clean up connections on errors, so the clients know
+    // immediately something went wrong
+    close(network.serverSocket);
+    for (i32 clientIndex = 0; clientIndex < network.clientCount; clientIndex++) {
+        Client * client = network.clientArray[clientIndex];
+        close(client->socket);
+    }
+    network.clientCount = 0;
+    return NULL;
 }
 
 void InitNetwork(void) {
@@ -1066,11 +1094,6 @@ void InitNetwork(void) {
         LogErrno("Failed to create socket: %s");
         exit(1);
     }
-    if (serverSocket >= FD_SETSIZE) {
-        // can't select on this socket
-        LogInfo("Socket is FD_SETSIZE or higher");
-        exit(1);
-    }
 
     int yes = 1;
     if (setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof yes) == -1) {
@@ -1085,7 +1108,7 @@ void InitNetwork(void) {
         exit(1);
     }
 
-    if (listen(serverSocket, 16) == -1) {
+    if (listen(serverSocket, MAX_ACCEPT_ROUNDS) == -1) {
         LogErrno("Can't listen: %s");
         exit(1);
     }
@@ -1102,8 +1125,20 @@ void InitNetwork(void) {
 
     network.serverSocket = serverSocket;
 
-    network.clientArraySize = 32;
-    network.clientArray = calloc(1, network.clientArraySize * sizeof *network.clientArray);
+    i32 arenaSize = 4 << 20;
+    network.pollArena = (MemoryArena) {
+        .size = arenaSize,
+        .data = malloc(arenaSize),
+    };
+    if (network.pollArena.data == NULL) {
+        LogInfo("Failed to allocate network arena memory");
+        exit(1);
+    }
+
+    if (pthread_create(&network.thread, NULL, RunNetwork, NULL)) {
+        LogInfo("Failed to create networking thread");
+        exit(1);
+    }
 
     LogInfo("Bound to address");
 }

@@ -2,6 +2,5 @@
 #define NETWORK_H
 
 void InitNetwork(void);
-void TickInitialConnections(void);
 
 #endif

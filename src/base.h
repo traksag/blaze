@@ -149,6 +149,7 @@ static void * MallocInArena(MemoryArena * arena, i32 size) {
         // field to MemoryArena to enable assertings. Don't want assertions in
         // net code though or code where there is a chance the arena could be
         // overrun.
+        assert(0);
         return NULL;
     }
 

@@ -11,9 +11,20 @@
 #include "packet.h"
 #include "player.h"
 
+// TODO(traks): apprioriate size
+#define MAX_JOINS_PER_TICK (16)
+
 typedef struct {
     PlayerController * players[MAX_PLAYERS];
     i32 playerCount;
+
+    PlayerListEntry entryArray[MAX_PLAYERS];
+    i32 entryCount;
+    pthread_mutex_t entryMutex;
+
+    JoinRequest joinQueue[MAX_JOINS_PER_TICK];
+    i32 joinQueueCount;
+    pthread_mutex_t joinQueueMutex;
 } PlayerList;
 
 static PlayerList playerList;
@@ -2907,16 +2918,6 @@ i32 GetPlayerFacing(Entity * player) {
     }
 }
 
-PlayerController * CreatePlayer(void) {
-    if (playerList.playerCount >= (i32) ARRAY_SIZE(playerList.players)) {
-        return NULL;
-    }
-    PlayerController * res = calloc(1, sizeof *res);
-    playerList.players[playerList.playerCount] = res;
-    playerList.playerCount++;
-    return res;
-}
-
 PlayerController * ResolvePlayer(UUID uuid) {
     for (i32 playerIndex = 0; playerIndex < playerList.playerCount; playerIndex++) {
         PlayerController * control = playerList.players[playerIndex];
@@ -2955,7 +2956,105 @@ static void DestroyPlayer(PlayerController * control) {
     free(control);
 }
 
+static void JoinPlayer(JoinRequest * request) {
+    Entity * player = TryReserveEntity(ENTITY_PLAYER);
+
+    // TODO(traks): don't malloc this much when a player joins. AAA
+    // games send a lot less than 1MB/tick. For example, according
+    // to some website, Fortnite sends about 1.5KB/tick. Although we
+    // sometimes have to send a bunch of chunk data, which can be
+    // tens of KB. Minecraft even allows up to 2MB of chunk data.
+
+    // TODO(traks): There shouldn't be anything left in the receive
+    // buffer/send buffer when we're done here with the initial processing.
+    // However, perhaps we should make sure and copy over anything to the
+    // player's receive and send buffer?
+    i32 recBufferSize = 1 << 16;
+    u8 * recBuffer = malloc(recBufferSize);
+
+    i32 sendBufferSize = 1 << 20;
+    u8 * sendBuffer = malloc(sendBufferSize);
+
+    PlayerController * control = calloc(1, sizeof *control);
+
+    if (player->type != ENTITY_PLAYER || recBuffer == NULL || sendBuffer == NULL || playerList.playerCount >= (i32) ARRAY_SIZE(playerList.players) || control == NULL) {
+        // TODO(traks): send some message on disconnect
+        LogInfo("Failed to join player");
+        free(sendBuffer);
+        free(recBuffer);
+        EvictEntity(player->id);
+        free(control);
+        close(request->socket);
+        return;
+    }
+
+    playerList.players[playerList.playerCount] = control;
+    playerList.playerCount++;
+
+    control->entityId = player->id;
+    control->sock = request->socket;
+    control->recBufferSize = recBufferSize;
+    control->recBuffer = recBuffer;
+    control->sendBufferSize = sendBufferSize;
+    control->sendBuffer = sendBuffer;
+    memcpy(control->username, request->username, request->usernameSize);
+    control->username_size = request->usernameSize;
+    control->uuid = request->uuid;
+    player->uuid = request->uuid;
+
+    memcpy(control->locale, request->locale, request->localeSize);
+    control->localeSize = request->localeSize;
+    control->chatMode = request->chatMode;
+    control->seesChatColours = request->seesChatColours;
+    control->skinCustomisation = request->skinCustomisation;
+    control->mainHand = request->mainHand;
+    control->textFiltering = request->textFiltering;
+    control->showInStatusList = request->showInStatusList;
+    control->nextChunkCacheRadius = request->chunkCacheRadius;
+
+    control->last_keep_alive_sent_tick = serv->current_tick;
+    control->flags |= PLAYER_CONTROL_GOT_ALIVE_RESPONSE;
+    if (request->packetCompression) {
+        control->flags |= PLAYER_CONTROL_PACKET_COMPRESSION;
+    }
+    player->selected_slot = PLAYER_FIRST_HOTBAR_SLOT;
+    // TODO(traks): collision width and height of player depending
+    // on player pose
+    player->collision_width = 0.6;
+    player->collision_height = 1.8;
+    SetPlayerGamemode(player, GAMEMODE_CREATIVE);
+
+    // TeleportEntity(player, 1, 88, 70, 73, 0, 0);
+    TeleportEntity(player, 1, 0.5, 140, 0.5, 0, 0);
+
+    // TODO(traks): ensure this can never happen instead of asserting
+    // it never will hopefully happen
+    assert(serv->tab_list_added_count < (i32) ARRAY_SIZE(serv->tab_list_added));
+    serv->tab_list_added[serv->tab_list_added_count] = control->uuid;
+    serv->tab_list_added_count++;
+
+    LogInfo("Player '%.*s' joined", (int) control->username_size, control->username);
+    if (serv->global_msg_count < (i32) ARRAY_SIZE(serv->global_msgs)) {
+        global_msg * msg = serv->global_msgs + serv->global_msg_count;
+        serv->global_msg_count++;
+        int textSize = snprintf(
+                (void *) msg->text, sizeof msg->text,
+                "%.*s joined the game",
+                (int) control->username_size, control->username);
+        msg->size = textSize;
+    }
+}
+
 void TickPlayers(MemoryArena * arena) {
+    if (pthread_mutex_lock(&playerList.joinQueueMutex) == 0) {
+        for (i32 entryIndex = 0; entryIndex < playerList.joinQueueCount; entryIndex++) {
+            JoinRequest * request = &playerList.joinQueue[entryIndex];
+            JoinPlayer(request);
+        }
+        playerList.joinQueueCount = 0;
+        pthread_mutex_unlock(&playerList.joinQueueMutex);
+    }
+
     for (i32 playerIndex = 0; playerIndex < playerList.playerCount; playerIndex++) {
         MemoryArena * singleTickArena = &(MemoryArena) {0};
         *singleTickArena = *arena;
@@ -2973,6 +3072,7 @@ void SendPacketsToPlayers(MemoryArena * arena) {
         Entity * player = ResolveEntity(control->entityId);
         send_packets_to_player(control, player, singleTickArena);
     }
+
     for (i32 playerIndex = 0; playerIndex < playerList.playerCount; playerIndex++) {
         PlayerController * control = playerList.players[playerIndex];
         if (control->flags & PLAYER_CONTROL_SHOULD_DISCONNECT) {
@@ -2982,4 +3082,51 @@ void SendPacketsToPlayers(MemoryArena * arena) {
             playerList.playerCount--;
         }
     }
+
+    // NOTE(traks): update player list entries
+    if (pthread_mutex_lock(&playerList.entryMutex) == 0) {
+        for (i32 playerIndex = 0; playerIndex < playerList.playerCount; playerIndex++) {
+            PlayerListEntry * entry = &playerList.entryArray[playerIndex];
+            PlayerController * control = playerList.players[playerIndex];
+            entry->uuid = control->uuid;
+            memcpy(entry->username, control->username, control->username_size);
+            entry->usernameSize = control->username_size;
+        }
+        playerList.entryCount = playerList.playerCount;
+        pthread_mutex_unlock(&playerList.entryMutex);
+    }
+}
+
+void InitPlayerControl(void) {
+    if (pthread_mutex_init(&playerList.entryMutex, NULL)) {
+        LogErrno("Failed to create entry mutex: %s");
+        exit(1);
+    }
+    if (pthread_mutex_init(&playerList.joinQueueMutex, NULL)) {
+        LogErrno("Failed to create join queue mutex: %s");
+        exit(1);
+    }
+}
+
+i32 CopyPlayerList(PlayerListEntry * entryArray, i32 arraySize) {
+    i32 res = 0;
+    if (pthread_mutex_lock(&playerList.entryMutex) == 0) {
+        res = MIN(arraySize, playerList.entryCount);
+        memcpy(entryArray, playerList.entryArray, res * sizeof *entryArray);
+        pthread_mutex_unlock(&playerList.entryMutex);
+    }
+    return res;
+}
+
+i32 QueuePlayerJoin(JoinRequest request) {
+    i32 res = 0;
+    if (pthread_mutex_lock(&playerList.joinQueueMutex) == 0) {
+        if (playerList.joinQueueCount < (i32) ARRAY_SIZE(playerList.joinQueue)) {
+            playerList.joinQueue[playerList.joinQueueCount] = request;
+            playerList.joinQueueCount++;
+            res = 1;
+        }
+        pthread_mutex_unlock(&playerList.joinQueueMutex);
+    }
+    return res;
 }

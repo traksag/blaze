@@ -620,8 +620,6 @@ static void
 server_tick(void) {
     BeginTimings(ServerTick);
 
-    TickInitialConnections();
-
     // run scheduled block updates
     BeginTimings(ScheduledUpdates);
 
@@ -1129,6 +1127,7 @@ main(void) {
     // an infinite loop
     // signal(SIGINT, OnSigInt);
 
+    InitPlayerControl();
     InitNetwork();
 
     serv = calloc(sizeof * serv, 1);
