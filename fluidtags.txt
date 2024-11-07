@@ -1,7 +1,0 @@
-key minecraft:water
-value minecraft:water
-value minecraft:flowing_water
-
-key minecraft:lava
-value minecraft:lava
-value minecraft:flowing_lava

@@ -1,6 +1,6 @@
 # Blaze
 
-Handmade game server for Minecraft Java Edition 1.21.1.
+Handmade game server for Minecraft Java Edition 1.21.3.
 
 Currently the principal goal of this project is to make an efficient server for the latest version of Minecraft.
 I've considered using Java for this, but I feel C is a lot more interesting in terms of optimisation potential.
@@ -30,9 +30,9 @@ If you're using a different compiler, a different operating system or exotic har
 
 Build the server by running `./build.sh` if you're on Unix. It should be easy enough to adopt the build script on other systems. Note that there are a few configuration options at the top of 'build.sh' you may wish to modify.
 
-To start the server, simply run `./blaze`. Currently the 'blaze' binary needs to be in the repository's root directory so it can read the data from the data files such as 'entitytags.txt' and 'itemtags.txt'. The server listens on localhost port 25565. Alter this in the code if you want.
+To start the server, simply run `./blaze`. The server listens on localhost port 25565. Alter this in the code if you want.
 
-Blaze can load chunks from Anvil region files. Create a folder called 'world' in the repository root and copy paste the 'region' folder from some other place into it. Note that Blaze only loads chunks from the latest Minecraft version, hence you may need to optimise your world before copy pasting the 'region' folder.
+Blaze can load chunks from Anvil region files. Create a folder called 'world' in your working directory and copy paste the 'region' folder from some other place into it. Note that Blaze only loads chunks from the latest Minecraft version, hence you may need to optimise your world before copy pasting the 'region' folder.
 
 As of writing this, Blaze runs in offline mode and has the following features:
 

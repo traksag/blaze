@@ -39,6 +39,7 @@ static PlayerList playerList;
 enum serverbound_packet_type {
     SBP_ACCEPT_TELEPORTATION,
     SBP_BLOCK_ENTITY_TAG_QUERY,
+    SBP_BUNDLE_ITEM_SELECTED,
     SBP_CHANGE_DIFFICULTY,
     SBP_CHAT_ACK,
     SBP_CHAT_COMMAND,
@@ -47,6 +48,7 @@ enum serverbound_packet_type {
     SBP_CHAT_SESSION_UPDATE,
     SBP_CHUNK_BATCH_RECEIVED,
     SBP_CLIENT_COMMAND,
+    SBP_CLIENT_TICK_END,
     SBP_CLIENT_INFORMATION,
     SBP_COMMAND_SUGGESTION,
     SBP_CONFIGURATION_ACKNOWLEDGED,
@@ -131,6 +133,7 @@ enum clientbound_packet_type {
     CBP_DISCONNECT,
     CBP_DISGUISED_CHAT,
     CBP_ENTITY_EVENT,
+    CBP_ENTITY_POSITION_SYNC,
     CBP_EXPLODE,
     CBP_FORGET_LEVEL_CHUNK,
     CBP_GAME_EVENT,
@@ -147,6 +150,7 @@ enum clientbound_packet_type {
     CBP_MERCHANT_OFFERS,
     CBP_MOVE_ENTITY_POS,
     CBP_MOVE_ENTITY_POS_ROT,
+    CBP_MOVE_MINECART_ALONG_TRACK,
     CBP_MOVE_ENTITY_ROT,
     CBP_MOVE_VEHICLE,
     CBP_OPEN_BOOK,
@@ -164,7 +168,10 @@ enum clientbound_packet_type {
     CBP_PLAYER_INFO_UPDATE,
     CBP_PLAYER_LOOK_AT,
     CBP_PLAYER_POSITION,
-    CBP_RECIPE,
+    CBP_PLAYER_ROTATION,
+    CBP_RECIPE_BOOK_ADD,
+    CBP_RECIPE_BOOK_REMOVE,
+    CBP_RECIPE_BOOK_SETTINGS,
     CBP_REMOVE_ENTITIES,
     CBP_REMOVE_MOB_EFFECT,
     CBP_RESET_SCORE,
@@ -182,9 +189,9 @@ enum clientbound_packet_type {
     CBP_SET_BORDER_WARNING_DELAY,
     CBP_SET_BORDER_WARNING_DISTANCE,
     CBP_SET_CAMERA,
-    CBP_SET_CARRIED_ITEM,
     CBP_SET_CHUNK_CACHE_CENTER,
     CBP_SET_CHUNK_CACHE_RADIUS,
+    CBP_SET_CURSOR_ITEM,
     CBP_SET_DEFAULT_SPAWN_POSITION,
     CBP_SET_DISPLAY_OBJECTIVE,
     CBP_SET_ENTITY_DATA,
@@ -193,8 +200,10 @@ enum clientbound_packet_type {
     CBP_SET_EQUIPMENT,
     CBP_SET_EXPERIENCE,
     CBP_SET_HEALTH,
+    CBP_SET_HELD_SLOT,
     CBP_SET_OBJECTIVE,
     CBP_SET_PASSENGERS,
+    CBP_SET_PLAYER_INVENTORY,
     CBP_SET_PLAYER_TEAM,
     CBP_SET_SCORE,
     CBP_SET_SIMULATION_DISTANCE,
@@ -447,10 +456,7 @@ void SetPlayerGamemode(Entity * player, i32 newGamemode) {
     }
 }
 
-static void
-process_move_player_packet(PlayerController * control, Entity * player,
-        double new_x, double new_y, double new_z,
-        float new_head_rot_x, float new_head_rot_y, int on_ground) {
+static void ProcessMovePlayerPacket(PlayerController * control, Entity * player, f64 newX, f64 newY, f64 newZ, f32 newHeadRotX, f32 newHeadRotY, i32 onGround, i32 horizontalCollision) {
     if ((control->flags & PLAYER_CONTROL_AWAITING_TELEPORT) != 0) {
         return;
     }
@@ -458,16 +464,17 @@ process_move_player_packet(PlayerController * control, Entity * player,
     // @TODO(traks) if new x, y, z out of certain bounds, don't update player
     // x, y, z to prevent NaN errors and extreme precision loss, etc.
 
-    player->x = new_x;
-    player->y = new_y;
-    player->z = new_z;
-    player->rot_x = new_head_rot_x;
-    player->rot_y = new_head_rot_y;
-    if (on_ground) {
+    player->x = newX;
+    player->y = newY;
+    player->z = newZ;
+    player->rot_x = newHeadRotX;
+    player->rot_y = newHeadRotY;
+    if (onGround) {
         player->flags |= ENTITY_ON_GROUND;
     } else {
         player->flags &= ~ENTITY_ON_GROUND;
     }
+    // TODO(traks): what is the horizontal collision used for?
 }
 
 static int
@@ -538,6 +545,13 @@ static void ProcessPacket(PlayerController * control, Cursor * recCursor, Memory
         LogInfo("Packet block entity tag query");
         i32 transactionId = ReadVarU32(recCursor);
         BlockPos blockPos = ReadBlockPos(recCursor);
+        // TODO(traks): handle packet
+        break;
+    }
+    case SBP_BUNDLE_ITEM_SELECTED: {
+        LogInfo("Packet bundle item selected");
+        i32 slotId = ReadVarU32(recCursor);
+        i32 selectedIndex = ReadVarU32(recCursor);
         // TODO(traks): handle packet
         break;
     }
@@ -636,6 +650,10 @@ static void ProcessPacket(PlayerController * control, Cursor * recCursor, Memory
         // TODO(traks): handle packet
         break;
     }
+    case SBP_CLIENT_TICK_END: {
+        // TODO(traks): handle packet
+        break;
+    }
     case SBP_CLIENT_INFORMATION: {
         LogInfo("Packet client information");
         String locale = ReadVarString(recCursor, MAX_PLAYER_LOCALE_SIZE);
@@ -653,6 +671,7 @@ static void ProcessPacket(PlayerController * control, Cursor * recCursor, Memory
         control->mainHand = ReadVarU32(recCursor);
         control->textFiltering = ReadBool(recCursor);
         control->showInStatusList = ReadBool(recCursor);
+        control->particleStatus = ReadVarU32(recCursor);
         break;
     }
     case SBP_COMMAND_SUGGESTION: {
@@ -676,7 +695,7 @@ static void ProcessPacket(PlayerController * control, Cursor * recCursor, Memory
     }
     case SBP_CONTAINER_CLICK: {
         LogInfo("Packet container click");
-        u8 containerId = ReadU8(recCursor);
+        u8 containerId = ReadVarU32(recCursor);
         i32 statId = ReadVarU32(recCursor);
         i32 slot = ReadU16(recCursor);
         i32 button = ReadU8(recCursor);
@@ -696,7 +715,7 @@ static void ProcessPacket(PlayerController * control, Cursor * recCursor, Memory
     }
     case SBP_CONTAINER_CLOSE: {
         LogInfo("Packet container close");
-        i32 containerId = ReadU8(recCursor);
+        i32 containerId = ReadVarU32(recCursor);
         // TODO(traks): handle packet
         break;
     }
@@ -744,15 +763,15 @@ static void ProcessPacket(PlayerController * control, Cursor * recCursor, Memory
         LogInfo("Packet edit book");
         i32 slot = ReadVarU32(recCursor);
         i32 pageCount = ReadVarU32(recCursor);
-        if (pageCount < 0 || pageCount > 200) {
+        if (pageCount < 0 || pageCount > 100) {
             recCursor->error = 1;
             break;
         }
         for (i32 pageIndex = 0; pageIndex < pageCount; pageIndex++) {
-            String page = ReadVarString(recCursor, 8192);
+            String page = ReadVarString(recCursor, 1024);
         }
         if (ReadU8(recCursor)) {
-            String title = ReadVarString(recCursor, 128);
+            String title = ReadVarString(recCursor, 32);
         }
         // TODO(traks): handle packet
         break;
@@ -817,8 +836,10 @@ static void ProcessPacket(PlayerController * control, Cursor * recCursor, Memory
         double x = ReadF64(recCursor);
         double y = ReadF64(recCursor);
         double z = ReadF64(recCursor);
-        i32 onGround = ReadBool(recCursor);
-        process_move_player_packet(control, player, x, y, z, player->rot_x, player->rot_y, onGround);
+        u8 flags = ReadU8(recCursor);
+        i32 onGround = !!(flags & 0x1);
+        i32 horizontalCollision = !!(flags & 0x2);
+        ProcessMovePlayerPacket(control, player, x, y, z, player->rot_x, player->rot_y, onGround, horizontalCollision);
         break;
     }
     case SBP_MOVE_PLAYER_POS_ROT: {
@@ -827,20 +848,26 @@ static void ProcessPacket(PlayerController * control, Cursor * recCursor, Memory
         double z = ReadF64(recCursor);
         float headRotY = ReadF32(recCursor);
         float headRotX = ReadF32(recCursor);
-        i32 onGround = ReadBool(recCursor);
-        process_move_player_packet(control, player, x, y, z, headRotX, headRotY, onGround);
+        u8 flags = ReadU8(recCursor);
+        i32 onGround = !!(flags & 0x1);
+        i32 horizontalCollision = !!(flags & 0x2);
+        ProcessMovePlayerPacket(control, player, x, y, z, headRotX, headRotY, onGround, horizontalCollision);
         break;
     }
     case SBP_MOVE_PLAYER_ROT: {
         float headRotY = ReadF32(recCursor);
         float headRotX = ReadF32(recCursor);
-        i32 onGround = ReadU8(recCursor);
-        process_move_player_packet(control, player, player->x, player->y, player->z, headRotX, headRotY, onGround);
+        u8 flags = ReadU8(recCursor);
+        i32 onGround = !!(flags & 0x1);
+        i32 horizontalCollision = !!(flags & 0x2);
+        ProcessMovePlayerPacket(control, player, player->x, player->y, player->z, headRotX, headRotY, onGround, horizontalCollision);
         break;
     }
     case SBP_MOVE_PLAYER_STATUS_ONLY: {
-        i32 onGround = ReadU8(recCursor);
-        process_move_player_packet(control, player, player->x, player->y, player->z, player->rot_x, player->rot_y, onGround);
+        u8 flags = ReadU8(recCursor);
+        i32 onGround = !!(flags & 0x1);
+        i32 horizontalCollision = !!(flags & 0x2);
+        ProcessMovePlayerPacket(control, player, player->x, player->y, player->z, player->rot_x, player->rot_y, onGround, horizontalCollision);
         break;
     }
     case SBP_MOVE_VEHICLE: {
@@ -874,7 +901,7 @@ static void ProcessPacket(PlayerController * control, Cursor * recCursor, Memory
     }
     case SBP_PLACE_RECIPE: {
         LogInfo("Packet place recipe");
-        u8 containerId = ReadU8(recCursor);
+        i32 containerId = ReadVarU32(recCursor);
         String recipe = ReadVarString(recCursor, DEFAULT_PACKET_MAX_STRING_SIZE);
         i32 shiftDown = ReadBool(recCursor);
         // TODO(traks): handle packet
@@ -1073,12 +1100,14 @@ static void ProcessPacket(PlayerController * control, Cursor * recCursor, Memory
         break;
     }
     case SBP_PLAYER_INPUT: {
-        LogInfo("Packet player input");
-        f32 moveLeft = ReadF32(recCursor);
-        f32 moveForward = ReadF32(recCursor);
         u8 flags = ReadU8(recCursor);
-        i32 jumping = !!(flags & 0x1);
-        i32 shiftKeyDown = !!(flags & 0x2);
+        i32 forward = !!(flags & (1 << 0));
+        i32 backward = !!(flags & (1 << 1));
+        i32 left = !!(flags & (1 << 2));
+        i32 right = !!(flags & (1 << 3));
+        i32 jump = !!(flags & (1 << 4));
+        i32 shift = !!(flags & (1 << 5));
+        i32 sprint = !!(flags & (1 << 6));
         // TODO(traks): handle packet
         break;
     }
@@ -1098,7 +1127,7 @@ static void ProcessPacket(PlayerController * control, Cursor * recCursor, Memory
     }
     case SBP_RECIPE_BOOK_SEEN_RECIPE: {
         LogInfo("Packet recipe book seen recipe");
-        String recipe = ReadVarString(recCursor, DEFAULT_PACKET_MAX_STRING_SIZE);
+        i32 recipeId = ReadVarU32(recCursor);
         // TODO(traks): handle packet
         break;
     }
@@ -1196,7 +1225,7 @@ static void ProcessPacket(PlayerController * control, Cursor * recCursor, Memory
         is->size = stack.size;
         is->type = stack.typeId;
 
-        String itemTypeName = get_resource_loc(is->type, &serv->item_resource_table);
+        String itemTypeName = ResolveRegistryEntryName(&serv->itemRegistry, is->type);
         LogInfo("Set creative slot: %.*s", (int) itemTypeName.size, itemTypeName.data);
         break;
     }
@@ -1270,6 +1299,7 @@ static void ProcessPacket(PlayerController * control, Cursor * recCursor, Memory
         float clickOffsetZ = ReadF32(recCursor);
         // TODO(traks): figure out what this is used for
         u8 isInside = ReadU8(recCursor);
+        u8 worldBorderHit = ReadU8(recCursor);
         i32 sequenceNumber = ReadVarU32(recCursor);
 
         // TODO(traks): if we cancel at any point and don't kick the
@@ -1570,13 +1600,16 @@ send_light_update(Cursor * send_cursor, ChunkPos pos, Chunk * ch,
 
 static void SendPlayerTeleport(PlayerController * control, Entity * player, Cursor * send_cursor) {
     BeginPacket(send_cursor, CBP_PLAYER_POSITION);
+    WriteVarU32(send_cursor, player->currentTeleportId);
     WriteF64(send_cursor, player->x);
     WriteF64(send_cursor, player->y);
     WriteF64(send_cursor, player->z);
+    WriteF64(send_cursor, 0);
+    WriteF64(send_cursor, 0);
+    WriteF64(send_cursor, 0);
     WriteF32(send_cursor, player->rot_y);
     WriteF32(send_cursor, player->rot_x);
-    WriteU8(send_cursor, 0); // relative arguments
-    WriteVarU32(send_cursor, player->currentTeleportId);
+    WriteU32(send_cursor, 0); // relative arguments
     FinishPlayerPacket(send_cursor, control);
     control->lastSentTeleportId = player->currentTeleportId;
     control->flags |= PLAYER_CONTROL_AWAITING_TELEPORT;
@@ -2017,13 +2050,17 @@ try_update_tracked_entity(PlayerController * control,
             tracked->last_sent_rot_y = encoded_rot_y;
         }
     } else {
-        BeginPacket(send_cursor, CBP_TELEPORT_ENTITY);
+        BeginPacket(send_cursor, CBP_ENTITY_POSITION_SYNC);
         WriteVarU32(send_cursor, entity->id);
         WriteF64(send_cursor, entity->x);
         WriteF64(send_cursor, entity->y);
         WriteF64(send_cursor, entity->z);
-        WriteU8(send_cursor, encoded_rot_y);
-        WriteU8(send_cursor, encoded_rot_x);
+        // TODO(traks): send movement here (what unit?)
+        WriteF64(send_cursor, 0);
+        WriteF64(send_cursor, 0);
+        WriteF64(send_cursor, 0);
+        WriteF32(send_cursor, entity->rot_y);
+        WriteF32(send_cursor, entity->rot_x);
         WriteU8(send_cursor, !!(entity->flags & ENTITY_ON_GROUND));
         FinishPlayerPacket(send_cursor, control);
 
@@ -2384,52 +2421,12 @@ send_packets_to_player(PlayerController * control, Entity * player, MemoryArena 
         WriteU8(send_cursor, 0); // is flat
         WriteU8(send_cursor, 0); // has death location, world + pos after if true
         WriteVarU32(send_cursor, 0); // portal cooldown
+        WriteVarU32(send_cursor, 63); // sea level (of the dimension?)
         WriteU8(send_cursor, ENFORCE_SECURE_CHAT); // enforces secure chat
         FinishPlayerPacket(send_cursor, control);
 
-        BeginPacket(send_cursor, CBP_SET_CARRIED_ITEM);
+        BeginPacket(send_cursor, CBP_SET_HELD_SLOT);
         WriteU8(send_cursor, player->selected_slot - PLAYER_FIRST_HOTBAR_SLOT);
-        FinishPlayerPacket(send_cursor, control);
-
-        BeginPacket(send_cursor, CBP_UPDATE_TAGS);
-
-        tag_list * tag_lists[] = {
-            &serv->block_tags,
-            &serv->item_tags,
-            &serv->fluid_tags,
-            &serv->entity_tags,
-            &serv->game_event_tags,
-        };
-
-        WriteVarU32(send_cursor, ARRAY_SIZE(tag_lists));
-        for (int tagsi = 0; tagsi < (i32) ARRAY_SIZE(tag_lists); tagsi++) {
-            tag_list * tags = tag_lists[tagsi];
-
-            String name = {
-                .size = tags->name_size,
-                .data = tags->name
-            };
-
-            WriteVarString(send_cursor, name);
-            WriteVarU32(send_cursor, tags->size);
-
-            for (int i = 0; i < tags->size; i++) {
-                tag_spec * tag = tags->tags + i;
-                unsigned char * name_size = serv->tag_name_buf + tag->name_index;
-                String tag_name = {
-                    .size = *name_size,
-                    .data = name_size + 1
-                };
-
-                WriteVarString(send_cursor, tag_name);
-                WriteVarU32(send_cursor, tag->value_count);
-
-                for (int vali = 0; vali < tag->value_count; vali++) {
-                    i32 val = serv->tag_value_id_buf[tag->values_index + vali];
-                    WriteVarU32(send_cursor, val);
-                }
-            }
-        }
         FinishPlayerPacket(send_cursor, control);
 
         BeginPacket(send_cursor, CBP_CUSTOM_PAYLOAD);
@@ -2660,7 +2657,7 @@ send_packets_to_player(PlayerController * control, Entity * player, MemoryArena 
         control->flags |= PLAYER_CONTROL_INITIALISED_TAB_LIST;
         if (serv->tab_list_size > 0) {
             BeginPacket(send_cursor, CBP_PLAYER_INFO_UPDATE);
-            u8 actionBits = 0b111111; // everything
+            u8 actionBits = 0b1111111; // everything
             WriteU8(send_cursor, actionBits);
             WriteVarU32(send_cursor, serv->tab_list_size);
 
@@ -2686,6 +2683,7 @@ send_packets_to_player(PlayerController * control, Entity * player, MemoryArena 
                 WriteU8(send_cursor, 1); // listed
                 WriteVarU32(send_cursor, 0); // latency
                 WriteU8(send_cursor, 0); // has display name
+                WriteVarU32(send_cursor, 0); // list order
             }
             FinishPlayerPacket(send_cursor, control);
         }
@@ -2710,10 +2708,11 @@ send_packets_to_player(PlayerController * control, Entity * player, MemoryArena 
             // 3 = update listed
             // 4 = update latency
             // 5 = update display name
+            // 6 = update list order
 
             // TODO(traks): init chat?
 
-            u8 actionBits = 0b111111; // everything
+            u8 actionBits = 0b1111111; // everything
             WriteU8(send_cursor, actionBits);
             WriteVarU32(send_cursor, serv->tab_list_added_count);
 
@@ -2743,6 +2742,7 @@ send_packets_to_player(PlayerController * control, Entity * player, MemoryArena 
                 WriteU8(send_cursor, 1); // listed
                 WriteVarU32(send_cursor, 0); // latency
                 WriteU8(send_cursor, 0); // has display name
+                WriteVarU32(send_cursor, 0); // list order
             }
             FinishPlayerPacket(send_cursor, control);
         }
@@ -2759,7 +2759,7 @@ send_packets_to_player(PlayerController * control, Entity * player, MemoryArena 
 
             if (entity->changed_data & PLAYER_GAMEMODE_CHANGED) {
                 BeginPacket(send_cursor, CBP_PLAYER_INFO_UPDATE);
-                WriteVarU32(send_cursor, 0b000100); // action: update gamemode
+                WriteVarU32(send_cursor, 0b0000100); // action: update gamemode
                 WriteVarU32(send_cursor, 1); // changed entries
                 WriteUUID(send_cursor, entity->uuid);
                 WriteVarU32(send_cursor, entity->gamemode);
@@ -3011,6 +3011,7 @@ static void JoinPlayer(JoinRequest * request) {
     control->textFiltering = request->textFiltering;
     control->showInStatusList = request->showInStatusList;
     control->nextChunkCacheRadius = request->chunkCacheRadius;
+    control->particleStatus = request->particleStatus;
 
     control->last_keep_alive_sent_tick = serv->current_tick;
     control->flags |= PLAYER_CONTROL_GOT_ALIVE_RESPONSE;

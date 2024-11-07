@@ -5,13 +5,13 @@
 #include "blockinfo.h"
 #include "task.h"
 
-#define SERVER_PROTOCOL_VERSION (767)
+#define SERVER_PROTOCOL_VERSION (768)
 
-#define SERVER_WORLD_VERSION (3955)
+#define SERVER_WORLD_VERSION (4082)
 
-#define SERVER_GAME_VERSION "1.21.1"
+#define SERVER_GAME_VERSION "1.21.3"
 
-#define MAX_BLOCK_STATES (27000)
+#define MAX_BLOCK_STATES (28000)
 
 // NOTE(traks): For now we assume that block states can have at most this number
 // of bits. Don't change this! Parts of the code might break if the number of
@@ -224,6 +224,7 @@ enum item_type {
     ITEM_ACACIA_PLANKS,
     ITEM_CHERRY_PLANKS,
     ITEM_DARK_OAK_PLANKS,
+    ITEM_PALE_OAK_PLANKS,
     ITEM_MANGROVE_PLANKS,
     ITEM_BAMBOO_PLANKS,
     ITEM_CRIMSON_PLANKS,
@@ -236,6 +237,7 @@ enum item_type {
     ITEM_ACACIA_SAPLING,
     ITEM_CHERRY_SAPLING,
     ITEM_DARK_OAK_SAPLING,
+    ITEM_PALE_OAK_SAPLING,
     ITEM_MANGROVE_PROPAGULE,
     ITEM_BEDROCK,
     ITEM_SAND,
@@ -319,6 +321,7 @@ enum item_type {
     ITEM_JUNGLE_LOG,
     ITEM_ACACIA_LOG,
     ITEM_CHERRY_LOG,
+    ITEM_PALE_OAK_LOG,
     ITEM_DARK_OAK_LOG,
     ITEM_MANGROVE_LOG,
     ITEM_MANGROVE_ROOTS,
@@ -333,6 +336,7 @@ enum item_type {
     ITEM_STRIPPED_ACACIA_LOG,
     ITEM_STRIPPED_CHERRY_LOG,
     ITEM_STRIPPED_DARK_OAK_LOG,
+    ITEM_STRIPPED_PALE_OAK_LOG,
     ITEM_STRIPPED_MANGROVE_LOG,
     ITEM_STRIPPED_CRIMSON_STEM,
     ITEM_STRIPPED_WARPED_STEM,
@@ -343,6 +347,7 @@ enum item_type {
     ITEM_STRIPPED_ACACIA_WOOD,
     ITEM_STRIPPED_CHERRY_WOOD,
     ITEM_STRIPPED_DARK_OAK_WOOD,
+    ITEM_STRIPPED_PALE_OAK_WOOD,
     ITEM_STRIPPED_MANGROVE_WOOD,
     ITEM_STRIPPED_CRIMSON_HYPHAE,
     ITEM_STRIPPED_WARPED_HYPHAE,
@@ -353,6 +358,7 @@ enum item_type {
     ITEM_JUNGLE_WOOD,
     ITEM_ACACIA_WOOD,
     ITEM_CHERRY_WOOD,
+    ITEM_PALE_OAK_WOOD,
     ITEM_DARK_OAK_WOOD,
     ITEM_MANGROVE_WOOD,
     ITEM_CRIMSON_HYPHAE,
@@ -364,6 +370,7 @@ enum item_type {
     ITEM_ACACIA_LEAVES,
     ITEM_CHERRY_LEAVES,
     ITEM_DARK_OAK_LEAVES,
+    ITEM_PALE_OAK_LEAVES,
     ITEM_MANGROVE_LEAVES,
     ITEM_AZALEA_LEAVES,
     ITEM_FLOWERING_AZALEA_LEAVES,
@@ -426,9 +433,12 @@ enum item_type {
     ITEM_TWISTING_VINES,
     ITEM_SUGAR_CANE,
     ITEM_KELP,
-    ITEM_MOSS_CARPET,
     ITEM_PINK_PETALS,
+    ITEM_MOSS_CARPET,
     ITEM_MOSS_BLOCK,
+    ITEM_PALE_MOSS_CARPET,
+    ITEM_PALE_HANGING_MOSS,
+    ITEM_PALE_MOSS_BLOCK,
     ITEM_HANGING_ROOTS,
     ITEM_BIG_DRIPLEAF,
     ITEM_SMALL_DRIPLEAF,
@@ -440,6 +450,7 @@ enum item_type {
     ITEM_ACACIA_SLAB,
     ITEM_CHERRY_SLAB,
     ITEM_DARK_OAK_SLAB,
+    ITEM_PALE_OAK_SLAB,
     ITEM_MANGROVE_SLAB,
     ITEM_BAMBOO_SLAB,
     ITEM_BAMBOO_MOSAIC_SLAB,
@@ -480,6 +491,7 @@ enum item_type {
     ITEM_PURPUR_PILLAR,
     ITEM_PURPUR_STAIRS,
     ITEM_SPAWNER,
+    ITEM_CREAKING_HEART,
     ITEM_CHEST,
     ITEM_CRAFTING_TABLE,
     ITEM_FARMLAND,
@@ -499,6 +511,7 @@ enum item_type {
     ITEM_ACACIA_FENCE,
     ITEM_CHERRY_FENCE,
     ITEM_DARK_OAK_FENCE,
+    ITEM_PALE_OAK_FENCE,
     ITEM_MANGROVE_FENCE,
     ITEM_BAMBOO_FENCE,
     ITEM_CRIMSON_FENCE,
@@ -571,6 +584,7 @@ enum item_type {
     ITEM_ACACIA_STAIRS,
     ITEM_CHERRY_STAIRS,
     ITEM_DARK_OAK_STAIRS,
+    ITEM_PALE_OAK_STAIRS,
     ITEM_MANGROVE_STAIRS,
     ITEM_BAMBOO_STAIRS,
     ITEM_BAMBOO_MOSAIC_STAIRS,
@@ -872,6 +886,7 @@ enum item_type {
     ITEM_ACACIA_BUTTON,
     ITEM_CHERRY_BUTTON,
     ITEM_DARK_OAK_BUTTON,
+    ITEM_PALE_OAK_BUTTON,
     ITEM_MANGROVE_BUTTON,
     ITEM_BAMBOO_BUTTON,
     ITEM_CRIMSON_BUTTON,
@@ -887,6 +902,7 @@ enum item_type {
     ITEM_ACACIA_PRESSURE_PLATE,
     ITEM_CHERRY_PRESSURE_PLATE,
     ITEM_DARK_OAK_PRESSURE_PLATE,
+    ITEM_PALE_OAK_PRESSURE_PLATE,
     ITEM_MANGROVE_PRESSURE_PLATE,
     ITEM_BAMBOO_PRESSURE_PLATE,
     ITEM_CRIMSON_PRESSURE_PLATE,
@@ -899,6 +915,7 @@ enum item_type {
     ITEM_ACACIA_DOOR,
     ITEM_CHERRY_DOOR,
     ITEM_DARK_OAK_DOOR,
+    ITEM_PALE_OAK_DOOR,
     ITEM_MANGROVE_DOOR,
     ITEM_BAMBOO_DOOR,
     ITEM_CRIMSON_DOOR,
@@ -919,6 +936,7 @@ enum item_type {
     ITEM_ACACIA_TRAPDOOR,
     ITEM_CHERRY_TRAPDOOR,
     ITEM_DARK_OAK_TRAPDOOR,
+    ITEM_PALE_OAK_TRAPDOOR,
     ITEM_MANGROVE_TRAPDOOR,
     ITEM_BAMBOO_TRAPDOOR,
     ITEM_CRIMSON_TRAPDOOR,
@@ -938,6 +956,7 @@ enum item_type {
     ITEM_ACACIA_FENCE_GATE,
     ITEM_CHERRY_FENCE_GATE,
     ITEM_DARK_OAK_FENCE_GATE,
+    ITEM_PALE_OAK_FENCE_GATE,
     ITEM_MANGROVE_FENCE_GATE,
     ITEM_BAMBOO_FENCE_GATE,
     ITEM_CRIMSON_FENCE_GATE,
@@ -954,6 +973,7 @@ enum item_type {
     ITEM_HOPPER_MINECART,
     ITEM_CARROT_ON_A_STICK,
     ITEM_WARPED_FUNGUS_ON_A_STICK,
+    ITEM_PHANTOM_MEMBRANE,
     ITEM_ELYTRA,
     ITEM_OAK_BOAT,
     ITEM_OAK_CHEST_BOAT,
@@ -969,6 +989,8 @@ enum item_type {
     ITEM_CHERRY_CHEST_BOAT,
     ITEM_DARK_OAK_BOAT,
     ITEM_DARK_OAK_CHEST_BOAT,
+    ITEM_PALE_OAK_BOAT,
+    ITEM_PALE_OAK_CHEST_BOAT,
     ITEM_MANGROVE_BOAT,
     ITEM_MANGROVE_CHEST_BOAT,
     ITEM_BAMBOO_RAFT,
@@ -1074,6 +1096,7 @@ enum item_type {
     ITEM_ACACIA_SIGN,
     ITEM_CHERRY_SIGN,
     ITEM_DARK_OAK_SIGN,
+    ITEM_PALE_OAK_SIGN,
     ITEM_MANGROVE_SIGN,
     ITEM_BAMBOO_SIGN,
     ITEM_CRIMSON_SIGN,
@@ -1085,6 +1108,7 @@ enum item_type {
     ITEM_ACACIA_HANGING_SIGN,
     ITEM_CHERRY_HANGING_SIGN,
     ITEM_DARK_OAK_HANGING_SIGN,
+    ITEM_PALE_OAK_HANGING_SIGN,
     ITEM_MANGROVE_HANGING_SIGN,
     ITEM_BAMBOO_HANGING_SIGN,
     ITEM_CRIMSON_HANGING_SIGN,
@@ -1112,6 +1136,22 @@ enum item_type {
     ITEM_COMPASS,
     ITEM_RECOVERY_COMPASS,
     ITEM_BUNDLE,
+    ITEM_WHITE_BUNDLE,
+    ITEM_ORANGE_BUNDLE,
+    ITEM_MAGENTA_BUNDLE,
+    ITEM_LIGHT_BLUE_BUNDLE,
+    ITEM_YELLOW_BUNDLE,
+    ITEM_LIME_BUNDLE,
+    ITEM_PINK_BUNDLE,
+    ITEM_GRAY_BUNDLE,
+    ITEM_LIGHT_GRAY_BUNDLE,
+    ITEM_CYAN_BUNDLE,
+    ITEM_PURPLE_BUNDLE,
+    ITEM_BLUE_BUNDLE,
+    ITEM_BROWN_BUNDLE,
+    ITEM_GREEN_BUNDLE,
+    ITEM_RED_BUNDLE,
+    ITEM_BLACK_BUNDLE,
     ITEM_FISHING_ROD,
     ITEM_CLOCK,
     ITEM_SPYGLASS,
@@ -1179,8 +1219,8 @@ enum item_type {
     ITEM_GHAST_TEAR,
     ITEM_GOLD_NUGGET,
     ITEM_NETHER_WART,
-    ITEM_POTION,
     ITEM_GLASS_BOTTLE,
+    ITEM_POTION,
     ITEM_SPIDER_EYE,
     ITEM_FERMENTED_SPIDER_EYE,
     ITEM_BLAZE_POWDER,
@@ -1265,6 +1305,7 @@ enum item_type {
     ITEM_WITHER_SKELETON_SPAWN_EGG,
     ITEM_WOLF_SPAWN_EGG,
     ITEM_ZOGLIN_SPAWN_EGG,
+    ITEM_CREAKING_SPAWN_EGG,
     ITEM_ZOMBIE_SPAWN_EGG,
     ITEM_ZOMBIE_HORSE_SPAWN_EGG,
     ITEM_ZOMBIE_VILLAGER_SPAWN_EGG,
@@ -1274,6 +1315,7 @@ enum item_type {
     ITEM_WIND_CHARGE,
     ITEM_WRITABLE_BOOK,
     ITEM_WRITTEN_BOOK,
+    ITEM_BREEZE_ROD,
     ITEM_MACE,
     ITEM_ITEM_FRAME,
     ITEM_GLOW_ITEM_FRAME,
@@ -1370,7 +1412,6 @@ enum item_type {
     ITEM_MUSIC_DISC_PRECIPICE,
     ITEM_DISC_FRAGMENT_5,
     ITEM_TRIDENT,
-    ITEM_PHANTOM_MEMBRANE,
     ITEM_NAUTILUS_SHELL,
     ITEM_HEART_OF_THE_SEA,
     ITEM_CROSSBOW,
@@ -1384,6 +1425,8 @@ enum item_type {
     ITEM_PIGLIN_BANNER_PATTERN,
     ITEM_FLOW_BANNER_PATTERN,
     ITEM_GUSTER_BANNER_PATTERN,
+    ITEM_FIELD_MASONED_BANNER_PATTERN,
+    ITEM_BORDURE_INDENTED_BANNER_PATTERN,
     ITEM_GOAT_HORN,
     ITEM_COMPOSTER,
     ITEM_BARREL,
@@ -1513,7 +1556,6 @@ enum item_type {
     ITEM_OMINOUS_TRIAL_KEY,
     ITEM_VAULT,
     ITEM_OMINOUS_BOTTLE,
-    ITEM_BREEZE_ROD,
     ITEM_TYPE_COUNT,
 };
 
@@ -1614,47 +1656,58 @@ enum level_event_type {
 
 // NOTE(traks): generated in network order
 enum entity_type {
+    ENTITY_ACACIA_BOAT,
+    ENTITY_ACACIA_CHEST_BOAT,
     ENTITY_ALLAY,
     ENTITY_AREA_EFFECT_CLOUD,
     ENTITY_ARMADILLO,
     ENTITY_ARMOR_STAND,
     ENTITY_ARROW,
     ENTITY_AXOLOTL,
+    ENTITY_BAMBOO_CHEST_RAFT,
+    ENTITY_BAMBOO_RAFT,
     ENTITY_BAT,
     ENTITY_BEE,
+    ENTITY_BIRCH_BOAT,
+    ENTITY_BIRCH_CHEST_BOAT,
     ENTITY_BLAZE,
     ENTITY_BLOCK_DISPLAY,
-    ENTITY_BOAT,
     ENTITY_BOGGED,
     ENTITY_BREEZE,
     ENTITY_BREEZE_WIND_CHARGE,
     ENTITY_CAMEL,
     ENTITY_CAT,
     ENTITY_CAVE_SPIDER,
-    ENTITY_CHEST_BOAT,
+    ENTITY_CHERRY_BOAT,
+    ENTITY_CHERRY_CHEST_BOAT,
     ENTITY_CHEST_MINECART,
     ENTITY_CHICKEN,
     ENTITY_COD,
     ENTITY_COMMAND_BLOCK_MINECART,
     ENTITY_COW,
+    ENTITY_CREAKING,
+    ENTITY_CREAKING_TRANSIENT,
     ENTITY_CREEPER,
+    ENTITY_DARK_OAK_BOAT,
+    ENTITY_DARK_OAK_CHEST_BOAT,
     ENTITY_DOLPHIN,
     ENTITY_DONKEY,
     ENTITY_DRAGON_FIREBALL,
     ENTITY_DROWNED,
     ENTITY_EGG,
     ENTITY_ELDER_GUARDIAN,
-    ENTITY_END_CRYSTAL,
-    ENTITY_ENDER_DRAGON,
-    ENTITY_ENDER_PEARL,
     ENTITY_ENDERMAN,
     ENTITY_ENDERMITE,
+    ENTITY_ENDER_DRAGON,
+    ENTITY_ENDER_PEARL,
+    ENTITY_END_CRYSTAL,
     ENTITY_EVOKER,
     ENTITY_EVOKER_FANGS,
     ENTITY_EXPERIENCE_BOTTLE,
     ENTITY_EXPERIENCE_ORB,
     ENTITY_EYE_OF_ENDER,
     ENTITY_FALLING_BLOCK,
+    ENTITY_FIREBALL,
     ENTITY_FIREWORK_ROCKET,
     ENTITY_FOX,
     ENTITY_FROG,
@@ -1675,19 +1728,26 @@ enum entity_type {
     ENTITY_ITEM,
     ENTITY_ITEM_DISPLAY,
     ENTITY_ITEM_FRAME,
-    ENTITY_OMINOUS_ITEM_SPAWNER,
-    ENTITY_FIREBALL,
+    ENTITY_JUNGLE_BOAT,
+    ENTITY_JUNGLE_CHEST_BOAT,
     ENTITY_LEASH_KNOT,
     ENTITY_LIGHTNING_BOLT,
     ENTITY_LLAMA,
     ENTITY_LLAMA_SPIT,
     ENTITY_MAGMA_CUBE,
+    ENTITY_MANGROVE_BOAT,
+    ENTITY_MANGROVE_CHEST_BOAT,
     ENTITY_MARKER,
     ENTITY_MINECART,
     ENTITY_MOOSHROOM,
     ENTITY_MULE,
+    ENTITY_OAK_BOAT,
+    ENTITY_OAK_CHEST_BOAT,
     ENTITY_OCELOT,
+    ENTITY_OMINOUS_ITEM_SPAWNER,
     ENTITY_PAINTING,
+    ENTITY_PALE_OAK_BOAT,
+    ENTITY_PALE_OAK_CHEST_BOAT,
     ENTITY_PANDA,
     ENTITY_PARROT,
     ENTITY_PHANTOM,
@@ -1710,11 +1770,13 @@ enum entity_type {
     ENTITY_SLIME,
     ENTITY_SMALL_FIREBALL,
     ENTITY_SNIFFER,
-    ENTITY_SNOW_GOLEM,
     ENTITY_SNOWBALL,
+    ENTITY_SNOW_GOLEM,
     ENTITY_SPAWNER_MINECART,
     ENTITY_SPECTRAL_ARROW,
     ENTITY_SPIDER,
+    ENTITY_SPRUCE_BOAT,
+    ENTITY_SPRUCE_CHEST_BOAT,
     ENTITY_SQUID,
     ENTITY_STRAY,
     ENTITY_STRIDER,
@@ -2065,41 +2127,48 @@ typedef struct {
     unsigned char text[512];
 } global_msg;
 
-typedef struct {
-    // index into string buffer for name size + value
-    int name_index;
-    int value_count;
-    // index into value id buffer for array of values
-    int values_index;
-} tag_spec;
+// NOTE(traks): registry entry name sizes must fit in a single byte!
+#define REGISTRY_MAX_STRING_SIZE (255)
 
 typedef struct {
-    // resource location identifier of this tag list
-    unsigned char name_size;
-    unsigned char name[32];
-    // number of tags
-    int size;
-    tag_spec tags[190];
-} tag_list;
-
-#define RESOURCE_LOC_MAX_SIZE (256)
+    // NOTE(traks): index in string buffer
+    i32 nameIndex;
+    // NOTE(traks): index in tag value buffer
+    i32 valueIndex;
+} RegistryTagInfo;
 
 typedef struct {
-    unsigned char size;
-    u16 id;
-    u32 buf_index;
-} resource_loc_entry;
+    // NOTE(traks): index in string buffer
+    i32 nameIndex;
+    i32 id;
+} RegistryHashEntry;
 
 typedef struct {
-    i32 size_mask;
-    i32 string_buf_size;
-    resource_loc_entry * entries;
-    unsigned char * string_buf;
-    i32 last_string_buf_index;
+    i32 sendEntriesToClients;
 
-    u16 * by_id;
-    u16 max_ids;
-} resource_loc_table;
+    u8 name[32];
+    i32 nameSize;
+
+    // NOTE(traks): index in string buffer
+    i32 * idToNameBuffer;
+    i32 entryCount;
+    i32 idToNameBufferSize;
+
+    RegistryHashEntry * entryHashTable;
+    i32 entryHashTableSize;
+    i32 entryHashTableMask;
+
+    RegistryTagInfo * tagBuffer;
+    i32 * tagValueBuffer;
+    i32 tagBufferSize;
+    i32 tagCount;
+    i32 tagValueBufferSize;
+    i32 tagValueBufferCount;
+
+    u8 * stringPool;
+    i32 stringPoolSize;
+    i32 stringPoolCount;
+} Registry;
 
 typedef struct {
     WorldBlockPos pos;
@@ -2142,28 +2211,27 @@ typedef struct {
     UUID tab_list[MAX_PLAYERS];
     int tab_list_size;
 
-    tag_list block_tags;
-    tag_list entity_tags;
-    tag_list fluid_tags;
-    tag_list item_tags;
-    tag_list game_event_tags;
-    // total number of tag keys
-    int tag_name_count;
-    // total number of values
-    int tag_value_id_count;
-    // buffer for the tag keys in the tag lists
-    unsigned char tag_name_buf[1 << 14];
-    // buffer for the lists of values associated to the tag keys
-    u16 tag_value_id_buf[1 << 13];
-
-    resource_loc_table block_resource_table;
-    resource_loc_table item_resource_table;
-    resource_loc_table entity_resource_table;
-    resource_loc_table fluid_resource_table;
-    resource_loc_table game_event_resource_table;
+    // NOTE(traks): at the moment these should only be modified at server
+    // startup. They made be accessed from any thread afterwards.
+    Registry blockRegistry;
+    Registry itemRegistry;
+    Registry entityTypeRegistry;
+    Registry fluidRegistry;
+    Registry gameEventRegistry;
+    Registry biomeRegistry;
+    Registry chatTypeRegistry;
+    Registry trimPatternRegistry;
+    Registry trimMaterialRegistry;
+    Registry wolfVariantRegistry;
+    Registry paintingVariantRegistry;
+    Registry dimensionTypeRegistry;
+    Registry damageTypeRegistry;
+    Registry bannerPatternRegistry;
+    Registry enchantmentRegistry;
+    Registry jukeboxSongRegistry;
+    Registry instrumentRegistry;
 
     block_properties block_properties_table[ACTUAL_BLOCK_TYPE_COUNT];
-    int block_type_count;
     int vanilla_block_state_count;
     int actual_block_state_count;
     block_property_spec block_property_specs[BLOCK_PROPERTY_COUNT];
@@ -2203,6 +2271,14 @@ enum player_hand {
     PLAYER_OFF_HAND,
 };
 
+void SetRegistryName(Registry * registry, char * name);
+String GetRegistryString(Registry * registry, i32 index);
+i32 AddRegistryEntry(Registry * registry, char * name);
+void AddRegistryTag(Registry * registry, char * tagName, ...);
+void InitRegistries(void);
+i32 ResolveRegistryEntryId(Registry * registry, String entryName);
+String ResolveRegistryEntryName(Registry * registry, i32 entryId);
+
 int
 find_property_value_index(block_property_spec * prop_spec, String val);
 
@@ -2218,16 +2294,6 @@ void EvictEntity(EntityId id);
 void TeleportEntity(Entity * player, i32 worldId, f64 x, f64 y, f64 z, f32 rotX, f32 rotY);
 
 void SetPlayerGamemode(Entity * player, i32 newGamemode);
-
-void
-register_resource_loc(String resource_loc, i16 id,
-        resource_loc_table * table);
-
-i16
-resolve_resource_loc_id(String resource_loc, resource_loc_table * table);
-
-String
-get_resource_loc(u16 id, resource_loc_table * table);
 
 int
 net_string_equal(String a, String b);

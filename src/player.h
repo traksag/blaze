@@ -84,6 +84,7 @@ typedef struct {
     i32 mainHand;
     i32 textFiltering;
     i32 showInStatusList;
+    i32 particleStatus;
 
     i64 last_keep_alive_sent_tick;
 
@@ -147,6 +148,7 @@ typedef struct {
     i32 mainHand;
     i32 textFiltering;
     i32 showInStatusList;
+    i32 particleStatus;
 } JoinRequest;
 
 i32 QueuePlayerJoin(JoinRequest request);

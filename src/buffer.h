@@ -136,6 +136,7 @@ static inline i32 CursorSkip(Cursor * cursor, i32 skip) {
         cursor->index += skip;
         return 1;
     } else {
+        assert(0);
         cursor->error = 1;
         // NOTE(traks): Especially for reading buffers, don't let errors break
         // progress assumptions, so we don't end up in infinite loops, etc.

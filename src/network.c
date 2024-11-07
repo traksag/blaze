@@ -68,6 +68,7 @@ typedef struct {
     i32 mainHand;
     i32 textFiltering;
     i32 showInStatusList;
+    i32 particleStatus;
 } Client;
 
 typedef struct {
@@ -172,7 +173,7 @@ static void CreateClient(int clientSocket, i64 nanoTime) {
     //     together inside the receive buffer.
     i32 receiveBufferSize = 1 << 10;
     // TODO(traks): figure out appropriate size
-    i32 sendBufferSize = 16 << 10;
+    i32 sendBufferSize = 32 << 10;
     client->recBuf = (Buffer) {
         .data = malloc(receiveBufferSize),
         .size = receiveBufferSize,
@@ -209,305 +210,85 @@ static void ClientMarkTerminate(Client * client) {
     client->flags |= CLIENT_SHOULD_TERMINATE;
 }
 
-static void WriteSingleRegistry(Client * client, Cursor * sendCursor, char * name, char * * entries, i32 entryCount) {
+static void WriteRegistryEntries(Client * client, Cursor * sendCursor, Registry * registry) {
+    // NOTE(traks): registry data packet
     BeginPacket(sendCursor, 7);
-    WriteVarString(sendCursor, STR(name));
-    WriteVarU32(sendCursor, entryCount);
-    for (i32 i = 0; i < entryCount; i++) {
-        WriteVarString(sendCursor, STR(entries[i]));
+    String registryName = {.data = registry->name, .size = registry->nameSize};
+    WriteVarString(sendCursor, registryName);
+    WriteVarU32(sendCursor, registry->entryCount);
+    for (i32 id = 0; id < registry->entryCount; id++) {
+        String entryName = ResolveRegistryEntryName(registry, id);
+        WriteVarString(sendCursor, entryName);
         WriteU8(sendCursor, 0); // no data
     }
     FinishPacket(sendCursor, !!(client->flags & CLIENT_PACKET_COMPRESSION));
 }
 
 static void WriteAllRegistries(Client * client, Cursor * sendCursor) {
-    char * trimMaterials[] = {
-        "minecraft:amethyst",
-        "minecraft:copper",
-        "minecraft:diamond",
-        "minecraft:emerald",
-        "minecraft:gold",
-        "minecraft:iron",
-        "minecraft:lapis",
-        "minecraft:netherite",
-        "minecraft:quartz",
-        "minecraft:redstone",
+    Registry * registries[] = {
+        &serv->blockRegistry,
+        &serv->itemRegistry,
+        &serv->entityTypeRegistry,
+        &serv->fluidRegistry,
+        &serv->gameEventRegistry,
+        &serv->biomeRegistry,
+        &serv->chatTypeRegistry,
+        &serv->trimPatternRegistry,
+        &serv->trimMaterialRegistry,
+        &serv->wolfVariantRegistry,
+        &serv->paintingVariantRegistry,
+        &serv->dimensionTypeRegistry,
+        &serv->damageTypeRegistry,
+        &serv->bannerPatternRegistry,
+        &serv->enchantmentRegistry,
+        &serv->jukeboxSongRegistry,
+        &serv->instrumentRegistry,
     };
-    WriteSingleRegistry(client, sendCursor, "minecraft:trim_material", trimMaterials, ARRAY_SIZE(trimMaterials));
 
-    char * trimPatterns[] = {
-        "minecraft:bolt",
-        "minecraft:coast",
-        "minecraft:dune",
-        "minecraft:eye",
-        "minecraft:flow",
-        "minecraft:host",
-        "minecraft:raiser",
-        "minecraft:rib",
-        "minecraft:sentry",
-        "minecraft:shaper",
-        "minecraft:silence",
-        "minecraft:snout",
-        "minecraft:spire",
-        "minecraft:tide",
-        "minecraft:vex",
-        "minecraft:ward",
-        "minecraft:wayfinder",
-        "minecraft:wild",
-    };
-    WriteSingleRegistry(client, sendCursor, "minecraft:trim_pattern", trimPatterns, ARRAY_SIZE(trimPatterns));
+    for (i32 registryIndex = 0; registryIndex < (i32) ARRAY_SIZE(registries); registryIndex++) {
+        Registry * registry = registries[registryIndex];
+        if (registry->sendEntriesToClients) {
+            WriteRegistryEntries(client, sendCursor, registry);
+        }
+    }
 
-    char * bannerPatterns[] = {
-        "minecraft:base",
-        "minecraft:border",
-        "minecraft:bricks",
-        "minecraft:circle",
-        "minecraft:creeper",
-        "minecraft:cross",
-        "minecraft:curly_border",
-        "minecraft:diagonal_left",
-        "minecraft:diagonal_right",
-        "minecraft:diagonal_up_left",
-        "minecraft:diagonal_up_right",
-        "minecraft:flow",
-        "minecraft:flower",
-        "minecraft:globe",
-        "minecraft:gradient",
-        "minecraft:gradient_up",
-        "minecraft:guster",
-        "minecraft:half_horizontal",
-        "minecraft:half_horizontal_bottom",
-        "minecraft:half_vertical",
-        "minecraft:half_vertical_right",
-        "minecraft:mojang",
-        "minecraft:piglin",
-        "minecraft:rhombus",
-        "minecraft:skull",
-        "minecraft:small_stripes",
-        "minecraft:square_bottom_left",
-        "minecraft:square_bottom_right",
-        "minecraft:square_top_left",
-        "minecraft:square_top_right",
-        "minecraft:straight_cross",
-        "minecraft:stripe_bottom",
-        "minecraft:stripe_center",
-        "minecraft:stripe_downleft",
-        "minecraft:stripe_downright",
-        "minecraft:stripe_left",
-        "minecraft:stripe_middle",
-        "minecraft:stripe_right",
-        "minecraft:stripe_top",
-        "minecraft:triangle_bottom",
-        "minecraft:triangle_top",
-        "minecraft:triangles_bottom",
-        "minecraft:triangles_top",
-    };
-    WriteSingleRegistry(client, sendCursor, "minecraft:banner_pattern", bannerPatterns, ARRAY_SIZE(bannerPatterns));
+    Registry * registriesWithTags[ARRAY_SIZE(registries)];
+    i32 registriesWithTagsCount = 0;
 
-    char * biomes[] = {
-        "minecraft:badlands",
-        "minecraft:bamboo_jungle",
-        "minecraft:basalt_deltas",
-        "minecraft:beach",
-        "minecraft:birch_forest",
-        "minecraft:cherry_grove",
-        "minecraft:cold_ocean",
-        "minecraft:crimson_forest",
-        "minecraft:dark_forest",
-        "minecraft:deep_cold_ocean",
-        "minecraft:deep_dark",
-        "minecraft:deep_frozen_ocean",
-        "minecraft:deep_lukewarm_ocean",
-        "minecraft:deep_ocean",
-        "minecraft:desert",
-        "minecraft:dripstone_caves",
-        "minecraft:end_barrens",
-        "minecraft:end_highlands",
-        "minecraft:end_midlands",
-        "minecraft:eroded_badlands",
-        "minecraft:flower_forest",
-        "minecraft:forest",
-        "minecraft:frozen_ocean",
-        "minecraft:frozen_peaks",
-        "minecraft:frozen_river",
-        "minecraft:grove",
-        "minecraft:ice_spikes",
-        "minecraft:jagged_peaks",
-        "minecraft:jungle",
-        "minecraft:lukewarm_ocean",
-        "minecraft:lush_caves",
-        "minecraft:mangrove_swamp",
-        "minecraft:meadow",
-        "minecraft:mushroom_fields",
-        "minecraft:nether_wastes",
-        "minecraft:ocean",
-        "minecraft:old_growth_birch_forest",
-        "minecraft:old_growth_pine_taiga",
-        "minecraft:old_growth_spruce_taiga",
-        "minecraft:plains",
-        "minecraft:river",
-        "minecraft:savanna",
-        "minecraft:savanna_plateau",
-        "minecraft:small_end_islands",
-        "minecraft:snowy_beach",
-        "minecraft:snowy_plains",
-        "minecraft:snowy_slopes",
-        "minecraft:snowy_taiga",
-        "minecraft:soul_sand_valley",
-        "minecraft:sparse_jungle",
-        "minecraft:stony_peaks",
-        "minecraft:stony_shore",
-        "minecraft:sunflower_plains",
-        "minecraft:swamp",
-        "minecraft:taiga",
-        "minecraft:the_end",
-        "minecraft:the_void",
-        "minecraft:warm_ocean",
-        "minecraft:warped_forest",
-        "minecraft:windswept_forest",
-        "minecraft:windswept_gravelly_hills",
-        "minecraft:windswept_hills",
-        "minecraft:windswept_savanna",
-        "minecraft:wooded_badlands",
-    };
-    WriteSingleRegistry(client, sendCursor, "minecraft:worldgen/biome", biomes, ARRAY_SIZE(biomes));
+    for (i32 registryIndex = 0; registryIndex < (i32) ARRAY_SIZE(registries); registryIndex++) {
+        Registry * registry = registries[registryIndex];
+        if (registry->tagCount > 0) {
+            registriesWithTags[registriesWithTagsCount++] = registry;
+        }
+    }
 
-    char * chatTypes[] = {
-        "minecraft:chat",
-        "minecraft:emote_command",
-        "minecraft:msg_command_incoming",
-        "minecraft:msg_command_outgoing",
-        "minecraft:say_command",
-        "minecraft:team_msg_command_incoming",
-        "minecraft:team_msg_command_outgoing",
-    };
-    WriteSingleRegistry(client, sendCursor, "minecraft:chat_type", chatTypes, ARRAY_SIZE(chatTypes));
+    // NOTE(traks): update tags packet
+    BeginPacket(sendCursor, 13);
+    WriteVarU32(sendCursor, registriesWithTagsCount);
+    for (i32 registryIndex = 0; registryIndex < registriesWithTagsCount; registryIndex++) {
+        Registry * registry = registriesWithTags[registryIndex];
+        String registryName = {.data = registry->name, .size = registry->nameSize};
 
-    char * damageTypes[] = {
-        "minecraft:arrow",
-        "minecraft:bad_respawn_point",
-        "minecraft:cactus",
-        "minecraft:campfire",
-        "minecraft:cramming",
-        "minecraft:dragon_breath",
-        "minecraft:drown",
-        "minecraft:dry_out",
-        "minecraft:explosion",
-        "minecraft:fall",
-        "minecraft:falling_anvil",
-        "minecraft:falling_block",
-        "minecraft:falling_stalactite",
-        "minecraft:fireball",
-        "minecraft:fireworks",
-        "minecraft:fly_into_wall",
-        "minecraft:freeze",
-        "minecraft:generic",
-        "minecraft:generic_kill",
-        "minecraft:hot_floor",
-        "minecraft:in_fire",
-        "minecraft:in_wall",
-        "minecraft:indirect_magic",
-        "minecraft:lava",
-        "minecraft:lightning_bolt",
-        "minecraft:magic",
-        "minecraft:mob_attack",
-        "minecraft:mob_attack_no_aggro",
-        "minecraft:mob_projectile",
-        "minecraft:on_fire",
-        "minecraft:out_of_world",
-        "minecraft:outside_border",
-        "minecraft:player_attack",
-        "minecraft:player_explosion",
-        "minecraft:sonic_boom",
-        "minecraft:spit",
-        "minecraft:stalagmite",
-        "minecraft:starve",
-        "minecraft:sting",
-        "minecraft:sweet_berry_bush",
-        "minecraft:thorns",
-        "minecraft:thrown",
-        "minecraft:trident",
-        "minecraft:unattributed_fireball",
-        "minecraft:wind_charge",
-        "minecraft:wither",
-        "minecraft:wither_skull",
-    };
-    WriteSingleRegistry(client, sendCursor, "minecraft:damage_type", damageTypes, ARRAY_SIZE(damageTypes));
+        WriteVarString(sendCursor, registryName);
+        WriteVarU32(sendCursor, registry->tagCount);
 
-    char * dimensionTypes[] = {
-        "minecraft:overworld",
-        "minecraft:overworld_caves",
-        "minecraft:the_end",
-        "minecraft:the_nether",
-    };
-    WriteSingleRegistry(client, sendCursor, "minecraft:dimension_type", dimensionTypes, ARRAY_SIZE(dimensionTypes));
+        for (i32 tagIndex = 0; tagIndex < registry->tagCount; tagIndex++) {
+            RegistryTagInfo tag = registry->tagBuffer[tagIndex];
+            String tagName = GetRegistryString(registry, tag.nameIndex);
+            i32 * tagValues = registry->tagValueBuffer + tag.valueIndex;
+            i32 valueCount = tagValues[0];
+            tagValues++;
 
-    char * wolfVariants[] = {
-        "minecraft:ashen",
-        "minecraft:black",
-        "minecraft:chestnut",
-        "minecraft:pale",
-        "minecraft:rusty",
-        "minecraft:snowy",
-        "minecraft:spotted",
-        "minecraft:striped",
-        "minecraft:woods",
-    };
-    WriteSingleRegistry(client, sendCursor, "minecraft:wolf_variant", wolfVariants, ARRAY_SIZE(wolfVariants));
+            WriteVarString(sendCursor, tagName);
+            WriteVarU32(sendCursor, valueCount);
 
-    char * paintingVariants[] = {
-        "minecraft:alban",
-        "minecraft:aztec",
-        "minecraft:aztec2",
-        "minecraft:backyard",
-        "minecraft:baroque",
-        "minecraft:bomb",
-        "minecraft:bouquet",
-        "minecraft:burning_skull",
-        "minecraft:bust",
-        "minecraft:cavebird",
-        "minecraft:changing",
-        "minecraft:cotan",
-        "minecraft:courbet",
-        "minecraft:creebet",
-        "minecraft:donkey_kong",
-        "minecraft:earth",
-        "minecraft:endboss",
-        "minecraft:fern",
-        "minecraft:fighters",
-        "minecraft:finding",
-        "minecraft:fire",
-        "minecraft:graham",
-        "minecraft:humble",
-        "minecraft:kebab",
-        "minecraft:lowmist",
-        "minecraft:match",
-        "minecraft:meditative",
-        "minecraft:orb",
-        "minecraft:owlemons",
-        "minecraft:passage",
-        "minecraft:pigscene",
-        "minecraft:plant",
-        "minecraft:pointer",
-        "minecraft:pond",
-        "minecraft:pool",
-        "minecraft:prairie_ride",
-        "minecraft:sea",
-        "minecraft:skeleton",
-        "minecraft:skull_and_roses",
-        "minecraft:stage",
-        "minecraft:sunflowers",
-        "minecraft:sunset",
-        "minecraft:tides",
-        "minecraft:unpacked",
-        "minecraft:void",
-        "minecraft:wanderer",
-        "minecraft:wasteland",
-        "minecraft:water",
-        "minecraft:wind",
-        "minecraft:wither",
-    };
-    WriteSingleRegistry(client, sendCursor, "minecraft:painting_variant", paintingVariants, ARRAY_SIZE(paintingVariants));
+            for (i32 valueIndex = 0; valueIndex < valueCount; valueIndex++) {
+                i32 valueId = tagValues[valueIndex];
+                WriteVarU32(sendCursor, valueId);
+            }
+        }
+    }
+    FinishPacket(sendCursor, !!(client->flags & CLIENT_PACKET_COMPRESSION));
 }
 
 static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Cursor * sendCursor, MemoryArena * arena) {
@@ -663,12 +444,11 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
             client->flags |= CLIENT_PACKET_COMPRESSION;
         }
 
-        // NOTE(traks): send game profile packet
+        // NOTE(traks): send login finish packet
         BeginPacket(sendCursor, 2);
         WriteUUID(sendCursor, uuid);
         WriteVarString(sendCursor, username);
         WriteVarU32(sendCursor, 0); // no properties for now
-        WriteU8(sendCursor, 1); // strict packet processing
         FinishPacket(sendCursor, !!(client->flags & CLIENT_PACKET_COMPRESSION));
 
         client->protocolState = PROTOCOL_AWAIT_LOGIN_ACK;
@@ -721,6 +501,7 @@ static void ClientProcessSinglePacket(Client * client, Cursor * recCursor, Curso
             client->mainHand = ReadVarU32(recCursor);
             client->textFiltering = ReadU8(recCursor);
             client->showInStatusList = ReadU8(recCursor);
+            client->particleStatus = ReadVarU32(recCursor);
 
             client->flags |= CLIENT_GOT_CLIENT_INFO;
         } else if (packetId == 2) {
@@ -920,6 +701,7 @@ static void ClientProcessAllPackets(Client * client) {
         request.mainHand = client->mainHand;
         request.textFiltering = client->textFiltering;
         request.showInStatusList = client->showInStatusList;
+        request.particleStatus = client->particleStatus;
         if (!QueuePlayerJoin(request)) {
             LogInfo("Join queue is full");
             ClientMarkTerminate(client);

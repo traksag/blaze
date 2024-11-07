@@ -313,9 +313,9 @@ void WorldLoadChunk(Chunk * chunk, MemoryArena * scratchArena) {
             for (u32 paletteIndex = 0; paletteIndex < paletteSize; paletteIndex++) {
                 NbtCompound paletteEntryNbt = NbtNextCompound(&palette);
                 String resourceLoc = NbtGetString(&paletteEntryNbt, STR("Name"));
-                i16 typeId = resolve_resource_loc_id(resourceLoc, &serv->block_resource_table);
+                i32 typeId = ResolveRegistryEntryId(&serv->blockRegistry, resourceLoc);
 
-                if (typeId < 0) {
+                if (typeId < 0 || typeId >= ACTUAL_BLOCK_TYPE_COUNT) {
                     LogInfo("Encountered invalid block type");
                     goto bail;
                 }
