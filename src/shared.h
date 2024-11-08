@@ -2,7 +2,7 @@
 #define SHARED_H
 
 #include "base.h"
-#include "blockinfo.h"
+#include "block.h"
 #include "task.h"
 
 #define SERVER_PROTOCOL_VERSION (768)
@@ -2324,9 +2324,6 @@ get_opposite_direction(int direction);
 
 int
 get_direction_axis(int direction);
-
-void
-init_item_data(void);
 
 void
 update_stairs_shape(WorldBlockPos pos, block_state_info * cur_info);

@@ -712,7 +712,6 @@ main(void) {
     serv->permanentArena = &permanentArena;
 
     InitRegistries();
-    init_item_data();
     init_block_data();
 
     // @NOTE(traks) chunk sections assume that no changes happen in tick 0, so
