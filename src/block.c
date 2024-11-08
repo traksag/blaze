@@ -95,20 +95,14 @@ has_block_state_property(block_state_info * info, int prop) {
     return !!(info->available_properties[prop >> 6] & ((u64) 1 << (prop & 0x3f)));
 }
 
-block_state_info
-describe_block_state(u16 block_state) {
+block_state_info DescribeStateIndex(block_properties * props, i32 stateIndex) {
     block_state_info res = {0};
-    i32 block_type = serv->block_type_by_state[block_state];
-    block_properties * props = serv->block_properties_table + block_type;
-    u16 base_state = props->base_state;
-    int offset = block_state - base_state;
-
     res.type_tags = props->type_tags;
 
     for (int i = props->property_count - 1; i >= 0; i--) {
         int id = props->property_specs[i];
         block_property_spec * spec = serv->block_property_specs + id;
-        int value_index = offset % spec->value_count;
+        int value_index = stateIndex % spec->value_count;
 
         mark_block_state_property(&res, id);
 
@@ -240,10 +234,19 @@ describe_block_state(u16 block_state) {
 
         res.values[id] = value;
 
-        offset = offset / spec->value_count;
+        stateIndex = stateIndex / spec->value_count;
     }
+    return res;
+}
 
-    res.block_type = block_type;
+block_state_info
+describe_block_state(u16 block_state) {
+    i32 blockType = serv->block_type_by_state[block_state];
+    block_properties * props = serv->block_properties_table + blockType;
+    u16 baseState = props->base_state;
+    i32 stateIndex = block_state - baseState;
+    block_state_info res = DescribeStateIndex(props, stateIndex);
+    res.block_type = blockType;
     return res;
 }
 

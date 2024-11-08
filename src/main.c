@@ -712,7 +712,7 @@ main(void) {
     serv->permanentArena = &permanentArena;
 
     InitRegistries();
-    init_block_data();
+    init_block_data(&(MemoryArena) {.data = serv->short_lived_scratch, .size = serv->short_lived_scratch_size});
 
     // @NOTE(traks) chunk sections assume that no changes happen in tick 0, so
     // initialise tick number to something larger than 0 to be safe

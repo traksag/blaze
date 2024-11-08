@@ -1585,9 +1585,10 @@ int can_pressure_plate_survive_on(u16 state_below);
 int can_redstone_wire_survive_on(u16 state_below);
 int can_sugar_cane_survive_at(WorldBlockPos cur_pos);
 
-void init_block_data(void);
+void init_block_data(MemoryArena * scratchArena);
 
 int has_block_state_property(block_state_info * info, int prop);
+block_state_info DescribeStateIndex(block_properties * props, i32 stateIndex);
 block_state_info describe_block_state(u16 block_state);
 u16 get_default_block_state(i32 block_type);
 block_state_info describe_default_block_state(i32 block_type);
