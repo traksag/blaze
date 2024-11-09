@@ -363,7 +363,7 @@ place_slab(place_context context, i32 place_type) {
     WorldBlockPos target_pos = context.clicked_pos;
     u16 cur_state = WorldGetBlockState(target_pos);
     block_state_info cur_info = describe_block_state(cur_state);
-    i32 cur_type = cur_info.block_type;
+    i32 cur_type = cur_info.blockType;
 
     int replace_cur = 0;
     if (cur_type == place_type) {
@@ -382,7 +382,7 @@ place_slab(place_context context, i32 place_type) {
         target_pos = WorldBlockPosRel(target_pos, context.clicked_face);
         cur_state = WorldGetBlockState(target_pos);
         cur_info = describe_block_state(cur_state);
-        cur_type = cur_info.block_type;
+        cur_type = cur_info.blockType;
 
         if (cur_type != place_type && !can_replace(place_type, cur_type)) {
             return;
@@ -418,7 +418,7 @@ place_sea_pickle(place_context context, i32 place_type) {
     WorldBlockPos target_pos = context.clicked_pos;
     u16 cur_state = WorldGetBlockState(target_pos);
     block_state_info cur_info = describe_block_state(cur_state);
-    i32 cur_type = cur_info.block_type;
+    i32 cur_type = cur_info.blockType;
 
     int replace_cur = 0;
     if (cur_type == place_type) {
@@ -433,7 +433,7 @@ place_sea_pickle(place_context context, i32 place_type) {
         target_pos = WorldBlockPosRel(target_pos, context.clicked_face);
         cur_state = WorldGetBlockState(target_pos);
         cur_info = describe_block_state(cur_state);
-        cur_type = cur_info.block_type;
+        cur_type = cur_info.blockType;
 
         if (cur_type == place_type) {
             if (cur_info.pickles >= 4) {
@@ -468,7 +468,7 @@ place_snow(place_context context, i32 place_type) {
     WorldBlockPos target_pos = context.clicked_pos;
     u16 cur_state = WorldGetBlockState(target_pos);
     block_state_info cur_info = describe_block_state(cur_state);
-    i32 cur_type = cur_info.block_type;
+    i32 cur_type = cur_info.blockType;
 
     int replace_cur = 0;
     if (cur_type == place_type) {
@@ -483,7 +483,7 @@ place_snow(place_context context, i32 place_type) {
         target_pos = WorldBlockPosRel(target_pos, context.clicked_face);
         cur_state = WorldGetBlockState(target_pos);
         cur_info = describe_block_state(cur_state);
-        cur_type = cur_info.block_type;
+        cur_type = cur_info.blockType;
 
         if (cur_type == place_type) {
             if (cur_info.layers >= 8) {
@@ -773,7 +773,7 @@ place_end_rod(place_context context, i32 place_type) {
     u16 opposite_state = WorldGetBlockState(opposite_pos);
     block_state_info opposite_info = describe_block_state(opposite_state);
 
-    if (opposite_info.block_type == place_type) {
+    if (opposite_info.blockType == place_type) {
         if (opposite_info.facing == context.clicked_face) {
             place_info.facing = opposite_face;
         } else {

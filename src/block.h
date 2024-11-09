@@ -1275,8 +1275,12 @@ enum sculk_sensor_phase {
     SCULK_SENSOR_PHASE_COOLDOWN,
 };
 
+#define MAX_BLOCK_PROPERTY_VALUES (32)
+#define MAX_PROPERTIES_PER_BLOCK (8)
+
 typedef struct {
     unsigned char value_count;
+    i8 intValues[MAX_BLOCK_PROPERTY_VALUES];
     // name size, name, value size, value, value size, value, etc.
     unsigned char tape[255];
 } block_property_spec;
@@ -1372,9 +1376,7 @@ enum block_property {
     BLOCK_PROPERTY_LEVEL_CAULDRON,
     BLOCK_PROPERTY_LEVEL_COMPOSTER,
     BLOCK_PROPERTY_LEVEL_HONEY,
-    // @NOTE(traks) this is ONLY used for fluids so we can decode it as flowing
-    // fluid level. In vanilla MC it is also used for other things
-    BLOCK_PROPERTY_LEVEL,
+    BLOCK_PROPERTY_LEVEL_FLUID,
     BLOCK_PROPERTY_LEVEL_LIGHT,
     BLOCK_PROPERTY_MOISTURE,
     BLOCK_PROPERTY_NOTE,
@@ -1424,8 +1426,8 @@ enum BlockTag {
     BLOCK_TAG_FENCE_GATE,
 };
 
-// @NOTE(traks) This struct is used to modify block properties in a more
-// 'natural' way. We don't have to input block property strides and value
+// NOTE(traks): This struct is used to modify block properties in a more
+// "natural" way. We don't have to input block property strides and value
 // indices manually whenever we want to create a block state with certain
 // properties, and we don't have to manually 'decode' block states into usable
 // block properties either.
@@ -1435,137 +1437,137 @@ enum BlockTag {
 // struct; we don't need a giant switch statement.
 //
 // We also transform some value indices into proper values, so e.g. true is 1
-// instead of 0, directions always use the direction enum values, and axis
+// instead of 0, directions always use the direction enum values, and axes
 // always use the axis enum values.
 
-// @TODO(traks) perhaps we should change boolean properties into flags of a long
-// field and add some other things such as fluid level, collision model,
-// support model, etc. just for convenience. Would also be nice to deduplicate
-// some fields such as facing & age.
+// TODO(traks): in the future, we might want to store a list of 8 or so property
+// IDs in here + their values, instead of a list of all block properties. The
+// benefit of the current setup is that accessing properties is very easy, no
+// functions are needed to access them!
 typedef struct {
-    u64 available_properties[2];
-    u32 type_tags;
-    u16 block_type;
+    u32 typeTags;
+    u16 blockType;
 
     union {
-        u8 values[BLOCK_PROPERTY_COUNT];
+        // NOTE(traks): a value of -1 means the property is not used
+        i8 values[BLOCK_PROPERTY_COUNT];
         struct {
-            u8 attached;
-            u8 bottom;
-            u8 conditional;
-            u8 disarmed;
-            u8 drag;
-            u8 enabled;
-            u8 extended;
-            u8 eye;
-            u8 falling;
-            u8 hanging;
-            u8 has_bottle_0;
-            u8 has_bottle_1;
-            u8 has_bottle_2;
-            u8 has_record;
-            u8 has_book;
-            u8 inverted;
-            u8 in_wall;
-            u8 lit;
-            u8 tip;
-            u8 locked;
-            u8 occupied;
-            u8 open;
-            u8 persistent;
-            u8 powered;
-            u8 short_piston;
-            u8 signal_fire;
-            u8 snowy;
-            u8 triggered;
-            u8 unstable;
-            u8 waterlogged;
-            u8 berries;
-            u8 bloom;
-            u8 shrieking;
-            u8 can_summon;
-            u8 horizontal_axis;
-            u8 axis;
-            u8 neg_y;
-            u8 pos_y;
-            u8 neg_z;
-            u8 pos_z;
-            u8 neg_x;
-            u8 pos_x;
-            u8 facing;
-            u8 facing_hopper;
-            u8 horizontal_facing;
-            u8 flower_amount;
-            u8 jigsaw_orientation;
-            u8 attach_face;
-            u8 bell_attachment;
-            u8 wall_pos_x;
-            u8 wall_neg_z;
-            u8 wall_pos_z;
-            u8 wall_neg_x;
-            u8 redstone_pos_x;
-            u8 redstone_neg_z;
-            u8 redstone_pos_z;
-            u8 redstone_neg_x;
-            u8 double_block_half;
-            u8 half;
-            u8 rail_shape;
-            u8 rail_shape_straight;
-            u8 age_1;
-            u8 age_2;
-            u8 age_3;
-            u8 age_4;
-            u8 age_5;
-            u8 age_7;
-            u8 age_15;
-            u8 age_25;
-            u8 bites;
-            u8 candles;
-            u8 delay;
-            u8 distance;
-            u8 eggs;
-            u8 hatch;
-            u8 layers;
-            u8 level_cauldron;
-            u8 level_composter;
-            u8 level_honey;
-            u8 level;
-            u8 level_light;
-            u8 moisture;
-            u8 note;
-            u8 pickles;
-            u8 power;
-            u8 stage;
-            u8 stability_distance;
-            u8 respawn_anchor_charges;
-            u8 rotation_16;
-            u8 bed_part;
-            u8 chest_type;
-            u8 mode_comparator;
-            u8 door_hinge;
-            u8 noteblock_instrument;
-            u8 piston_type;
-            u8 slab_type;
-            u8 stairs_shape;
-            u8 structureblock_mode;
-            u8 bamboo_leaves;
-            u8 dripleaf_tilt;
-            u8 vertical_direction;
-            u8 dripstone_thickness;
-            u8 sculk_sensor_phase;
-            u8 chiseled_bookshelf_slot_0_occupied;
-            u8 chiseled_bookshelf_slot_1_occupied;
-            u8 chiseled_bookshelf_slot_2_occupied;
-            u8 chiseled_bookshelf_slot_3_occupied;
-            u8 chiseled_bookshelf_slot_4_occupied;
-            u8 chiseled_bookshelf_slot_5_occupied;
-            u8 dusted;
-            u8 cracked;
-            u8 crafting;
-            u8 trial_spawner_state;
-            u8 vault_state;
-            u8 creaking;
-            u8 ominous;
+            i8 attached;
+            i8 bottom;
+            i8 conditional;
+            i8 disarmed;
+            i8 drag;
+            i8 enabled;
+            i8 extended;
+            i8 eye;
+            i8 falling;
+            i8 hanging;
+            i8 has_bottle_0;
+            i8 has_bottle_1;
+            i8 has_bottle_2;
+            i8 has_record;
+            i8 has_book;
+            i8 inverted;
+            i8 in_wall;
+            i8 lit;
+            i8 tip;
+            i8 locked;
+            i8 occupied;
+            i8 open;
+            i8 persistent;
+            i8 powered;
+            i8 short_piston;
+            i8 signal_fire;
+            i8 snowy;
+            i8 triggered;
+            i8 unstable;
+            i8 waterlogged;
+            i8 berries;
+            i8 bloom;
+            i8 shrieking;
+            i8 can_summon;
+            i8 horizontal_axis;
+            i8 axis;
+            i8 neg_y;
+            i8 pos_y;
+            i8 neg_z;
+            i8 pos_z;
+            i8 neg_x;
+            i8 pos_x;
+            i8 facing;
+            i8 facing_hopper;
+            i8 horizontal_facing;
+            i8 flower_amount;
+            i8 jigsaw_orientation;
+            i8 attach_face;
+            i8 bell_attachment;
+            i8 wall_pos_x;
+            i8 wall_neg_z;
+            i8 wall_pos_z;
+            i8 wall_neg_x;
+            i8 redstone_pos_x;
+            i8 redstone_neg_z;
+            i8 redstone_pos_z;
+            i8 redstone_neg_x;
+            i8 double_block_half;
+            i8 half;
+            i8 rail_shape;
+            i8 rail_shape_straight;
+            i8 age_1;
+            i8 age_2;
+            i8 age_3;
+            i8 age_4;
+            i8 age_5;
+            i8 age_7;
+            i8 age_15;
+            i8 age_25;
+            i8 bites;
+            i8 candles;
+            i8 delay;
+            i8 distance;
+            i8 eggs;
+            i8 hatch;
+            i8 layers;
+            i8 level_cauldron;
+            i8 level_composter;
+            i8 level_honey;
+            i8 level_fluid;
+            i8 level_light;
+            i8 moisture;
+            i8 note;
+            i8 pickles;
+            i8 power;
+            i8 stage;
+            i8 stability_distance;
+            i8 respawn_anchor_charges;
+            i8 rotation_16;
+            i8 bed_part;
+            i8 chest_type;
+            i8 mode_comparator;
+            i8 door_hinge;
+            i8 noteblock_instrument;
+            i8 piston_type;
+            i8 slab_type;
+            i8 stairs_shape;
+            i8 structureblock_mode;
+            i8 bamboo_leaves;
+            i8 dripleaf_tilt;
+            i8 vertical_direction;
+            i8 dripstone_thickness;
+            i8 sculk_sensor_phase;
+            i8 chiseled_bookshelf_slot_0_occupied;
+            i8 chiseled_bookshelf_slot_1_occupied;
+            i8 chiseled_bookshelf_slot_2_occupied;
+            i8 chiseled_bookshelf_slot_3_occupied;
+            i8 chiseled_bookshelf_slot_4_occupied;
+            i8 chiseled_bookshelf_slot_5_occupied;
+            i8 dusted;
+            i8 cracked;
+            i8 crafting;
+            i8 trial_spawner_state;
+            i8 vault_state;
+            i8 creaking;
+            i8 ominous;
         };
     };
 } block_state_info;
@@ -1587,7 +1589,6 @@ int can_sugar_cane_survive_at(WorldBlockPos cur_pos);
 
 void init_block_data(MemoryArena * scratchArena);
 
-int has_block_state_property(block_state_info * info, int prop);
 block_state_info DescribeStateIndex(block_properties * props, i32 stateIndex);
 block_state_info describe_block_state(u16 block_state);
 u16 get_default_block_state(i32 block_type);
@@ -1600,7 +1601,7 @@ int is_water_source(u16 state);
 int is_full_water(u16 state);
 
 static inline int BlockHasTag(block_state_info * info, int tag) {
-    return info->type_tags & ((u32) 1 << tag);
+    return info->typeTags & ((u32) 1 << tag);
 }
 
 // @NOTE(traks) block models n stuff

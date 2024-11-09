@@ -83,68 +83,136 @@ static i32 BlockLightCanPropagate(i32 fromModelIndex, i32 toModelIndex, i32 dir)
     return (curA != 1);
 }
 
-static void
-register_block_property(int id, char * name, int value_count, char * * values) {
+static void InitProperty(i32 id, char * name, i32 valueCount, char * * values, i32 * intValues) {
     block_property_spec prop_spec = {0};
-    prop_spec.value_count = value_count;
+    assert(valueCount <= MAX_BLOCK_PROPERTY_VALUES);
+    prop_spec.value_count = valueCount;
+    String nameString = STR(name);
 
-    int name_size = strlen(name);
+    u8 * tape = prop_spec.tape;
+    i32 tapeIndex = 0;
+    tape[tapeIndex++] = nameString.size;
+    memcpy(tape + tapeIndex, nameString.data, nameString.size);
+    tapeIndex += nameString.size;
 
-    unsigned char * tape = prop_spec.tape;
-    *tape = name_size;
-    tape++;
-    memcpy(tape, name, name_size);
-    tape += name_size;
-
-    for (int i = 0; i < value_count; i++) {
-        int value_size = strlen(values[i]);
-        *tape = value_size;
-        tape++;
-        memcpy(tape, values[i], value_size);
-        tape += value_size;
+    for (i32 valueIndex = 0; valueIndex < valueCount; valueIndex++) {
+        String value = STR(values[valueIndex]);
+        tape[tapeIndex++] = value.size;
+        memcpy(tape + tapeIndex, value.data, value.size);
+        tapeIndex += value.size;
+        i32 intValue = intValues[valueIndex];
+        assert(intValue >= 0 && intValue <= 127);
+        prop_spec.intValues[valueIndex] = intValues[valueIndex];
     }
 
+    assert(tapeIndex <= (i32) ARRAY_SIZE(prop_spec.tape));
     serv->block_property_specs[id] = prop_spec;
 }
 
-static void
-register_property_v(int id, char * name, int value_count, ...) {
+static void InitListProperty(i32 id, char * name, ...) {
     va_list ap;
-    va_start(ap, value_count);
-
-    // TODO(traks): get rid of VLA?
-    char * values[value_count];
-    for (int i = 0; i < value_count; i++) {
-        values[i] = va_arg(ap, char *);
+    va_start(ap, name);
+    char * values[MAX_BLOCK_PROPERTY_VALUES];
+    i32 intValues[MAX_BLOCK_PROPERTY_VALUES];
+    i32 valueCount = 0;
+    for (;;) {
+        char * value = va_arg(ap, char *);
+        if (value == NULL) {
+            break;
+        }
+        assert(valueCount < (i32) ARRAY_SIZE(values));
+        values[valueCount] = value;
+        intValues[valueCount] = valueCount;
+        valueCount++;
     }
-
     va_end(ap);
-
-    register_block_property(id, name, value_count, values);
+    InitProperty(id, name, valueCount, values, intValues);
 }
 
-static void
-register_range_property(int id, char * name, int min, int max) {
-    int value_count = max - min + 1;
-    // TODO(traks): get rid of VLA?
-    char * values[value_count];
-    char buf[256];
-    char * cursor = buf;
-    char * end = buf + sizeof buf;
-
-    for (int i = min; i <= max; i++) {
-        int size = snprintf(cursor, end - cursor, "%d", i);
-        values[i - min] = cursor;
-        cursor += size;
-        cursor++; // terminating null character
+static i32 MakeRangeValues(i32 min, i32 max, char * * values, i32 * intValues, i32 maxValues) {
+    i32 valueCount = max - min + 1;
+    assert(valueCount <= MAX_BLOCK_PROPERTY_VALUES);
+    i32 bufSize = 256;
+    char * buf = MallocInArena(blockSetup.arena, bufSize);
+    i32 bufIndex = 0;
+    for (i32 value = min; value <= max; value++) {
+        i32 size = snprintf(buf + bufIndex, bufSize - bufIndex, "%d", value);
+        values[value - min] = buf + bufIndex;
+        assert(value >= 0 && value < 256);
+        intValues[value - min] = value;
+        // NOTE(traks): include terminating null character
+        bufIndex += size + 1;
     }
-
-    register_block_property(id, name, value_count, values);
+    return valueCount;
 }
 
-static void
-register_bool_property(int id, char * name) {
-    register_property_v(id, name, 2, "true", "false");
+static void InitRangeProperty(i32 id, char * name, i32 min, i32 max) {
+    char * values[MAX_BLOCK_PROPERTY_VALUES];
+    i32 intValues[MAX_BLOCK_PROPERTY_VALUES];
+    i32 valueCount = MakeRangeValues(min, max, values, intValues, MAX_BLOCK_PROPERTY_VALUES);
+    InitProperty(id, name, valueCount, values, intValues);
+}
+
+static void InitBoolProperty(i32 id, char * name) {
+    char * values[] = {"true", "false"};
+    i32 intValues[] = {1, 0};
+    InitProperty(id, name, 2, values, intValues);
+}
+
+static void InitRemapProperty(i32 id, char * name, i32 optionCount, char * * options, i32 * intOptions, va_list ap) {
+    char * values[MAX_BLOCK_PROPERTY_VALUES];
+    i32 intValues[MAX_BLOCK_PROPERTY_VALUES];
+    i32 valueCount = 0;
+    for (;;) {
+        char * value = va_arg(ap, char *);
+        if (value == NULL) {
+            break;
+        }
+        assert(valueCount < (i32) ARRAY_SIZE(values));
+        values[valueCount] = value;
+        i32 intValue = -1;
+        for (i32 optionIndex = 0; optionIndex < optionCount; optionIndex++) {
+            if (StringEquals(STR(value), STR(options[optionIndex]))) {
+                intValue = intOptions[optionIndex];
+                break;
+            }
+        }
+        assert(intValue != -1);
+        intValues[valueCount] = intValue;
+        valueCount++;
+    }
+    InitProperty(id, name, valueCount, values, intValues);
+}
+
+static void InitDirectionProperty(i32 id, char * name, ...) {
+    va_list ap;
+    va_start(ap, name);
+    char * options[] = {"north", "east", "south", "west", "up", "down"};
+    i32 intOptions[] = {DIRECTION_NEG_Z, DIRECTION_POS_X, DIRECTION_POS_Z, DIRECTION_NEG_X, DIRECTION_POS_X, DIRECTION_NEG_X};
+    InitRemapProperty(id, name, ARRAY_SIZE(options), options, intOptions, ap);
+    va_end(ap);
+}
+
+static void InitAxisProperty(i32 id, char * name, ...) {
+    va_list ap;
+    va_start(ap, name);
+    char * options[] = {"x", "y", "z"};
+    i32 intOptions[] = {AXIS_X, AXIS_Y, AXIS_Z};
+    InitRemapProperty(id, name, ARRAY_SIZE(options), options, intOptions, ap);
+    va_end(ap);
+}
+
+static void InitFluidLevelProperty(i32 id, char * name) {
+    char * values[MAX_BLOCK_PROPERTY_VALUES];
+    i32 intValues[MAX_BLOCK_PROPERTY_VALUES];
+    i32 valueCount = MakeRangeValues(0, 15, values, intValues, MAX_BLOCK_PROPERTY_VALUES);
+    i32 remappedIntValues[] = {
+        FLUID_LEVEL_SOURCE, FLUID_LEVEL_FLOWING_7, FLUID_LEVEL_FLOWING_6, FLUID_LEVEL_FLOWING_5,
+        FLUID_LEVEL_FLOWING_4, FLUID_LEVEL_FLOWING_3, FLUID_LEVEL_FLOWING_2, FLUID_LEVEL_FLOWING_1,
+        FLUID_LEVEL_FALLING, FLUID_LEVEL_FALLING, FLUID_LEVEL_FALLING, FLUID_LEVEL_FALLING,
+        FLUID_LEVEL_FALLING, FLUID_LEVEL_FALLING, FLUID_LEVEL_FALLING, FLUID_LEVEL_FALLING
+    };
+    InitProperty(id, name, valueCount, values, remappedIntValues);
 }
 
 // NOTE(traks): returns < 0 or == 0 or > 0 depending on whether a < b, a == b or
@@ -232,7 +300,6 @@ static BlockConfig * BeginNextBlock(char * resourceLoc) {
     i32 blockType = ResolveRegistryEntryId(&serv->blockRegistry, STR(resourceLoc));
     assert(blockType >= 0);
     BlockConfig * res = &blockSetup.configs[blockType];
-    LogInfo("%s", resourceLoc);
     assert(res->stateCount == 0);
     res->stateCount = 1;
     ReallocateStateArrays(res);
@@ -1314,122 +1381,122 @@ init_block_data(MemoryArena * scratchArena) {
     };
     register_block_model(BLOCK_MODEL_SCAFFOLDING, 5, scaffoldingBoxes);
 
-    register_bool_property(BLOCK_PROPERTY_ATTACHED, "attached");
-    register_bool_property(BLOCK_PROPERTY_BOTTOM, "bottom");
-    register_bool_property(BLOCK_PROPERTY_CONDITIONAL, "conditional");
-    register_bool_property(BLOCK_PROPERTY_DISARMED, "disarmed");
-    register_bool_property(BLOCK_PROPERTY_DRAG, "drag");
-    register_bool_property(BLOCK_PROPERTY_ENABLED, "enabled");
-    register_bool_property(BLOCK_PROPERTY_EXTENDED, "extended");
-    register_bool_property(BLOCK_PROPERTY_EYE, "eye");
-    register_bool_property(BLOCK_PROPERTY_FALLING, "falling");
-    register_bool_property(BLOCK_PROPERTY_HANGING, "hanging");
-    register_bool_property(BLOCK_PROPERTY_HAS_BOTTLE_0, "has_bottle_0");
-    register_bool_property(BLOCK_PROPERTY_HAS_BOTTLE_1, "has_bottle_1");
-    register_bool_property(BLOCK_PROPERTY_HAS_BOTTLE_2, "has_bottle_2");
-    register_bool_property(BLOCK_PROPERTY_HAS_RECORD, "has_record");
-    register_bool_property(BLOCK_PROPERTY_HAS_BOOK, "has_book");
-    register_bool_property(BLOCK_PROPERTY_INVERTED, "inverted");
-    register_bool_property(BLOCK_PROPERTY_IN_WALL, "in_wall");
-    register_bool_property(BLOCK_PROPERTY_LIT, "lit");
-    register_bool_property(BLOCK_PROPERTY_TIP, "tip");
-    register_bool_property(BLOCK_PROPERTY_LOCKED, "locked");
-    register_bool_property(BLOCK_PROPERTY_OCCUPIED, "occupied");
-    register_bool_property(BLOCK_PROPERTY_OPEN, "open");
-    register_bool_property(BLOCK_PROPERTY_PERSISTENT, "persistent");
-    register_bool_property(BLOCK_PROPERTY_POWERED, "powered");
-    register_bool_property(BLOCK_PROPERTY_SHORT_PISTON, "short");
-    register_bool_property(BLOCK_PROPERTY_SIGNAL_FIRE, "signal_fire");
-    register_bool_property(BLOCK_PROPERTY_SNOWY, "snowy");
-    register_bool_property(BLOCK_PROPERTY_TRIGGERED, "triggered");
-    register_bool_property(BLOCK_PROPERTY_UNSTABLE, "unstable");
-    register_bool_property(BLOCK_PROPERTY_WATERLOGGED, "waterlogged");
-    register_bool_property(BLOCK_PROPERTY_BERRIES, "berries");
-    register_bool_property(BLOCK_PROPERTY_BLOOM, "bloom");
-    register_bool_property(BLOCK_PROPERTY_SHRIEKING, "shrieking");
-    register_bool_property(BLOCK_PROPERTY_CAN_SUMMON, "can_summon");
-    register_property_v(BLOCK_PROPERTY_HORIZONTAL_AXIS, "axis", 2, "x", "z");
-    register_property_v(BLOCK_PROPERTY_AXIS, "axis", 3, "x", "y", "z");
-    register_bool_property(BLOCK_PROPERTY_POS_Y, "up");
-    register_bool_property(BLOCK_PROPERTY_NEG_Y, "down");
-    register_bool_property(BLOCK_PROPERTY_NEG_Z, "north");
-    register_bool_property(BLOCK_PROPERTY_POS_X, "east");
-    register_bool_property(BLOCK_PROPERTY_POS_Z, "south");
-    register_bool_property(BLOCK_PROPERTY_NEG_X, "west");
-    register_property_v(BLOCK_PROPERTY_FACING, "facing", 6, "north", "east", "south", "west", "up", "down");
-    register_property_v(BLOCK_PROPERTY_FACING_HOPPER, "facing", 5, "down", "north", "south", "west", "east");
-    register_property_v(BLOCK_PROPERTY_HORIZONTAL_FACING, "facing", 4, "north", "south", "west", "east");
-    register_range_property(BLOCK_PROPERTY_FLOWER_AMOUNT, "flower_amount", 1, 4);
-    register_property_v(BLOCK_PROPERTY_JIGSAW_ORIENTATION, "orientation", 12, "down_east", "down_north", "down_south", "down_west", "up_east", "up_north", "up_south", "up_west", "west_up", "east_up", "north_up", "south_up");
-    register_property_v(BLOCK_PROPERTY_ATTACH_FACE, "face", 3, "floor", "wall", "ceiling");
-    register_property_v(BLOCK_PROPERTY_BELL_ATTACHMENT, "attachment", 4, "floor", "ceiling", "single_wall", "double_wall");
-    register_property_v(BLOCK_PROPERTY_WALL_POS_X, "east", 3, "none", "low", "tall");
-    register_property_v(BLOCK_PROPERTY_WALL_NEG_Z, "north", 3, "none", "low", "tall");
-    register_property_v(BLOCK_PROPERTY_WALL_POS_Z, "south", 3, "none", "low", "tall");
-    register_property_v(BLOCK_PROPERTY_WALL_NEG_X, "west", 3, "none", "low", "tall");
-    register_property_v(BLOCK_PROPERTY_REDSTONE_POS_X, "east", 3, "up", "side", "none");
-    register_property_v(BLOCK_PROPERTY_REDSTONE_NEG_Z, "north", 3, "up", "side", "none");
-    register_property_v(BLOCK_PROPERTY_REDSTONE_POS_Z, "south", 3, "up", "side", "none");
-    register_property_v(BLOCK_PROPERTY_REDSTONE_NEG_X, "west", 3, "up", "side", "none");
-    register_property_v(BLOCK_PROPERTY_DOUBLE_BLOCK_HALF, "half", 2, "upper", "lower");
-    register_property_v(BLOCK_PROPERTY_HALF, "half", 2, "top", "bottom");
-    register_property_v(BLOCK_PROPERTY_RAIL_SHAPE, "shape", 10, "north_south", "east_west", "ascending_east", "ascending_west", "ascending_north", "ascending_south", "south_east", "south_west", "north_west", "north_east");
-    register_property_v(BLOCK_PROPERTY_RAIL_SHAPE_STRAIGHT, "shape", 6, "north_south", "east_west", "ascending_east", "ascending_west", "ascending_north", "ascending_south");
-    register_range_property(BLOCK_PROPERTY_AGE_1, "age", 0, 1);
-    register_range_property(BLOCK_PROPERTY_AGE_2, "age", 0, 2);
-    register_range_property(BLOCK_PROPERTY_AGE_3, "age", 0, 3);
-    register_range_property(BLOCK_PROPERTY_AGE_4, "age", 0, 4);
-    register_range_property(BLOCK_PROPERTY_AGE_5, "age", 0, 5);
-    register_range_property(BLOCK_PROPERTY_AGE_7, "age", 0, 7);
-    register_range_property(BLOCK_PROPERTY_AGE_15, "age", 0, 15);
-    register_range_property(BLOCK_PROPERTY_AGE_25, "age", 0, 25);
-    register_range_property(BLOCK_PROPERTY_BITES, "bites", 0, 6);
-    register_range_property(BLOCK_PROPERTY_CANDLES, "candles", 1, 4);
-    register_range_property(BLOCK_PROPERTY_DELAY, "delay", 1, 4);
-    register_range_property(BLOCK_PROPERTY_DISTANCE, "distance", 1, 7);
-    register_range_property(BLOCK_PROPERTY_EGGS, "eggs", 1, 4);
-    register_range_property(BLOCK_PROPERTY_HATCH, "hatch", 0, 2);
-    register_range_property(BLOCK_PROPERTY_LAYERS, "layers", 1, 8);
-    register_range_property(BLOCK_PROPERTY_LEVEL_CAULDRON, "level", 1, 3);
-    register_range_property(BLOCK_PROPERTY_LEVEL_COMPOSTER, "level", 0, 8);
-    register_range_property(BLOCK_PROPERTY_LEVEL_HONEY, "honey_level", 0, 5);
-    register_range_property(BLOCK_PROPERTY_LEVEL, "level", 0, 15);
-    register_range_property(BLOCK_PROPERTY_LEVEL_LIGHT, "level", 0, 15);
-    register_range_property(BLOCK_PROPERTY_MOISTURE, "moisture", 0, 7);
-    register_range_property(BLOCK_PROPERTY_NOTE, "note", 0, 24);
-    register_range_property(BLOCK_PROPERTY_PICKLES, "pickles", 1, 4);
-    register_range_property(BLOCK_PROPERTY_POWER, "power", 0, 15);
-    register_range_property(BLOCK_PROPERTY_STAGE, "stage", 0, 1);
-    register_range_property(BLOCK_PROPERTY_STABILITY_DISTANCE, "distance", 0, 7);
-    register_range_property(BLOCK_PROPERTY_RESPAWN_ANCHOR_CHARGES, "charges", 0, 4);
-    register_range_property(BLOCK_PROPERTY_ROTATION_16, "rotation", 0, 15);
-    register_property_v(BLOCK_PROPERTY_BED_PART, "part", 2, "head", "foot");
-    register_property_v(BLOCK_PROPERTY_CHEST_TYPE, "type", 3, "single", "left", "right");
-    register_property_v(BLOCK_PROPERTY_MODE_COMPARATOR, "mode", 2, "compare", "subtract");
-    register_property_v(BLOCK_PROPERTY_DOOR_HINGE, "hinge", 2, "left", "right");
-    register_property_v(BLOCK_PROPERTY_NOTEBLOCK_INSTRUMENT, "instrument", 23, "harp", "basedrum", "snare", "hat", "bass", "flute", "bell", "guitar", "chime", "xylophone", "iron_xylophone", "cow_bell", "didgeridoo", "bit", "banjo", "pling", "zombie", "skeleton", "creeper", "dragon", "wither_skeleton", "piglin", "custom_head");
-    register_property_v(BLOCK_PROPERTY_PISTON_TYPE, "type", 2, "normal", "sticky");
-    register_property_v(BLOCK_PROPERTY_SLAB_TYPE, "type", 3, "top", "bottom", "double");
-    register_property_v(BLOCK_PROPERTY_STAIRS_SHAPE, "shape", 5, "straight", "inner_left", "inner_right", "outer_left", "outer_right");
-    register_property_v(BLOCK_PROPERTY_STRUCTUREBLOCK_MODE, "mode", 4, "save", "load", "corner", "data");
-    register_property_v(BLOCK_PROPERTY_BAMBOO_LEAVES, "leaves", 3, "none", "small", "large");
-    register_property_v(BLOCK_PROPERTY_DRIPLEAF_TILT, "tilt", 4, "none", "unstable", "partial", "full");
-    register_property_v(BLOCK_PROPERTY_VERTICAL_DIRECTION, "vertical_direction", 2, "up", "down");
-    register_property_v(BLOCK_PROPERTY_DRIPSTONE_THICKNESS, "thickness", 5, "tip_merge", "tip", "frustum", "middle", "base");
-    register_property_v(BLOCK_PROPERTY_SCULK_SENSOR_PHASE, "sculk_sensor_phase", 3, "inactive", "active", "cooldown");
-    register_bool_property(BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_0_OCCUPIED, "slot_0_occupied");
-    register_bool_property(BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_1_OCCUPIED, "slot_1_occupied");
-    register_bool_property(BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_2_OCCUPIED, "slot_2_occupied");
-    register_bool_property(BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_3_OCCUPIED, "slot_3_occupied");
-    register_bool_property(BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_4_OCCUPIED, "slot_4_occupied");
-    register_bool_property(BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_5_OCCUPIED, "slot_5_occupied");
-    register_range_property(BLOCK_PROPERTY_DUSTED, "dusted", 0, 3);
-    register_bool_property(BLOCK_PROPERTY_CRACKED, "cracked");
-    register_bool_property(BLOCK_PROPERTY_CRAFTING, "crafting");
-    register_property_v(BLOCK_PROPERTY_TRIAL_SPAWNER_STATE, "trial_spawner_state", 6, "inactive", "waiting_for_players", "active", "waiting_for_reward_ejection", "ejecting_reward", "cooldown");
-    register_property_v(BLOCK_PROPERTY_VAULT_STATE, "vault_state", 4, "inactive", "active", "unlocking", "ejecting");
-    register_property_v(BLOCK_PROPERTY_CREAKING, "creaking", 3, "disabled", "dormant", "active");
-    register_bool_property(BLOCK_PROPERTY_OMINOUS, "ominous");
+    InitBoolProperty(BLOCK_PROPERTY_ATTACHED, "attached");
+    InitBoolProperty(BLOCK_PROPERTY_BOTTOM, "bottom");
+    InitBoolProperty(BLOCK_PROPERTY_CONDITIONAL, "conditional");
+    InitBoolProperty(BLOCK_PROPERTY_DISARMED, "disarmed");
+    InitBoolProperty(BLOCK_PROPERTY_DRAG, "drag");
+    InitBoolProperty(BLOCK_PROPERTY_ENABLED, "enabled");
+    InitBoolProperty(BLOCK_PROPERTY_EXTENDED, "extended");
+    InitBoolProperty(BLOCK_PROPERTY_EYE, "eye");
+    InitBoolProperty(BLOCK_PROPERTY_FALLING, "falling");
+    InitBoolProperty(BLOCK_PROPERTY_HANGING, "hanging");
+    InitBoolProperty(BLOCK_PROPERTY_HAS_BOTTLE_0, "has_bottle_0");
+    InitBoolProperty(BLOCK_PROPERTY_HAS_BOTTLE_1, "has_bottle_1");
+    InitBoolProperty(BLOCK_PROPERTY_HAS_BOTTLE_2, "has_bottle_2");
+    InitBoolProperty(BLOCK_PROPERTY_HAS_RECORD, "has_record");
+    InitBoolProperty(BLOCK_PROPERTY_HAS_BOOK, "has_book");
+    InitBoolProperty(BLOCK_PROPERTY_INVERTED, "inverted");
+    InitBoolProperty(BLOCK_PROPERTY_IN_WALL, "in_wall");
+    InitBoolProperty(BLOCK_PROPERTY_LIT, "lit");
+    InitBoolProperty(BLOCK_PROPERTY_TIP, "tip");
+    InitBoolProperty(BLOCK_PROPERTY_LOCKED, "locked");
+    InitBoolProperty(BLOCK_PROPERTY_OCCUPIED, "occupied");
+    InitBoolProperty(BLOCK_PROPERTY_OPEN, "open");
+    InitBoolProperty(BLOCK_PROPERTY_PERSISTENT, "persistent");
+    InitBoolProperty(BLOCK_PROPERTY_POWERED, "powered");
+    InitBoolProperty(BLOCK_PROPERTY_SHORT_PISTON, "short");
+    InitBoolProperty(BLOCK_PROPERTY_SIGNAL_FIRE, "signal_fire");
+    InitBoolProperty(BLOCK_PROPERTY_SNOWY, "snowy");
+    InitBoolProperty(BLOCK_PROPERTY_TRIGGERED, "triggered");
+    InitBoolProperty(BLOCK_PROPERTY_UNSTABLE, "unstable");
+    InitBoolProperty(BLOCK_PROPERTY_WATERLOGGED, "waterlogged");
+    InitBoolProperty(BLOCK_PROPERTY_BERRIES, "berries");
+    InitBoolProperty(BLOCK_PROPERTY_BLOOM, "bloom");
+    InitBoolProperty(BLOCK_PROPERTY_SHRIEKING, "shrieking");
+    InitBoolProperty(BLOCK_PROPERTY_CAN_SUMMON, "can_summon");
+    InitAxisProperty(BLOCK_PROPERTY_HORIZONTAL_AXIS, "axis", "x", "z", NULL);
+    InitAxisProperty(BLOCK_PROPERTY_AXIS, "axis", "x", "y", "z", NULL);
+    InitBoolProperty(BLOCK_PROPERTY_POS_Y, "up");
+    InitBoolProperty(BLOCK_PROPERTY_NEG_Y, "down");
+    InitBoolProperty(BLOCK_PROPERTY_NEG_Z, "north");
+    InitBoolProperty(BLOCK_PROPERTY_POS_X, "east");
+    InitBoolProperty(BLOCK_PROPERTY_POS_Z, "south");
+    InitBoolProperty(BLOCK_PROPERTY_NEG_X, "west");
+    InitDirectionProperty(BLOCK_PROPERTY_FACING, "facing", "north", "east", "south", "west", "up", "down", NULL);
+    InitDirectionProperty(BLOCK_PROPERTY_FACING_HOPPER, "facing", "down", "north", "south", "west", "east", NULL);
+    InitDirectionProperty(BLOCK_PROPERTY_HORIZONTAL_FACING, "facing", "north", "south", "west", "east", NULL);
+    InitRangeProperty(BLOCK_PROPERTY_FLOWER_AMOUNT, "flower_amount", 1, 4);
+    InitListProperty(BLOCK_PROPERTY_JIGSAW_ORIENTATION, "orientation", "down_east", "down_north", "down_south", "down_west", "up_east", "up_north", "up_south", "up_west", "west_up", "east_up", "north_up", "south_up", NULL);
+    InitListProperty(BLOCK_PROPERTY_ATTACH_FACE, "face", "floor", "wall", "ceiling", NULL);
+    InitListProperty(BLOCK_PROPERTY_BELL_ATTACHMENT, "attachment", "floor", "ceiling", "single_wall", "double_wall", NULL);
+    InitListProperty(BLOCK_PROPERTY_WALL_POS_X, "east", "none", "low", "tall", NULL);
+    InitListProperty(BLOCK_PROPERTY_WALL_NEG_Z, "north", "none", "low", "tall", NULL);
+    InitListProperty(BLOCK_PROPERTY_WALL_POS_Z, "south", "none", "low", "tall", NULL);
+    InitListProperty(BLOCK_PROPERTY_WALL_NEG_X, "west", "none", "low", "tall", NULL);
+    InitListProperty(BLOCK_PROPERTY_REDSTONE_POS_X, "east", "up", "side", "none", NULL);
+    InitListProperty(BLOCK_PROPERTY_REDSTONE_NEG_Z, "north", "up", "side", "none", NULL);
+    InitListProperty(BLOCK_PROPERTY_REDSTONE_POS_Z, "south", "up", "side", "none", NULL);
+    InitListProperty(BLOCK_PROPERTY_REDSTONE_NEG_X, "west", "up", "side", "none", NULL);
+    InitListProperty(BLOCK_PROPERTY_DOUBLE_BLOCK_HALF, "half", "upper", "lower", NULL);
+    InitListProperty(BLOCK_PROPERTY_HALF, "half", "top", "bottom", NULL);
+    InitListProperty(BLOCK_PROPERTY_RAIL_SHAPE, "shape", "north_south", "east_west", "ascending_east", "ascending_west", "ascending_north", "ascending_south", "south_east", "south_west", "north_west", "north_east", NULL);
+    InitListProperty(BLOCK_PROPERTY_RAIL_SHAPE_STRAIGHT, "shape", "north_south", "east_west", "ascending_east", "ascending_west", "ascending_north", "ascending_south", NULL);
+    InitRangeProperty(BLOCK_PROPERTY_AGE_1, "age", 0, 1);
+    InitRangeProperty(BLOCK_PROPERTY_AGE_2, "age", 0, 2);
+    InitRangeProperty(BLOCK_PROPERTY_AGE_3, "age", 0, 3);
+    InitRangeProperty(BLOCK_PROPERTY_AGE_4, "age", 0, 4);
+    InitRangeProperty(BLOCK_PROPERTY_AGE_5, "age", 0, 5);
+    InitRangeProperty(BLOCK_PROPERTY_AGE_7, "age", 0, 7);
+    InitRangeProperty(BLOCK_PROPERTY_AGE_15, "age", 0, 15);
+    InitRangeProperty(BLOCK_PROPERTY_AGE_25, "age", 0, 25);
+    InitRangeProperty(BLOCK_PROPERTY_BITES, "bites", 0, 6);
+    InitRangeProperty(BLOCK_PROPERTY_CANDLES, "candles", 1, 4);
+    InitRangeProperty(BLOCK_PROPERTY_DELAY, "delay", 1, 4);
+    InitRangeProperty(BLOCK_PROPERTY_DISTANCE, "distance", 1, 7);
+    InitRangeProperty(BLOCK_PROPERTY_EGGS, "eggs", 1, 4);
+    InitRangeProperty(BLOCK_PROPERTY_HATCH, "hatch", 0, 2);
+    InitRangeProperty(BLOCK_PROPERTY_LAYERS, "layers", 1, 8);
+    InitRangeProperty(BLOCK_PROPERTY_LEVEL_CAULDRON, "level", 1, 3);
+    InitRangeProperty(BLOCK_PROPERTY_LEVEL_COMPOSTER, "level", 0, 8);
+    InitRangeProperty(BLOCK_PROPERTY_LEVEL_HONEY, "honey_level", 0, 5);
+    InitRangeProperty(BLOCK_PROPERTY_LEVEL_FLUID, "level", 0, 15);
+    InitRangeProperty(BLOCK_PROPERTY_LEVEL_LIGHT, "level", 0, 15);
+    InitRangeProperty(BLOCK_PROPERTY_MOISTURE, "moisture", 0, 7);
+    InitRangeProperty(BLOCK_PROPERTY_NOTE, "note", 0, 24);
+    InitRangeProperty(BLOCK_PROPERTY_PICKLES, "pickles", 1, 4);
+    InitRangeProperty(BLOCK_PROPERTY_POWER, "power", 0, 15);
+    InitRangeProperty(BLOCK_PROPERTY_STAGE, "stage", 0, 1);
+    InitRangeProperty(BLOCK_PROPERTY_STABILITY_DISTANCE, "distance", 0, 7);
+    InitRangeProperty(BLOCK_PROPERTY_RESPAWN_ANCHOR_CHARGES, "charges", 0, 4);
+    InitRangeProperty(BLOCK_PROPERTY_ROTATION_16, "rotation", 0, 15);
+    InitListProperty(BLOCK_PROPERTY_BED_PART, "part", "head", "foot", NULL);
+    InitListProperty(BLOCK_PROPERTY_CHEST_TYPE, "type", "single", "left", "right", NULL);
+    InitListProperty(BLOCK_PROPERTY_MODE_COMPARATOR, "mode", "compare", "subtract", NULL);
+    InitListProperty(BLOCK_PROPERTY_DOOR_HINGE, "hinge", "left", "right", NULL);
+    InitListProperty(BLOCK_PROPERTY_NOTEBLOCK_INSTRUMENT, "instrument", "harp", "basedrum", "snare", "hat", "bass", "flute", "bell", "guitar", "chime", "xylophone", "iron_xylophone", "cow_bell", "didgeridoo", "bit", "banjo", "pling", "zombie", "skeleton", "creeper", "dragon", "wither_skeleton", "piglin", "custom_head", NULL);
+    InitListProperty(BLOCK_PROPERTY_PISTON_TYPE, "type", "normal", "sticky", NULL);
+    InitListProperty(BLOCK_PROPERTY_SLAB_TYPE, "type", "top", "bottom", "double", NULL);
+    InitListProperty(BLOCK_PROPERTY_STAIRS_SHAPE, "shape", "straight", "inner_left", "inner_right", "outer_left", "outer_right", NULL);
+    InitListProperty(BLOCK_PROPERTY_STRUCTUREBLOCK_MODE, "mode", "save", "load", "corner", "data", NULL);
+    InitListProperty(BLOCK_PROPERTY_BAMBOO_LEAVES, "leaves", "none", "small", "large", NULL);
+    InitListProperty(BLOCK_PROPERTY_DRIPLEAF_TILT, "tilt", "none", "unstable", "partial", "full", NULL);
+    InitDirectionProperty(BLOCK_PROPERTY_VERTICAL_DIRECTION, "vertical_direction", "up", "down", NULL);
+    InitListProperty(BLOCK_PROPERTY_DRIPSTONE_THICKNESS, "thickness", "tip_merge", "tip", "frustum", "middle", "base", NULL);
+    InitListProperty(BLOCK_PROPERTY_SCULK_SENSOR_PHASE, "sculk_sensor_phase", "inactive", "active", "cooldown", NULL);
+    InitBoolProperty(BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_0_OCCUPIED, "slot_0_occupied");
+    InitBoolProperty(BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_1_OCCUPIED, "slot_1_occupied");
+    InitBoolProperty(BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_2_OCCUPIED, "slot_2_occupied");
+    InitBoolProperty(BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_3_OCCUPIED, "slot_3_occupied");
+    InitBoolProperty(BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_4_OCCUPIED, "slot_4_occupied");
+    InitBoolProperty(BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_5_OCCUPIED, "slot_5_occupied");
+    InitRangeProperty(BLOCK_PROPERTY_DUSTED, "dusted", 0, 3);
+    InitBoolProperty(BLOCK_PROPERTY_CRACKED, "cracked");
+    InitBoolProperty(BLOCK_PROPERTY_CRAFTING, "crafting");
+    InitListProperty(BLOCK_PROPERTY_TRIAL_SPAWNER_STATE, "trial_spawner_state", "inactive", "waiting_for_players", "active", "waiting_for_reward_ejection", "ejecting_reward", "cooldown", NULL);
+    InitListProperty(BLOCK_PROPERTY_VAULT_STATE, "vault_state", "inactive", "active", "unlocking", "ejecting", NULL);
+    InitListProperty(BLOCK_PROPERTY_CREAKING, "creaking", "disabled", "dormant", "active", NULL);
+    InitBoolProperty(BLOCK_PROPERTY_OMINOUS, "ominous");
 
     BlockConfig * config;
 
@@ -1727,14 +1794,14 @@ init_block_data(MemoryArena * scratchArena) {
 
     // @TODO(traks) slower movement in fluids
     config = BeginNextBlock("minecraft:water");
-    AddProperty(config, BLOCK_PROPERTY_LEVEL, "0");
+    AddProperty(config, BLOCK_PROPERTY_LEVEL_FLUID, "0");
     SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(config, 1);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
 
     // @TODO(traks) slower movement in fluids
     config = BeginNextBlock("minecraft:lava");
-    AddProperty(config, BLOCK_PROPERTY_LEVEL, "0");
+    AddProperty(config, BLOCK_PROPERTY_LEVEL_FLUID, "0");
     SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(config, 1);
     SetEmittedLightForAllStates(config, 15);

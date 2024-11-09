@@ -85,155 +85,16 @@ schedule_block_update(WorldBlockPos pos, int from_direction, int delay) {
     serv->scheduled_block_update_count++;
 }
 
-static void
-mark_block_state_property(block_state_info * info, int prop) {
-    info->available_properties[prop >> 6] |= (u64) 1 << (prop & 0x3f);
-}
-
-int
-has_block_state_property(block_state_info * info, int prop) {
-    return !!(info->available_properties[prop >> 6] & ((u64) 1 << (prop & 0x3f)));
-}
-
 block_state_info DescribeStateIndex(block_properties * props, i32 stateIndex) {
     block_state_info res = {0};
-    res.type_tags = props->type_tags;
-
-    for (int i = props->property_count - 1; i >= 0; i--) {
-        int id = props->property_specs[i];
-        block_property_spec * spec = serv->block_property_specs + id;
-        int value_index = stateIndex % spec->value_count;
-
-        mark_block_state_property(&res, id);
-
-        // decode value index for easier use
-        // TODO(traks): is this a good default value???
-        int value = 0;
-        switch (id) {
-        case BLOCK_PROPERTY_ATTACHED:
-        case BLOCK_PROPERTY_BOTTOM:
-        case BLOCK_PROPERTY_CONDITIONAL:
-        case BLOCK_PROPERTY_DISARMED:
-        case BLOCK_PROPERTY_DRAG:
-        case BLOCK_PROPERTY_ENABLED:
-        case BLOCK_PROPERTY_EXTENDED:
-        case BLOCK_PROPERTY_EYE:
-        case BLOCK_PROPERTY_FALLING:
-        case BLOCK_PROPERTY_HANGING:
-        case BLOCK_PROPERTY_HAS_BOTTLE_0:
-        case BLOCK_PROPERTY_HAS_BOTTLE_1:
-        case BLOCK_PROPERTY_HAS_BOTTLE_2:
-        case BLOCK_PROPERTY_HAS_RECORD:
-        case BLOCK_PROPERTY_HAS_BOOK:
-        case BLOCK_PROPERTY_INVERTED:
-        case BLOCK_PROPERTY_IN_WALL:
-        case BLOCK_PROPERTY_LIT:
-        case BLOCK_PROPERTY_LOCKED:
-        case BLOCK_PROPERTY_OCCUPIED:
-        case BLOCK_PROPERTY_OPEN:
-        case BLOCK_PROPERTY_PERSISTENT:
-        case BLOCK_PROPERTY_POWERED:
-        case BLOCK_PROPERTY_SHORT_PISTON:
-        case BLOCK_PROPERTY_SIGNAL_FIRE:
-        case BLOCK_PROPERTY_SNOWY:
-        case BLOCK_PROPERTY_TRIGGERED:
-        case BLOCK_PROPERTY_UNSTABLE:
-        case BLOCK_PROPERTY_WATERLOGGED:
-        case BLOCK_PROPERTY_BERRIES:
-        case BLOCK_PROPERTY_BLOOM:
-        case BLOCK_PROPERTY_SHRIEKING:
-        case BLOCK_PROPERTY_CAN_SUMMON:
-        case BLOCK_PROPERTY_NEG_Y:
-        case BLOCK_PROPERTY_POS_Y:
-        case BLOCK_PROPERTY_NEG_Z:
-        case BLOCK_PROPERTY_POS_Z:
-        case BLOCK_PROPERTY_NEG_X:
-        case BLOCK_PROPERTY_POS_X:
-        case BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_0_OCCUPIED:
-        case BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_1_OCCUPIED:
-        case BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_2_OCCUPIED:
-        case BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_3_OCCUPIED:
-        case BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_4_OCCUPIED:
-        case BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_5_OCCUPIED:
-            value = !value_index;
-            break;
-        case BLOCK_PROPERTY_HORIZONTAL_AXIS:
-            value = value_index == 0 ? AXIS_X : AXIS_Z;
-            break;
-        case BLOCK_PROPERTY_FACING:
-            switch (value_index) {
-            case 0: value = DIRECTION_NEG_Z; break;
-            case 1: value = DIRECTION_POS_X; break;
-            case 2: value = DIRECTION_POS_Z; break;
-            case 3: value = DIRECTION_NEG_X; break;
-            case 4: value = DIRECTION_POS_Y; break;
-            case 5: value = DIRECTION_NEG_Y; break;
-            }
-            break;
-        case BLOCK_PROPERTY_FACING_HOPPER:
-            switch (value_index) {
-            case 0: value = DIRECTION_NEG_Y; break;
-            case 1: value = DIRECTION_NEG_Z; break;
-            case 2: value = DIRECTION_POS_Z; break;
-            case 3: value = DIRECTION_NEG_X; break;
-            case 4: value = DIRECTION_POS_X; break;
-            }
-            break;
-        case BLOCK_PROPERTY_HORIZONTAL_FACING:
-            switch (value_index) {
-            case 0: value = DIRECTION_NEG_Z; break;
-            case 1: value = DIRECTION_POS_Z; break;
-            case 2: value = DIRECTION_NEG_X; break;
-            case 3: value = DIRECTION_POS_X; break;
-            }
-            break;
-        case BLOCK_PROPERTY_CANDLES:
-        case BLOCK_PROPERTY_DELAY:
-        case BLOCK_PROPERTY_DISTANCE:
-        case BLOCK_PROPERTY_EGGS:
-        case BLOCK_PROPERTY_LAYERS:
-        case BLOCK_PROPERTY_PICKLES:
-        case BLOCK_PROPERTY_ROTATION_16:
-        case BLOCK_PROPERTY_FLOWER_AMOUNT:
-        case BLOCK_PROPERTY_DUSTED:
-            value = value_index + 1;
-            break;
-        case BLOCK_PROPERTY_LEVEL:
-            switch (value_index) {
-            case 0: value = FLUID_LEVEL_SOURCE; break;
-            case 1: value = FLUID_LEVEL_FLOWING_7; break;
-            case 2: value = FLUID_LEVEL_FLOWING_6; break;
-            case 3: value = FLUID_LEVEL_FLOWING_5; break;
-            case 4: value = FLUID_LEVEL_FLOWING_4; break;
-            case 5: value = FLUID_LEVEL_FLOWING_3; break;
-            case 6: value = FLUID_LEVEL_FLOWING_2; break;
-            case 7: value = FLUID_LEVEL_FLOWING_1; break;
-            // minecraft doesn't distinguish falling levels [8, 15]
-            default: value = FLUID_LEVEL_FALLING; break;
-            }
-            break;
-        case BLOCK_PROPERTY_REDSTONE_POS_X:
-        case BLOCK_PROPERTY_REDSTONE_NEG_Z:
-        case BLOCK_PROPERTY_REDSTONE_POS_Z:
-        case BLOCK_PROPERTY_REDSTONE_NEG_X:
-            switch (value_index) {
-            case 0: value = REDSTONE_SIDE_UP; break;
-            case 1: value = REDSTONE_SIDE_SIDE; break;
-            case 2: value = REDSTONE_SIDE_NONE; break;
-            }
-            break;
-        case BLOCK_PROPERTY_VERTICAL_DIRECTION:
-            switch (value_index) {
-            case 0: value = DIRECTION_POS_Y; break;
-            case 1: value = DIRECTION_NEG_Y; break;
-            }
-            break;
-        default:
-            value = value_index;
-        }
-
-        res.values[id] = value;
-
+    res.typeTags = props->type_tags;
+    memset(res.values, (u8) -1, BLOCK_PROPERTY_COUNT);
+    for (i32 propIndex = props->property_count - 1; propIndex >= 0; propIndex--) {
+        i32 propId = props->property_specs[propIndex];
+        block_property_spec * spec = serv->block_property_specs + propId;
+        i32 valueIndex = stateIndex % spec->value_count;
+        i32 intValue = spec->intValues[valueIndex];
+        res.values[propId] = intValue;
         stateIndex = stateIndex / spec->value_count;
     }
     return res;
@@ -246,7 +107,7 @@ describe_block_state(u16 block_state) {
     u16 baseState = props->base_state;
     i32 stateIndex = block_state - baseState;
     block_state_info res = DescribeStateIndex(props, stateIndex);
-    res.block_type = blockType;
+    res.blockType = blockType;
     return res;
 }
 
@@ -274,143 +135,28 @@ describe_default_block_state(i32 block_type) {
 
 u16
 make_block_state(block_state_info * info) {
-    block_properties * props = serv->block_properties_table + info->block_type;
-    int offset = 0;
+    block_properties * props = serv->block_properties_table + info->blockType;
+    i32 offset = 0;
 
-    for (int i = 0; i < props->property_count; i++) {
-        int id = props->property_specs[i];
-
-        int value = info->values[id];
-        int value_index = 0;
-        // convert value to value index
-        switch (id) {
-        case BLOCK_PROPERTY_ATTACHED:
-        case BLOCK_PROPERTY_BOTTOM:
-        case BLOCK_PROPERTY_CONDITIONAL:
-        case BLOCK_PROPERTY_DISARMED:
-        case BLOCK_PROPERTY_DRAG:
-        case BLOCK_PROPERTY_ENABLED:
-        case BLOCK_PROPERTY_EXTENDED:
-        case BLOCK_PROPERTY_EYE:
-        case BLOCK_PROPERTY_FALLING:
-        case BLOCK_PROPERTY_HANGING:
-        case BLOCK_PROPERTY_HAS_BOTTLE_0:
-        case BLOCK_PROPERTY_HAS_BOTTLE_1:
-        case BLOCK_PROPERTY_HAS_BOTTLE_2:
-        case BLOCK_PROPERTY_HAS_RECORD:
-        case BLOCK_PROPERTY_HAS_BOOK:
-        case BLOCK_PROPERTY_INVERTED:
-        case BLOCK_PROPERTY_IN_WALL:
-        case BLOCK_PROPERTY_LIT:
-        case BLOCK_PROPERTY_LOCKED:
-        case BLOCK_PROPERTY_OCCUPIED:
-        case BLOCK_PROPERTY_OPEN:
-        case BLOCK_PROPERTY_PERSISTENT:
-        case BLOCK_PROPERTY_POWERED:
-        case BLOCK_PROPERTY_SHORT_PISTON:
-        case BLOCK_PROPERTY_SIGNAL_FIRE:
-        case BLOCK_PROPERTY_SNOWY:
-        case BLOCK_PROPERTY_TRIGGERED:
-        case BLOCK_PROPERTY_UNSTABLE:
-        case BLOCK_PROPERTY_WATERLOGGED:
-        case BLOCK_PROPERTY_BERRIES:
-        case BLOCK_PROPERTY_BLOOM:
-        case BLOCK_PROPERTY_SHRIEKING:
-        case BLOCK_PROPERTY_CAN_SUMMON:
-        case BLOCK_PROPERTY_NEG_Y:
-        case BLOCK_PROPERTY_POS_Y:
-        case BLOCK_PROPERTY_NEG_Z:
-        case BLOCK_PROPERTY_POS_Z:
-        case BLOCK_PROPERTY_NEG_X:
-        case BLOCK_PROPERTY_POS_X:
-        case BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_0_OCCUPIED:
-        case BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_1_OCCUPIED:
-        case BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_2_OCCUPIED:
-        case BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_3_OCCUPIED:
-        case BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_4_OCCUPIED:
-        case BLOCK_PROPERTY_CHISELED_BOOKSHELF_SLOT_5_OCCUPIED:
-            value_index = !value;
-            break;
-        case BLOCK_PROPERTY_HORIZONTAL_AXIS:
-            value_index = value == AXIS_X ? 0 : 1;
-            break;
-        case BLOCK_PROPERTY_FACING:
-            switch (value) {
-            case DIRECTION_NEG_Z: value_index = 0; break;
-            case DIRECTION_POS_X: value_index = 1; break;
-            case DIRECTION_POS_Z: value_index = 2; break;
-            case DIRECTION_NEG_X: value_index = 3; break;
-            case DIRECTION_POS_Y: value_index = 4; break;
-            case DIRECTION_NEG_Y: value_index = 5; break;
+    for (i32 propIndex = 0; propIndex < props->property_count; propIndex++) {
+        i32 propId = props->property_specs[propIndex];
+        i32 intValue = info->values[propId];
+        block_property_spec * spec = serv->block_property_specs + propId;
+        i32 valueCount = spec->value_count;
+        i32 finalValue = props->default_value_indices[propIndex];
+        // TODO(traks): This loop to find the value index is not ideal, but it
+        // works for now. Once we start thinking harder about how we want to do
+        // block state info, this might change a good bit.
+        for (i32 valueIndex = 0; valueIndex < valueCount; valueIndex++) {
+            if (spec->intValues[valueIndex] == intValue) {
+                finalValue = valueIndex;
+                break;
             }
-            break;
-        case BLOCK_PROPERTY_FACING_HOPPER:
-            switch (value) {
-            case DIRECTION_NEG_Y: value_index = 0; break;
-            case DIRECTION_NEG_Z: value_index = 1; break;
-            case DIRECTION_POS_Z: value_index = 2; break;
-            case DIRECTION_NEG_X: value_index = 3; break;
-            case DIRECTION_POS_X: value_index = 4; break;
-            }
-            break;
-        case BLOCK_PROPERTY_HORIZONTAL_FACING:
-            switch (value) {
-            case DIRECTION_NEG_Z: value_index = 0; break;
-            case DIRECTION_POS_Z: value_index = 1; break;
-            case DIRECTION_NEG_X: value_index = 2; break;
-            case DIRECTION_POS_X: value_index = 3; break;
-            }
-            break;
-        case BLOCK_PROPERTY_CANDLES:
-        case BLOCK_PROPERTY_DELAY:
-        case BLOCK_PROPERTY_DISTANCE:
-        case BLOCK_PROPERTY_EGGS:
-        case BLOCK_PROPERTY_LAYERS:
-        case BLOCK_PROPERTY_PICKLES:
-        case BLOCK_PROPERTY_ROTATION_16:
-        case BLOCK_PROPERTY_FLOWER_AMOUNT:
-        case BLOCK_PROPERTY_DUSTED:
-            value_index = value - 1;
-            break;
-        case BLOCK_PROPERTY_LEVEL:
-            switch (value) {
-            case FLUID_LEVEL_SOURCE: value_index = 0; break;
-            case FLUID_LEVEL_FLOWING_7: value_index = 1; break;
-            case FLUID_LEVEL_FLOWING_6: value_index = 2; break;
-            case FLUID_LEVEL_FLOWING_5: value_index = 3; break;
-            case FLUID_LEVEL_FLOWING_4: value_index = 4; break;
-            case FLUID_LEVEL_FLOWING_3: value_index = 5; break;
-            case FLUID_LEVEL_FLOWING_2: value_index = 6; break;
-            case FLUID_LEVEL_FLOWING_1: value_index = 7; break;
-            case FLUID_LEVEL_FALLING: value_index = 8; break;
-            }
-            break;
-        case BLOCK_PROPERTY_REDSTONE_POS_X:
-        case BLOCK_PROPERTY_REDSTONE_NEG_Z:
-        case BLOCK_PROPERTY_REDSTONE_POS_Z:
-        case BLOCK_PROPERTY_REDSTONE_NEG_X:
-            switch (value) {
-            case REDSTONE_SIDE_UP: value_index = 0; break;
-            case REDSTONE_SIDE_SIDE: value_index = 1; break;
-            case REDSTONE_SIDE_NONE: value_index = 2; break;
-            }
-            break;
-        case BLOCK_PROPERTY_VERTICAL_DIRECTION:
-            switch (value) {
-            case DIRECTION_POS_Y: value_index = 0; break;
-            case DIRECTION_NEG_Y: value_index = 1; break;
-            }
-            break;
-        default:
-            value_index = value;
         }
-
-        int value_count = serv->block_property_specs[id].value_count;
-
-        offset = offset * value_count + value_index;
+        offset = offset * valueCount + finalValue;
     }
 
-    u16 res = props->base_state + offset;
+    i32 res = props->base_state + offset;
     return res;
 }
 
@@ -593,10 +339,10 @@ int
 get_water_level(u16 state) {
     block_state_info info = describe_block_state(state);
 
-    switch (info.block_type) {
+    switch (info.blockType) {
     // @TODO(traks) return this for lava as well?
     case BLOCK_WATER:
-        return info.level;
+        return info.level_fluid;
     case BLOCK_BUBBLE_COLUMN:
     case BLOCK_KELP:
     case BLOCK_KELP_PLANT:
@@ -604,7 +350,7 @@ get_water_level(u16 state) {
     case BLOCK_TALL_SEAGRASS:
         return FLUID_LEVEL_SOURCE;
     default:
-        if (info.waterlogged) {
+        if (info.waterlogged == 1) {
             return FLUID_LEVEL_SOURCE;
         }
         return FLUID_LEVEL_NONE;
@@ -1011,7 +757,7 @@ int CanCrossConnectToGeneric(block_state_info * curInfo,
         int fromDir) {
     // @NOTE(traks) can connect to sturdy faces with some exceptions
     BlockModel support = BlockDetermineSupportModel(neighbourState);
-    u32 neighbourType = neighbourInfo->block_type;
+    u32 neighbourType = neighbourInfo->blockType;
     if (support.fullFaces & (1 << get_opposite_direction(fromDir))) {
         if (BlockHasTag(neighbourInfo, BLOCK_TAG_LEAVES)
                 || BlockHasTag(neighbourInfo, BLOCK_TAG_SHULKER_BOX)
@@ -1059,7 +805,7 @@ update_fence_shape(WorldBlockPos pos,
 
     if ((BlockHasTag(&neighbour_info, BLOCK_TAG_WOODEN_FENCE)
             && BlockHasTag(cur_info, BLOCK_TAG_WOODEN_FENCE))
-            || neighbour_type == cur_info->block_type) {
+            || neighbour_type == cur_info->blockType) {
         // @NOTE(traks) allow wooden fences to connect with each other and allow
         // nether brick fences to connect with each other
         connect = 1;
@@ -1964,12 +1710,12 @@ update_redstone_line(WorldBlockPos start_pos) {
 static i32 DoBlockBehaviour(WorldBlockPos pos, int from_direction, int is_delayed, block_update_context * buc, i32 behaviour) {
     u16 cur_state = WorldGetBlockState(pos);
     block_state_info cur_info = describe_block_state(cur_state);
-    i32 cur_type = cur_info.block_type;
+    i32 cur_type = cur_info.blockType;
 
     WorldBlockPos from_pos = WorldBlockPosRel(pos, from_direction);
     u16 from_state = WorldGetBlockState(from_pos);
     block_state_info from_info = describe_block_state(from_state);
-    i32 from_type = from_info.block_type;
+    i32 from_type = from_info.blockType;
 
     switch (behaviour) {
     case BLOCK_BEHAVIOUR_SNOWY_TOP: {
@@ -2420,7 +2166,7 @@ static i32 DoBlockBehaviour(WorldBlockPos pos, int from_direction, int is_delaye
         i32 breakState = 0;
         if (get_water_level(cur_state) > 0) {
             block_state_info breakInfo = describe_default_block_state(BLOCK_WATER);
-            breakInfo.level = FLUID_LEVEL_SOURCE;
+            breakInfo.level_fluid = FLUID_LEVEL_SOURCE;
             breakState = make_block_state(&breakInfo);
         }
         if (cur_info.double_block_half == DOUBLE_BLOCK_HALF_UPPER) {
@@ -2563,8 +2309,14 @@ static i32 DoBlockBehaviour(WorldBlockPos pos, int from_direction, int is_delaye
             }
         } else if (from_direction == DIRECTION_POS_Y) {
             if (from_type == cur_type) {
-                // transform into stem block with same properties
-                cur_info.block_type = BLOCK_BIG_DRIPLEAF_STEM;
+                // TODO(traks): we transform into a stem block with same
+                // properties. This is kind of dangerous, because the new block
+                // type may not share the same properties as the previous block
+                // type, but it should be OK for us here. This should really be
+                // converted into a function that initialises new properties to
+                // the defaults and gets rid of properties that the new block
+                // doesn't have.
+                cur_info.blockType = BLOCK_BIG_DRIPLEAF_STEM;
                 u16 new_state = make_block_state(&cur_info);
                 WorldSetBlockState(pos, new_state);
                 push_direct_neighbour_block_updates(pos, buc);
@@ -2702,7 +2454,7 @@ use_block(Entity * player,
         u8 is_inside, block_update_context * buc) {
     u16 cur_state = WorldGetBlockState(clicked_pos);
     block_state_info cur_info = describe_block_state(cur_state);
-    i32 cur_type = cur_info.block_type;
+    i32 cur_type = cur_info.blockType;
 
     switch (cur_type) {
     case BLOCK_DISPENSER:
