@@ -87,7 +87,6 @@ schedule_block_update(WorldBlockPos pos, int from_direction, int delay) {
 
 block_state_info DescribeStateIndex(block_properties * props, i32 stateIndex) {
     block_state_info res = {0};
-    res.typeTags = props->type_tags;
     memset(res.values, (u8) -1, BLOCK_PROPERTY_COUNT);
     for (i32 propIndex = props->property_count - 1; propIndex >= 0; propIndex--) {
         i32 propId = props->property_specs[propIndex];
@@ -703,7 +702,7 @@ update_stairs_shape(WorldBlockPos pos, block_state_info * cur_info) {
 
     u16 state_right = WorldGetBlockState(WorldBlockPosRel(pos, rotate_direction_clockwise(cur_info->horizontal_facing)));
     block_state_info info_right = describe_block_state(state_right);
-    if (BlockHasTag(&info_right, BLOCK_TAG_STAIRS)) {
+    if (BlockHasBehaviour(&info_right, BLOCK_BEHAVIOUR_STAIRS)) {
         if (info_right.half == cur_info->half && info_right.horizontal_facing == cur_info->horizontal_facing) {
             force_connect_right = 1;
         }
@@ -711,7 +710,7 @@ update_stairs_shape(WorldBlockPos pos, block_state_info * cur_info) {
 
     u16 state_left = WorldGetBlockState(WorldBlockPosRel(pos, rotate_direction_counter_clockwise(cur_info->horizontal_facing)));
     block_state_info info_left = describe_block_state(state_left);
-    if (BlockHasTag(&info_left, BLOCK_TAG_STAIRS)) {
+    if (BlockHasBehaviour(&info_left, BLOCK_BEHAVIOUR_STAIRS)) {
         if (info_left.half == cur_info->half && info_left.horizontal_facing == cur_info->horizontal_facing) {
             force_connect_left = 1;
         }
@@ -720,7 +719,7 @@ update_stairs_shape(WorldBlockPos pos, block_state_info * cur_info) {
     // try to connect with stairs in front
     u16 state_front = WorldGetBlockState(WorldBlockPosRel(pos, get_opposite_direction(cur_info->horizontal_facing)));
     block_state_info info_front = describe_block_state(state_front);
-    if (BlockHasTag(&info_front, BLOCK_TAG_STAIRS)) {
+    if (BlockHasBehaviour(&info_front, BLOCK_BEHAVIOUR_STAIRS)) {
         if (info_front.half == cur_info->half) {
             if (cur_info->horizontal_facing == rotate_direction_clockwise(info_front.horizontal_facing)) {
                 if (!force_connect_left) {
@@ -737,7 +736,7 @@ update_stairs_shape(WorldBlockPos pos, block_state_info * cur_info) {
     // try to connect with stairs behind
     u16 state_behind = WorldGetBlockState(WorldBlockPosRel(pos, cur_info->horizontal_facing));
     block_state_info info_behind = describe_block_state(state_behind);
-    if (BlockHasTag(&info_behind, BLOCK_TAG_STAIRS)) {
+    if (BlockHasBehaviour(&info_behind, BLOCK_BEHAVIOUR_STAIRS)) {
         if (info_behind.half == cur_info->half) {
             if (cur_info->horizontal_facing == rotate_direction_clockwise(info_behind.horizontal_facing)) {
                 if (!force_connect_right) {
@@ -758,16 +757,10 @@ int CanCrossConnectToGeneric(block_state_info * curInfo,
     // @NOTE(traks) can connect to sturdy faces with some exceptions
     BlockModel support = BlockDetermineSupportModel(neighbourState);
     u32 neighbourType = neighbourInfo->blockType;
+    if (BlockHasBehaviour(neighbourInfo, BLOCK_BEHAVIOUR_NO_CONNECTIONS)) {
+        return 0;
+    }
     if (support.fullFaces & (1 << get_opposite_direction(fromDir))) {
-        if (BlockHasTag(neighbourInfo, BLOCK_TAG_LEAVES)
-                || BlockHasTag(neighbourInfo, BLOCK_TAG_SHULKER_BOX)
-                || neighbourType == BLOCK_BARRIER
-                || neighbourType == BLOCK_PUMPKIN
-                || neighbourType == BLOCK_CARVED_PUMPKIN
-                || neighbourType == BLOCK_JACK_O_LANTERN
-                || neighbourType == BLOCK_MELON) {
-            return 0;
-        }
         return 1;
     }
     return 0;
@@ -783,8 +776,8 @@ update_pane_shape(WorldBlockPos pos,
 
     int connect = 0;
 
-    if (BlockHasTag(&neighbour_info, BLOCK_TAG_PANE_LIKE)
-            || BlockHasTag(&neighbour_info, BLOCK_TAG_WALL)) {
+    if (BlockHasBehaviour(&neighbour_info, BLOCK_BEHAVIOUR_PANE_CONNECT)
+            || BlockHasBehaviour(&neighbour_info, BLOCK_BEHAVIOUR_WALL_CONNECT)) {
         connect = 1;
     } else if (CanCrossConnectToGeneric(cur_info, &neighbour_info, neighbour_state, from_direction)) {
         connect = 1;
@@ -803,12 +796,14 @@ update_fence_shape(WorldBlockPos pos,
 
     int connect = 0;
 
-    if ((BlockHasTag(&neighbour_info, BLOCK_TAG_WOODEN_FENCE)
-            && BlockHasTag(cur_info, BLOCK_TAG_WOODEN_FENCE))
+    if ((BlockHasBehaviour(&neighbour_info, BLOCK_BEHAVIOUR_WOODEN_FENCE_CONNECT)
+            && BlockHasBehaviour(cur_info, BLOCK_BEHAVIOUR_WOODEN_FENCE_CONNECT))
             || neighbour_type == cur_info->blockType) {
-        // @NOTE(traks) allow wooden fences to connect with each other and allow
-        // nether brick fences to connect with each other
         connect = 1;
+    } else if (BlockHasBehaviour(&neighbour_info, BLOCK_BEHAVIOUR_FENCE_GATE_CONNECT)) {
+        if (get_direction_axis(from_direction) != get_direction_axis(neighbour_info.horizontal_facing)) {
+            connect = 1;
+        }
     } else if (CanCrossConnectToGeneric(cur_info, &neighbour_info, neighbour_state, from_direction)) {
         connect = 1;
     }
@@ -819,43 +814,77 @@ update_fence_shape(WorldBlockPos pos,
 void
 update_wall_shape(WorldBlockPos pos,
         block_state_info * cur_info, int from_direction) {
-    WorldBlockPos neighbour_pos = WorldBlockPosRel(pos, from_direction);
-    u16 neighbour_state = WorldGetBlockState(neighbour_pos);
-    i32 neighbour_type = serv->block_type_by_state[neighbour_state];
-    block_state_info neighbour_info = describe_block_state(neighbour_state);
-
-    if (from_direction == DIRECTION_POS_Y) {
-        // @TODO(traks) something special
-        return;
-    }
-
-    int connect = 0;
-
-    if (BlockHasTag(&neighbour_info, BLOCK_TAG_FENCE_GATE)) {
-        // @NOTE(traks) try connect to fence gate in wall if oriented properly
-        int facing = neighbour_info.horizontal_facing;
-        int rotated = rotate_direction_clockwise(facing);
-        if (rotated == from_direction || rotated == get_opposite_direction(from_direction)) {
+    // NOTE(traks): determine whether there should be a connection horizontally
+    if (from_direction != DIRECTION_POS_Y) {
+        WorldBlockPos neighbour_pos = WorldBlockPosRel(pos, from_direction);
+        u16 neighbour_state = WorldGetBlockState(neighbour_pos);
+        block_state_info neighbour_info = describe_block_state(neighbour_state);
+        i32 connect = 0;
+        if (BlockHasBehaviour(&neighbour_info, BLOCK_BEHAVIOUR_FENCE_GATE_CONNECT)
+                && get_direction_axis(from_direction) != get_direction_axis(neighbour_info.horizontal_facing)) {
+            connect = 1;
+        } else if (BlockHasBehaviour(&neighbour_info, BLOCK_BEHAVIOUR_WALL_CONNECT)) {
+            connect = 1;
+        } else if (BlockHasBehaviour(&neighbour_info, BLOCK_BEHAVIOUR_PANE_CONNECT)) {
+            connect = 1;
+        } else if (CanCrossConnectToGeneric(cur_info, &neighbour_info, neighbour_state, from_direction)) {
             connect = 1;
         }
-    } else if (BlockHasTag(&neighbour_info, BLOCK_TAG_WALL)) {
-        connect = 1;
-    } else if (CanCrossConnectToGeneric(cur_info, &neighbour_info, neighbour_state, from_direction)) {
-        connect = 1;
+
+        i32 wallSide = connect ? WALL_SIDE_LOW : WALL_SIDE_NONE;
+        switch (from_direction) {
+        case DIRECTION_POS_X: cur_info->wall_pos_x = wallSide; break;
+        case DIRECTION_NEG_X: cur_info->wall_neg_x = wallSide; break;
+        case DIRECTION_POS_Z: cur_info->wall_pos_z = wallSide; break;
+        case DIRECTION_NEG_Z: cur_info->wall_neg_z = wallSide; break;
+        }
     }
 
-    int wall_side = WALL_SIDE_NONE;
-    if (connect) {
-        // @TODO(traks) make wall tall if necessary
-        wall_side = WALL_SIDE_LOW;
-    }
-    // @TODO(traks) raise post if necessary
+    WorldBlockPos posAbove = WorldBlockPosRel(pos, DIRECTION_POS_Y);
+    i32 stateAbove = WorldGetBlockState(posAbove);
+    block_state_info infoAbove = describe_block_state(stateAbove);
+    BlockModel modelAbove = BlockDetermineCollisionModel(stateAbove, posAbove);
 
-    switch (from_direction) {
-    case DIRECTION_POS_X: cur_info->wall_pos_x = wall_side; break;
-    case DIRECTION_NEG_X: cur_info->wall_neg_x = wall_side; break;
-    case DIRECTION_POS_Z: cur_info->wall_pos_z = wall_side; break;
-    case DIRECTION_NEG_Z: cur_info->wall_neg_z = wall_side; break;
+    // NOTE(traks): determine whether sides should be tall
+    i8 * wallSides[] = {&cur_info->wall_pos_x, &cur_info->wall_neg_x, &cur_info->wall_pos_z, &cur_info->wall_neg_z};
+    i32 wallDirs[] = {DIRECTION_POS_X, DIRECTION_NEG_X, DIRECTION_POS_Z, DIRECTION_NEG_Z};
+    for (i32 dirIndex = 0; dirIndex < (i32) ARRAY_SIZE(wallSides); dirIndex++) {
+        if (*wallSides[dirIndex] != WALL_SIDE_NONE) {
+            if (modelAbove.coveredWallParts & (1 << wallDirs[dirIndex])) {
+                *wallSides[dirIndex] = WALL_SIDE_TALL;
+            } else {
+                *wallSides[dirIndex] = WALL_SIDE_LOW;
+            }
+        }
+    }
+
+    // NOTE(traks): determine whether there should be a pillar
+    i32 posX = cur_info->wall_pos_x;
+    i32 negX = cur_info->wall_neg_x;
+    i32 posZ = cur_info->wall_pos_z;
+    i32 negZ = cur_info->wall_neg_z;
+    i32 wallPosX = (posX != WALL_SIDE_NONE);
+    i32 wallNegX = (negX != WALL_SIDE_NONE);
+    i32 wallPosZ = (posZ != WALL_SIDE_NONE);
+    i32 wallNegZ = (negZ != WALL_SIDE_NONE);
+    if (BlockHasBehaviour(&infoAbove, BLOCK_BEHAVIOUR_WALL_CONNECT) && infoAbove.pos_y) {
+        cur_info->pos_y = 1;
+    } else if (BlockHasBehaviour(&infoAbove, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR)) {
+        cur_info->pos_y = 1;
+    } else if (!wallPosX && !wallNegX && !wallPosZ && !wallNegZ) {
+        cur_info->pos_y = 1;
+    } else if (wallPosX != wallNegX || wallPosZ != wallNegZ) {
+        cur_info->pos_y = 1;
+    } else if ((posX == WALL_SIDE_TALL && negX == WALL_SIDE_TALL)
+            || (posZ == WALL_SIDE_TALL && negZ == WALL_SIDE_TALL)) {
+        // NOTE(traks): don't make a pillar if a tall straight wall has
+        // already formed
+        cur_info->pos_y = 0;
+    } else if (modelAbove.coveredWallParts & (1 << DIRECTION_POS_Y)) {
+        // NOTE(traks): centre is covered, make pillar
+        cur_info->pos_y = 1;
+    } else {
+        cur_info->pos_y = 0;
     }
 }
 
@@ -2087,8 +2116,8 @@ static i32 DoBlockBehaviour(WorldBlockPos pos, int from_direction, int is_delaye
             block_state_info neighbour_info_pos = describe_block_state(neighbour_state_pos);
             int neighbour_state_neg = WorldGetBlockState(WorldBlockPosRel(pos, DIRECTION_NEG_Z));
             block_state_info neighbour_info_neg = describe_block_state(neighbour_state_neg);
-            if (BlockHasTag(&neighbour_info_pos, BLOCK_TAG_WALL)
-                    || BlockHasTag(&neighbour_info_neg, BLOCK_TAG_WALL)) {
+            if (BlockHasBehaviour(&neighbour_info_pos, BLOCK_BEHAVIOUR_WALL_CONNECT)
+                    || BlockHasBehaviour(&neighbour_info_neg, BLOCK_BEHAVIOUR_WALL_CONNECT)) {
                 cur_info.in_wall = 1;
             }
         } else {
@@ -2097,8 +2126,8 @@ static i32 DoBlockBehaviour(WorldBlockPos pos, int from_direction, int is_delaye
             block_state_info neighbour_info_pos = describe_block_state(neighbour_state_pos);
             int neighbour_state_neg = WorldGetBlockState(WorldBlockPosRel(pos, DIRECTION_NEG_X));
             block_state_info neighbour_info_neg = describe_block_state(neighbour_state_neg);
-            if (BlockHasTag(&neighbour_info_pos, BLOCK_TAG_WALL)
-                    || BlockHasTag(&neighbour_info_neg, BLOCK_TAG_WALL)) {
+            if (BlockHasBehaviour(&neighbour_info_pos, BLOCK_BEHAVIOUR_WALL_CONNECT)
+                    || BlockHasBehaviour(&neighbour_info_neg, BLOCK_BEHAVIOUR_WALL_CONNECT)) {
                 cur_info.in_wall = 1;
             }
         }
@@ -2957,4 +2986,20 @@ use_block(Entity * player,
         // other blocks have no use action
         return 0;
     }
+}
+
+BlockBehaviours BlockGetBehaviours(i32 blockState) {
+    i32 blockType = serv->block_type_by_state[blockState];
+    BlockBehaviours * behaviours = serv->blockBehavioursByType + blockType;
+    return *behaviours;
+}
+
+i32 BlockHasBehaviour(block_state_info * info, i32 behaviour) {
+    BlockBehaviours * behaviours = serv->blockBehavioursByType + info->blockType;
+    for (i32 behaviourIndex = 0; behaviourIndex < behaviours->size; behaviourIndex++) {
+        if (behaviours->entries[behaviourIndex] == behaviour) {
+            return 1;
+        }
+    }
+    return 0;
 }

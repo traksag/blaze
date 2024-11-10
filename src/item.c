@@ -636,8 +636,8 @@ place_fence_gate(place_context context, i32 place_type) {
         block_state_info neighbour_info_pos = describe_block_state(neighbour_state_pos);
         int neighbour_state_neg = WorldGetBlockState(WorldBlockPosRel(target.pos, DIRECTION_NEG_Z));
         block_state_info neighbour_info_neg = describe_block_state(neighbour_state_neg);
-        if (BlockHasTag(&neighbour_info_pos, BLOCK_TAG_WALL)
-                || BlockHasTag(&neighbour_info_neg, BLOCK_TAG_WALL)) {
+        if (BlockHasBehaviour(&neighbour_info_pos, BLOCK_BEHAVIOUR_WALL_CONNECT)
+                || BlockHasBehaviour(&neighbour_info_neg, BLOCK_BEHAVIOUR_WALL_CONNECT)) {
             place_info.in_wall = 1;
         }
     } else {
@@ -646,8 +646,8 @@ place_fence_gate(place_context context, i32 place_type) {
         block_state_info neighbour_info_pos = describe_block_state(neighbour_state_pos);
         int neighbour_state_neg = WorldGetBlockState(WorldBlockPosRel(target.pos, DIRECTION_NEG_X));
         block_state_info neighbour_info_neg = describe_block_state(neighbour_state_neg);
-        if (BlockHasTag(&neighbour_info_pos, BLOCK_TAG_WALL)
-                || BlockHasTag(&neighbour_info_neg, BLOCK_TAG_WALL)) {
+        if (BlockHasBehaviour(&neighbour_info_pos, BLOCK_BEHAVIOUR_WALL_CONNECT)
+                || BlockHasBehaviour(&neighbour_info_neg, BLOCK_BEHAVIOUR_WALL_CONNECT)) {
             place_info.in_wall = 1;
         }
     }

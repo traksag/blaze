@@ -1286,7 +1286,6 @@ typedef struct {
 } block_property_spec;
 
 typedef struct {
-    u32 type_tags;
     u16 base_state;
     unsigned char property_count;
     unsigned char property_specs[8];
@@ -1416,16 +1415,6 @@ enum block_property {
     BLOCK_PROPERTY_COUNT,
 };
 
-enum BlockTag {
-    BLOCK_TAG_STAIRS,
-    BLOCK_TAG_WALL,
-    BLOCK_TAG_PANE_LIKE,
-    BLOCK_TAG_LEAVES,
-    BLOCK_TAG_SHULKER_BOX,
-    BLOCK_TAG_WOODEN_FENCE,
-    BLOCK_TAG_FENCE_GATE,
-};
-
 // NOTE(traks): This struct is used to modify block properties in a more
 // "natural" way. We don't have to input block property strides and value
 // indices manually whenever we want to create a block state with certain
@@ -1445,11 +1434,14 @@ enum BlockTag {
 // benefit of the current setup is that accessing properties is very easy, no
 // functions are needed to access them!
 typedef struct {
-    u32 typeTags;
     u16 blockType;
 
     union {
         // NOTE(traks): a value of -1 means the property is not used
+        // TODO(traks): don't use -1. Breaks stuff because things like
+        // directions and axes should never be -1 and it's a pain to check if a
+        // property is set before accessing it. Should really default everything
+        // to 0 and have that work properly.
         i8 values[BLOCK_PROPERTY_COUNT];
         struct {
             i8 attached;
@@ -1600,10 +1592,6 @@ int get_water_level(u16 state);
 int is_water_source(u16 state);
 int is_full_water(u16 state);
 
-static inline int BlockHasTag(block_state_info * info, int tag) {
-    return info->typeTags & ((u32) 1 << tag);
-}
-
 // @NOTE(traks) block models n stuff
 
 enum BlockModelType {
@@ -1682,6 +1670,7 @@ typedef struct {
     u8 fullFaces;
     u8 poleFaces;
     u8 nonEmptyFaces;
+    u8 coveredWallParts;
 
     u8 size;
     BoundingBox boxes[8];
@@ -1711,6 +1700,7 @@ enum BlockBehaviour {
     BLOCK_BEHAVIOUR_SNOW_LAYER,
     BLOCK_BEHAVIOUR_SUGAR_CANE,
     BLOCK_BEHAVIOUR_FENCE_CONNECT,
+    BLOCK_BEHAVIOUR_WOODEN_FENCE_CONNECT,
     BLOCK_BEHAVIOUR_MUSHROOM_BLOCK_CONNECT,
     BLOCK_BEHAVIOUR_PANE_CONNECT,
     BLOCK_BEHAVIOUR_FENCE_GATE_CONNECT,
@@ -1728,6 +1718,8 @@ enum BlockBehaviour {
     BLOCK_BEHAVIOUR_BIG_DRIPLEAF,
     BLOCK_BEHAVIOUR_BIG_DRIPLEAF_STEM,
     BLOCK_BEHAVIOUR_SMALL_DRIPLEAF,
+    BLOCK_BEHAVIOUR_NO_CONNECTIONS,
+    BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR, // = wall_post_override tag
 };
 
 typedef struct {
@@ -1736,5 +1728,6 @@ typedef struct {
 } BlockBehaviours;
 
 BlockBehaviours BlockGetBehaviours(i32 blockState);
+i32 BlockHasBehaviour(block_state_info * info, i32 behaviour);
 
 #endif

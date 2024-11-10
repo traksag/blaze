@@ -429,14 +429,7 @@ static void AddBlockBehaviour(BlockConfig * config, i32 behaviour) {
     behaviours->size++;
 }
 
-BlockBehaviours BlockGetBehaviours(i32 blockState) {
-    i32 blockType = serv->block_type_by_state[blockState];
-    BlockBehaviours * behaviours = serv->blockBehavioursByType + blockType;
-    return *behaviours;
-}
-
-static void
-InitSimpleBlockWithModels(char * resource_loc,
+static BlockConfig * InitSimpleBlockWithModels(char * resource_loc,
         i32 collisionModelId, i32 supportModelId, i32 lightModelId,
         i32 lightReduction, i32 emittedLight) {
     BlockConfig * config = BeginNextBlock(resource_loc);
@@ -445,6 +438,7 @@ InitSimpleBlockWithModels(char * resource_loc,
     SetLightBlockingModelForAllStates(config, lightModelId);
     SetLightReductionForAllStates(config, lightReduction);
     SetEmittedLightForAllStates(config, emittedLight);
+    return config;
 }
 
 static void
@@ -456,8 +450,8 @@ static void InitSimpleEmptyBlock(char * resourceLoc) {
     InitSimpleBlockWithModels(resourceLoc, BLOCK_MODEL_EMPTY, BLOCK_MODEL_EMPTY, BLOCK_MODEL_EMPTY, 0, 0);
 }
 
-static void InitSimpleFullBlock(char * resourceLoc) {
-    InitSimpleBlockWithModels(resourceLoc, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY, 15, 0);
+static BlockConfig * InitSimpleFullBlock(char * resourceLoc) {
+    return InitSimpleBlockWithModels(resourceLoc, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY, 15, 0);
 }
 
 static void InitSimpleFullEmittingBlock(char * resourceLoc, i32 emittedLight) {
@@ -498,7 +492,6 @@ init_pillar(char * resource_loc, i32 emittedLight) {
 static void
 init_leaves(char * resource_loc) {
     BlockConfig * config = BeginNextBlock(resource_loc);
-    config->props.type_tags |= (u32) 1 << BLOCK_TAG_LEAVES;
     AddProperty(config, BLOCK_PROPERTY_DISTANCE, "7");
     AddProperty(config, BLOCK_PROPERTY_PERSISTENT, "false");
     AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
@@ -507,6 +500,7 @@ init_leaves(char * resource_loc) {
     SetLightBlockingModelForAllStates(config, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(config, 1);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NO_CONNECTIONS);
 }
 
 static void
@@ -567,6 +561,7 @@ init_sign(char * resource_loc) {
     SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(config);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR);
 }
 
 static void
@@ -577,6 +572,7 @@ init_wall_sign(char * resource_loc) {
     SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(config);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR);
 }
 
 static void
@@ -599,7 +595,6 @@ InitWallHangingSign(char * resource_loc) {
 static void
 init_stair_props(char * resource_loc) {
     BlockConfig * config = BeginNextBlock(resource_loc);
-    config->props.type_tags |= (u32) 1 << BLOCK_TAG_STAIRS;
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     AddProperty(config, BLOCK_PROPERTY_HALF, "bottom");
     AddProperty(config, BLOCK_PROPERTY_STAIRS_SHAPE, "straight");
@@ -633,16 +628,15 @@ init_glazed_terracotta(char * resource_loc) {
 static void
 init_shulker_box_props(char * resource_loc) {
     BlockConfig * config = BeginNextBlock(resource_loc);
-    config->props.type_tags |= (u32) 1 << BLOCK_TAG_SHULKER_BOX;
     AddProperty(config, BLOCK_PROPERTY_FACING, "up");
     // TODO(traks): block models
     SetLightReductionForAllStates(config, 1);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NO_CONNECTIONS);
 }
 
 static void
 init_wall_props(char * resource_loc) {
     BlockConfig * config = BeginNextBlock(resource_loc);
-    config->props.type_tags |= ((u32) 1) << BLOCK_TAG_WALL;
     AddProperty(config, BLOCK_PROPERTY_WALL_POS_X, "none");
     AddProperty(config, BLOCK_PROPERTY_WALL_NEG_Z, "none");
     AddProperty(config, BLOCK_PROPERTY_WALL_POS_Z, "none");
@@ -662,12 +656,12 @@ init_pressure_plate(char * resource_loc) {
     SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(config);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_PLATE_SUPPORTING_SURFACE_BELOW);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR);
 }
 
 static void
 init_pane(char * resource_loc) {
     BlockConfig * config = BeginNextBlock(resource_loc);
-    config->props.type_tags |= (u32) 1 << BLOCK_TAG_PANE_LIKE;
     AddProperty(config, BLOCK_PROPERTY_POS_X, "false");
     AddProperty(config, BLOCK_PROPERTY_NEG_Z, "false");
     AddProperty(config, BLOCK_PROPERTY_POS_Z, "false");
@@ -689,9 +683,6 @@ init_pane(char * resource_loc) {
 static void
 init_fence(char * resource_loc, int wooden) {
     BlockConfig * config = BeginNextBlock(resource_loc);
-    if (wooden) {
-        config->props.type_tags |= (u32) 1 << BLOCK_TAG_WOODEN_FENCE;
-    }
     AddProperty(config, BLOCK_PROPERTY_POS_X, "false");
     AddProperty(config, BLOCK_PROPERTY_NEG_Z, "false");
     AddProperty(config, BLOCK_PROPERTY_POS_Z, "false");
@@ -708,6 +699,9 @@ init_fence(char * resource_loc, int wooden) {
     SetLightReductionWhenWaterlogged(config);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FENCE_CONNECT);
+    if (wooden) {
+        AddBlockBehaviour(config, BLOCK_BEHAVIOUR_WOODEN_FENCE_CONNECT);
+    }
 }
 
 static void
@@ -751,7 +745,6 @@ init_trapdoor_props(char * resource_loc) {
 static void
 init_fence_gate(char * resource_loc) {
     BlockConfig * config = BeginNextBlock(resource_loc);
-    config->props.type_tags |= (u32) 1 << BLOCK_TAG_FENCE_GATE;
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     AddProperty(config, BLOCK_PROPERTY_IN_WALL, "false");
     AddProperty(config, BLOCK_PROPERTY_OPEN, "false");
@@ -823,6 +816,7 @@ init_banner(char * resource_loc) {
     AddProperty(config, BLOCK_PROPERTY_ROTATION_16, "0");
     SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(config);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR);
 }
 
 static void
@@ -831,6 +825,7 @@ init_wall_banner(char * resource_loc) {
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(config);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR);
 }
 
 static void
@@ -988,6 +983,7 @@ static void InitTorch(char * resourceLoc, i32 onWall, i32 emittedLight) {
         AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_FULL_SUPPORT_BEHIND_HORIZONTAL);
     } else {
         AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_POLE_SUPPORT_BELOW);
+        AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR);
     }
 }
 
@@ -1042,7 +1038,7 @@ block_boxes_contain_face(int box_count, BoundingBox * boxes,
     int face_count = 0;
     // TODO(traks): get rid of VLA?
     block_box_face faces[box_count];
-    // @NOTE(traks) All block models are currently aligned to the pixel grid, so
+    // NOTE(traks): All block models are currently aligned to the pixel grid, so
     // the epsilon can be fairly large. Bamboo is aligned to a quarter of a
     // pixel grid, but we currently don't use this algorithm for bamboo.
     float eps = 0.001;
@@ -1060,7 +1056,7 @@ block_boxes_contain_face(int box_count, BoundingBox * boxes,
         case DIRECTION_POS_X: test = (intersect_test) {box.minY, box.minZ, box.maxY, box.maxZ, box.minX, box.maxX, slice.maxX}; break;
         }
 
-        if (test.axis_min <= test.axis_cut + eps && test.axis_cut <= test.axis_max + eps) {
+        if (test.axis_min <= test.axis_cut + eps && test.axis_cut < test.axis_max + eps) {
             faces[face_count] = (block_box_face) {test.min_a, test.min_b, test.max_a, test.max_b};
             face_count++;
         }
@@ -1102,11 +1098,17 @@ block_boxes_contain_face(int box_count, BoundingBox * boxes,
             for (int i = 0; i < face_count; i++) {
                 block_box_face * face = faces + i;
 
-                if (face->min_a <= best_a + eps && best_a <= face->max_a + eps
-                        && face->min_b <= best_b + eps && best_b <= face->max_b + eps) {
+                // NOTE(traks): it is important we don't include the upper
+                // bound, so if we matched a box and set the min_found_a to the
+                // upper bound, the box won't be matched again in the future
+                // NOTE(traks): we essentially expand all boxes by epsilon in
+                // all directions and see if the face is contained in the union
+                // of expanded boxes
+                if (face->min_a <= best_a + eps && best_a < face->max_a + eps
+                        && face->min_b <= best_b + eps && best_b < face->max_b + eps) {
                     // face contains our coordinate, so move best_b forward
-                    best_b = face->max_b;
-                    min_found_a = MIN(face->max_a, min_found_a);
+                    best_b = face->max_b + eps;
+                    min_found_a = MIN(face->max_a + eps, min_found_a);
                 }
             }
 
@@ -1116,7 +1118,7 @@ block_boxes_contain_face(int box_count, BoundingBox * boxes,
                 return 0;
             }
 
-            if (best_b + eps >= test.max_b) {
+            if (best_b >= test.max_b) {
                 // reached maximum b, so move best_a forward and reset best_b
                 best_b = test.min_b;
                 best_a = min_found_a;
@@ -1124,7 +1126,7 @@ block_boxes_contain_face(int box_count, BoundingBox * boxes,
             }
         }
 
-        if (best_a + eps >= test.max_a) {
+        if (best_a >= test.max_a) {
             // reached maximum a, so done!
             return 1;
         }
@@ -1195,17 +1197,37 @@ register_block_model(int index, int box_count, BoundingBox * pixel_boxes) {
             model->nonEmptyFaces |= 1 << dir;
         }
     }
+
+    BoundingBox wallPillar = {7.0f / 16, 0, 7.0f / 16, 9.0f / 16, 1, 9.0f / 16};
+    if (block_boxes_contain_face(box_count, model->boxes, wallPillar, DIRECTION_NEG_Y)) {
+        model->coveredWallParts |= 1 << DIRECTION_POS_Y;
+    }
+
+    BoundingBox wallSide = {7.0f / 16, 0, 7.0f / 16, 1, 1, 9.0f / 16};
+    i32 horizontalDirs[] = {DIRECTION_POS_X, DIRECTION_POS_Z, DIRECTION_NEG_X, DIRECTION_NEG_Z};
+    for (i32 dirIndex = 0; dirIndex < (i32) ARRAY_SIZE(horizontalDirs); dirIndex++) {
+        i32 dir = horizontalDirs[dirIndex];
+        if (block_boxes_contain_face(box_count, model->boxes, wallSide, DIRECTION_NEG_Y)) {
+            model->coveredWallParts |= (1 << dir);
+        }
+        // NOTE(traks): rotate wall side clockwise
+        wallSide = (BoundingBox) {
+            1 - wallSide.maxZ , wallSide.minY, wallSide.minX,
+            1 - wallSide.minZ, wallSide.maxY, wallSide.maxX
+        };
+    }
 }
 
 static void RegisterBlockModel(i32 id, BlockModel model) {
     serv->staticBlockModels[id] = model;
 }
 
-// @NOTE(traks) all thes rotation functions assume the coordinates of the box
+// @NOTE(traks) all these rotation functions assume the coordinates of the box
 // are in pixel coordinates
 
 static BoundingBox
 rotate_block_box_clockwise(BoundingBox box) {
+    // NOTE(traks): view +X as up, +Z as to the right
     BoundingBox res = {16 - box.maxZ , box.minY, box.minX, 16 - box.minZ, box.maxY, box.maxX};
     return res;
 }
@@ -2020,6 +2042,7 @@ init_block_data(MemoryArena * scratchArena) {
     SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(config, 0);
     SetEmittedLightWhenLit(config, 7);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR);
 
     config = BeginNextBlock("minecraft:redstone_wall_torch");
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
@@ -2081,12 +2104,14 @@ init_block_data(MemoryArena * scratchArena) {
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(config, 15);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NO_CONNECTIONS);
 
     config = BeginNextBlock("minecraft:jack_o_lantern");
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(config, 15);
     SetEmittedLightForAllStates(config, 15);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NO_CONNECTIONS);
 
     // TODO(traks): block models + light reduction
     config = BeginNextBlock("minecraft:cake");
@@ -2124,8 +2149,10 @@ init_block_data(MemoryArena * scratchArena) {
 
     init_pane("minecraft:glass_pane");
 
-    InitSimpleFullBlock("minecraft:pumpkin");
-    InitSimpleFullBlock("minecraft:melon");
+    config = InitSimpleFullBlock("minecraft:pumpkin");
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NO_CONNECTIONS);
+    config = InitSimpleFullBlock("minecraft:melon");
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NO_CONNECTIONS);
 
     config = BeginNextBlock("minecraft:attached_pumpkin_stem");
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
@@ -2228,6 +2255,7 @@ init_block_data(MemoryArena * scratchArena) {
     AddProperty(config, BLOCK_PROPERTY_NEG_X, "false");
     SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(config, 0);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR);
 
     config = BeginNextBlock("minecraft:command_block");
     AddProperty(config, BLOCK_PROPERTY_CONDITIONAL, "false");
@@ -2301,12 +2329,14 @@ init_block_data(MemoryArena * scratchArena) {
     SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(config, 0);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_PLATE_SUPPORTING_SURFACE_BELOW);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR);
 
     config = BeginNextBlock("minecraft:heavy_weighted_pressure_plate");
     AddProperty(config, BLOCK_PROPERTY_POWER, "0");
     SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
     SetLightReductionForAllStates(config, 0);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_PLATE_SUPPORTING_SURFACE_BELOW);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR);
 
     config = BeginNextBlock("minecraft:comparator");
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
@@ -2349,6 +2379,7 @@ init_block_data(MemoryArena * scratchArena) {
     SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
     SetLightReductionWhenWaterlogged(config);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NO_CONNECTIONS);
 
     config = BeginNextBlock("minecraft:light");
     AddProperty(config, BLOCK_PROPERTY_LEVEL_LIGHT, "15");
