@@ -1041,7 +1041,7 @@ init_fence(char * resource_loc, int wooden) {
 }
 
 static void
-init_door_props(char * resource_loc) {
+init_door_props(char * resource_loc, i32 openByHand) {
     BlockConfig * config = BeginNextBlock(resource_loc);
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     AddProperty(config, BLOCK_PROPERTY_DOUBLE_BLOCK_HALF, "lower");
@@ -1051,6 +1051,9 @@ init_door_props(char * resource_loc) {
     // TODO(traks): block models
     SetLightReductionWhenWaterlogged(config);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_DOOR_MATCH_OTHER_PART);
+    if (openByHand) {
+        AddBlockBehaviour(config, BLOCK_BEHAVIOUR_SIMPLE_TOGGLE_OPEN);
+    }
 }
 
 static void
@@ -1065,7 +1068,7 @@ init_button(char * resource_loc) {
 }
 
 static void
-init_trapdoor_props(char * resource_loc) {
+init_trapdoor_props(char * resource_loc, i32 openByHand) {
     BlockConfig * config = BeginNextBlock(resource_loc);
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     AddProperty(config, BLOCK_PROPERTY_HALF, "bottom");
@@ -1076,6 +1079,9 @@ init_trapdoor_props(char * resource_loc) {
     SetLightBlockingModelForAllStates(config, MakeEmptyModel());
     SetLightReductionWhenWaterlogged(config);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
+    if (openByHand) {
+        AddBlockBehaviour(config, BLOCK_BEHAVIOUR_SIMPLE_TOGGLE_OPEN);
+    }
 }
 
 static void
@@ -1103,6 +1109,7 @@ init_fence_gate(char * resource_loc) {
     SetLightBlockingModelForAllStates(config, MakeEmptyModel());
     SetLightReductionWhenWaterlogged(config);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FENCE_GATE_CONNECT);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FENCE_GATE_TOGGLE_OPEN);
 }
 
 static void
@@ -1241,6 +1248,7 @@ init_candle(char * resource_loc) {
     }
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_POLE_SUPPORT_BELOW);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_EXTINGUISH_CANDLE);
 }
 
 static void
@@ -1547,11 +1555,11 @@ init_block_data(MemoryArena * scratchArena) {
         InitHangingSign(FormatString("minecraft:%s_hanging_sign", name));
         InitWallHangingSign(FormatString("minecraft:%s_wall_hanging_sign", name));
         init_pressure_plate(FormatString("minecraft:%s_pressure_plate", name));
-        init_trapdoor_props(FormatString("minecraft:%s_trapdoor", name));
+        init_trapdoor_props(FormatString("minecraft:%s_trapdoor", name), 1);
         init_button(FormatString("minecraft:%s_button", name));
         init_fence_gate(FormatString("minecraft:%s_fence_gate", name));
         init_fence(FormatString("minecraft:%s_fence", name), 1);
-        init_door_props(FormatString("minecraft:%s_door", name));
+        init_door_props(FormatString("minecraft:%s_door", name), 1);
 
         if (type->logName) {
             init_pillar(FormatString("minecraft:%s_%s", name, type->logName), 0);
@@ -1682,10 +1690,10 @@ init_block_data(MemoryArena * scratchArena) {
         init_stair_props(FormatString("minecraft:waxed_%scut_copper_stairs", name));
         init_slab(FormatString("minecraft:%scut_copper_slab", name));
         init_slab(FormatString("minecraft:waxed_%scut_copper_slab", name));
-        init_door_props(FormatString("minecraft:%scopper_door", name));
-        init_door_props(FormatString("minecraft:waxed_%scopper_door", name));
-        init_trapdoor_props(FormatString("minecraft:%scopper_trapdoor", name));
-        init_trapdoor_props(FormatString("minecraft:waxed_%scopper_trapdoor", name));
+        init_door_props(FormatString("minecraft:%scopper_door", name), 1);
+        init_door_props(FormatString("minecraft:waxed_%scopper_door", name), 1);
+        init_trapdoor_props(FormatString("minecraft:%scopper_trapdoor", name), 1);
+        init_trapdoor_props(FormatString("minecraft:waxed_%scopper_trapdoor", name), 1);
         InitGrate(FormatString("minecraft:%scopper_grate", name));
         InitGrate(FormatString("minecraft:waxed_%scopper_grate", name));
         InitBulb(FormatString("minecraft:%scopper_bulb", name));
@@ -2025,8 +2033,9 @@ init_block_data(MemoryArena * scratchArena) {
     AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
     SetAllModelsForAllStates(config, MakeEmptyModel());
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_FULL_SUPPORT_ATTACHED);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLIP_LEVER);
 
-    init_door_props("minecraft:iron_door");
+    init_door_props("minecraft:iron_door", 0);
 
     config = BeginNextBlock("minecraft:redstone_torch");
     AddProperty(config, BLOCK_PROPERTY_LIT, "true");
@@ -2385,7 +2394,7 @@ init_block_data(MemoryArena * scratchArena) {
     }
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
 
-    init_trapdoor_props("minecraft:iron_trapdoor");
+    init_trapdoor_props("minecraft:iron_trapdoor", 0);
 
     InitSimpleFullEmittingBlock("minecraft:sea_lantern", 15);
 

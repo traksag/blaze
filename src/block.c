@@ -1737,7 +1737,7 @@ update_redstone_line(WorldBlockPos start_pos) {
     }
 }
 
-static i32 DoBlockBehaviour(WorldBlockPos pos, int from_direction, int is_delayed, block_update_context * buc, i32 behaviour) {
+static i32 DoUpdateBehaviour(WorldBlockPos pos, int from_direction, int is_delayed, block_update_context * buc, i32 behaviour) {
     u16 cur_state = WorldGetBlockState(pos);
     block_state_info cur_info = describe_block_state(cur_state);
     i32 cur_type = cur_info.blockType;
@@ -2425,7 +2425,7 @@ update_block(WorldBlockPos pos, int from_direction, int is_delayed,
     // which behaviours are registered.
     for (i32 i = 0; i < behaviours.size; i++) {
         i32 behaviour = behaviours.entries[i];
-        i32 changed = DoBlockBehaviour(pos, from_direction, is_delayed, buc, behaviour);
+        i32 changed = DoUpdateBehaviour(pos, from_direction, is_delayed, buc, behaviour);
         res += changed;
     }
     return res;
@@ -2477,516 +2477,102 @@ propagate_block_updates(block_update_context * buc) {
     }
 }
 
+static i32 DoUseBehaviour(Entity * player, i32 hand, WorldBlockPos clickedPos, i32 clickedFace, f32 clickOffsetX, f32 clickOffsetY, f32 clickOffsetZ, block_update_context * buc, i32 behaviour) {
+    u16 curState = WorldGetBlockState(clickedPos);
+    block_state_info curInfo = describe_block_state(curState);
+
+    // TODO(traks): not sure if interactions should be handled with block
+    // behaviours. The result also depends on the item in the player's hand.
+    // Perhaps this stuff should be moved to the item code.
+    switch (behaviour) {
+    case BLOCK_BEHAVIOUR_REDSTONE_WIRE: {
+        if (is_redstone_wire_dot(&curInfo)) {
+            curInfo.redstone_pos_x = REDSTONE_SIDE_SIDE;
+            curInfo.redstone_pos_z = REDSTONE_SIDE_SIDE;
+            curInfo.redstone_neg_x = REDSTONE_SIDE_SIDE;
+            curInfo.redstone_neg_z = REDSTONE_SIDE_SIDE;
+            i32 newState = make_block_state(&curInfo);
+            WorldSetBlockState(clickedPos, newState);
+            push_direct_neighbour_block_updates(clickedPos, buc);
+            return 1;
+        } else if (!is_redstone_wire_connected(clickedPos, &curInfo)) {
+            curInfo.redstone_pos_x = REDSTONE_SIDE_NONE;
+            curInfo.redstone_pos_z = REDSTONE_SIDE_NONE;
+            curInfo.redstone_neg_x = REDSTONE_SIDE_NONE;
+            curInfo.redstone_neg_z = REDSTONE_SIDE_NONE;
+            i32 newState = make_block_state(&curInfo);
+            WorldSetBlockState(clickedPos, newState);
+            push_direct_neighbour_block_updates(clickedPos, buc);
+            return 1;
+        }
+        return 0;
+    }
+    case BLOCK_BEHAVIOUR_FLIP_LEVER: {
+        // TODO(traks): play flip sound
+        curInfo.powered = !curInfo.powered;
+        i32 newState = make_block_state(&curInfo);
+        WorldSetBlockState(clickedPos, newState);
+        push_direct_neighbour_block_updates(clickedPos, buc);
+        return 1;
+    }
+    case BLOCK_BEHAVIOUR_SIMPLE_TOGGLE_OPEN: {
+        // TODO(traks): play opening/closing sound
+        curInfo.open = !curInfo.open;
+        i32 newState = make_block_state(&curInfo);
+        WorldSetBlockState(clickedPos, newState);
+        push_direct_neighbour_block_updates(clickedPos, buc);
+        return 1;
+    }
+    case BLOCK_BEHAVIOUR_FENCE_GATE_TOGGLE_OPEN: {
+        // TODO(traks): play sound
+        if (curInfo.open) {
+            curInfo.open = 0;
+        } else {
+            i32 playerFacing = GetPlayerFacing(player);
+            if (curInfo.horizontal_facing == get_opposite_direction(playerFacing)) {
+                curInfo.horizontal_facing = playerFacing;
+            }
+            curInfo.open = 1;
+        }
+        i32 newState = make_block_state(&curInfo);
+        WorldSetBlockState(clickedPos, newState);
+        push_direct_neighbour_block_updates(clickedPos, buc);
+        return 1;
+    }
+    case BLOCK_BEHAVIOUR_EXTINGUISH_CANDLE: {
+        item_stack * main = player->slots + player->selected_slot;
+        item_stack * off = player->slots + PLAYER_OFF_HAND_SLOT;
+        item_stack * used = hand == PLAYER_MAIN_HAND ? main : off;
+
+        if ((player->flags & PLAYER_CAN_BUILD) && used->size == 0 && curInfo.lit) {
+            // TODO(traks): play sound and spawn particles
+            curInfo.lit = 0;
+            i32 newState = make_block_state(&curInfo);
+            WorldSetBlockState(clickedPos, newState);
+            push_direct_neighbour_block_updates(clickedPos, buc);
+            return 1;
+        }
+        return 0;
+    }
+    }
+    return 0;
+}
+
 int
 use_block(PlayerController * control,
         i32 hand, WorldBlockPos clicked_pos, i32 clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
         u8 is_inside, block_update_context * buc) {
     Entity * player = ResolveEntity(control->entityId);
-    u16 cur_state = WorldGetBlockState(clicked_pos);
-    block_state_info cur_info = describe_block_state(cur_state);
-    i32 cur_type = cur_info.blockType;
-
-    switch (cur_type) {
-    case BLOCK_DISPENSER:
-        // @TODO
-        return 0;
-    case BLOCK_NOTE_BLOCK:
-        // @TODO
-        return 0;
-    case BLOCK_WHITE_BED:
-    case BLOCK_ORANGE_BED:
-    case BLOCK_MAGENTA_BED:
-    case BLOCK_LIGHT_BLUE_BED:
-    case BLOCK_YELLOW_BED:
-    case BLOCK_LIME_BED:
-    case BLOCK_PINK_BED:
-    case BLOCK_GRAY_BED:
-    case BLOCK_LIGHT_GRAY_BED:
-    case BLOCK_CYAN_BED:
-    case BLOCK_PURPLE_BED:
-    case BLOCK_BLUE_BED:
-    case BLOCK_BROWN_BED:
-    case BLOCK_GREEN_BED:
-    case BLOCK_RED_BED:
-    case BLOCK_BLACK_BED:
-        // @TODO
-        return 0;
-    case BLOCK_TNT:
-        // @TODO
-        return 0;
-    case BLOCK_CHEST:
-        // @TODO
-        return 0;
-    case BLOCK_REDSTONE_WIRE: {
-        if (is_redstone_wire_dot(&cur_info)) {
-            cur_info.redstone_pos_x = REDSTONE_SIDE_SIDE;
-            cur_info.redstone_pos_z = REDSTONE_SIDE_SIDE;
-            cur_info.redstone_neg_x = REDSTONE_SIDE_SIDE;
-            cur_info.redstone_neg_z = REDSTONE_SIDE_SIDE;
-            u16 new_state = make_block_state(&cur_info);
-            WorldSetBlockState(clicked_pos, new_state);
-            push_direct_neighbour_block_updates(clicked_pos, buc);
-            return 1;
-        } else if (!is_redstone_wire_connected(clicked_pos, &cur_info)) {
-            cur_info.redstone_pos_x = REDSTONE_SIDE_NONE;
-            cur_info.redstone_pos_z = REDSTONE_SIDE_NONE;
-            cur_info.redstone_neg_x = REDSTONE_SIDE_NONE;
-            cur_info.redstone_neg_z = REDSTONE_SIDE_NONE;
-            u16 new_state = make_block_state(&cur_info);
-            WorldSetBlockState(clicked_pos, new_state);
-            push_direct_neighbour_block_updates(clicked_pos, buc);
-            return 1;
-        }
-        return 0;
+    i32 curState = WorldGetBlockState(clicked_pos);
+    BlockBehaviours behaviours = BlockGetBehaviours(curState);
+    i32 res = 0;
+    for (i32 behaviourIndex = 0; behaviourIndex < behaviours.size; behaviourIndex++) {
+        i32 behaviour = behaviours.entries[behaviourIndex];
+        i32 changed = DoUseBehaviour(player, hand, clicked_pos, clicked_face, click_offset_x, click_offset_y, click_offset_z, buc, behaviour);
+        res |= changed;
     }
-    case BLOCK_CRAFTING_TABLE:
-        // @TODO
-        return 0;
-    case BLOCK_FURNACE:
-        // @TODO
-        return 0;
-    case BLOCK_OAK_SIGN:
-    case BLOCK_SPRUCE_SIGN:
-    case BLOCK_BIRCH_SIGN:
-    case BLOCK_ACACIA_SIGN:
-    case BLOCK_JUNGLE_SIGN:
-    case BLOCK_DARK_OAK_SIGN:
-    case BLOCK_MANGROVE_SIGN:
-    case BLOCK_CRIMSON_SIGN:
-    case BLOCK_WARPED_SIGN:
-        // @TODO
-        return 0;
-    case BLOCK_OAK_WALL_SIGN:
-    case BLOCK_SPRUCE_WALL_SIGN:
-    case BLOCK_BIRCH_WALL_SIGN:
-    case BLOCK_ACACIA_WALL_SIGN:
-    case BLOCK_JUNGLE_WALL_SIGN:
-    case BLOCK_DARK_OAK_WALL_SIGN:
-    case BLOCK_MANGROVE_WALL_SIGN:
-    case BLOCK_CRIMSON_WALL_SIGN:
-    case BLOCK_WARPED_WALL_SIGN:
-        // @TODO
-        return 0;
-    case BLOCK_LEVER: {
-        // @TODO play flip sound
-        cur_info.powered = !cur_info.powered;
-        u16 new_state = make_block_state(&cur_info);
-        WorldSetBlockState(clicked_pos, new_state);
-        push_direct_neighbour_block_updates(clicked_pos, buc);
-        return 1;
-    }
-    case BLOCK_OAK_DOOR:
-    case BLOCK_SPRUCE_DOOR:
-    case BLOCK_BIRCH_DOOR:
-    case BLOCK_JUNGLE_DOOR:
-    case BLOCK_ACACIA_DOOR:
-    case BLOCK_DARK_OAK_DOOR:
-    case BLOCK_MANGROVE_DOOR:
-    case BLOCK_CRIMSON_DOOR:
-    case BLOCK_WARPED_DOOR: {
-        // @TODO(traks) play opening/closing sound
-        cur_info.open = !cur_info.open;
-        u16 new_state = make_block_state(&cur_info);
-        WorldSetBlockState(clicked_pos, new_state);
-        // this will cause the other half of the door to switch states
-        // @TODO(traks) perhaps we should just update the other half of the door
-        // immediately and push block updates from there as well
-        push_direct_neighbour_block_updates(clicked_pos, buc);
-        return 1;
-    }
-    case BLOCK_REDSTONE_ORE:
-    case BLOCK_DEEPSLATE_REDSTONE_ORE:
-        // @TODO
-        return 0;
-    case BLOCK_STONE_BUTTON:
-    case BLOCK_OAK_BUTTON:
-    case BLOCK_SPRUCE_BUTTON:
-    case BLOCK_BIRCH_BUTTON:
-    case BLOCK_JUNGLE_BUTTON:
-    case BLOCK_ACACIA_BUTTON:
-    case BLOCK_DARK_OAK_BUTTON:
-    case BLOCK_MANGROVE_BUTTON:
-    case BLOCK_CRIMSON_BUTTON:
-    case BLOCK_WARPED_BUTTON:
-    case BLOCK_POLISHED_BLACKSTONE_BUTTON:
-        // @TODO
-        return 0;
-    case BLOCK_JUKEBOX:
-        // @TODO
-        return 0;
-    case BLOCK_OAK_FENCE:
-    case BLOCK_NETHER_BRICK_FENCE:
-    case BLOCK_SPRUCE_FENCE:
-    case BLOCK_BIRCH_FENCE:
-    case BLOCK_JUNGLE_FENCE:
-    case BLOCK_ACACIA_FENCE:
-    case BLOCK_DARK_OAK_FENCE:
-    case BLOCK_MANGROVE_FENCE:
-    case BLOCK_CRIMSON_FENCE:
-    case BLOCK_WARPED_FENCE:
-        // @TODO
-        return 0;
-    case BLOCK_PUMPKIN:
-        // @TODO
-        return 0;
-    case BLOCK_CAKE:
-        // @TODO
-        return 0;
-    case BLOCK_REPEATER: {
-        // @TODO(traks) do stuff if there's a signal going through the repeater
-        // currently?
-        cur_info.delay = (cur_info.delay & 0x3) + 1;
-        u16 new_state = make_block_state(&cur_info);
-        WorldSetBlockState(clicked_pos, new_state);
-        push_direct_neighbour_block_updates(clicked_pos, buc);
-        return 1;
-    }
-    case BLOCK_OAK_TRAPDOOR:
-    case BLOCK_SPRUCE_TRAPDOOR:
-    case BLOCK_BIRCH_TRAPDOOR:
-    case BLOCK_JUNGLE_TRAPDOOR:
-    case BLOCK_ACACIA_TRAPDOOR:
-    case BLOCK_DARK_OAK_TRAPDOOR:
-    case BLOCK_MANGROVE_TRAPDOOR:
-    case BLOCK_CRIMSON_TRAPDOOR:
-    case BLOCK_WARPED_TRAPDOOR: {
-        // @TODO(traks) play opening/closing sound
-        cur_info.open = !cur_info.open;
-        u16 new_state = make_block_state(&cur_info);
-        WorldSetBlockState(clicked_pos, new_state);
-        push_direct_neighbour_block_updates(clicked_pos, buc);
-        return 1;
-    }
-    case BLOCK_OAK_FENCE_GATE:
-    case BLOCK_SPRUCE_FENCE_GATE:
-    case BLOCK_BIRCH_FENCE_GATE:
-    case BLOCK_JUNGLE_FENCE_GATE:
-    case BLOCK_ACACIA_FENCE_GATE:
-    case BLOCK_DARK_OAK_FENCE_GATE:
-    case BLOCK_MANGROVE_FENCE_GATE:
-    case BLOCK_CRIMSON_FENCE_GATE:
-    case BLOCK_WARPED_FENCE_GATE: {
-        if (cur_info.open) {
-            cur_info.open = 0;
-        } else {
-            i32 playerFacing = GetPlayerFacing(player);
-            if (cur_info.horizontal_facing == get_opposite_direction(playerFacing)) {
-                cur_info.horizontal_facing = playerFacing;
-            }
-            cur_info.open = 1;
-        }
-
-        u16 new_state = make_block_state(&cur_info);
-        WorldSetBlockState(clicked_pos, new_state);
-        push_direct_neighbour_block_updates(clicked_pos, buc);
-
-        // @TODO(traks) broadcast level event for opening/closing fence gate
-        return 1;
-    }
-    case BLOCK_ENCHANTING_TABLE:
-        // @TODO
-        return 0;
-    case BLOCK_BREWING_STAND:
-        // @TODO
-        return 0;
-    case BLOCK_CAULDRON:
-    case BLOCK_WATER_CAULDRON:
-    case BLOCK_LAVA_CAULDRON:
-    case BLOCK_POWDER_SNOW_CAULDRON:
-        // @TODO
-        return 0;
-    case BLOCK_DRAGON_EGG:
-        // @TODO
-        return 0;
-    case BLOCK_ENDER_CHEST:
-        // @TODO
-        return 0;
-    case BLOCK_COMMAND_BLOCK:
-        // @TODO
-        return 0;
-    case BLOCK_REPEATING_COMMAND_BLOCK:
-        // @TODO
-        return 0;
-    case BLOCK_CHAIN_COMMAND_BLOCK:
-        // @TODO
-        return 0;
-    case BLOCK_BEACON:
-        // @TODO
-        return 0;
-    case BLOCK_FLOWER_POT:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_OAK_SAPLING:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_SPRUCE_SAPLING:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_BIRCH_SAPLING:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_JUNGLE_SAPLING:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_ACACIA_SAPLING:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_DARK_OAK_SAPLING:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_MANGROVE_PROPAGULE:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_FERN:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_DANDELION:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_POPPY:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_BLUE_ORCHID:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_ALLIUM:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_AZURE_BLUET:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_RED_TULIP:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_ORANGE_TULIP:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_WHITE_TULIP:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_PINK_TULIP:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_OXEYE_DAISY:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_CORNFLOWER:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_LILY_OF_THE_VALLEY:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_WITHER_ROSE:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_RED_MUSHROOM:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_BROWN_MUSHROOM:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_DEAD_BUSH:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_CACTUS:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_BAMBOO:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_CRIMSON_FUNGUS:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_WARPED_FUNGUS:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_CRIMSON_ROOTS:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_WARPED_ROOTS:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_AZALEA_BUSH:
-        // @TODO
-        return 0;
-    case BLOCK_POTTED_FLOWERING_AZALEA_BUSH:
-        // @TODO
-        return 0;
-    case BLOCK_ANVIL:
-    case BLOCK_CHIPPED_ANVIL:
-    case BLOCK_DAMAGED_ANVIL:
-        // @TODO
-        return 0;
-    case BLOCK_TRAPPED_CHEST:
-        // @TODO
-        return 0;
-    case BLOCK_COMPARATOR: {
-        // @TODO(traks) do stuff if there's a signal going through the
-        // comparator currently
-        // @TODO(traks) play sound
-        cur_info.mode_comparator = !cur_info.mode_comparator;
-        u16 new_state = make_block_state(&cur_info);
-        WorldSetBlockState(clicked_pos, new_state);
-        push_direct_neighbour_block_updates(clicked_pos, buc);
-        return 1;
-    }
-    case BLOCK_DAYLIGHT_DETECTOR: {
-        // @TODO(traks) update output signal
-        cur_info.inverted = !cur_info.inverted;
-        u16 new_state = make_block_state(&cur_info);
-        WorldSetBlockState(clicked_pos, new_state);
-        push_direct_neighbour_block_updates(clicked_pos, buc);
-        return 1;
-    }
-    case BLOCK_HOPPER:
-        // @TODO
-        return 0;
-    case BLOCK_DROPPER:
-        // @TODO
-        return 0;
-    case BLOCK_LIGHT:
-        // @TODO
-        return 0;
-    case BLOCK_SHULKER_BOX:
-    case BLOCK_WHITE_SHULKER_BOX:
-    case BLOCK_ORANGE_SHULKER_BOX:
-    case BLOCK_MAGENTA_SHULKER_BOX:
-    case BLOCK_LIGHT_BLUE_SHULKER_BOX:
-    case BLOCK_YELLOW_SHULKER_BOX:
-    case BLOCK_LIME_SHULKER_BOX:
-    case BLOCK_PINK_SHULKER_BOX:
-    case BLOCK_GRAY_SHULKER_BOX:
-    case BLOCK_LIGHT_GRAY_SHULKER_BOX:
-    case BLOCK_CYAN_SHULKER_BOX:
-    case BLOCK_PURPLE_SHULKER_BOX:
-    case BLOCK_BLUE_SHULKER_BOX:
-    case BLOCK_BROWN_SHULKER_BOX:
-    case BLOCK_GREEN_SHULKER_BOX:
-    case BLOCK_RED_SHULKER_BOX:
-    case BLOCK_BLACK_SHULKER_BOX:
-        // @TODO
-        return 0;
-    case BLOCK_LOOM:
-        // @TODO
-        return 0;
-    case BLOCK_BARREL:
-        // @TODO
-        return 0;
-    case BLOCK_SMOKER:
-        // @TODO
-        return 0;
-    case BLOCK_BLAST_FURNACE:
-        // @TODO
-        return 0;
-    case BLOCK_CARTOGRAPHY_TABLE:
-        // @TODO
-        return 0;
-    case BLOCK_FLETCHING_TABLE:
-        // @TODO
-        return 0;
-    case BLOCK_GRINDSTONE:
-        // @TODO
-        return 0;
-    case BLOCK_LECTERN:
-        // @TODO
-        return 0;
-    case BLOCK_SMITHING_TABLE:
-        // @TODO
-        return 0;
-    case BLOCK_STONECUTTER:
-        // @TODO
-        return 0;
-    case BLOCK_BELL:
-        // @TODO
-        return 0;
-    case BLOCK_CAMPFIRE:
-    case BLOCK_SOUL_CAMPFIRE:
-        // @TODO
-        return 0;
-    case BLOCK_SWEET_BERRY_BUSH:
-        // @TODO
-        return 0;
-    case BLOCK_STRUCTURE_BLOCK:
-        // @TODO
-        return 0;
-    case BLOCK_JIGSAW:
-        // @TODO
-        return 0;
-    case BLOCK_COMPOSTER:
-        // @TODO
-        return 0;
-    case BLOCK_BEE_NEST:
-    case BLOCK_BEEHIVE:
-        // @TODO
-        return 0;
-    case BLOCK_RESPAWN_ANCHOR:
-        // @TODO
-        return 0;
-    case BLOCK_CANDLE:
-    case BLOCK_WHITE_CANDLE:
-    case BLOCK_ORANGE_CANDLE:
-    case BLOCK_MAGENTA_CANDLE:
-    case BLOCK_LIGHT_BLUE_CANDLE:
-    case BLOCK_YELLOW_CANDLE:
-    case BLOCK_LIME_CANDLE:
-    case BLOCK_PINK_CANDLE:
-    case BLOCK_GRAY_CANDLE:
-    case BLOCK_LIGHT_GRAY_CANDLE:
-    case BLOCK_CYAN_CANDLE:
-    case BLOCK_PURPLE_CANDLE:
-    case BLOCK_BLUE_CANDLE:
-    case BLOCK_BROWN_CANDLE:
-    case BLOCK_GREEN_CANDLE:
-    case BLOCK_RED_CANDLE:
-    case BLOCK_BLACK_CANDLE: {
-        item_stack * main = player->slots + player->selected_slot;
-        item_stack * off = player->slots + PLAYER_OFF_HAND_SLOT;
-        item_stack * used = hand == PLAYER_MAIN_HAND ? main : off;
-
-        if ((player->flags & PLAYER_CAN_BUILD) && used->size == 0 && cur_info.lit) {
-            cur_info.lit = 0;
-            u16 new_state = make_block_state(&cur_info);
-            WorldSetBlockState(clicked_pos, new_state);
-            push_direct_neighbour_block_updates(clicked_pos, buc);
-            // @TODO(traks) particles, sounds, game events
-            return 1;
-        }
-        return 0;
-    }
-    case BLOCK_CANDLE_CAKE:
-    case BLOCK_WHITE_CANDLE_CAKE:
-    case BLOCK_ORANGE_CANDLE_CAKE:
-    case BLOCK_MAGENTA_CANDLE_CAKE:
-    case BLOCK_LIGHT_BLUE_CANDLE_CAKE:
-    case BLOCK_YELLOW_CANDLE_CAKE:
-    case BLOCK_LIME_CANDLE_CAKE:
-    case BLOCK_PINK_CANDLE_CAKE:
-    case BLOCK_GRAY_CANDLE_CAKE:
-    case BLOCK_LIGHT_GRAY_CANDLE_CAKE:
-    case BLOCK_CYAN_CANDLE_CAKE:
-    case BLOCK_PURPLE_CANDLE_CAKE:
-    case BLOCK_BLUE_CANDLE_CAKE:
-    case BLOCK_BROWN_CANDLE_CAKE:
-    case BLOCK_GREEN_CANDLE_CAKE:
-    case BLOCK_RED_CANDLE_CAKE:
-    case BLOCK_BLACK_CANDLE_CAKE: {
-        // @TODO
-        return 0;
-    }
-    case BLOCK_CAVE_VINES:
-    case BLOCK_CAVE_VINES_PLANT: {
-        // @TODO
-        return 0;
-    }
-    case BLOCK_FROGSPAWN: {
-        // @TODO
-        return 0;
-    }
-    default:
-        // other blocks have no use action
-        return 0;
-    }
+    return res;
 }
 
 BlockBehaviours BlockGetBehaviours(i32 blockState) {
