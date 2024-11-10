@@ -71,7 +71,7 @@ void LogInfo(void * format, ...) {
 
     struct timespec now;
     char unknown_time[] = "?? ??? ???? ??:??:??.???";
-    char time[25];
+    char time[64];
     if (clock_gettime(CLOCK_REALTIME, &now)) {
         // Time doesn't fit in time_t. Print out a bunch of question marks
         // instead of the correct time.
@@ -677,7 +677,7 @@ main(void) {
     InitPlayerControl();
     InitNetwork();
 
-    serv = calloc(sizeof * serv, 1);
+    serv = calloc(1, sizeof *serv);
     if (serv == NULL) {
         LogErrno("Failed to allocate server struct: %s");
         exit(1);

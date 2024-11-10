@@ -260,12 +260,12 @@ typedef struct {
 static PropagationTest BoxToPropagationTest(BoundingBox box, i32 dir) {
     PropagationTest res = {0};
     switch (dir) {
-    case DIRECTION_NEG_Y: res = (PropagationTest) {1 - box.minY, box.minX, box.minZ, box.maxX, box.maxZ};
-    case DIRECTION_POS_Y: res = (PropagationTest) {box.maxY, box.minX, box.minZ, box.maxX, box.maxZ};
-    case DIRECTION_NEG_Z: res = (PropagationTest) {1 - box.minZ, box.minX, box.minY, box.maxX, box.maxY};
-    case DIRECTION_POS_Z: res = (PropagationTest) {box.maxZ, box.minX, box.minY, box.maxX, box.maxY};
-    case DIRECTION_NEG_X: res = (PropagationTest) {1 - box.minX, box.minY, box.minZ, box.maxY, box.maxZ};
-    case DIRECTION_POS_X: res = (PropagationTest) {box.maxX, box.minY, box.minZ, box.maxY, box.maxZ};
+    case DIRECTION_NEG_Y: res = (PropagationTest) {1 - box.minY, box.minX, box.minZ, box.maxX, box.maxZ}; break;
+    case DIRECTION_POS_Y: res = (PropagationTest) {box.maxY, box.minX, box.minZ, box.maxX, box.maxZ}; break;
+    case DIRECTION_NEG_Z: res = (PropagationTest) {1 - box.minZ, box.minX, box.minY, box.maxX, box.maxY}; break;
+    case DIRECTION_POS_Z: res = (PropagationTest) {box.maxZ, box.minX, box.minY, box.maxX, box.maxY}; break;
+    case DIRECTION_NEG_X: res = (PropagationTest) {1 - box.minX, box.minY, box.minZ, box.maxY, box.maxZ}; break;
+    case DIRECTION_POS_X: res = (PropagationTest) {box.maxX, box.minY, box.minZ, box.maxY, box.maxZ}; break;
     }
     return res;
 }
@@ -363,13 +363,9 @@ static BlockModel MakeYModel(i32 y) {
     return (BlockModel) {.size = 1, .boxes = {{0, 0, 0, 16, y, 16}}};
 }
 
-static BlockModel MakeCrossModel(BoundingBox boxCentre, BoundingBox boxNegZ, BoundingBox boxFullZ, block_state_info * info) {
+static BlockModel MakeCrossModel(BoundingBox boxPillar, BoundingBox boxNegZ, BoundingBox boxFullZ, i32 forcePillar, i32 posX, i32 posZ, i32 negX, i32 negZ) {
     BlockModel res = {0};
-    i32 negZ = info->neg_z;
-    i32 posZ = info->pos_z;
-    i32 negX = info->neg_x;
-    i32 posX = info->pos_x;
-    assert(ARRAY_SIZE(res.boxes) >= 2);
+    assert(ARRAY_SIZE(res.boxes) >= 3);
 
     if (negZ && posZ) {
         res.boxes[res.size++] = boxFullZ;
@@ -387,9 +383,10 @@ static BlockModel MakeCrossModel(BoundingBox boxCentre, BoundingBox boxNegZ, Bou
         res.boxes[res.size++] = rotate_block_box_clockwise(boxNegZ);
     }
 
-    if (res.size == 0) {
-        // NOTE(traks): not connected to any edges
-        res.boxes[res.size++] = boxCentre;
+    // NOTE(traks): always do a pillar if not connected to any sides. Needed in
+    // case of panes/fences
+    if (res.size == 0 || forcePillar) {
+        res.boxes[res.size++] = boxPillar;
     }
     return res;
 }
@@ -965,7 +962,16 @@ init_wall_props(char * resource_loc) {
     AddProperty(config, BLOCK_PROPERTY_POS_Y, "true");
     AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
     AddProperty(config, BLOCK_PROPERTY_WALL_NEG_X, "none");
-    // TODO(traks): block models
+    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
+        block_state_info info = DescribeStateIndex(&config->props, stateIndex);
+        BoundingBox boxPillar = {4, 0, 4, 12, 24, 12};
+        BoundingBox boxNegZ = {5, 0, 0, 11, 24, 9};
+        BoundingBox boxFullZ = {5, 0, 0, 11, 24, 16};
+        i32 modelId = RegisterBlockModel(MakeCrossModel(boxPillar, boxNegZ, boxFullZ, info.pos_y, info.wall_pos_x, info.wall_pos_z, info.wall_neg_x, info.wall_neg_z));
+        config->collisionModelByState[stateIndex] = modelId;
+        config->supportModelByState[stateIndex] = modelId;
+    }
+    SetLightBlockingModelForAllStates(config, MakeEmptyModel());
     SetLightReductionWhenWaterlogged(config);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_WALL_CONNECT);
@@ -991,10 +997,10 @@ init_pane(char * resource_loc) {
     AddProperty(config, BLOCK_PROPERTY_NEG_X, "false");
     for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
         block_state_info info = DescribeStateIndex(&config->props, stateIndex);
-        BoundingBox boxCentre = {7, 0, 7, 9, 16, 9};
+        BoundingBox boxPillar = {7, 0, 7, 9, 16, 9};
         BoundingBox boxNegZ = {7, 0, 0, 9, 16, 9};
         BoundingBox boxFullZ = {7, 0, 0, 9, 16, 16};
-        i32 modelId = RegisterBlockModel(MakeCrossModel(boxCentre, boxNegZ, boxFullZ, &info));
+        i32 modelId = RegisterBlockModel(MakeCrossModel(boxPillar, boxNegZ, boxFullZ, 0, info.pos_x, info.pos_z, info.neg_x, info.neg_z));
         config->collisionModelByState[stateIndex] = modelId;
         config->supportModelByState[stateIndex] = modelId;
     }
@@ -1014,10 +1020,14 @@ init_fence(char * resource_loc, int wooden) {
     AddProperty(config, BLOCK_PROPERTY_NEG_X, "false");
     for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
         block_state_info info = DescribeStateIndex(&config->props, stateIndex);
-        BoundingBox boxCentre = {6, 0, 6, 10, 24, 10};
+        BoundingBox boxPillar = {6, 0, 6, 10, 24, 10};
         BoundingBox boxNegZ = {6, 0, 0, 10, 24, 10};
         BoundingBox boxFullZ = {6, 0, 0, 10, 24, 16};
-        i32 modelId = RegisterBlockModel(MakeCrossModel(boxCentre, boxNegZ, boxFullZ, &info));
+        i32 modelId = RegisterBlockModel(MakeCrossModel(boxPillar, boxNegZ, boxFullZ, 0, info.pos_x, info.pos_z, info.neg_x, info.neg_z));
+        // TODO(traks): should we also be creating a model that doesn't include
+        // the half a block of extra height? Maybe for when a player points at a
+        // block and clicks, so the point offset is correct and we do proper
+        // detection of clicks passing through low walls?
         config->collisionModelByState[stateIndex] = modelId;
         config->supportModelByState[stateIndex] = modelId;
     }
@@ -2395,7 +2405,7 @@ init_block_data(MemoryArena * scratchArena) {
     AddProperty(config, BLOCK_PROPERTY_FACING, "up");
     SetEmittedLightForAllStates(config, 14);
 
-    // TODO(traks): block modesl + light reduction
+    // TODO(traks): block models + light reduction
     config = BeginNextBlock("minecraft:chorus_plant");
     AddProperty(config, BLOCK_PROPERTY_NEG_Y, "false");
     AddProperty(config, BLOCK_PROPERTY_POS_X, "false");

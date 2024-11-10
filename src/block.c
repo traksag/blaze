@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include "shared.h"
 #include "chunk.h"
+#include "player.h"
 
 // @TODO(traks) An issue with having a fixed update order, is that redstone
 // contraptions can break if they're rotated. Perhaps making the update order
@@ -2477,10 +2478,11 @@ propagate_block_updates(block_update_context * buc) {
 }
 
 int
-use_block(Entity * player,
+use_block(PlayerController * control,
         i32 hand, WorldBlockPos clicked_pos, i32 clicked_face,
         float click_offset_x, float click_offset_y, float click_offset_z,
         u8 is_inside, block_update_context * buc) {
+    Entity * player = ResolveEntity(control->entityId);
     u16 cur_state = WorldGetBlockState(clicked_pos);
     block_state_info cur_info = describe_block_state(cur_state);
     i32 cur_type = cur_info.blockType;
@@ -2668,11 +2670,10 @@ use_block(Entity * player,
         if (cur_info.open) {
             cur_info.open = 0;
         } else {
-            int player_facing = GetPlayerFacing(player);
-            if (cur_info.horizontal_facing == get_opposite_direction(player_facing)) {
-                cur_info.horizontal_facing = player_facing;
+            i32 playerFacing = GetPlayerFacing(player);
+            if (cur_info.horizontal_facing == get_opposite_direction(playerFacing)) {
+                cur_info.horizontal_facing = playerFacing;
             }
-
             cur_info.open = 1;
         }
 
