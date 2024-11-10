@@ -22,999 +22,6 @@ typedef struct {
 static BlockSetup blockSetup;
 
 typedef struct {
-    f32 edge;
-    f32 minA;
-    f32 minB;
-    f32 maxA;
-    f32 maxB;
-} PropagationTest;
-
-static PropagationTest BoxToPropagationTest(BoundingBox box, i32 dir) {
-    PropagationTest res = {0};
-    switch (dir) {
-    case DIRECTION_NEG_Y: res = (PropagationTest) {1 - box.minY, box.minX, box.minZ, box.maxX, box.maxZ};
-    case DIRECTION_POS_Y: res = (PropagationTest) {box.maxY, box.minX, box.minZ, box.maxX, box.maxZ};
-    case DIRECTION_NEG_Z: res = (PropagationTest) {1 - box.minZ, box.minX, box.minY, box.maxX, box.maxY};
-    case DIRECTION_POS_Z: res = (PropagationTest) {box.maxZ, box.minX, box.minY, box.maxX, box.maxY};
-    case DIRECTION_NEG_X: res = (PropagationTest) {1 - box.minX, box.minY, box.minZ, box.maxY, box.maxZ};
-    case DIRECTION_POS_X: res = (PropagationTest) {box.maxX, box.minY, box.minZ, box.maxY, box.maxZ};
-    }
-    return res;
-}
-
-// TODO(traks): most block models are not used for light propagation, because
-// most blocks have an empty light blocking model
-static i32 BlockLightCanPropagate(i32 fromModelIndex, i32 toModelIndex, i32 dir) {
-    BlockModel fromModel = serv->staticBlockModels[fromModelIndex];
-    BlockModel toModel = serv->staticBlockModels[toModelIndex];
-
-    i32 testCount = 0;
-    PropagationTest tests[16];
-
-    for (i32 i = 0; i < fromModel.size; i++) {
-        PropagationTest test = BoxToPropagationTest(fromModel.boxes[i], dir);
-        if (test.edge >= 1) {
-            tests[testCount++] = test;
-        }
-    }
-    for (i32 i = 0; i < toModel.size; i++) {
-        PropagationTest test = BoxToPropagationTest(fromModel.boxes[i], get_opposite_direction(dir));
-        if (test.edge >= 1) {
-            tests[testCount++] = test;
-        }
-    }
-
-    f32 curA = 0;
-    for (;;) {
-        f32 curB = 0;
-        f32 nextA = curA;
-        for (i32 testIndex = 0; testIndex < testCount; testIndex++) {
-            PropagationTest test = tests[testIndex];
-            if (test.minA <= curA && test.maxA >= curA && test.minB <= curB && test.maxB >= curB) {
-                curB = test.maxB;
-                nextA = MIN(nextA, test.maxA);
-            }
-        }
-        if (nextA == curA) {
-            break;
-        }
-    }
-
-    return (curA != 1);
-}
-
-static void InitProperty(i32 id, char * name, i32 valueCount, char * * values, i32 * intValues) {
-    block_property_spec prop_spec = {0};
-    assert(valueCount <= MAX_BLOCK_PROPERTY_VALUES);
-    prop_spec.value_count = valueCount;
-    String nameString = STR(name);
-
-    u8 * tape = prop_spec.tape;
-    i32 tapeIndex = 0;
-    tape[tapeIndex++] = nameString.size;
-    memcpy(tape + tapeIndex, nameString.data, nameString.size);
-    tapeIndex += nameString.size;
-
-    for (i32 valueIndex = 0; valueIndex < valueCount; valueIndex++) {
-        String value = STR(values[valueIndex]);
-        tape[tapeIndex++] = value.size;
-        memcpy(tape + tapeIndex, value.data, value.size);
-        tapeIndex += value.size;
-        i32 intValue = intValues[valueIndex];
-        assert(intValue >= 0 && intValue <= 127);
-        prop_spec.intValues[valueIndex] = intValues[valueIndex];
-    }
-
-    assert(tapeIndex <= (i32) ARRAY_SIZE(prop_spec.tape));
-    serv->block_property_specs[id] = prop_spec;
-}
-
-static void InitListProperty(i32 id, char * name, ...) {
-    va_list ap;
-    va_start(ap, name);
-    char * values[MAX_BLOCK_PROPERTY_VALUES];
-    i32 intValues[MAX_BLOCK_PROPERTY_VALUES];
-    i32 valueCount = 0;
-    for (;;) {
-        char * value = va_arg(ap, char *);
-        if (value == NULL) {
-            break;
-        }
-        assert(valueCount < (i32) ARRAY_SIZE(values));
-        values[valueCount] = value;
-        intValues[valueCount] = valueCount;
-        valueCount++;
-    }
-    va_end(ap);
-    InitProperty(id, name, valueCount, values, intValues);
-}
-
-static i32 MakeRangeValues(i32 min, i32 max, char * * values, i32 * intValues, i32 maxValues) {
-    i32 valueCount = max - min + 1;
-    assert(valueCount <= MAX_BLOCK_PROPERTY_VALUES);
-    i32 bufSize = 256;
-    char * buf = MallocInArena(blockSetup.arena, bufSize);
-    i32 bufIndex = 0;
-    for (i32 value = min; value <= max; value++) {
-        i32 size = snprintf(buf + bufIndex, bufSize - bufIndex, "%d", value);
-        values[value - min] = buf + bufIndex;
-        assert(value >= 0 && value < 256);
-        intValues[value - min] = value;
-        // NOTE(traks): include terminating null character
-        bufIndex += size + 1;
-    }
-    return valueCount;
-}
-
-static void InitRangeProperty(i32 id, char * name, i32 min, i32 max) {
-    char * values[MAX_BLOCK_PROPERTY_VALUES];
-    i32 intValues[MAX_BLOCK_PROPERTY_VALUES];
-    i32 valueCount = MakeRangeValues(min, max, values, intValues, MAX_BLOCK_PROPERTY_VALUES);
-    InitProperty(id, name, valueCount, values, intValues);
-}
-
-static void InitBoolProperty(i32 id, char * name) {
-    char * values[] = {"true", "false"};
-    i32 intValues[] = {1, 0};
-    InitProperty(id, name, 2, values, intValues);
-}
-
-static void InitRemapProperty(i32 id, char * name, i32 optionCount, char * * options, i32 * intOptions, va_list ap) {
-    char * values[MAX_BLOCK_PROPERTY_VALUES];
-    i32 intValues[MAX_BLOCK_PROPERTY_VALUES];
-    i32 valueCount = 0;
-    for (;;) {
-        char * value = va_arg(ap, char *);
-        if (value == NULL) {
-            break;
-        }
-        assert(valueCount < (i32) ARRAY_SIZE(values));
-        values[valueCount] = value;
-        i32 intValue = -1;
-        for (i32 optionIndex = 0; optionIndex < optionCount; optionIndex++) {
-            if (StringEquals(STR(value), STR(options[optionIndex]))) {
-                intValue = intOptions[optionIndex];
-                break;
-            }
-        }
-        assert(intValue != -1);
-        intValues[valueCount] = intValue;
-        valueCount++;
-    }
-    InitProperty(id, name, valueCount, values, intValues);
-}
-
-static void InitDirectionProperty(i32 id, char * name, ...) {
-    va_list ap;
-    va_start(ap, name);
-    char * options[] = {"north", "east", "south", "west", "up", "down"};
-    i32 intOptions[] = {DIRECTION_NEG_Z, DIRECTION_POS_X, DIRECTION_POS_Z, DIRECTION_NEG_X, DIRECTION_POS_X, DIRECTION_NEG_X};
-    InitRemapProperty(id, name, ARRAY_SIZE(options), options, intOptions, ap);
-    va_end(ap);
-}
-
-static void InitAxisProperty(i32 id, char * name, ...) {
-    va_list ap;
-    va_start(ap, name);
-    char * options[] = {"x", "y", "z"};
-    i32 intOptions[] = {AXIS_X, AXIS_Y, AXIS_Z};
-    InitRemapProperty(id, name, ARRAY_SIZE(options), options, intOptions, ap);
-    va_end(ap);
-}
-
-static void InitFluidLevelProperty(i32 id, char * name) {
-    char * values[MAX_BLOCK_PROPERTY_VALUES];
-    i32 intValues[MAX_BLOCK_PROPERTY_VALUES];
-    i32 valueCount = MakeRangeValues(0, 15, values, intValues, MAX_BLOCK_PROPERTY_VALUES);
-    i32 remappedIntValues[] = {
-        FLUID_LEVEL_SOURCE, FLUID_LEVEL_FLOWING_7, FLUID_LEVEL_FLOWING_6, FLUID_LEVEL_FLOWING_5,
-        FLUID_LEVEL_FLOWING_4, FLUID_LEVEL_FLOWING_3, FLUID_LEVEL_FLOWING_2, FLUID_LEVEL_FLOWING_1,
-        FLUID_LEVEL_FALLING, FLUID_LEVEL_FALLING, FLUID_LEVEL_FALLING, FLUID_LEVEL_FALLING,
-        FLUID_LEVEL_FALLING, FLUID_LEVEL_FALLING, FLUID_LEVEL_FALLING, FLUID_LEVEL_FALLING
-    };
-    InitProperty(id, name, valueCount, values, remappedIntValues);
-}
-
-// NOTE(traks): returns < 0 or == 0 or > 0 depending on whether a < b, a == b or
-// a > b respectively.
-static i32 CompareBlockProperty(String a, String b) {
-    i32 minSize = MIN(a.size, b.size);
-    for (i32 charIndex = 0; charIndex < minSize; charIndex++) {
-        if (a.data[charIndex] != b.data[charIndex]) {
-            return (i32) a.data[charIndex] - (i32) b.data[charIndex];
-        }
-    }
-    return a.size - b.size;
-}
-
-static void ReallocateStateArrays(BlockConfig * config) {
-    config->collisionModelByState = CallocInArena(blockSetup.arena, config->stateCount);
-    config->supportModelByState = CallocInArena(blockSetup.arena, config->stateCount);
-    config->lightBlockingModelByState = CallocInArena(blockSetup.arena, config->stateCount);
-    config->lightReductionByState = CallocInArena(blockSetup.arena, config->stateCount);
-    config->emittedLightByState = CallocInArena(blockSetup.arena, config->stateCount);
-}
-
-static void AddProperty(BlockConfig * config, i32 propertyId, char * defaultValue) {
-    block_property_spec * spec = serv->block_property_specs + propertyId;
-    String propName = {
-        .size = spec->tape[0],
-        .data = spec->tape + 1,
-    };
-    String defaultValueString = STR(defaultValue);
-
-    // NOTE(traks): compute index of default value
-    // NOTE(traks): tape starts with name size, then name string, and then
-    // repeated value size + value string. Skip the name part
-    i32 curTapeIndex = 1 + spec->tape[0];
-    i32 defaultValueIndex = -1;
-    for (i32 valueIndex = 0; valueIndex < spec->value_count; valueIndex++) {
-        String value = {
-            .size = spec->tape[curTapeIndex],
-            .data = spec->tape + curTapeIndex + 1
-        };
-        if (StringEquals(defaultValueString, value)) {
-            defaultValueIndex = valueIndex;
-            break;
-        }
-        curTapeIndex += value.size + 1;
-    }
-    assert(defaultValueIndex >= 0);
-
-    // NOTE(traks): Minecraft sorts block properties using the natural sorting
-    // order for Java strings. Since all properties have ascii characters, this
-    // comes down to ASCII sorting based on character values
-
-    assert(config->props.property_count < ARRAY_SIZE(config->props.property_specs));
-
-    // NOTE(traks): grab the index we should register the new property at
-    i32 newPropIndex;
-    for (newPropIndex = 0; newPropIndex < config->props.property_count; newPropIndex++) {
-        block_property_spec * otherSpec = serv->block_property_specs + config->props.property_specs[newPropIndex];
-        String otherPropName = {
-            .size = otherSpec->tape[0],
-            .data = otherSpec->tape + 1,
-        };
-        if (CompareBlockProperty(propName, otherPropName) < 0) {
-            break;
-        }
-    }
-
-    // NOTE(traks): make space for the new property
-    for (i32 propIndex = config->props.property_count; propIndex > newPropIndex; propIndex--) {
-        config->props.property_specs[propIndex] = config->props.property_specs[propIndex - 1];
-        config->props.default_value_indices[propIndex] = config->props.default_value_indices[propIndex - 1];
-    }
-
-    // NOTE(traks): register the new property for the block
-    config->props.property_specs[newPropIndex] = propertyId;
-    config->props.default_value_indices[newPropIndex] = defaultValueIndex;
-    config->props.property_count++;
-
-    // NOTE(traks): update other fields
-    config->stateCount *= spec->value_count;
-    ReallocateStateArrays(config);
-}
-
-static BlockConfig * BeginNextBlock(char * resourceLoc) {
-    i32 blockType = ResolveRegistryEntryId(&serv->blockRegistry, STR(resourceLoc));
-    assert(blockType >= 0);
-    BlockConfig * res = &blockSetup.configs[blockType];
-    assert(res->stateCount == 0);
-    res->stateCount = 1;
-    ReallocateStateArrays(res);
-    return res;
-}
-
-static void FinaliseBlocks(void) {
-    // NOTE(traks): compute block states and set up global arrays
-    for (i32 blockType = 0; blockType < serv->blockRegistry.entryCount; blockType++) {
-        BlockConfig * config = blockSetup.configs + blockType;
-        i32 baseState = serv->actual_block_state_count;
-        config->props.base_state = baseState;
-
-        assert(baseState + config->stateCount <= (i32) ARRAY_SIZE(serv->block_type_by_state));
-        assert(config->stateCount > 0);
-
-        memcpy(serv->block_properties_table + blockType, &config->props, sizeof config->props);
-        for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
-            serv->block_type_by_state[baseState + stateIndex] = blockType;
-        }
-        memcpy(serv->collisionModelByState + baseState, config->collisionModelByState, config->stateCount);
-        memcpy(serv->supportModelByState + baseState, config->supportModelByState, config->stateCount);
-        memcpy(serv->lightBlockingModelByState + baseState, config->lightBlockingModelByState, config->stateCount);
-        memcpy(serv->lightReductionByState + baseState, config->lightReductionByState, config->stateCount);
-        memcpy(serv->emittedLightByState + baseState, config->emittedLightByState, config->stateCount);
-        serv->blockBehavioursByType[blockType] = config->behaviours;
-
-        serv->actual_block_state_count += config->stateCount;
-        if (blockType < VANILLA_BLOCK_TYPE_COUNT) {
-            serv->vanilla_block_state_count += config->stateCount;
-        }
-    }
-
-    // NOTE(traks): compute light propagation data
-    for (i32 fromModelIndex = 0; fromModelIndex < BLOCK_MODEL_COUNT; fromModelIndex++) {
-        for (i32 toModelIndex = 0; toModelIndex < BLOCK_MODEL_COUNT; toModelIndex++) {
-            u32 entry = 0;
-            for (i32 dir = 0; dir < 6; dir++) {
-                i32 canPropagate = BlockLightCanPropagate(fromModelIndex, toModelIndex, dir);
-                entry |= (canPropagate << dir);
-            }
-            serv->lightCanPropagate[fromModelIndex * BLOCK_MODEL_COUNT + toModelIndex] = entry;
-        }
-    }
-}
-
-static void SetParticularModelForAllStates(BlockConfig * config, u8 * modelByState, i32 modelId) {
-    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
-        modelByState[stateIndex] = modelId;
-    }
-}
-
-static void SetCollisionModelForAllStates(BlockConfig * config, i32 modelId) {
-    SetParticularModelForAllStates(config, config->collisionModelByState, modelId);
-}
-
-static void SetSupportModelForAllStates(BlockConfig * config, i32 modelId) {
-    SetParticularModelForAllStates(config, config->supportModelByState, modelId);
-}
-
-// NOTE(traks): for this, some relevant vanilla code is:
-// - useShapeForLightOcclusion: false = can just use empty model here
-// - getOcclusionShape: shape for occlusion if above = true
-static void SetLightBlockingModelForAllStates(BlockConfig * config, i32 modelId) {
-    SetParticularModelForAllStates(config, config->lightBlockingModelByState, modelId);
-}
-
-static void SetAllModelsForAllStatesIndividually(BlockConfig * config, i32 collisionModelId, i32 supportModelId, i32 lightModelId) {
-    SetCollisionModelForAllStates(config, collisionModelId);
-    SetSupportModelForAllStates(config, supportModelId);
-    SetLightBlockingModelForAllStates(config, lightModelId);
-}
-
-static void SetAllModelsForAllStates(BlockConfig * config, i32 modelId) {
-    SetAllModelsForAllStatesIndividually(config, modelId, modelId, modelId);
-}
-
-// NOTE(traks): for full blocks it doesn't really matter what the light
-// reduction is, because the light will get blocked anyway.
-// Relevant vanilla code is:
-// - getLightBlock: how much light is blocked
-// - propagatesSkylightDown: if max sky light can pass through unchanged
-static void SetLightReductionForAllStates(BlockConfig * config, i32 lightReduction) {
-    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
-        config->lightReductionByState[stateIndex] = lightReduction & 0xf;
-    }
-}
-
-static void SetLightReductionWhenWaterlogged(BlockConfig * config) {
-    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
-        block_state_info info = DescribeStateIndex(&config->props, stateIndex);
-        i32 lightReduction = (info.waterlogged ? 1 : 0);
-        config->lightReductionByState[stateIndex] = lightReduction;
-    }
-}
-
-// NOTE(traks): Relevant vanilla code is:
-// - .lightLevel in Blocks: sets how much light is emitted
-static void SetEmittedLightForAllStates(BlockConfig * config, i32 emittedLight) {
-    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
-        config->emittedLightByState[stateIndex] = emittedLight & 0xf;
-    }
-}
-
-static void SetEmittedLightWhenLit(BlockConfig * config, i32 emittedLight) {
-    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
-        block_state_info info = DescribeStateIndex(&config->props, stateIndex);
-        if (info.lit) {
-            config->emittedLightByState[stateIndex] = emittedLight & 0xf;
-        }
-    }
-}
-
-static void SetEmittedLightWhenBerries(BlockConfig * config, i32 emittedLight) {
-    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
-        block_state_info info = DescribeStateIndex(&config->props, stateIndex);
-        if (info.berries) {
-            config->emittedLightByState[stateIndex] = emittedLight & 0xf;
-        }
-    }
-}
-
-static void AddBlockBehaviour(BlockConfig * config, i32 behaviour) {
-    BlockBehaviours * behaviours = &config->behaviours;
-    assert(behaviours->size < (i32) ARRAY_SIZE(behaviours->entries));
-    behaviours->entries[behaviours->size] = behaviour;
-    behaviours->size++;
-}
-
-static BlockConfig * InitSimpleBlockWithModels(char * resource_loc,
-        i32 collisionModelId, i32 supportModelId, i32 lightModelId,
-        i32 lightReduction, i32 emittedLight) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    SetCollisionModelForAllStates(config, collisionModelId);
-    SetSupportModelForAllStates(config, supportModelId);
-    SetLightBlockingModelForAllStates(config, lightModelId);
-    SetLightReductionForAllStates(config, lightReduction);
-    SetEmittedLightForAllStates(config, emittedLight);
-    return config;
-}
-
-static void
-init_simple_block(char * resource_loc, int modelId, i32 lightReduction, i32 emittedLight) {
-    InitSimpleBlockWithModels(resource_loc, modelId, modelId, modelId, lightReduction, emittedLight);
-}
-
-static void InitSimpleEmptyBlock(char * resourceLoc) {
-    InitSimpleBlockWithModels(resourceLoc, BLOCK_MODEL_EMPTY, BLOCK_MODEL_EMPTY, BLOCK_MODEL_EMPTY, 0, 0);
-}
-
-static BlockConfig * InitSimpleFullBlock(char * resourceLoc) {
-    return InitSimpleBlockWithModels(resourceLoc, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY, 15, 0);
-}
-
-static void InitSimpleFullEmittingBlock(char * resourceLoc, i32 emittedLight) {
-    InitSimpleBlockWithModels(resourceLoc, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY, 15, emittedLight);
-}
-
-static void
-init_sapling(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_STAGE, "0");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightReductionWhenWaterlogged(config);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_SOIL_BELOW);
-}
-
-static void
-init_propagule(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_STAGE, "0");
-    AddProperty(config, BLOCK_PROPERTY_AGE_4, "0");
-    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-    AddProperty(config, BLOCK_PROPERTY_HANGING, "false");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightReductionWhenWaterlogged(config);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_PROPAGULE_ENVIRONMENT);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
-}
-
-static void
-init_pillar(char * resource_loc, i32 emittedLight) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_AXIS, "y");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_FULL);
-    SetLightReductionForAllStates(config, 15);
-    SetEmittedLightForAllStates(config, emittedLight);
-}
-
-static void
-init_leaves(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_DISTANCE, "7");
-    AddProperty(config, BLOCK_PROPERTY_PERSISTENT, "false");
-    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-    SetCollisionModelForAllStates(config, BLOCK_MODEL_FULL);
-    SetSupportModelForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightBlockingModelForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightReductionForAllStates(config, 1);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NO_CONNECTIONS);
-}
-
-static void
-init_bed(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    AddProperty(config, BLOCK_PROPERTY_OCCUPIED, "false");
-    AddProperty(config, BLOCK_PROPERTY_BED_PART, "foot");
-
-    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
-        block_state_info info = DescribeStateIndex(&config->props, stateIndex);
-        int facing = info.horizontal_facing;
-        if (info.bed_part == BED_PART_HEAD) {
-            facing = get_opposite_direction(facing);
-        }
-        int model_index = 0;
-        switch (info.horizontal_facing) {
-        case DIRECTION_POS_X: model_index = BLOCK_MODEL_BED_FOOT_POS_X; break;
-        case DIRECTION_POS_Z: model_index = BLOCK_MODEL_BED_FOOT_POS_Z; break;
-        case DIRECTION_NEG_X: model_index = BLOCK_MODEL_BED_FOOT_NEG_X; break;
-        case DIRECTION_NEG_Z: model_index = BLOCK_MODEL_BED_FOOT_NEG_Z; break;
-        }
-        config->collisionModelByState[stateIndex] = model_index;
-        config->supportModelByState[stateIndex] = model_index;
-    }
-
-    SetLightBlockingModelForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightReductionWhenWaterlogged(config);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_BED);
-}
-
-static void
-init_slab(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_SLAB_TYPE, "bottom");
-    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
-        block_state_info info = DescribeStateIndex(&config->props, stateIndex);
-        int model_index = 0;
-        switch (info.slab_type) {
-        case SLAB_TOP: model_index = BLOCK_MODEL_TOP_SLAB; break;
-        case SLAB_BOTTOM: model_index = BLOCK_MODEL_Y_8; break;
-        case SLAB_DOUBLE: model_index = BLOCK_MODEL_FULL; break;
-        }
-        config->collisionModelByState[stateIndex] = model_index;
-        config->supportModelByState[stateIndex] = model_index;
-        config->lightBlockingModelByState[stateIndex] = model_index;
-    }
-    SetLightReductionWhenWaterlogged(config);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
-}
-
-static void
-init_sign(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_ROTATION_16, "0");
-    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightReductionWhenWaterlogged(config);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR);
-}
-
-static void
-init_wall_sign(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightReductionWhenWaterlogged(config);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR);
-}
-
-static void
-InitHangingSign(char * resource_loc) {
-    // TODO(traks): models, light reduction, block behaviour, etc.
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_ROTATION_16, "0");
-    AddProperty(config, BLOCK_PROPERTY_ATTACHED, "false");
-    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-}
-
-static void
-InitWallHangingSign(char * resource_loc) {
-    // TODO(traks): models, light reduction, block behaviour, etc.
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-}
-
-static void
-init_stair_props(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    AddProperty(config, BLOCK_PROPERTY_HALF, "bottom");
-    AddProperty(config, BLOCK_PROPERTY_STAIRS_SHAPE, "straight");
-    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-    // TODO(traks): block models
-    SetLightReductionWhenWaterlogged(config);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_STAIRS);
-}
-
-static void
-init_tall_plant(char * resource_loc, i32 hasWater) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_DOUBLE_BLOCK_HALF, "lower");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightReductionForAllStates(config, hasWater ? 1 : 0);
-    if (hasWater) {
-        AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
-    }
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_TALL_PLANT);
-}
-
-static void
-init_glazed_terracotta(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_FULL);
-    SetLightReductionForAllStates(config, 15);
-}
-
-static void
-init_shulker_box_props(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_FACING, "up");
-    // TODO(traks): block models
-    SetLightReductionForAllStates(config, 1);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NO_CONNECTIONS);
-}
-
-static void
-init_wall_props(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_WALL_POS_X, "none");
-    AddProperty(config, BLOCK_PROPERTY_WALL_NEG_Z, "none");
-    AddProperty(config, BLOCK_PROPERTY_WALL_POS_Z, "none");
-    AddProperty(config, BLOCK_PROPERTY_POS_Y, "true");
-    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-    AddProperty(config, BLOCK_PROPERTY_WALL_NEG_X, "none");
-    // TODO(traks): block models
-    SetLightReductionWhenWaterlogged(config);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_WALL_CONNECT);
-}
-
-static void
-init_pressure_plate(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightReductionWhenWaterlogged(config);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_PLATE_SUPPORTING_SURFACE_BELOW);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR);
-}
-
-static void
-init_pane(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_POS_X, "false");
-    AddProperty(config, BLOCK_PROPERTY_NEG_Z, "false");
-    AddProperty(config, BLOCK_PROPERTY_POS_Z, "false");
-    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-    AddProperty(config, BLOCK_PROPERTY_NEG_X, "false");
-    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
-        block_state_info info = DescribeStateIndex(&config->props, stateIndex);
-        int flags = (info.pos_x << 3) | (info.neg_x << 2) | (info.pos_z << 1) | info.neg_z;
-        int model_index = BLOCK_MODEL_PANE_CENTRE + flags;
-        config->collisionModelByState[stateIndex] = model_index;
-        config->supportModelByState[stateIndex] = model_index;
-    }
-    SetLightBlockingModelForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightReductionWhenWaterlogged(config);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_PANE_CONNECT);
-}
-
-static void
-init_fence(char * resource_loc, int wooden) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_POS_X, "false");
-    AddProperty(config, BLOCK_PROPERTY_NEG_Z, "false");
-    AddProperty(config, BLOCK_PROPERTY_POS_Z, "false");
-    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-    AddProperty(config, BLOCK_PROPERTY_NEG_X, "false");
-    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
-        block_state_info info = DescribeStateIndex(&config->props, stateIndex);
-        int flags = (info.pos_x << 3) | (info.neg_x << 2) | (info.pos_z << 1) | info.neg_z;
-        int model_index = BLOCK_MODEL_FENCE_CENTRE + flags;
-        config->collisionModelByState[stateIndex] = model_index;
-        config->supportModelByState[stateIndex] = model_index;
-    }
-    SetLightBlockingModelForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightReductionWhenWaterlogged(config);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FENCE_CONNECT);
-    if (wooden) {
-        AddBlockBehaviour(config, BLOCK_BEHAVIOUR_WOODEN_FENCE_CONNECT);
-    }
-}
-
-static void
-init_door_props(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    AddProperty(config, BLOCK_PROPERTY_DOUBLE_BLOCK_HALF, "lower");
-    AddProperty(config, BLOCK_PROPERTY_DOOR_HINGE, "left");
-    AddProperty(config, BLOCK_PROPERTY_OPEN, "false");
-    AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
-    // TODO(traks): block models
-    SetLightReductionWhenWaterlogged(config);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_DOOR_MATCH_OTHER_PART);
-}
-
-static void
-init_button(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_ATTACH_FACE, "wall");
-    AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightReductionWhenWaterlogged(config);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_FULL_SUPPORT_ATTACHED);
-}
-
-static void
-init_trapdoor_props(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    AddProperty(config, BLOCK_PROPERTY_HALF, "bottom");
-    AddProperty(config, BLOCK_PROPERTY_OPEN, "false");
-    AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
-    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-    // TODO(traks): block models
-    SetLightBlockingModelForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightReductionWhenWaterlogged(config);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
-}
-
-static void
-init_fence_gate(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    AddProperty(config, BLOCK_PROPERTY_IN_WALL, "false");
-    AddProperty(config, BLOCK_PROPERTY_OPEN, "false");
-    AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
-    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
-        block_state_info info = DescribeStateIndex(&config->props, stateIndex);
-        int model_index;
-        if (info.open) {
-            model_index = BLOCK_MODEL_EMPTY;
-        } else if (get_direction_axis(info.horizontal_facing) == AXIS_X) {
-            model_index = BLOCK_MODEL_FENCE_GATE_FACING_X;
-        } else {
-            model_index = BLOCK_MODEL_FENCE_GATE_FACING_Z;
-        }
-        config->collisionModelByState[stateIndex] = model_index;
-        config->supportModelByState[stateIndex] = model_index;
-    }
-    SetLightBlockingModelForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightReductionWhenWaterlogged(config);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FENCE_GATE_CONNECT);
-}
-
-static void
-init_mushroom_block(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_NEG_Y, "true");
-    AddProperty(config, BLOCK_PROPERTY_POS_X, "true");
-    AddProperty(config, BLOCK_PROPERTY_NEG_Z, "true");
-    AddProperty(config, BLOCK_PROPERTY_POS_Z, "true");
-    AddProperty(config, BLOCK_PROPERTY_POS_Y, "true");
-    AddProperty(config, BLOCK_PROPERTY_NEG_X, "true");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_FULL);
-    SetLightReductionForAllStates(config, 15);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_MUSHROOM_BLOCK_CONNECT);
-}
-
-static void
-init_skull_props(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
-    AddProperty(config, BLOCK_PROPERTY_ROTATION_16, "0");
-    // TODO(traks): block models
-    SetLightBlockingModelForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightReductionWhenWaterlogged(config);
-}
-
-static void
-init_wall_skull_props(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
-    AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    // TODO(traks): block models
-    SetLightBlockingModelForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightReductionWhenWaterlogged(config);
-}
-
-static void
-init_anvil_props(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    // TODO(traks): block models
-    SetLightBlockingModelForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightReductionWhenWaterlogged(config);
-}
-
-static void
-init_banner(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_ROTATION_16, "0");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightReductionWhenWaterlogged(config);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR);
-}
-
-static void
-init_wall_banner(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightReductionWhenWaterlogged(config);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR);
-}
-
-static void
-init_coral(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "true");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightReductionWhenWaterlogged(config);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
-}
-
-static void
-init_coral_fan(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "true");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightReductionWhenWaterlogged(config);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
-}
-
-static void
-init_coral_wall_fan(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "true");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightReductionWhenWaterlogged(config);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
-}
-
-static void
-init_snowy_grassy_block(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_SNOWY, "false");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_FULL);
-    SetLightReductionForAllStates(config, 15);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_SNOWY_TOP);
-}
-
-static void
-init_redstone_ore(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_LIT, "false");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_FULL);
-    SetLightReductionForAllStates(config, 15);
-    SetEmittedLightWhenLit(config, 9);
-}
-
-static void
-init_cauldron(char * resource_loc, int layered, i32 emittedLight) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    if (layered) {
-        AddProperty(config, BLOCK_PROPERTY_LEVEL_CAULDRON, "1");
-    }
-    // TODO(traks): block models
-    SetLightBlockingModelForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightReductionWhenWaterlogged(config);
-    SetEmittedLightForAllStates(config, emittedLight);
-}
-
-static void
-init_candle(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_CANDLES, "1");
-    AddProperty(config, BLOCK_PROPERTY_LIT, "false");
-    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-    // TODO(traks): block models
-    SetLightBlockingModelForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightReductionWhenWaterlogged(config);
-    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
-        block_state_info info = DescribeStateIndex(&config->props, stateIndex);
-        if (info.lit) {
-            config->emittedLightByState[stateIndex] = 3 * info.candles;
-        }
-    }
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_POLE_SUPPORT_BELOW);
-}
-
-static void
-init_candle_cake(char * resource_loc) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_LIT, "false");
-    // TODO(traks): block models
-    SetLightBlockingModelForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightReductionWhenWaterlogged(config);
-    SetEmittedLightWhenLit(config, 3);
-}
-
-static void
-init_amethyst_cluster(char * resource_loc, i32 emittedLight) {
-    BlockConfig * config = BeginNextBlock(resource_loc);
-    AddProperty(config, BLOCK_PROPERTY_FACING, "up");
-    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-    // TODO(traks): block models
-    SetLightBlockingModelForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightReductionWhenWaterlogged(config);
-    SetEmittedLightForAllStates(config, emittedLight);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_FULL_SUPPORT_BEHIND);
-}
-
-static void InitMultiFaceBlock(char * resourceLoc, i32 emittedLight) {
-    BlockConfig * config = BeginNextBlock(resourceLoc);
-    AddProperty(config, BLOCK_PROPERTY_NEG_Y, "false");
-    AddProperty(config, BLOCK_PROPERTY_POS_Y, "false");
-    AddProperty(config, BLOCK_PROPERTY_NEG_Z, "false");
-    AddProperty(config, BLOCK_PROPERTY_POS_Z, "false");
-    AddProperty(config, BLOCK_PROPERTY_NEG_X, "false");
-    AddProperty(config, BLOCK_PROPERTY_POS_X, "false");
-    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetLightReductionWhenWaterlogged(config);
-
-    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
-        block_state_info info = DescribeStateIndex(&config->props, stateIndex);
-        if (info.neg_y || info.pos_y || info.neg_z || info.pos_z || info.neg_x || info.pos_x) {
-            config->emittedLightByState[stateIndex] = emittedLight;
-        }
-    }
-
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
-}
-
-static void InitFlowerPot(char * resourceLoc) {
-    InitSimpleBlockWithModels(resourceLoc, BLOCK_MODEL_FLOWER_POT, BLOCK_MODEL_FLOWER_POT, BLOCK_MODEL_EMPTY, 0, 0);
-}
-
-static void InitCarpet(char * resourceLoc) {
-    BlockConfig * config = BeginNextBlock(resourceLoc);
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_Y_1, BLOCK_MODEL_Y_1, BLOCK_MODEL_EMPTY);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_NON_AIR_BELOW);
-}
-
-static void InitSimplePlant(char * resourceLoc) {
-    BlockConfig * config = BeginNextBlock(resourceLoc);
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_SOIL_BELOW);
-}
-
-static void InitSimpleNetherPlant(char * resourceLoc) {
-    BlockConfig * config = BeginNextBlock(resourceLoc);
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_SOIL_OR_NETHER_SOIL_BELOW);
-}
-
-static void InitTorch(char * resourceLoc, i32 onWall, i32 emittedLight) {
-    BlockConfig * config = BeginNextBlock(resourceLoc);
-    if (onWall) {
-        AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    }
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
-    SetEmittedLightForAllStates(config, emittedLight);
-    if (onWall) {
-        AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_FULL_SUPPORT_BEHIND_HORIZONTAL);
-    } else {
-        AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_POLE_SUPPORT_BELOW);
-        AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR);
-    }
-}
-
-static void InitAzalea(char * resourceLoc) {
-    // TODO(traks): block models
-    BlockConfig * config = BeginNextBlock(resourceLoc);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_AZALEA);
-}
-
-static void InitSuspiciousBlock(char * resourceLoc) {
-    // TODO(traks): block models, light reduction, etc. This is a block entity
-    BlockConfig * config = BeginNextBlock(resourceLoc);
-    AddProperty(config, BLOCK_PROPERTY_DUSTED, "0");
-}
-
-static void InitGrate(char * resourceLoc) {
-    BlockConfig * config = BeginNextBlock(resourceLoc);
-    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
-    SetLightReductionWhenWaterlogged(config);
-    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
-}
-
-static void InitBulb(char * resourceLoc) {
-    // TODO(traks): block models, light, behaviours, etc.
-    BlockConfig * config = BeginNextBlock(resourceLoc);
-    AddProperty(config, BLOCK_PROPERTY_LIT, "false");
-    AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
-}
-
-typedef struct {
     float min_a;
     float min_b;
     float max_a;
@@ -1167,48 +174,69 @@ block_boxes_intersect_face(int box_count, BoundingBox * boxes,
     return 0;
 }
 
-static void
-register_block_model(int index, int box_count, BoundingBox * pixel_boxes) {
-    BlockModel * model = serv->staticBlockModels + index;
-    assert(box_count < (i32) ARRAY_SIZE(model->boxes));
-    model->size = box_count;
-    for (int i = 0; i < box_count; i++) {
-        model->boxes[i] = pixel_boxes[i];
-        model->boxes[i].minX /= 16;
-        model->boxes[i].minY /= 16;
-        model->boxes[i].minZ /= 16;
-        model->boxes[i].maxX /= 16;
-        model->boxes[i].maxY /= 16;
-        model->boxes[i].maxZ /= 16;
+static i32 RegisterBlockModel(BlockModel pixelModel) {
+    // NOTE(traks): convert to unit coordinates
+    BlockModel model = pixelModel;
+    for (i32 boxIndex = 0; boxIndex < model.size; boxIndex++) {
+        model.boxes[boxIndex].minX /= 16;
+        model.boxes[boxIndex].minY /= 16;
+        model.boxes[boxIndex].minZ /= 16;
+        model.boxes[boxIndex].maxX /= 16;
+        model.boxes[boxIndex].maxY /= 16;
+        model.boxes[boxIndex].maxZ /= 16;
     }
 
-    for (int dir = 0; dir < 6; dir++) {
+    // NOTE(traks): see if the model already exists. For now we do a dumb
+    // comparison, which is probably fine. The main goal is to reduce the
+    // number of models to a manageable amount
+    for (i32 registedIndex = 0; registedIndex < serv->staticBlockModelCount; registedIndex++) {
+        BlockModel * registered = serv->staticBlockModels + registedIndex;
+        if (registered->size != model.size) {
+            continue;
+        }
+        i32 equal = 1;
+        for (i32 boxIndex = 0; boxIndex < model.size; boxIndex++) {
+            if (memcmp(&model.boxes[boxIndex], &registered->boxes[boxIndex], sizeof model.boxes[boxIndex]) != 0) {
+                equal = 0;
+                break;
+            }
+        }
+        if (equal) {
+            return registedIndex;
+        }
+    }
+
+    assert(serv->staticBlockModelCount < (i32) ARRAY_SIZE(serv->staticBlockModels));
+    i32 res = serv->staticBlockModelCount++;
+
+    // NOTE(traks): precompute some stuff
+    for (i32 dir = 0; dir < 6; dir++) {
         BoundingBox full_box = {0, 0, 0, 1, 1, 1};
-        if (block_boxes_contain_face(box_count, model->boxes, full_box, dir)) {
-            model->fullFaces |= 1 << dir;
+        if (block_boxes_contain_face(model.size, model.boxes, full_box, dir)) {
+            model.fullFaces |= 1 << dir;
         }
 
         BoundingBox pole = {7.0f / 16, 0, 7.0f / 16, 9.0f / 16, 1, 9.0f / 16};
-        if (block_boxes_contain_face(box_count, model->boxes, pole, dir)) {
-            model->poleFaces |= 1 << dir;
+        if (block_boxes_contain_face(model.size, model.boxes, pole, dir)) {
+            model.poleFaces |= 1 << dir;
         }
 
-        if (block_boxes_intersect_face(box_count, model->boxes, full_box, dir)) {
-            model->nonEmptyFaces |= 1 << dir;
+        if (block_boxes_intersect_face(model.size, model.boxes, full_box, dir)) {
+            model.nonEmptyFaces |= 1 << dir;
         }
     }
 
     BoundingBox wallPillar = {7.0f / 16, 0, 7.0f / 16, 9.0f / 16, 1, 9.0f / 16};
-    if (block_boxes_contain_face(box_count, model->boxes, wallPillar, DIRECTION_NEG_Y)) {
-        model->coveredWallParts |= 1 << DIRECTION_POS_Y;
+    if (block_boxes_contain_face(model.size, model.boxes, wallPillar, DIRECTION_NEG_Y)) {
+        model.coveredWallParts |= 1 << DIRECTION_POS_Y;
     }
 
     BoundingBox wallSide = {7.0f / 16, 0, 7.0f / 16, 1, 1, 9.0f / 16};
     i32 horizontalDirs[] = {DIRECTION_POS_X, DIRECTION_POS_Z, DIRECTION_NEG_X, DIRECTION_NEG_Z};
     for (i32 dirIndex = 0; dirIndex < (i32) ARRAY_SIZE(horizontalDirs); dirIndex++) {
         i32 dir = horizontalDirs[dirIndex];
-        if (block_boxes_contain_face(box_count, model->boxes, wallSide, DIRECTION_NEG_Y)) {
-            model->coveredWallParts |= (1 << dir);
+        if (block_boxes_contain_face(model.size, model.boxes, wallSide, DIRECTION_NEG_Y)) {
+            model.coveredWallParts |= (1 << dir);
         }
         // NOTE(traks): rotate wall side clockwise
         wallSide = (BoundingBox) {
@@ -1216,13 +244,74 @@ register_block_model(int index, int box_count, BoundingBox * pixel_boxes) {
             1 - wallSide.minZ, wallSide.maxY, wallSide.maxX
         };
     }
+
+    serv->staticBlockModels[res] = model;
+    return res;
 }
 
-static void RegisterBlockModel(i32 id, BlockModel model) {
-    serv->staticBlockModels[id] = model;
+typedef struct {
+    f32 edge;
+    f32 minA;
+    f32 minB;
+    f32 maxA;
+    f32 maxB;
+} PropagationTest;
+
+static PropagationTest BoxToPropagationTest(BoundingBox box, i32 dir) {
+    PropagationTest res = {0};
+    switch (dir) {
+    case DIRECTION_NEG_Y: res = (PropagationTest) {1 - box.minY, box.minX, box.minZ, box.maxX, box.maxZ};
+    case DIRECTION_POS_Y: res = (PropagationTest) {box.maxY, box.minX, box.minZ, box.maxX, box.maxZ};
+    case DIRECTION_NEG_Z: res = (PropagationTest) {1 - box.minZ, box.minX, box.minY, box.maxX, box.maxY};
+    case DIRECTION_POS_Z: res = (PropagationTest) {box.maxZ, box.minX, box.minY, box.maxX, box.maxY};
+    case DIRECTION_NEG_X: res = (PropagationTest) {1 - box.minX, box.minY, box.minZ, box.maxY, box.maxZ};
+    case DIRECTION_POS_X: res = (PropagationTest) {box.maxX, box.minY, box.minZ, box.maxY, box.maxZ};
+    }
+    return res;
 }
 
-// @NOTE(traks) all these rotation functions assume the coordinates of the box
+// TODO(traks): most block models are not used for light propagation, because
+// most blocks have an empty light blocking model
+static i32 BlockLightCanPropagate(i32 fromModelIndex, i32 toModelIndex, i32 dir) {
+    BlockModel fromModel = serv->staticBlockModels[fromModelIndex];
+    BlockModel toModel = serv->staticBlockModels[toModelIndex];
+
+    i32 testCount = 0;
+    PropagationTest tests[16];
+
+    for (i32 i = 0; i < fromModel.size; i++) {
+        PropagationTest test = BoxToPropagationTest(fromModel.boxes[i], dir);
+        if (test.edge >= 1) {
+            tests[testCount++] = test;
+        }
+    }
+    for (i32 i = 0; i < toModel.size; i++) {
+        PropagationTest test = BoxToPropagationTest(fromModel.boxes[i], get_opposite_direction(dir));
+        if (test.edge >= 1) {
+            tests[testCount++] = test;
+        }
+    }
+
+    f32 curA = 0;
+    for (;;) {
+        f32 curB = 0;
+        f32 nextA = curA;
+        for (i32 testIndex = 0; testIndex < testCount; testIndex++) {
+            PropagationTest test = tests[testIndex];
+            if (test.minA <= curA && test.maxA >= curA && test.minB <= curB && test.maxB >= curB) {
+                curB = test.maxB;
+                nextA = MIN(nextA, test.maxA);
+            }
+        }
+        if (nextA == curA) {
+            break;
+        }
+    }
+
+    return (curA != 1);
+}
+
+// NOTE(traks): all these rotation functions assume the coordinates of the box
 // are in pixel coordinates
 
 static BoundingBox
@@ -1242,59 +331,1016 @@ rotate_block_box_counter_clockwise(BoundingBox box) {
     return rotate_block_box_180(rotate_block_box_clockwise(box));
 }
 
-static void
-register_cross_block_models(int start_index, BoundingBox centre_box,
-        BoundingBox neg_z_box, BoundingBox z_box) {
-    for (int i = 0; i < 16; i++) {
-        int neg_z = (i & 0x1);
-        int pos_z = (i & 0x2);
-        int neg_x = (i & 0x4);
-        int pos_x = (i & 0x8);
+static BlockModel RotateBlockModelClockwise(BlockModel model) {
+    BlockModel res = model;
+    for (i32 boxIndex = 0; boxIndex < res.size; boxIndex++) {
+        res.boxes[boxIndex] = rotate_block_box_clockwise(res.boxes[boxIndex]);
+    }
+    return res;
+}
 
-        int box_count = 0;
-        BoundingBox boxes[2];
+static BlockModel RotateBlockModel180(BlockModel model) {
+    return RotateBlockModelClockwise(RotateBlockModelClockwise(model));
+}
 
-        if (neg_z && pos_z) {
-            boxes[box_count] = z_box;
-            box_count++;
-        } else if (neg_z) {
-            boxes[box_count] = neg_z_box;
-            box_count++;
-        } else if (pos_z) {
-            boxes[box_count] = rotate_block_box_180(neg_z_box);
-            box_count++;
+static BlockModel RotateBlockModelCounterClockwise(BlockModel model) {
+    return RotateBlockModel180(RotateBlockModelClockwise(model));
+}
+
+static BlockModel MakeEmptyModel(void) {
+    return (BlockModel) {0};
+}
+
+static BlockModel MakeFullModel(void) {
+    return (BlockModel) {.size = 1, .boxes = {{0, 0, 0, 16, 16, 16}}};
+}
+
+static BlockModel MakeYModel(i32 y) {
+    assert(y >= 0 && y <= 16);
+    if (y == 0) {
+        return MakeEmptyModel();
+    }
+    return (BlockModel) {.size = 1, .boxes = {{0, 0, 0, 16, y, 16}}};
+}
+
+static BlockModel MakeCrossModel(BoundingBox boxCentre, BoundingBox boxNegZ, BoundingBox boxFullZ, block_state_info * info) {
+    BlockModel res = {0};
+    i32 negZ = info->neg_z;
+    i32 posZ = info->pos_z;
+    i32 negX = info->neg_x;
+    i32 posX = info->pos_x;
+    assert(ARRAY_SIZE(res.boxes) >= 2);
+
+    if (negZ && posZ) {
+        res.boxes[res.size++] = boxFullZ;
+    } else if (negZ) {
+        res.boxes[res.size++] = boxNegZ;
+    } else if (posZ) {
+        res.boxes[res.size++] = rotate_block_box_180(boxNegZ);
+    }
+
+    if (negX && posX) {
+        res.boxes[res.size++] = rotate_block_box_clockwise(boxFullZ);
+    } else if (negX) {
+        res.boxes[res.size++] = rotate_block_box_counter_clockwise(boxNegZ);
+    } else if (posX) {
+        res.boxes[res.size++] = rotate_block_box_clockwise(boxNegZ);
+    }
+
+    if (res.size == 0) {
+        // NOTE(traks): not connected to any edges
+        res.boxes[res.size++] = boxCentre;
+    }
+    return res;
+}
+
+static void InitProperty(i32 id, char * name, i32 valueCount, char * * values, i32 * intValues) {
+    block_property_spec prop_spec = {0};
+    assert(valueCount <= MAX_BLOCK_PROPERTY_VALUES);
+    prop_spec.value_count = valueCount;
+    String nameString = STR(name);
+
+    u8 * tape = prop_spec.tape;
+    i32 tapeIndex = 0;
+    tape[tapeIndex++] = nameString.size;
+    memcpy(tape + tapeIndex, nameString.data, nameString.size);
+    tapeIndex += nameString.size;
+
+    for (i32 valueIndex = 0; valueIndex < valueCount; valueIndex++) {
+        String value = STR(values[valueIndex]);
+        tape[tapeIndex++] = value.size;
+        memcpy(tape + tapeIndex, value.data, value.size);
+        tapeIndex += value.size;
+        i32 intValue = intValues[valueIndex];
+        assert(intValue >= 0 && intValue <= 127);
+        prop_spec.intValues[valueIndex] = intValues[valueIndex];
+    }
+
+    assert(tapeIndex <= (i32) ARRAY_SIZE(prop_spec.tape));
+    serv->block_property_specs[id] = prop_spec;
+}
+
+static void InitListProperty(i32 id, char * name, ...) {
+    va_list ap;
+    va_start(ap, name);
+    char * values[MAX_BLOCK_PROPERTY_VALUES];
+    i32 intValues[MAX_BLOCK_PROPERTY_VALUES];
+    i32 valueCount = 0;
+    for (;;) {
+        char * value = va_arg(ap, char *);
+        if (value == NULL) {
+            break;
         }
+        assert(valueCount < (i32) ARRAY_SIZE(values));
+        values[valueCount] = value;
+        intValues[valueCount] = valueCount;
+        valueCount++;
+    }
+    va_end(ap);
+    InitProperty(id, name, valueCount, values, intValues);
+}
 
-        if (neg_x && pos_x) {
-            boxes[box_count] = rotate_block_box_clockwise(z_box);
-            box_count++;
-        } else if (neg_x) {
-            boxes[box_count] = rotate_block_box_counter_clockwise(neg_z_box);
-            box_count++;
-        } else if (pos_x) {
-            boxes[box_count] = rotate_block_box_clockwise(neg_z_box);
-            box_count++;
+static i32 MakeRangeValues(i32 min, i32 max, char * * values, i32 * intValues, i32 maxValues) {
+    i32 valueCount = max - min + 1;
+    assert(valueCount <= MAX_BLOCK_PROPERTY_VALUES);
+    i32 bufSize = 256;
+    char * buf = MallocInArena(blockSetup.arena, bufSize);
+    i32 bufIndex = 0;
+    for (i32 value = min; value <= max; value++) {
+        i32 size = snprintf(buf + bufIndex, bufSize - bufIndex, "%d", value);
+        values[value - min] = buf + bufIndex;
+        assert(value >= 0 && value < 256);
+        intValues[value - min] = value;
+        // NOTE(traks): include terminating null character
+        bufIndex += size + 1;
+    }
+    return valueCount;
+}
+
+static void InitRangeProperty(i32 id, char * name, i32 min, i32 max) {
+    char * values[MAX_BLOCK_PROPERTY_VALUES];
+    i32 intValues[MAX_BLOCK_PROPERTY_VALUES];
+    i32 valueCount = MakeRangeValues(min, max, values, intValues, MAX_BLOCK_PROPERTY_VALUES);
+    InitProperty(id, name, valueCount, values, intValues);
+}
+
+static void InitBoolProperty(i32 id, char * name) {
+    char * values[] = {"true", "false"};
+    i32 intValues[] = {1, 0};
+    InitProperty(id, name, 2, values, intValues);
+}
+
+static void InitRemapProperty(i32 id, char * name, i32 optionCount, char * * options, i32 * intOptions, va_list ap) {
+    char * values[MAX_BLOCK_PROPERTY_VALUES];
+    i32 intValues[MAX_BLOCK_PROPERTY_VALUES];
+    i32 valueCount = 0;
+    for (;;) {
+        char * value = va_arg(ap, char *);
+        if (value == NULL) {
+            break;
         }
-
-        if (box_count == 0) {
-            // not connected to any edges
-            boxes[box_count] = centre_box;
-            box_count++;
+        assert(valueCount < (i32) ARRAY_SIZE(values));
+        values[valueCount] = value;
+        i32 intValue = -1;
+        for (i32 optionIndex = 0; optionIndex < optionCount; optionIndex++) {
+            if (StringEquals(STR(value), STR(options[optionIndex]))) {
+                intValue = intOptions[optionIndex];
+                break;
+            }
         }
+        assert(intValue != -1);
+        intValues[valueCount] = intValue;
+        valueCount++;
+    }
+    InitProperty(id, name, valueCount, values, intValues);
+}
 
-        register_block_model(start_index + i, box_count, boxes);
+static void InitDirectionProperty(i32 id, char * name, ...) {
+    va_list ap;
+    va_start(ap, name);
+    char * options[] = {"north", "east", "south", "west", "up", "down"};
+    i32 intOptions[] = {DIRECTION_NEG_Z, DIRECTION_POS_X, DIRECTION_POS_Z, DIRECTION_NEG_X, DIRECTION_POS_X, DIRECTION_NEG_X};
+    InitRemapProperty(id, name, ARRAY_SIZE(options), options, intOptions, ap);
+    va_end(ap);
+}
+
+static void InitAxisProperty(i32 id, char * name, ...) {
+    va_list ap;
+    va_start(ap, name);
+    char * options[] = {"x", "y", "z"};
+    i32 intOptions[] = {AXIS_X, AXIS_Y, AXIS_Z};
+    InitRemapProperty(id, name, ARRAY_SIZE(options), options, intOptions, ap);
+    va_end(ap);
+}
+
+static void InitFluidLevelProperty(i32 id, char * name) {
+    char * values[MAX_BLOCK_PROPERTY_VALUES];
+    i32 intValues[MAX_BLOCK_PROPERTY_VALUES];
+    i32 valueCount = MakeRangeValues(0, 15, values, intValues, MAX_BLOCK_PROPERTY_VALUES);
+    i32 remappedIntValues[] = {
+        FLUID_LEVEL_SOURCE, FLUID_LEVEL_FLOWING_7, FLUID_LEVEL_FLOWING_6, FLUID_LEVEL_FLOWING_5,
+        FLUID_LEVEL_FLOWING_4, FLUID_LEVEL_FLOWING_3, FLUID_LEVEL_FLOWING_2, FLUID_LEVEL_FLOWING_1,
+        FLUID_LEVEL_FALLING, FLUID_LEVEL_FALLING, FLUID_LEVEL_FALLING, FLUID_LEVEL_FALLING,
+        FLUID_LEVEL_FALLING, FLUID_LEVEL_FALLING, FLUID_LEVEL_FALLING, FLUID_LEVEL_FALLING
+    };
+    InitProperty(id, name, valueCount, values, remappedIntValues);
+}
+
+// NOTE(traks): returns < 0 or == 0 or > 0 depending on whether a < b, a == b or
+// a > b respectively.
+static i32 CompareBlockProperty(String a, String b) {
+    i32 minSize = MIN(a.size, b.size);
+    for (i32 charIndex = 0; charIndex < minSize; charIndex++) {
+        if (a.data[charIndex] != b.data[charIndex]) {
+            return (i32) a.data[charIndex] - (i32) b.data[charIndex];
+        }
+    }
+    return a.size - b.size;
+}
+
+static void ReallocateStateArrays(BlockConfig * config) {
+    config->collisionModelByState = CallocInArena(blockSetup.arena, config->stateCount * sizeof *config->collisionModelByState);
+    config->supportModelByState = CallocInArena(blockSetup.arena, config->stateCount * sizeof *config->supportModelByState);
+    config->lightBlockingModelByState = CallocInArena(blockSetup.arena, config->stateCount * sizeof *config->lightBlockingModelByState);
+    config->lightReductionByState = CallocInArena(blockSetup.arena, config->stateCount * sizeof *config->lightReductionByState);
+    config->emittedLightByState = CallocInArena(blockSetup.arena, config->stateCount * sizeof *config->emittedLightByState);
+}
+
+static void AddProperty(BlockConfig * config, i32 propertyId, char * defaultValue) {
+    block_property_spec * spec = serv->block_property_specs + propertyId;
+    String propName = {
+        .size = spec->tape[0],
+        .data = spec->tape + 1,
+    };
+    String defaultValueString = STR(defaultValue);
+
+    // NOTE(traks): compute index of default value
+    // NOTE(traks): tape starts with name size, then name string, and then
+    // repeated value size + value string. Skip the name part
+    i32 curTapeIndex = 1 + spec->tape[0];
+    i32 defaultValueIndex = -1;
+    for (i32 valueIndex = 0; valueIndex < spec->value_count; valueIndex++) {
+        String value = {
+            .size = spec->tape[curTapeIndex],
+            .data = spec->tape + curTapeIndex + 1
+        };
+        if (StringEquals(defaultValueString, value)) {
+            defaultValueIndex = valueIndex;
+            break;
+        }
+        curTapeIndex += value.size + 1;
+    }
+    assert(defaultValueIndex >= 0);
+
+    // NOTE(traks): Minecraft sorts block properties using the natural sorting
+    // order for Java strings. Since all properties have ascii characters, this
+    // comes down to ASCII sorting based on character values
+
+    assert(config->props.property_count < ARRAY_SIZE(config->props.property_specs));
+
+    // NOTE(traks): grab the index we should register the new property at
+    i32 newPropIndex;
+    for (newPropIndex = 0; newPropIndex < config->props.property_count; newPropIndex++) {
+        block_property_spec * otherSpec = serv->block_property_specs + config->props.property_specs[newPropIndex];
+        String otherPropName = {
+            .size = otherSpec->tape[0],
+            .data = otherSpec->tape + 1,
+        };
+        if (CompareBlockProperty(propName, otherPropName) < 0) {
+            break;
+        }
+    }
+
+    // NOTE(traks): make space for the new property
+    for (i32 propIndex = config->props.property_count; propIndex > newPropIndex; propIndex--) {
+        config->props.property_specs[propIndex] = config->props.property_specs[propIndex - 1];
+        config->props.default_value_indices[propIndex] = config->props.default_value_indices[propIndex - 1];
+    }
+
+    // NOTE(traks): register the new property for the block
+    config->props.property_specs[newPropIndex] = propertyId;
+    config->props.default_value_indices[newPropIndex] = defaultValueIndex;
+    config->props.property_count++;
+
+    // NOTE(traks): update other fields
+    config->stateCount *= spec->value_count;
+    ReallocateStateArrays(config);
+}
+
+static BlockConfig * BeginNextBlock(char * resourceLoc) {
+    i32 blockType = ResolveRegistryEntryId(&serv->blockRegistry, STR(resourceLoc));
+    assert(blockType >= 0);
+    BlockConfig * res = &blockSetup.configs[blockType];
+    assert(res->stateCount == 0);
+    res->stateCount = 1;
+    ReallocateStateArrays(res);
+    return res;
+}
+
+static void FinaliseBlocks(void) {
+    // NOTE(traks): compute block states and set up global arrays
+    for (i32 blockType = 0; blockType < serv->blockRegistry.entryCount; blockType++) {
+        BlockConfig * config = blockSetup.configs + blockType;
+        i32 baseState = serv->actual_block_state_count;
+        config->props.base_state = baseState;
+
+        assert(baseState + config->stateCount <= (i32) ARRAY_SIZE(serv->block_type_by_state));
+        assert(config->stateCount > 0);
+
+        memcpy(serv->block_properties_table + blockType, &config->props, sizeof config->props);
+        for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
+            i32 blockState = baseState + stateIndex;
+            serv->block_type_by_state[blockState] = blockType;
+        }
+        memcpy(serv->collisionModelByState + baseState, config->collisionModelByState, config->stateCount);
+        memcpy(serv->supportModelByState + baseState, config->supportModelByState, config->stateCount);
+        memcpy(serv->lightBlockingModelByState + baseState, config->lightBlockingModelByState, config->stateCount);
+        memcpy(serv->lightReductionByState + baseState, config->lightReductionByState, config->stateCount);
+        memcpy(serv->emittedLightByState + baseState, config->emittedLightByState, config->stateCount);
+        serv->blockBehavioursByType[blockType] = config->behaviours;
+
+        serv->actual_block_state_count += config->stateCount;
+        if (blockType < VANILLA_BLOCK_TYPE_COUNT) {
+            serv->vanilla_block_state_count += config->stateCount;
+        }
+    }
+
+    // NOTE(traks): compute light propagation data
+    for (i32 fromModelIndex = 0; fromModelIndex < MAX_BLOCK_MODELS; fromModelIndex++) {
+        for (i32 toModelIndex = 0; toModelIndex < MAX_BLOCK_MODELS; toModelIndex++) {
+            u32 entry = 0;
+            for (i32 dir = 0; dir < 6; dir++) {
+                i32 canPropagate = BlockLightCanPropagate(fromModelIndex, toModelIndex, dir);
+                entry |= (canPropagate << dir);
+            }
+            serv->lightCanPropagate[fromModelIndex * MAX_BLOCK_MODELS + toModelIndex] = entry;
+        }
     }
 }
 
-static void DivideOutCollisionModelPixels(BlockModel * model) {
-    for (i32 i = 0; i < model->size; i++) {
-        model->boxes[i].minX /= 16;
-        model->boxes[i].minY /= 16;
-        model->boxes[i].minZ /= 16;
-        model->boxes[i].maxX /= 16;
-        model->boxes[i].maxY /= 16;
-        model->boxes[i].maxZ /= 16;
+static void SetParticularModelForAllStates(BlockConfig * config, u8 * modelByState, BlockModel model) {
+    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
+        modelByState[stateIndex] = RegisterBlockModel(model);
     }
+}
+
+static void SetCollisionModelForAllStates(BlockConfig * config, BlockModel model) {
+    SetParticularModelForAllStates(config, config->collisionModelByState, model);
+}
+
+static void SetSupportModelForAllStates(BlockConfig * config, BlockModel model) {
+    SetParticularModelForAllStates(config, config->supportModelByState, model);
+}
+
+// NOTE(traks): for this, some relevant vanilla code is:
+// - useShapeForLightOcclusion: false = can just use empty model here
+// - getOcclusionShape: shape for occlusion if above = true
+static void SetLightBlockingModelForAllStates(BlockConfig * config, BlockModel model) {
+    SetParticularModelForAllStates(config, config->lightBlockingModelByState, model);
+}
+
+static void SetAllModelsForAllStatesIndividually(BlockConfig * config, BlockModel collisionModel, BlockModel supportModel, BlockModel lightModel) {
+    SetCollisionModelForAllStates(config, collisionModel);
+    SetSupportModelForAllStates(config, supportModel);
+    SetLightBlockingModelForAllStates(config, lightModel);
+}
+
+static void SetAllModelsForAllStates(BlockConfig * config, BlockModel model) {
+    SetAllModelsForAllStatesIndividually(config, model, model, model);
+}
+
+// NOTE(traks): for full blocks it doesn't really matter what the light
+// reduction is, because the light will get blocked anyway.
+// Relevant vanilla code is:
+// - getLightBlock: how much light is blocked
+// - propagatesSkylightDown: if max sky light can pass through unchanged
+static void SetLightReductionForAllStates(BlockConfig * config, i32 lightReduction) {
+    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
+        config->lightReductionByState[stateIndex] = lightReduction & 0xf;
+    }
+}
+
+static void SetLightReductionWhenWaterlogged(BlockConfig * config) {
+    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
+        block_state_info info = DescribeStateIndex(&config->props, stateIndex);
+        i32 lightReduction = (info.waterlogged ? 1 : 0);
+        config->lightReductionByState[stateIndex] = lightReduction;
+    }
+}
+
+// NOTE(traks): Relevant vanilla code is:
+// - .lightLevel in Blocks: sets how much light is emitted
+static void SetEmittedLightForAllStates(BlockConfig * config, i32 emittedLight) {
+    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
+        config->emittedLightByState[stateIndex] = emittedLight & 0xf;
+    }
+}
+
+static void SetEmittedLightWhenLit(BlockConfig * config, i32 emittedLight) {
+    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
+        block_state_info info = DescribeStateIndex(&config->props, stateIndex);
+        if (info.lit) {
+            config->emittedLightByState[stateIndex] = emittedLight & 0xf;
+        }
+    }
+}
+
+static void SetEmittedLightWhenBerries(BlockConfig * config, i32 emittedLight) {
+    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
+        block_state_info info = DescribeStateIndex(&config->props, stateIndex);
+        if (info.berries) {
+            config->emittedLightByState[stateIndex] = emittedLight & 0xf;
+        }
+    }
+}
+
+static void AddBlockBehaviour(BlockConfig * config, i32 behaviour) {
+    BlockBehaviours * behaviours = &config->behaviours;
+    assert(behaviours->size < (i32) ARRAY_SIZE(behaviours->entries));
+    behaviours->entries[behaviours->size] = behaviour;
+    behaviours->size++;
+}
+
+static BlockConfig * InitSimpleBlockWithModels(char * resource_loc,
+        BlockModel collisionModel, BlockModel supportModel, BlockModel lightModel,
+        i32 lightReduction, i32 emittedLight) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    SetCollisionModelForAllStates(config, collisionModel);
+    SetSupportModelForAllStates(config, supportModel);
+    SetLightBlockingModelForAllStates(config, lightModel);
+    SetLightReductionForAllStates(config, lightReduction);
+    SetEmittedLightForAllStates(config, emittedLight);
+    return config;
+}
+
+static void
+init_simple_block(char * resource_loc, BlockModel model, i32 lightReduction, i32 emittedLight) {
+    InitSimpleBlockWithModels(resource_loc, model, model, model, lightReduction, emittedLight);
+}
+
+static void InitSimpleEmptyBlock(char * resourceLoc) {
+    InitSimpleBlockWithModels(resourceLoc, MakeEmptyModel(), MakeEmptyModel(), MakeEmptyModel(), 0, 0);
+}
+
+static BlockConfig * InitSimpleFullBlock(char * resourceLoc) {
+    return InitSimpleBlockWithModels(resourceLoc, MakeFullModel(), MakeFullModel(), MakeEmptyModel(), 15, 0);
+}
+
+static void InitSimpleFullEmittingBlock(char * resourceLoc, i32 emittedLight) {
+    InitSimpleBlockWithModels(resourceLoc, MakeFullModel(), MakeFullModel(), MakeEmptyModel(), 15, emittedLight);
+}
+
+static void
+init_sapling(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_STAGE, "0");
+    SetAllModelsForAllStates(config, MakeEmptyModel());
+    SetLightReductionWhenWaterlogged(config);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_SOIL_BELOW);
+}
+
+static void
+init_propagule(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_STAGE, "0");
+    AddProperty(config, BLOCK_PROPERTY_AGE_4, "0");
+    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
+    AddProperty(config, BLOCK_PROPERTY_HANGING, "false");
+    SetAllModelsForAllStates(config, MakeEmptyModel());
+    SetLightReductionWhenWaterlogged(config);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_PROPAGULE_ENVIRONMENT);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
+}
+
+static void
+init_pillar(char * resource_loc, i32 emittedLight) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_AXIS, "y");
+    SetAllModelsForAllStates(config, MakeFullModel());
+    SetLightReductionForAllStates(config, 15);
+    SetEmittedLightForAllStates(config, emittedLight);
+}
+
+static void
+init_leaves(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_DISTANCE, "7");
+    AddProperty(config, BLOCK_PROPERTY_PERSISTENT, "false");
+    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
+    SetCollisionModelForAllStates(config, MakeFullModel());
+    SetSupportModelForAllStates(config, MakeEmptyModel());
+    SetLightBlockingModelForAllStates(config, MakeEmptyModel());
+    SetLightReductionForAllStates(config, 1);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NO_CONNECTIONS);
+}
+
+static void
+init_bed(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
+    AddProperty(config, BLOCK_PROPERTY_OCCUPIED, "false");
+    AddProperty(config, BLOCK_PROPERTY_BED_PART, "foot");
+
+    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
+        block_state_info info = DescribeStateIndex(&config->props, stateIndex);
+        i32 facing = info.horizontal_facing;
+        if (info.bed_part == BED_PART_HEAD) {
+            facing = get_opposite_direction(facing);
+        }
+        BlockModel footModelPosX = {
+            .size = 3,
+            .boxes = {
+                {0, 3, 0, 16, 9, 16}, // horizontal part
+                {0, 0, 0, 3, 3, 3}, // leg 1
+                {0, 0, 13, 3, 3, 16}, // leg 2
+            }
+        };
+        BlockModel finalModel = {0};
+        switch (facing) {
+        case DIRECTION_POS_X: finalModel = footModelPosX; break;
+        case DIRECTION_POS_Z: finalModel = RotateBlockModelClockwise(footModelPosX); break;
+        case DIRECTION_NEG_X: finalModel = RotateBlockModel180(footModelPosX); break;
+        case DIRECTION_NEG_Z: finalModel = RotateBlockModelCounterClockwise(footModelPosX); break;
+        }
+        i32 modelId = RegisterBlockModel(finalModel);
+        config->collisionModelByState[stateIndex] = modelId;
+        config->supportModelByState[stateIndex] = modelId;
+    }
+
+    SetLightBlockingModelForAllStates(config, MakeEmptyModel());
+    SetLightReductionWhenWaterlogged(config);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_BED);
+}
+
+static void
+init_slab(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_SLAB_TYPE, "bottom");
+    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
+    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
+        block_state_info info = DescribeStateIndex(&config->props, stateIndex);
+        BlockModel finalModel = {0};
+        switch (info.slab_type) {
+        case SLAB_TOP: finalModel = (BlockModel) {.size = 1, .boxes = {{0, 8, 0, 16, 16, 16}}}; break;
+        case SLAB_BOTTOM: finalModel = (BlockModel) {.size = 1, .boxes = {{0, 0, 0, 16, 8, 16}}}; break;
+        case SLAB_DOUBLE: finalModel = MakeFullModel(); break;
+        }
+        i32 modelId = RegisterBlockModel(finalModel);
+        config->collisionModelByState[stateIndex] = modelId;
+        config->supportModelByState[stateIndex] = modelId;
+        config->lightBlockingModelByState[stateIndex] = modelId;
+    }
+    SetLightReductionWhenWaterlogged(config);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
+}
+
+static void
+init_sign(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_ROTATION_16, "0");
+    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
+    SetAllModelsForAllStates(config, MakeEmptyModel());
+    SetLightReductionWhenWaterlogged(config);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR);
+}
+
+static void
+init_wall_sign(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
+    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
+    SetAllModelsForAllStates(config, MakeEmptyModel());
+    SetLightReductionWhenWaterlogged(config);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR);
+}
+
+static void
+InitHangingSign(char * resource_loc) {
+    // TODO(traks): models, light reduction, block behaviour, etc.
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_ROTATION_16, "0");
+    AddProperty(config, BLOCK_PROPERTY_ATTACHED, "false");
+    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
+}
+
+static void
+InitWallHangingSign(char * resource_loc) {
+    // TODO(traks): models, light reduction, block behaviour, etc.
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
+    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
+}
+
+static void
+init_stair_props(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
+    AddProperty(config, BLOCK_PROPERTY_HALF, "bottom");
+    AddProperty(config, BLOCK_PROPERTY_STAIRS_SHAPE, "straight");
+    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
+    // TODO(traks): block models
+    SetLightReductionWhenWaterlogged(config);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_STAIRS);
+}
+
+static void
+init_tall_plant(char * resource_loc, i32 hasWater) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_DOUBLE_BLOCK_HALF, "lower");
+    SetAllModelsForAllStates(config, MakeEmptyModel());
+    SetLightReductionForAllStates(config, hasWater ? 1 : 0);
+    if (hasWater) {
+        AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
+    }
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_TALL_PLANT);
+}
+
+static void
+init_glazed_terracotta(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
+    SetAllModelsForAllStates(config, MakeFullModel());
+    SetLightReductionForAllStates(config, 15);
+}
+
+static void
+init_shulker_box_props(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_FACING, "up");
+    // TODO(traks): block models
+    SetLightReductionForAllStates(config, 1);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NO_CONNECTIONS);
+}
+
+static void
+init_wall_props(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_WALL_POS_X, "none");
+    AddProperty(config, BLOCK_PROPERTY_WALL_NEG_Z, "none");
+    AddProperty(config, BLOCK_PROPERTY_WALL_POS_Z, "none");
+    AddProperty(config, BLOCK_PROPERTY_POS_Y, "true");
+    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
+    AddProperty(config, BLOCK_PROPERTY_WALL_NEG_X, "none");
+    // TODO(traks): block models
+    SetLightReductionWhenWaterlogged(config);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_WALL_CONNECT);
+}
+
+static void
+init_pressure_plate(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
+    SetAllModelsForAllStates(config, MakeEmptyModel());
+    SetLightReductionWhenWaterlogged(config);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_PLATE_SUPPORTING_SURFACE_BELOW);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR);
+}
+
+static void
+init_pane(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_POS_X, "false");
+    AddProperty(config, BLOCK_PROPERTY_NEG_Z, "false");
+    AddProperty(config, BLOCK_PROPERTY_POS_Z, "false");
+    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
+    AddProperty(config, BLOCK_PROPERTY_NEG_X, "false");
+    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
+        block_state_info info = DescribeStateIndex(&config->props, stateIndex);
+        BoundingBox boxCentre = {7, 0, 7, 9, 16, 9};
+        BoundingBox boxNegZ = {7, 0, 0, 9, 16, 9};
+        BoundingBox boxFullZ = {7, 0, 0, 9, 16, 16};
+        i32 modelId = RegisterBlockModel(MakeCrossModel(boxCentre, boxNegZ, boxFullZ, &info));
+        config->collisionModelByState[stateIndex] = modelId;
+        config->supportModelByState[stateIndex] = modelId;
+    }
+    SetLightBlockingModelForAllStates(config, MakeEmptyModel());
+    SetLightReductionWhenWaterlogged(config);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_PANE_CONNECT);
+}
+
+static void
+init_fence(char * resource_loc, int wooden) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_POS_X, "false");
+    AddProperty(config, BLOCK_PROPERTY_NEG_Z, "false");
+    AddProperty(config, BLOCK_PROPERTY_POS_Z, "false");
+    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
+    AddProperty(config, BLOCK_PROPERTY_NEG_X, "false");
+    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
+        block_state_info info = DescribeStateIndex(&config->props, stateIndex);
+        BoundingBox boxCentre = {6, 0, 6, 10, 24, 10};
+        BoundingBox boxNegZ = {6, 0, 0, 10, 24, 10};
+        BoundingBox boxFullZ = {6, 0, 0, 10, 24, 16};
+        i32 modelId = RegisterBlockModel(MakeCrossModel(boxCentre, boxNegZ, boxFullZ, &info));
+        config->collisionModelByState[stateIndex] = modelId;
+        config->supportModelByState[stateIndex] = modelId;
+    }
+    SetLightBlockingModelForAllStates(config, MakeEmptyModel());
+    SetLightReductionWhenWaterlogged(config);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FENCE_CONNECT);
+    if (wooden) {
+        AddBlockBehaviour(config, BLOCK_BEHAVIOUR_WOODEN_FENCE_CONNECT);
+    }
+}
+
+static void
+init_door_props(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
+    AddProperty(config, BLOCK_PROPERTY_DOUBLE_BLOCK_HALF, "lower");
+    AddProperty(config, BLOCK_PROPERTY_DOOR_HINGE, "left");
+    AddProperty(config, BLOCK_PROPERTY_OPEN, "false");
+    AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
+    // TODO(traks): block models
+    SetLightReductionWhenWaterlogged(config);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_DOOR_MATCH_OTHER_PART);
+}
+
+static void
+init_button(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_ATTACH_FACE, "wall");
+    AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
+    AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
+    SetAllModelsForAllStates(config, MakeEmptyModel());
+    SetLightReductionWhenWaterlogged(config);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_FULL_SUPPORT_ATTACHED);
+}
+
+static void
+init_trapdoor_props(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
+    AddProperty(config, BLOCK_PROPERTY_HALF, "bottom");
+    AddProperty(config, BLOCK_PROPERTY_OPEN, "false");
+    AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
+    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
+    // TODO(traks): block models
+    SetLightBlockingModelForAllStates(config, MakeEmptyModel());
+    SetLightReductionWhenWaterlogged(config);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
+}
+
+static void
+init_fence_gate(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
+    AddProperty(config, BLOCK_PROPERTY_IN_WALL, "false");
+    AddProperty(config, BLOCK_PROPERTY_OPEN, "false");
+    AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
+    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
+        block_state_info info = DescribeStateIndex(&config->props, stateIndex);
+        BlockModel modelFacingX = {.size = 1, .boxes = {{6, 0, 0, 10, 24, 16}}};
+        BlockModel finalModel = {0};
+        if (info.open) {
+            finalModel = MakeEmptyModel();
+        } else if (get_direction_axis(info.horizontal_facing) == AXIS_X) {
+            finalModel = modelFacingX;
+        } else {
+            finalModel = RotateBlockModelClockwise(modelFacingX);
+        }
+        i32 modelId = RegisterBlockModel(finalModel);
+        config->collisionModelByState[stateIndex] = modelId;
+        config->supportModelByState[stateIndex] = modelId;
+    }
+    SetLightBlockingModelForAllStates(config, MakeEmptyModel());
+    SetLightReductionWhenWaterlogged(config);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FENCE_GATE_CONNECT);
+}
+
+static void
+init_mushroom_block(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_NEG_Y, "true");
+    AddProperty(config, BLOCK_PROPERTY_POS_X, "true");
+    AddProperty(config, BLOCK_PROPERTY_NEG_Z, "true");
+    AddProperty(config, BLOCK_PROPERTY_POS_Z, "true");
+    AddProperty(config, BLOCK_PROPERTY_POS_Y, "true");
+    AddProperty(config, BLOCK_PROPERTY_NEG_X, "true");
+    SetAllModelsForAllStates(config, MakeFullModel());
+    SetLightReductionForAllStates(config, 15);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_MUSHROOM_BLOCK_CONNECT);
+}
+
+static void
+init_skull_props(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
+    AddProperty(config, BLOCK_PROPERTY_ROTATION_16, "0");
+    // TODO(traks): block models
+    SetLightBlockingModelForAllStates(config, MakeEmptyModel());
+    SetLightReductionWhenWaterlogged(config);
+}
+
+static void
+init_wall_skull_props(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
+    AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
+    // TODO(traks): block models
+    SetLightBlockingModelForAllStates(config, MakeEmptyModel());
+    SetLightReductionWhenWaterlogged(config);
+}
+
+static void
+init_anvil_props(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
+    // TODO(traks): block models
+    SetLightBlockingModelForAllStates(config, MakeEmptyModel());
+    SetLightReductionWhenWaterlogged(config);
+}
+
+static void
+init_banner(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_ROTATION_16, "0");
+    SetAllModelsForAllStates(config, MakeEmptyModel());
+    SetLightReductionWhenWaterlogged(config);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR);
+}
+
+static void
+init_wall_banner(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
+    SetAllModelsForAllStates(config, MakeEmptyModel());
+    SetLightReductionWhenWaterlogged(config);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR);
+}
+
+static void
+init_coral(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "true");
+    SetAllModelsForAllStates(config, MakeEmptyModel());
+    SetLightReductionWhenWaterlogged(config);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
+}
+
+static void
+init_coral_fan(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "true");
+    SetAllModelsForAllStates(config, MakeEmptyModel());
+    SetLightReductionWhenWaterlogged(config);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
+}
+
+static void
+init_coral_wall_fan(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
+    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "true");
+    SetAllModelsForAllStates(config, MakeEmptyModel());
+    SetLightReductionWhenWaterlogged(config);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
+}
+
+static void
+init_snowy_grassy_block(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_SNOWY, "false");
+    SetAllModelsForAllStates(config, MakeFullModel());
+    SetLightReductionForAllStates(config, 15);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_SNOWY_TOP);
+}
+
+static void
+init_redstone_ore(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_LIT, "false");
+    SetAllModelsForAllStates(config, MakeFullModel());
+    SetLightReductionForAllStates(config, 15);
+    SetEmittedLightWhenLit(config, 9);
+}
+
+static void
+init_cauldron(char * resource_loc, int layered, i32 emittedLight) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    if (layered) {
+        AddProperty(config, BLOCK_PROPERTY_LEVEL_CAULDRON, "1");
+    }
+    // TODO(traks): block models
+    SetLightBlockingModelForAllStates(config, MakeEmptyModel());
+    SetLightReductionWhenWaterlogged(config);
+    SetEmittedLightForAllStates(config, emittedLight);
+}
+
+static void
+init_candle(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_CANDLES, "1");
+    AddProperty(config, BLOCK_PROPERTY_LIT, "false");
+    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
+    // TODO(traks): block models
+    SetLightBlockingModelForAllStates(config, MakeEmptyModel());
+    SetLightReductionWhenWaterlogged(config);
+    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
+        block_state_info info = DescribeStateIndex(&config->props, stateIndex);
+        if (info.lit) {
+            config->emittedLightByState[stateIndex] = 3 * info.candles;
+        }
+    }
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_POLE_SUPPORT_BELOW);
+}
+
+static void
+init_candle_cake(char * resource_loc) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_LIT, "false");
+    // TODO(traks): block models
+    SetLightBlockingModelForAllStates(config, MakeEmptyModel());
+    SetLightReductionWhenWaterlogged(config);
+    SetEmittedLightWhenLit(config, 3);
+}
+
+static void
+init_amethyst_cluster(char * resource_loc, i32 emittedLight) {
+    BlockConfig * config = BeginNextBlock(resource_loc);
+    AddProperty(config, BLOCK_PROPERTY_FACING, "up");
+    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
+    // TODO(traks): block models
+    SetLightBlockingModelForAllStates(config, MakeEmptyModel());
+    SetLightReductionWhenWaterlogged(config);
+    SetEmittedLightForAllStates(config, emittedLight);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_FULL_SUPPORT_BEHIND);
+}
+
+static void InitMultiFaceBlock(char * resourceLoc, i32 emittedLight) {
+    BlockConfig * config = BeginNextBlock(resourceLoc);
+    AddProperty(config, BLOCK_PROPERTY_NEG_Y, "false");
+    AddProperty(config, BLOCK_PROPERTY_POS_Y, "false");
+    AddProperty(config, BLOCK_PROPERTY_NEG_Z, "false");
+    AddProperty(config, BLOCK_PROPERTY_POS_Z, "false");
+    AddProperty(config, BLOCK_PROPERTY_NEG_X, "false");
+    AddProperty(config, BLOCK_PROPERTY_POS_X, "false");
+    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
+    SetAllModelsForAllStates(config, MakeEmptyModel());
+    SetLightReductionWhenWaterlogged(config);
+
+    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
+        block_state_info info = DescribeStateIndex(&config->props, stateIndex);
+        if (info.neg_y || info.pos_y || info.neg_z || info.pos_z || info.neg_x || info.pos_x) {
+            config->emittedLightByState[stateIndex] = emittedLight;
+        }
+    }
+
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
+}
+
+static void InitFlowerPot(char * resourceLoc) {
+    BlockModel potModel = {.size = 1, .boxes = {{5, 0, 5, 11, 6, 11}}};
+    InitSimpleBlockWithModels(resourceLoc, potModel, potModel, MakeEmptyModel(), 0, 0);
+}
+
+static void InitCarpet(char * resourceLoc) {
+    BlockConfig * config = BeginNextBlock(resourceLoc);
+    SetAllModelsForAllStatesIndividually(config, MakeYModel(1), MakeYModel(1), MakeEmptyModel());
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_NON_AIR_BELOW);
+}
+
+static void InitSimplePlant(char * resourceLoc) {
+    BlockConfig * config = BeginNextBlock(resourceLoc);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_SOIL_BELOW);
+}
+
+static void InitSimpleNetherPlant(char * resourceLoc) {
+    BlockConfig * config = BeginNextBlock(resourceLoc);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_SOIL_OR_NETHER_SOIL_BELOW);
+}
+
+static void InitTorch(char * resourceLoc, i32 onWall, i32 emittedLight) {
+    BlockConfig * config = BeginNextBlock(resourceLoc);
+    if (onWall) {
+        AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
+    }
+    SetAllModelsForAllStates(config, MakeEmptyModel());
+    SetEmittedLightForAllStates(config, emittedLight);
+    if (onWall) {
+        AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_FULL_SUPPORT_BEHIND_HORIZONTAL);
+    } else {
+        AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_POLE_SUPPORT_BELOW);
+        AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR);
+    }
+}
+
+static void InitAzalea(char * resourceLoc) {
+    // TODO(traks): block models
+    BlockConfig * config = BeginNextBlock(resourceLoc);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_AZALEA);
+}
+
+static void InitSuspiciousBlock(char * resourceLoc) {
+    // TODO(traks): block models, light reduction, etc. This is a block entity
+    BlockConfig * config = BeginNextBlock(resourceLoc);
+    AddProperty(config, BLOCK_PROPERTY_DUSTED, "0");
+}
+
+static void InitGrate(char * resourceLoc) {
+    BlockConfig * config = BeginNextBlock(resourceLoc);
+    AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
+    SetLightReductionWhenWaterlogged(config);
+    AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
+}
+
+static void InitBulb(char * resourceLoc) {
+    // TODO(traks): block models, light, behaviours, etc.
+    BlockConfig * config = BeginNextBlock(resourceLoc);
+    AddProperty(config, BLOCK_PROPERTY_LIT, "false");
+    AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
 }
 
 static char * FormatString(char * format, ...) {
@@ -1326,82 +1372,6 @@ __attribute__ ((optnone))
 init_block_data(MemoryArena * scratchArena) {
     blockSetup.arena = scratchArena;
     blockSetup.configs = CallocInArena(blockSetup.arena, serv->blockRegistry.entryCount * sizeof *blockSetup.configs);
-
-    register_block_model(BLOCK_MODEL_EMPTY, 0, NULL);
-    // @NOTE(traks) this initialises the full block model
-    for (int y = 1; y <= 16; y++) {
-        BoundingBox box = {0, 0, 0, 16, y, 16};
-        register_block_model(BLOCK_MODEL_EMPTY + y, 1, &box);
-    }
-    BoundingBox flower_pot_box = {5, 0, 5, 11, 6, 11};
-    register_block_model(BLOCK_MODEL_FLOWER_POT, 1, &flower_pot_box);
-    BoundingBox cactus_box = {1, 0, 1, 15, 15, 15};
-    register_block_model(BLOCK_MODEL_CACTUS, 1, &cactus_box);
-    BoundingBox composter_boxes[] = {
-        {0, 0, 0, 16, 2, 16}, // bottom
-        {0, 0, 0, 2, 16, 16}, // wall neg x
-        {0, 0, 0, 16, 16, 2}, // wall neg z
-        {14, 0, 0, 16, 16, 16}, // wall pos x
-        {0, 0, 14, 16, 16, 16}, // wall pos z
-    };
-    register_block_model(BLOCK_MODEL_COMPOSTER, ARRAY_SIZE(composter_boxes), composter_boxes);
-    BoundingBox honey_box = {1, 0, 1, 15, 15, 15};
-    register_block_model(BLOCK_MODEL_HONEY_BLOCK, 1, &honey_box);
-    BoundingBox fence_gate_facing_x_box = {6, 0, 0, 10, 24, 16};
-    BoundingBox fence_gate_facing_z_box = {0, 0, 6, 16, 24, 10};
-    register_block_model(BLOCK_MODEL_FENCE_GATE_FACING_X, 1, &fence_gate_facing_x_box);
-    register_block_model(BLOCK_MODEL_FENCE_GATE_FACING_Z, 1, &fence_gate_facing_z_box);
-
-    BlockModel centredBambooModel = {
-        .size = 1,
-        .nonEmptyFaces = (1 << DIRECTION_NEG_Y) | (1 << DIRECTION_POS_Y),
-        .boxes = {{6.5f, 0, 6.5f, 9.5f, 16, 9.5f}}
-    };
-    DivideOutCollisionModelPixels(&centredBambooModel);
-    RegisterBlockModel(BLOCK_MODEL_CENTRED_BAMBOO, centredBambooModel);
-
-    BoundingBox pane_centre_box = {7, 0, 7, 9, 16, 9};
-    BoundingBox pane_neg_z_box = {7, 0, 0, 9, 16, 9};
-    BoundingBox pane_z_box = {7, 0, 0, 9, 16, 16};
-    register_cross_block_models(BLOCK_MODEL_PANE_CENTRE, pane_centre_box,
-            pane_neg_z_box, pane_z_box);
-
-    BoundingBox fence_centre_box = {6, 0, 6, 10, 24, 10};
-    BoundingBox fence_neg_z_box = {6, 0, 0, 10, 24, 10};
-    BoundingBox fence_z_box = {6, 0, 0, 10, 24, 16};
-    register_cross_block_models(BLOCK_MODEL_FENCE_CENTRE, fence_centre_box,
-            fence_neg_z_box, fence_z_box);
-
-    BoundingBox boxes_foot_pos_x[] = {
-        {0, 3, 0, 16, 9, 16}, // horizontal part
-        {0, 0, 0, 3, 3, 3}, // leg 1
-        {0, 0, 13, 3, 3, 16}, // leg 2
-    };
-    for (int rot = 0; rot < 4; rot++) {
-        int model_index = BLOCK_MODEL_BED_FOOT_POS_X + rot;
-        register_block_model(model_index, ARRAY_SIZE(boxes_foot_pos_x), boxes_foot_pos_x);
-        for (int boxIndex = 0; boxIndex < (i32) ARRAY_SIZE(boxes_foot_pos_x); boxIndex++) {
-            boxes_foot_pos_x[boxIndex] = rotate_block_box_clockwise(boxes_foot_pos_x[boxIndex]);
-        }
-    }
-
-    BoundingBox lectern_boxes[] = {
-        {0, 0, 0, 16, 2, 16}, // base
-        {4, 2, 4, 12, 14, 12}, // post
-    };
-    register_block_model(BLOCK_MODEL_LECTERN, ARRAY_SIZE(lectern_boxes), lectern_boxes);
-    BoundingBox slab_top_box = {0, 8, 0, 16, 16, 16};
-    register_block_model(BLOCK_MODEL_TOP_SLAB, 1, &slab_top_box);
-    BoundingBox lily_pad_box = {1, 0, 1, 15, 1.5f, 15};
-    register_block_model(BLOCK_MODEL_LILY_PAD, 1, &lily_pad_box);
-    BoundingBox scaffoldingBoxes[] = {
-        {0, 14, 0, 16, 16, 16}, // top part
-        {0, 0, 0, 2, 16, 2}, // leg 1
-        {14, 0, 0, 16, 16, 2}, // leg 2
-        {0, 0, 14, 2, 16, 16}, // leg 3
-        {14, 0, 14, 16, 16, 16}, // leg 4
-    };
-    register_block_model(BLOCK_MODEL_SCAFFOLDING, 5, scaffoldingBoxes);
 
     InitBoolProperty(BLOCK_PROPERTY_ATTACHED, "attached");
     InitBoolProperty(BLOCK_PROPERTY_BOTTOM, "bottom");
@@ -1520,6 +1490,9 @@ init_block_data(MemoryArena * scratchArena) {
     InitListProperty(BLOCK_PROPERTY_CREAKING, "creaking", "disabled", "dormant", "active", NULL);
     InitBoolProperty(BLOCK_PROPERTY_OMINOUS, "ominous");
 
+    // NOTE(traks): ensure model 0 is the empty model
+    RegisterBlockModel(MakeEmptyModel());
+
     BlockConfig * config;
 
     InitSimpleEmptyBlock("minecraft:air");
@@ -1595,13 +1568,21 @@ init_block_data(MemoryArena * scratchArena) {
     init_stair_props("minecraft:bamboo_mosaic_stairs");
     init_slab("minecraft:bamboo_mosaic_slab");
     config = BeginNextBlock("minecraft:bamboo_sapling");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_BAMBOO_SAPLING);
     config = BeginNextBlock("minecraft:bamboo");
     AddProperty(config, BLOCK_PROPERTY_AGE_1, "0");
     AddProperty(config, BLOCK_PROPERTY_BAMBOO_LEAVES, "none");
     AddProperty(config, BLOCK_PROPERTY_STAGE, "0");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_CENTRED_BAMBOO, BLOCK_MODEL_CENTRED_BAMBOO, BLOCK_MODEL_EMPTY);
+    // TODO(traks): this model is not static, but adjusted based on coordinates
+    // of the bamboo in the world. How do we want to deal with that with regards
+    // to model flags? We can't really precompute the flags? Or perhaps we can,
+    // because the dynamic result is probably the same
+    BlockModel centredBambooModel = {
+        .size = 1,
+        .boxes = {{6.5f, 0, 6.5f, 9.5f, 16, 9.5f}}
+    };
+    SetAllModelsForAllStatesIndividually(config, centredBambooModel, centredBambooModel, MakeEmptyModel());
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_BAMBOO);
     InitFlowerPot("minecraft:potted_bamboo");
 
@@ -1621,7 +1602,7 @@ init_block_data(MemoryArena * scratchArena) {
         char * colour = basicColours[colourIndex];
         init_bed(FormatString("minecraft:%s_bed", colour));
         InitSimpleFullBlock(FormatString("minecraft:%s_wool", colour));
-        InitSimpleBlockWithModels(FormatString("minecraft:%s_stained_glass", colour), BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY, 0, 0);
+        InitSimpleBlockWithModels(FormatString("minecraft:%s_stained_glass", colour), MakeFullModel(), MakeFullModel(), MakeEmptyModel(), 0, 0);
         init_pane(FormatString("minecraft:%s_stained_glass_pane", colour));
         InitSimpleFullBlock(FormatString("minecraft:%s_terracotta", colour));
         InitCarpet(FormatString("minecraft:%s_carpet", colour));
@@ -1817,14 +1798,14 @@ init_block_data(MemoryArena * scratchArena) {
     // @TODO(traks) slower movement in fluids
     config = BeginNextBlock("minecraft:water");
     AddProperty(config, BLOCK_PROPERTY_LEVEL_FLUID, "0");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     SetLightReductionForAllStates(config, 1);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
 
     // @TODO(traks) slower movement in fluids
     config = BeginNextBlock("minecraft:lava");
     AddProperty(config, BLOCK_PROPERTY_LEVEL_FLUID, "0");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     SetLightReductionForAllStates(config, 1);
     SetEmittedLightForAllStates(config, 15);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
@@ -1840,7 +1821,7 @@ init_block_data(MemoryArena * scratchArena) {
 
     config = BeginNextBlock("minecraft:mangrove_roots");
     AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionWhenWaterlogged(config);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
 
@@ -1853,21 +1834,21 @@ init_block_data(MemoryArena * scratchArena) {
     config = BeginNextBlock("minecraft:dispenser");
     AddProperty(config, BLOCK_PROPERTY_FACING, "north");
     AddProperty(config, BLOCK_PROPERTY_TRIGGERED, "false");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionForAllStates(config, 15);
 
     config = BeginNextBlock("minecraft:note_block");
     AddProperty(config, BLOCK_PROPERTY_NOTEBLOCK_INSTRUMENT, "harp");
     AddProperty(config, BLOCK_PROPERTY_NOTE, "0");
     AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionForAllStates(config, 15);
 
     config = BeginNextBlock("minecraft:powered_rail");
     AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
     AddProperty(config, BLOCK_PROPERTY_RAIL_SHAPE_STRAIGHT, "north_south");
     AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     SetLightReductionForAllStates(config, 0);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
 
@@ -1875,7 +1856,7 @@ init_block_data(MemoryArena * scratchArena) {
     AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
     AddProperty(config, BLOCK_PROPERTY_RAIL_SHAPE_STRAIGHT, "north_south");
     AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     SetLightReductionForAllStates(config, 0);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
 
@@ -1885,16 +1866,16 @@ init_block_data(MemoryArena * scratchArena) {
     AddProperty(config, BLOCK_PROPERTY_FACING, "north");
 
     // @TODO(traks) slow down entities in cobwebs
-    init_simple_block("minecraft:cobweb", BLOCK_MODEL_EMPTY, 1, 0);
+    init_simple_block("minecraft:cobweb", MakeEmptyModel(), 1, 0);
     InitSimplePlant("minecraft:short_grass");
     InitSimplePlant("minecraft:fern");
 
     config = BeginNextBlock("minecraft:dead_bush");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_SOIL_OR_DRY_SOIL_BELOW);
 
     config = BeginNextBlock("minecraft:seagrass");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     SetLightReductionForAllStates(config, 1);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
 
@@ -1930,16 +1911,16 @@ init_block_data(MemoryArena * scratchArena) {
     InitSimplePlant("minecraft:cornflower");
 
     config = BeginNextBlock("minecraft:wither_rose");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_WITHER_ROSE);
 
     InitSimplePlant("minecraft:lily_of_the_valley");
-    init_simple_block("minecraft:brown_mushroom", BLOCK_MODEL_EMPTY, 0, 1);
+    init_simple_block("minecraft:brown_mushroom", MakeEmptyModel(), 0, 1);
     InitSimpleEmptyBlock("minecraft:red_mushroom");
 
     config = BeginNextBlock("minecraft:tnt");
     AddProperty(config, BLOCK_PROPERTY_UNSTABLE, "false");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionForAllStates(config, 15);
 
     InitSimpleFullBlock("minecraft:bookshelf");
@@ -1966,13 +1947,13 @@ init_block_data(MemoryArena * scratchArena) {
     AddProperty(config, BLOCK_PROPERTY_POS_Z, "false");
     AddProperty(config, BLOCK_PROPERTY_POS_Y, "false");
     AddProperty(config, BLOCK_PROPERTY_NEG_X, "false");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     SetLightReductionForAllStates(config, 0);
     SetEmittedLightForAllStates(config, 15);
 
     // @TODO(traks) do damage in fire
-    init_simple_block("minecraft:soul_fire", BLOCK_MODEL_EMPTY, 0, 10);
-    InitSimpleBlockWithModels("minecraft:spawner", BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY, 1, 0);
+    init_simple_block("minecraft:soul_fire", MakeEmptyModel(), 0, 10);
+    InitSimpleBlockWithModels("minecraft:spawner", MakeFullModel(), MakeFullModel(), MakeEmptyModel(), 1, 0);
 
     // TODO(traks): block models + light reduction, etc.
     config = BeginNextBlock("minecraft:creaking_heart");
@@ -1992,25 +1973,25 @@ init_block_data(MemoryArena * scratchArena) {
     AddProperty(config, BLOCK_PROPERTY_POWER, "0");
     AddProperty(config, BLOCK_PROPERTY_REDSTONE_POS_Z, "none");
     AddProperty(config, BLOCK_PROPERTY_REDSTONE_NEG_X, "none");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_REDSTONE_WIRE);
 
     InitSimpleFullBlock("minecraft:crafting_table");
 
     config = BeginNextBlock("minecraft:wheat");
     AddProperty(config, BLOCK_PROPERTY_AGE_7, "0");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_FARMLAND_BELOW);
 
     config = BeginNextBlock("minecraft:farmland");
     AddProperty(config, BLOCK_PROPERTY_MOISTURE, "0");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_Y_15);
+    SetAllModelsForAllStates(config, MakeYModel(15));
     SetLightReductionForAllStates(config, 0);
 
     config = BeginNextBlock("minecraft:furnace");
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     AddProperty(config, BLOCK_PROPERTY_LIT, "false");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionForAllStates(config, 15);
     SetEmittedLightWhenLit(config, 13);
 
@@ -2024,7 +2005,7 @@ init_block_data(MemoryArena * scratchArena) {
     config = BeginNextBlock("minecraft:rail");
     AddProperty(config, BLOCK_PROPERTY_RAIL_SHAPE, "north_south");
     AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     SetLightReductionForAllStates(config, 0);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
 
@@ -2032,14 +2013,14 @@ init_block_data(MemoryArena * scratchArena) {
     AddProperty(config, BLOCK_PROPERTY_ATTACH_FACE, "wall");
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_FULL_SUPPORT_ATTACHED);
 
     init_door_props("minecraft:iron_door");
 
     config = BeginNextBlock("minecraft:redstone_torch");
     AddProperty(config, BLOCK_PROPERTY_LIT, "true");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     SetLightReductionForAllStates(config, 0);
     SetEmittedLightWhenLit(config, 7);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR);
@@ -2047,7 +2028,7 @@ init_block_data(MemoryArena * scratchArena) {
     config = BeginNextBlock("minecraft:redstone_wall_torch");
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     AddProperty(config, BLOCK_PROPERTY_LIT, "true");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     SetLightReductionForAllStates(config, 0);
     SetEmittedLightWhenLit(config, 7);
 
@@ -2055,36 +2036,37 @@ init_block_data(MemoryArena * scratchArena) {
     AddProperty(config, BLOCK_PROPERTY_LAYERS, "1");
     for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
         block_state_info info = DescribeStateIndex(&config->props, stateIndex);
-        i32 collisionModelId = BLOCK_MODEL_EMPTY + (info.layers - 1) * 2;
-        i32 supportModelId = BLOCK_MODEL_EMPTY + info.layers * 2;
+        i32 collisionModelId = RegisterBlockModel(MakeYModel((info.layers - 1) * 2));
+        i32 supportModelId = RegisterBlockModel(MakeYModel(info.layers * 2));
         config->collisionModelByState[stateIndex] = collisionModelId;
         config->supportModelByState[stateIndex] = supportModelId;
         config->lightBlockingModelByState[stateIndex] = supportModelId;
     }
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_SNOW_LAYER);
 
-    InitSimpleBlockWithModels("minecraft:ice", BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY, 1, 0);
+    InitSimpleBlockWithModels("minecraft:ice", MakeFullModel(), MakeFullModel(), MakeEmptyModel(), 1, 0);
     InitSimpleFullBlock("minecraft:snow_block");
 
     config = BeginNextBlock("minecraft:cactus");
     AddProperty(config, BLOCK_PROPERTY_AGE_15, "0");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_CACTUS, BLOCK_MODEL_CACTUS, BLOCK_MODEL_EMPTY);
+    BlockModel cactusModel = {.size = 1, .boxes = {{1, 0, 1, 15, 15, 15}}};
+    SetAllModelsForAllStatesIndividually(config, cactusModel, cactusModel, MakeEmptyModel());
     SetLightReductionForAllStates(config, 0);
 
     InitSimpleFullBlock("minecraft:clay");
 
     config = BeginNextBlock("minecraft:sugar_cane");
     AddProperty(config, BLOCK_PROPERTY_AGE_15, "0");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_SUGAR_CANE);
 
     config = BeginNextBlock("minecraft:jukebox");
     AddProperty(config, BLOCK_PROPERTY_HAS_RECORD, "false");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionForAllStates(config, 15);
 
     InitSimpleFullBlock("minecraft:netherrack");
-    InitSimpleBlockWithModels("minecraft:soul_sand", BLOCK_MODEL_Y_14, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY, 15, 0);
+    InitSimpleBlockWithModels("minecraft:soul_sand", MakeYModel(14), MakeFullModel(), MakeEmptyModel(), 15, 0);
     InitSimpleFullBlock("minecraft:soul_soil");
     init_pillar("minecraft:basalt", 0);
     init_pillar("minecraft:polished_basalt", 0);
@@ -2096,19 +2078,19 @@ init_block_data(MemoryArena * scratchArena) {
 
     config = BeginNextBlock("minecraft:nether_portal");
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_AXIS, "x");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     SetLightReductionForAllStates(config, 0);
     SetEmittedLightForAllStates(config, 11);
 
     config = BeginNextBlock("minecraft:carved_pumpkin");
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionForAllStates(config, 15);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NO_CONNECTIONS);
 
     config = BeginNextBlock("minecraft:jack_o_lantern");
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionForAllStates(config, 15);
     SetEmittedLightForAllStates(config, 15);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NO_CONNECTIONS);
@@ -2122,7 +2104,7 @@ init_block_data(MemoryArena * scratchArena) {
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     AddProperty(config, BLOCK_PROPERTY_LOCKED, "false");
     AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_Y_2, BLOCK_MODEL_Y_2, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeYModel(2), MakeYModel(2), MakeEmptyModel());
     SetLightReductionForAllStates(config, 0);
 
     InitSimpleFullBlock("minecraft:packed_mud");
@@ -2156,22 +2138,22 @@ init_block_data(MemoryArena * scratchArena) {
 
     config = BeginNextBlock("minecraft:attached_pumpkin_stem");
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     SetLightReductionForAllStates(config, 0);
 
     config = BeginNextBlock("minecraft:attached_melon_stem");
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     SetLightReductionForAllStates(config, 0);
 
     config = BeginNextBlock("minecraft:pumpkin_stem");
     AddProperty(config, BLOCK_PROPERTY_AGE_7, "0");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_FARMLAND_BELOW);
 
     config = BeginNextBlock("minecraft:melon_stem");
     AddProperty(config, BLOCK_PROPERTY_AGE_7, "0");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_FARMLAND_BELOW);
 
     config = BeginNextBlock("minecraft:vine");
@@ -2180,7 +2162,7 @@ init_block_data(MemoryArena * scratchArena) {
     AddProperty(config, BLOCK_PROPERTY_POS_Z, "false");
     AddProperty(config, BLOCK_PROPERTY_POS_Y, "false");
     AddProperty(config, BLOCK_PROPERTY_NEG_X, "false");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     SetLightReductionForAllStates(config, 0);
 
     InitMultiFaceBlock("minecraft:glow_lichen", 7);
@@ -2188,15 +2170,16 @@ init_block_data(MemoryArena * scratchArena) {
     init_snowy_grassy_block("minecraft:mycelium");
 
     config = BeginNextBlock("minecraft:lily_pad");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_LILY_PAD, BLOCK_MODEL_LILY_PAD, BLOCK_MODEL_EMPTY);
+    BlockModel lilyPadModel = {.size = 1, .boxes = {{1, 0, 1, 15, 1.5f, 15}}};
+    SetAllModelsForAllStatesIndividually(config, lilyPadModel, lilyPadModel, MakeEmptyModel());
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_LILY_PAD);
 
     config = BeginNextBlock("minecraft:nether_wart");
     AddProperty(config, BLOCK_PROPERTY_AGE_3, "0");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NETHER_WART);
 
-    InitSimpleBlockWithModels("minecraft:enchanting_table", BLOCK_MODEL_Y_12, BLOCK_MODEL_Y_12, BLOCK_MODEL_Y_12, 1, 7);
+    InitSimpleBlockWithModels("minecraft:enchanting_table", MakeYModel(12), MakeYModel(12), MakeYModel(12), 1, 7);
 
     // TODO(traks): block models + light reduction
     config = BeginNextBlock("minecraft:brewing_stand");
@@ -2210,7 +2193,7 @@ init_block_data(MemoryArena * scratchArena) {
     init_cauldron("minecraft:lava_cauldron", 0, 15);
     init_cauldron("minecraft:powder_snow_cauldron", 1, 0);
 
-    init_simple_block("minecraft:end_portal", BLOCK_MODEL_EMPTY, 0, 15);
+    init_simple_block("minecraft:end_portal", MakeEmptyModel(), 0, 15);
 
     // TODO(traks): block models + light reduction
     config = BeginNextBlock("minecraft:end_portal_frame");
@@ -2220,11 +2203,11 @@ init_block_data(MemoryArena * scratchArena) {
 
     InitSimpleFullBlock("minecraft:end_stone");
     // @TODO(traks) correct block model
-    InitSimpleBlockWithModels("minecraft:dragon_egg", BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY, 0, 1);
+    InitSimpleBlockWithModels("minecraft:dragon_egg", MakeFullModel(), MakeFullModel(), MakeEmptyModel(), 0, 1);
 
     config = BeginNextBlock("minecraft:redstone_lamp");
     AddProperty(config, BLOCK_PROPERTY_LIT, "false");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionForAllStates(config, 15);
 
     // TODO(traks): block models + light reduction
@@ -2253,17 +2236,17 @@ init_block_data(MemoryArena * scratchArena) {
     AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
     AddProperty(config, BLOCK_PROPERTY_POS_Z, "false");
     AddProperty(config, BLOCK_PROPERTY_NEG_X, "false");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     SetLightReductionForAllStates(config, 0);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR);
 
     config = BeginNextBlock("minecraft:command_block");
     AddProperty(config, BLOCK_PROPERTY_CONDITIONAL, "false");
     AddProperty(config, BLOCK_PROPERTY_FACING, "north");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionForAllStates(config, 15);
 
-    InitSimpleBlockWithModels("minecraft:beacon", BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY, 1, 15);
+    InitSimpleBlockWithModels("minecraft:beacon", MakeFullModel(), MakeFullModel(), MakeEmptyModel(), 1, 15);
 
     InitFlowerPot("minecraft:flower_pot");
     InitFlowerPot("minecraft:potted_torchflower");
@@ -2288,12 +2271,12 @@ init_block_data(MemoryArena * scratchArena) {
 
     config = BeginNextBlock("minecraft:carrots");
     AddProperty(config, BLOCK_PROPERTY_AGE_7, "0");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_FARMLAND_BELOW);
 
     config = BeginNextBlock("minecraft:potatoes");
     AddProperty(config, BLOCK_PROPERTY_AGE_7, "0");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_FARMLAND_BELOW);
 
     // @TODO(traks) collision models
@@ -2326,14 +2309,14 @@ init_block_data(MemoryArena * scratchArena) {
 
     config = BeginNextBlock("minecraft:light_weighted_pressure_plate");
     AddProperty(config, BLOCK_PROPERTY_POWER, "0");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     SetLightReductionForAllStates(config, 0);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_PLATE_SUPPORTING_SURFACE_BELOW);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR);
 
     config = BeginNextBlock("minecraft:heavy_weighted_pressure_plate");
     AddProperty(config, BLOCK_PROPERTY_POWER, "0");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     SetLightReductionForAllStates(config, 0);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_PLATE_SUPPORTING_SURFACE_BELOW);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FORCE_WALL_PILLAR);
@@ -2342,13 +2325,13 @@ init_block_data(MemoryArena * scratchArena) {
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     AddProperty(config, BLOCK_PROPERTY_MODE_COMPARATOR, "compare");
     AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_Y_2, BLOCK_MODEL_Y_2, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeYModel(2), MakeYModel(2), MakeEmptyModel());
     SetLightReductionForAllStates(config, 0);
 
     config = BeginNextBlock("minecraft:daylight_detector");
     AddProperty(config, BLOCK_PROPERTY_INVERTED, "false");
     AddProperty(config, BLOCK_PROPERTY_POWER, "0");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_Y_6);
+    SetAllModelsForAllStates(config, MakeYModel(6));
     SetLightReductionForAllStates(config, 0);
 
     InitSimpleFullBlock("minecraft:nether_quartz_ore");
@@ -2362,21 +2345,21 @@ init_block_data(MemoryArena * scratchArena) {
     AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
     AddProperty(config, BLOCK_PROPERTY_RAIL_SHAPE_STRAIGHT, "north_south");
     AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     SetLightReductionForAllStates(config, 0);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
 
     config = BeginNextBlock("minecraft:dropper");
     AddProperty(config, BLOCK_PROPERTY_FACING, "north");
     AddProperty(config, BLOCK_PROPERTY_TRIGGERED, "false");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionForAllStates(config, 15);
 
-    InitSimpleBlockWithModels("minecraft:slime_block", BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY, 1, 0);
+    InitSimpleBlockWithModels("minecraft:slime_block", MakeFullModel(), MakeFullModel(), MakeEmptyModel(), 1, 0);
 
     config = BeginNextBlock("minecraft:barrier");
     AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionWhenWaterlogged(config);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NO_CONNECTIONS);
@@ -2384,7 +2367,7 @@ init_block_data(MemoryArena * scratchArena) {
     config = BeginNextBlock("minecraft:light");
     AddProperty(config, BLOCK_PROPERTY_LEVEL_LIGHT, "15");
     AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     SetLightReductionForAllStates(config, 0);
     for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
         block_state_info info = DescribeStateIndex(&config->props, stateIndex);
@@ -2427,7 +2410,7 @@ init_block_data(MemoryArena * scratchArena) {
 
     config = BeginNextBlock("minecraft:torchflower_crop");
     AddProperty(config, BLOCK_PROPERTY_AGE_1, "0");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_FARMLAND_BELOW);
 
     // TODO(traks): behaviours, models, etc.
@@ -2439,27 +2422,27 @@ init_block_data(MemoryArena * scratchArena) {
 
     config = BeginNextBlock("minecraft:beetroots");
     AddProperty(config, BLOCK_PROPERTY_AGE_3, "0");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_FARMLAND_BELOW);
 
-    init_simple_block("minecraft:dirt_path", BLOCK_MODEL_Y_15, 0, 0);
-    init_simple_block("minecraft:end_gateway", BLOCK_MODEL_EMPTY, 0, 15);
+    init_simple_block("minecraft:dirt_path", MakeYModel(15), 0, 0);
+    init_simple_block("minecraft:end_gateway", MakeEmptyModel(), 0, 15);
 
     config = BeginNextBlock("minecraft:repeating_command_block");
     AddProperty(config, BLOCK_PROPERTY_CONDITIONAL, "false");
     AddProperty(config, BLOCK_PROPERTY_FACING, "north");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionForAllStates(config, 15);
 
     config = BeginNextBlock("minecraft:chain_command_block");
     AddProperty(config, BLOCK_PROPERTY_CONDITIONAL, "false");
     AddProperty(config, BLOCK_PROPERTY_FACING, "north");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionForAllStates(config, 15);
 
     config = BeginNextBlock("minecraft:frosted_ice");
     AddProperty(config, BLOCK_PROPERTY_AGE_3, "0");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionForAllStates(config, 15);
 
     InitSimpleFullEmittingBlock("minecraft:magma_block", 3);
@@ -2472,17 +2455,17 @@ init_block_data(MemoryArena * scratchArena) {
     config = BeginNextBlock("minecraft:observer");
     AddProperty(config, BLOCK_PROPERTY_FACING, "south");
     AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionForAllStates(config, 15);
 
     config = BeginNextBlock("minecraft:kelp");
     AddProperty(config, BLOCK_PROPERTY_AGE_25, "0");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     SetLightReductionForAllStates(config, 1);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
 
     config = BeginNextBlock("minecraft:kelp_plant");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     SetLightReductionForAllStates(config, 1);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
 
@@ -2551,26 +2534,26 @@ init_block_data(MemoryArena * scratchArena) {
 
     config = BeginNextBlock("minecraft:loom");
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionForAllStates(config, 15);
 
     config = BeginNextBlock("minecraft:barrel");
     AddProperty(config, BLOCK_PROPERTY_FACING, "north");
     AddProperty(config, BLOCK_PROPERTY_OPEN, "false");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionForAllStates(config, 15);
 
     config = BeginNextBlock("minecraft:smoker");
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     AddProperty(config, BLOCK_PROPERTY_LIT, "false");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionForAllStates(config, 15);
     SetEmittedLightWhenLit(config, 13);
 
     config = BeginNextBlock("minecraft:blast_furnace");
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     AddProperty(config, BLOCK_PROPERTY_LIT, "false");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionForAllStates(config, 15);
     SetEmittedLightWhenLit(config, 13);
 
@@ -2586,14 +2569,21 @@ init_block_data(MemoryArena * scratchArena) {
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     AddProperty(config, BLOCK_PROPERTY_HAS_BOOK, "false");
     AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_LECTERN);
+    BlockModel lecternModel = {
+        .size = 2,
+        .boxes = {
+            {0, 0, 0, 16, 2, 16}, // base
+            {4, 2, 4, 12, 14, 12}, // post
+        }
+    };
+    SetAllModelsForAllStates(config, lecternModel);
     SetLightReductionForAllStates(config, 0);
 
     InitSimpleFullBlock("minecraft:smithing_table");
 
     config = BeginNextBlock("minecraft:stonecutter");
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_Y_9, BLOCK_MODEL_Y_9, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeYModel(9), MakeYModel(9), MakeEmptyModel());
     SetLightReductionForAllStates(config, 0);
 
     // TODO(traks): collisions models + light reduction
@@ -2621,7 +2611,7 @@ init_block_data(MemoryArena * scratchArena) {
     AddProperty(config, BLOCK_PROPERTY_LIT, "true");
     AddProperty(config, BLOCK_PROPERTY_SIGNAL_FIRE, "false");
     AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_Y_7, BLOCK_MODEL_Y_7, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeYModel(7), MakeYModel(7), MakeEmptyModel());
     SetLightReductionForAllStates(config, 0);
     SetEmittedLightWhenLit(config, 15);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
@@ -2631,14 +2621,14 @@ init_block_data(MemoryArena * scratchArena) {
     AddProperty(config, BLOCK_PROPERTY_LIT, "true");
     AddProperty(config, BLOCK_PROPERTY_SIGNAL_FIRE, "false");
     AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_Y_7, BLOCK_MODEL_Y_7, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeYModel(7), MakeYModel(7), MakeEmptyModel());
     SetLightReductionForAllStates(config, 0);
     SetEmittedLightWhenLit(config, 10);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
 
     config = BeginNextBlock("minecraft:sweet_berry_bush");
     AddProperty(config, BLOCK_PROPERTY_AGE_3, "0");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     SetLightReductionForAllStates(config, 0);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_SOIL_BELOW);
 
@@ -2652,14 +2642,14 @@ init_block_data(MemoryArena * scratchArena) {
 
     config = BeginNextBlock("minecraft:weeping_vines");
     AddProperty(config, BLOCK_PROPERTY_AGE_25, "0");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     SetLightReductionForAllStates(config, 0);
 
     InitSimpleEmptyBlock("minecraft:weeping_vines_plant");
 
     config = BeginNextBlock("minecraft:twisting_vines");
     AddProperty(config, BLOCK_PROPERTY_AGE_25, "0");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     SetLightReductionForAllStates(config, 0);
 
     InitSimpleEmptyBlock("minecraft:twisting_vines_plant");
@@ -2668,37 +2658,48 @@ init_block_data(MemoryArena * scratchArena) {
 
     config = BeginNextBlock("minecraft:structure_block");
     AddProperty(config, BLOCK_PROPERTY_STRUCTUREBLOCK_MODE, "save");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionForAllStates(config, 15);
 
     config = BeginNextBlock("minecraft:jigsaw");
     AddProperty(config, BLOCK_PROPERTY_JIGSAW_ORIENTATION, "north_up");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionForAllStates(config, 15);
 
     config = BeginNextBlock("minecraft:composter");
     AddProperty(config, BLOCK_PROPERTY_LEVEL_COMPOSTER, "0");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_COMPOSTER, BLOCK_MODEL_COMPOSTER, BLOCK_MODEL_EMPTY);
+    BlockModel composterModel = {
+        .size = 5,
+        .boxes = {
+            {0, 0, 0, 16, 2, 16}, // bottom
+            {0, 0, 0, 2, 16, 16}, // wall neg x
+            {0, 0, 0, 16, 16, 2}, // wall neg z
+            {14, 0, 0, 16, 16, 16}, // wall pos x
+            {0, 0, 14, 16, 16, 16}, // wall pos z
+        }
+    };
+    SetAllModelsForAllStatesIndividually(config, composterModel, composterModel, MakeEmptyModel());
     SetLightReductionForAllStates(config, 0);
 
     config = BeginNextBlock("minecraft:target");
     AddProperty(config, BLOCK_PROPERTY_POWER, "0");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionForAllStates(config, 15);
 
     config = BeginNextBlock("minecraft:bee_nest");
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     AddProperty(config, BLOCK_PROPERTY_LEVEL_HONEY, "0");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionForAllStates(config, 15);
 
     config = BeginNextBlock("minecraft:beehive");
     AddProperty(config, BLOCK_PROPERTY_HORIZONTAL_FACING, "north");
     AddProperty(config, BLOCK_PROPERTY_LEVEL_HONEY, "0");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionForAllStates(config, 15);
 
-    InitSimpleBlockWithModels("minecraft:honey_block", BLOCK_MODEL_HONEY_BLOCK, BLOCK_MODEL_HONEY_BLOCK, BLOCK_MODEL_EMPTY, 1, 0);
+    BlockModel honeyModel = {.size = 1, .boxes = {{1, 0, 1, 15, 15, 15}}};
+    InitSimpleBlockWithModels("minecraft:honey_block", honeyModel, honeyModel, MakeEmptyModel(), 1, 0);
     InitSimpleFullBlock("minecraft:honeycomb_block");
     InitSimpleFullBlock("minecraft:netherite_block");
     InitSimpleFullBlock("minecraft:ancient_debris");
@@ -2706,7 +2707,7 @@ init_block_data(MemoryArena * scratchArena) {
 
     config = BeginNextBlock("minecraft:respawn_anchor");
     AddProperty(config, BLOCK_PROPERTY_RESPAWN_ANCHOR_CHARGES, "0");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionForAllStates(config, 15);
     for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
         block_state_info info = DescribeStateIndex(&config->props, stateIndex);
@@ -2728,7 +2729,7 @@ init_block_data(MemoryArena * scratchArena) {
     InitSimpleFullBlock("minecraft:tinted_glass");
 
     // @TODO(traks) correct collision model, support model is correct though!
-    InitSimpleBlockWithModels("minecraft:powder_snow", BLOCK_MODEL_EMPTY, BLOCK_MODEL_EMPTY, BLOCK_MODEL_EMPTY, 1, 0);
+    InitSimpleBlockWithModels("minecraft:powder_snow", MakeEmptyModel(), MakeEmptyModel(), MakeEmptyModel(), 1, 0);
 
     // TODO(traks): block models + light reduction
     config = BeginNextBlock("minecraft:sculk_sensor");
@@ -2750,7 +2751,7 @@ init_block_data(MemoryArena * scratchArena) {
 
     config = BeginNextBlock("minecraft:sculk_catalyst");
     AddProperty(config, BLOCK_PROPERTY_BLOOM, "false");
-    SetAllModelsForAllStatesIndividually(config, BLOCK_MODEL_FULL, BLOCK_MODEL_FULL, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStatesIndividually(config, MakeFullModel(), MakeFullModel(), MakeEmptyModel());
     SetLightReductionForAllStates(config, 15);
     SetEmittedLightForAllStates(config, 6);
 
@@ -2758,7 +2759,7 @@ init_block_data(MemoryArena * scratchArena) {
     AddProperty(config, BLOCK_PROPERTY_SHRIEKING, "false");
     AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
     AddProperty(config, BLOCK_PROPERTY_CAN_SUMMON, "false");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_Y_8);
+    SetAllModelsForAllStates(config, MakeYModel(8));
     SetLightReductionForAllStates(config, 0);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
 
@@ -2790,7 +2791,7 @@ init_block_data(MemoryArena * scratchArena) {
     SetEmittedLightWhenBerries(config, 14);
 
     config = BeginNextBlock("minecraft:spore_blossom");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_NEED_POLE_SUPPORT_ABOVE);
 
     InitAzalea("minecraft:azalea");
@@ -2830,7 +2831,7 @@ init_block_data(MemoryArena * scratchArena) {
 
     config = BeginNextBlock("minecraft:hanging_roots");
     AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-    SetAllModelsForAllStates(config, BLOCK_MODEL_EMPTY);
+    SetAllModelsForAllStates(config, MakeEmptyModel());
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
 
     InitSimpleFullBlock("minecraft:rooted_dirt");
@@ -2892,4 +2893,5 @@ init_block_data(MemoryArena * scratchArena) {
     assert(ACTUAL_BLOCK_TYPE_COUNT == serv->blockRegistry.entryCount);
 
     LogInfo("Block state count: %d (ceillog2 = %d)", serv->vanilla_block_state_count, CeilLog2U32(serv->vanilla_block_state_count));
+    LogInfo("Block models: %d", (int) serv->staticBlockModelCount);
 }
