@@ -311,40 +311,57 @@ static i32 BlockLightCanPropagate(i32 fromModelIndex, i32 toModelIndex, i32 dir)
     return (curA != 1);
 }
 
-// NOTE(traks): all these rotation functions assume the coordinates of the box
-// are in pixel coordinates
-
-static BoundingBox
-rotate_block_box_clockwise(BoundingBox box) {
-    // NOTE(traks): view +X as up, +Z as to the right
-    BoundingBox res = {16 - box.maxZ , box.minY, box.minX, 16 - box.minZ, box.maxY, box.maxX};
-    return res;
-}
-
-static BoundingBox
-rotate_block_box_180(BoundingBox box) {
-    return rotate_block_box_clockwise(rotate_block_box_clockwise(box));
-}
-
-static BoundingBox
-rotate_block_box_counter_clockwise(BoundingBox box) {
-    return rotate_block_box_180(rotate_block_box_clockwise(box));
-}
-
-static BlockModel RotateBlockModelClockwise(BlockModel model) {
-    BlockModel res = model;
-    for (i32 boxIndex = 0; boxIndex < res.size; boxIndex++) {
-        res.boxes[boxIndex] = rotate_block_box_clockwise(res.boxes[boxIndex]);
+// NOTE(traks): 1 = counter clockwise, -1 = clockwise
+static i32 RotateDirectionQuarters(i32 dir, i32 quarters) {
+    i32 res = dir;
+    quarters = quarters & 0x3;
+    while (quarters > 0) {
+        // NOTE(traks): view +X as up, +Z as to the right
+        switch (res) {
+        case DIRECTION_POS_X: res = DIRECTION_NEG_Z; break;
+        case DIRECTION_NEG_Z: res = DIRECTION_NEG_X; break;
+        case DIRECTION_NEG_X: res = DIRECTION_POS_Z; break;
+        case DIRECTION_POS_Z: res = DIRECTION_POS_X; break;
+        }
+        quarters--;
     }
     return res;
 }
 
-static BlockModel RotateBlockModel180(BlockModel model) {
-    return RotateBlockModelClockwise(RotateBlockModelClockwise(model));
+static i32 QuartersFromTo(i32 fromDir, i32 toDir) {
+    for (i32 quarter = 0; quarter < 4; quarter++) {
+        if (RotateDirectionQuarters(fromDir, quarter) == toDir) {
+            return quarter;
+        }
+    }
+    // NOTE(traks): invalid directions, return 0 instead
+    assert(0);
+    return 0;
 }
 
-static BlockModel RotateBlockModelCounterClockwise(BlockModel model) {
-    return RotateBlockModel180(RotateBlockModelClockwise(model));
+// NOTE(traks): all these rotation functions assume the coordinates of the box
+// are in pixel coordinates
+
+static BoundingBox RotatePixelBoxQuarters(BoundingBox box, i32 quarters) {
+    BoundingBox res = box;
+    quarters = quarters & 0x3;
+    while (quarters > 0) {
+        res = (BoundingBox) {res.minZ, res.minY, 16 - res.maxX, res.maxZ, res.maxY, 16 - res.minX};
+        quarters--;
+    }
+    return res;
+}
+
+static BlockModel RotateBlockModelQuarters(BlockModel model, i32 quarters) {
+    BlockModel res = model;
+    for (i32 boxIndex = 0; boxIndex < res.size; boxIndex++) {
+        res.boxes[boxIndex] = RotatePixelBoxQuarters(res.boxes[boxIndex], quarters);
+    }
+    return res;
+}
+
+static BlockModel RotateBlockModelFromTo(BlockModel model, i32 fromDir, i32 toDir) {
+    return RotateBlockModelQuarters(model, QuartersFromTo(fromDir, toDir));
 }
 
 static BlockModel MakeEmptyModel(void) {
@@ -372,15 +389,15 @@ static BlockModel MakeCrossModel(BoundingBox boxPillar, BoundingBox boxNegZ, Bou
     } else if (negZ) {
         res.boxes[res.size++] = boxNegZ;
     } else if (posZ) {
-        res.boxes[res.size++] = rotate_block_box_180(boxNegZ);
+        res.boxes[res.size++] = RotatePixelBoxQuarters(boxNegZ, 2);
     }
 
     if (negX && posX) {
-        res.boxes[res.size++] = rotate_block_box_clockwise(boxFullZ);
+        res.boxes[res.size++] = RotatePixelBoxQuarters(boxFullZ, -1);
     } else if (negX) {
-        res.boxes[res.size++] = rotate_block_box_counter_clockwise(boxNegZ);
+        res.boxes[res.size++] = RotatePixelBoxQuarters(boxNegZ, 1);
     } else if (posX) {
-        res.boxes[res.size++] = rotate_block_box_clockwise(boxNegZ);
+        res.boxes[res.size++] = RotatePixelBoxQuarters(boxNegZ, -1);
     }
 
     // NOTE(traks): always do a pillar if not connected to any sides. Needed in
@@ -833,13 +850,7 @@ init_bed(char * resource_loc) {
                 {0, 0, 13, 3, 3, 16}, // leg 2
             }
         };
-        BlockModel finalModel = {0};
-        switch (facing) {
-        case DIRECTION_POS_X: finalModel = footModelPosX; break;
-        case DIRECTION_POS_Z: finalModel = RotateBlockModelClockwise(footModelPosX); break;
-        case DIRECTION_NEG_X: finalModel = RotateBlockModel180(footModelPosX); break;
-        case DIRECTION_NEG_Z: finalModel = RotateBlockModelCounterClockwise(footModelPosX); break;
-        }
+        BlockModel finalModel = RotateBlockModelFromTo(footModelPosX, DIRECTION_POS_X, facing);
         i32 modelId = RegisterBlockModel(finalModel);
         config->collisionModelByState[stateIndex] = modelId;
         config->supportModelByState[stateIndex] = modelId;
@@ -1048,7 +1059,23 @@ init_door_props(char * resource_loc, i32 openByHand) {
     AddProperty(config, BLOCK_PROPERTY_DOOR_HINGE, "left");
     AddProperty(config, BLOCK_PROPERTY_OPEN, "false");
     AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
-    // TODO(traks): block models
+    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
+        block_state_info info = DescribeStateIndex(&config->props, stateIndex);
+        i32 facing = info.horizontal_facing;
+        if (info.open) {
+            if (info.door_hinge == DOOR_HINGE_LEFT) {
+                facing = RotateDirectionQuarters(facing, -1);
+            } else {
+                facing = RotateDirectionQuarters(facing, 1);
+            }
+        }
+        BlockModel modelPosX = {.size = 1, .boxes = {{0, 0, 0, 3, 16, 16}}};
+        BlockModel finalModel = RotateBlockModelFromTo(modelPosX, DIRECTION_POS_X, facing);
+        i32 modelId = RegisterBlockModel(finalModel);
+        config->collisionModelByState[stateIndex] = modelId;
+        config->supportModelByState[stateIndex] = modelId;
+    }
+    SetLightBlockingModelForAllStates(config, MakeEmptyModel());
     SetLightReductionWhenWaterlogged(config);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_DOOR_MATCH_OTHER_PART);
     if (openByHand) {
@@ -1075,7 +1102,26 @@ init_trapdoor_props(char * resource_loc, i32 openByHand) {
     AddProperty(config, BLOCK_PROPERTY_OPEN, "false");
     AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
     AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-    // TODO(traks): block models
+    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
+        block_state_info info = DescribeStateIndex(&config->props, stateIndex);
+        BlockModel modelBottom = {.size = 1, .boxes = {{0, 0, 0, 16, 3, 16}}};
+        BlockModel modelTop = {.size = 1, .boxes = {{0, 13, 0, 16, 16, 16}}};
+        BlockModel modelPosX = {.size = 1, .boxes = {{0, 0, 0, 3, 16, 16}}};
+        BlockModel finalModel;
+        if (!info.open) {
+            if (info.half == BLOCK_HALF_BOTTOM) {
+                finalModel = modelBottom;
+            } else {
+                finalModel = modelTop;
+            }
+        } else {
+            i32 facing = info.horizontal_facing;
+            finalModel = RotateBlockModelFromTo(modelPosX, DIRECTION_POS_X, facing);
+        }
+        i32 modelId = RegisterBlockModel(finalModel);
+        config->collisionModelByState[stateIndex] = modelId;
+        config->supportModelByState[stateIndex] = modelId;
+    }
     SetLightBlockingModelForAllStates(config, MakeEmptyModel());
     SetLightReductionWhenWaterlogged(config);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
@@ -1100,7 +1146,7 @@ init_fence_gate(char * resource_loc) {
         } else if (get_direction_axis(info.horizontal_facing) == AXIS_X) {
             finalModel = modelFacingX;
         } else {
-            finalModel = RotateBlockModelClockwise(modelFacingX);
+            finalModel = RotateBlockModelQuarters(modelFacingX, -1);
         }
         i32 modelId = RegisterBlockModel(finalModel);
         config->collisionModelByState[stateIndex] = modelId;

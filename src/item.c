@@ -1136,6 +1136,8 @@ place_door(place_context context, i32 place_type) {
     WorldSetBlockState(target.pos, place_state);
 
     // place upper half
+    // TODO(traks): don't place door if top section can't be placed (if there's
+    // a block in the way or outside the world bounds)
     place_info.double_block_half = DOUBLE_BLOCK_HALF_UPPER;
     place_state = make_block_state(&place_info);
     WorldSetBlockState(WorldBlockPosRel(target.pos, DIRECTION_POS_Y), place_state);
