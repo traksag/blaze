@@ -1592,7 +1592,7 @@ int get_water_level(u16 state);
 int is_water_source(u16 state);
 int is_full_water(u16 state);
 
-#define MAX_BLOCK_MODELS (128)
+#define MAX_BLOCK_MODELS (256)
 
 typedef struct {
     // NOTE(traks): index by direction

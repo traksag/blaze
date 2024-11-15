@@ -257,6 +257,10 @@ move_entity(Entity * entity) {
     // recall, vanilla was sometimes doing two item entity movements in one
     // tick. What's really going on?
 
+    // TODO(traks): this need some optimisation, takes ~10us on my machine for
+    // an item entity lying on the ground. That's a lot, even for moving items
+    // it should be a lot less
+
     i32 worldId = entity->worldId;
     double x = entity->x;
     double y = entity->y;

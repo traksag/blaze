@@ -196,7 +196,14 @@ static i32 RegisterBlockModel(BlockModel pixelModel) {
         }
         i32 equal = 1;
         for (i32 boxIndex = 0; boxIndex < model.size; boxIndex++) {
-            if (memcmp(&model.boxes[boxIndex], &registered->boxes[boxIndex], sizeof model.boxes[boxIndex]) != 0) {
+            i32 foundOther = 0;
+            for (i32 otherIndex = 0; otherIndex < registered->size; otherIndex++) {
+                if (memcmp(&model.boxes[boxIndex], &registered->boxes[otherIndex], sizeof model.boxes[boxIndex]) == 0) {
+                    foundOther = 1;
+                    break;
+                }
+            }
+            if (!foundOther) {
                 equal = 0;
                 break;
             }
@@ -272,43 +279,25 @@ static PropagationTest BoxToPropagationTest(BoundingBox box, i32 dir) {
 
 // TODO(traks): most block models are not used for light propagation, because
 // most blocks have an empty light blocking model
-static i32 BlockLightCanPropagate(i32 fromModelIndex, i32 toModelIndex, i32 dir) {
-    BlockModel fromModel = serv->staticBlockModels[fromModelIndex];
-    BlockModel toModel = serv->staticBlockModels[toModelIndex];
-
-    i32 testCount = 0;
-    PropagationTest tests[16];
-
-    for (i32 i = 0; i < fromModel.size; i++) {
-        PropagationTest test = BoxToPropagationTest(fromModel.boxes[i], dir);
-        if (test.edge >= 1) {
-            tests[testCount++] = test;
+static i32 BlockLightCanPropagate(i32 fromId, i32 toId, i32 dir) {
+    BoundingBox boxes[16];
+    i32 boxCount = 0;
+    BlockModel fromModel = serv->staticBlockModels[fromId];
+    BlockModel toModel = serv->staticBlockModels[toId];
+    for (i32 boxIndex = 0; boxIndex < fromModel.size; boxIndex++) {
+        boxes[boxCount++] = fromModel.boxes[boxIndex];
+    }
+    for (i32 boxIndex = 0; boxIndex < toModel.size; boxIndex++) {
+        BoundingBox toBox = toModel.boxes[boxIndex];
+        if (get_direction_axis(dir) == AXIS_X) {
+            boxes[boxCount++] = (BoundingBox) {1 - toBox.maxX, toBox.minY, toBox.minZ, 1 - toBox.minX, toBox.maxY, toBox.maxZ};
+        } else if (get_direction_axis(dir) == AXIS_Y) {
+            boxes[boxCount++] = (BoundingBox) {toBox.minX, 1 - toBox.maxY, toBox.minZ, toBox.maxX, 1 - toBox.minY, toBox.maxZ};
+        } else {
+            boxes[boxCount++] = (BoundingBox) {toBox.minX, toBox.minY, 1 - toBox.maxZ, toBox.maxX, toBox.maxY, 1 - toBox.minZ};
         }
     }
-    for (i32 i = 0; i < toModel.size; i++) {
-        PropagationTest test = BoxToPropagationTest(fromModel.boxes[i], get_opposite_direction(dir));
-        if (test.edge >= 1) {
-            tests[testCount++] = test;
-        }
-    }
-
-    f32 curA = 0;
-    for (;;) {
-        f32 curB = 0;
-        f32 nextA = curA;
-        for (i32 testIndex = 0; testIndex < testCount; testIndex++) {
-            PropagationTest test = tests[testIndex];
-            if (test.minA <= curA && test.maxA >= curA && test.minB <= curB && test.maxB >= curB) {
-                curB = test.maxB;
-                nextA = MIN(nextA, test.maxA);
-            }
-        }
-        if (nextA == curA) {
-            break;
-        }
-    }
-
-    return (curA != 1);
+    return !block_boxes_contain_face(boxCount, boxes, (BoundingBox) {0, 0, 0, 1, 1, 1}, dir);
 }
 
 // NOTE(traks): 1 = counter clockwise, -1 = clockwise
@@ -350,6 +339,10 @@ static BoundingBox RotatePixelBoxQuarters(BoundingBox box, i32 quarters) {
         quarters--;
     }
     return res;
+}
+
+static BoundingBox RotatePixelBoxFromTo(BoundingBox box, i32 fromDir, i32 toDir) {
+    return RotatePixelBoxQuarters(box, QuartersFromTo(fromDir, toDir));
 }
 
 static BlockModel RotateBlockModelQuarters(BlockModel model, i32 quarters) {
@@ -513,7 +506,7 @@ static void InitDirectionProperty(i32 id, char * name, ...) {
     va_list ap;
     va_start(ap, name);
     char * options[] = {"north", "east", "south", "west", "up", "down"};
-    i32 intOptions[] = {DIRECTION_NEG_Z, DIRECTION_POS_X, DIRECTION_POS_Z, DIRECTION_NEG_X, DIRECTION_POS_X, DIRECTION_NEG_X};
+    i32 intOptions[] = {DIRECTION_NEG_Z, DIRECTION_POS_X, DIRECTION_POS_Z, DIRECTION_NEG_X, DIRECTION_POS_Y, DIRECTION_NEG_Y};
     InitRemapProperty(id, name, ARRAY_SIZE(options), options, intOptions, ap);
     va_end(ap);
 }
@@ -929,7 +922,39 @@ init_stair_props(char * resource_loc) {
     AddProperty(config, BLOCK_PROPERTY_HALF, "bottom");
     AddProperty(config, BLOCK_PROPERTY_STAIRS_SHAPE, "straight");
     AddProperty(config, BLOCK_PROPERTY_WATERLOGGED, "false");
-    // TODO(traks): block models
+    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
+        block_state_info info = DescribeStateIndex(&config->props, stateIndex);
+        BoundingBox boxSidePosX = {8, 0, 0, 16, 16, 16};
+        BoundingBox boxLeftCornerPosX = {8, 0, 0, 16, 16, 8};
+        BoundingBox boxTop = {0, 8, 0, 16, 16, 16};
+        BoundingBox boxBottom = {0, 0, 0, 16, 8, 16};
+        BlockModel finalModel = {0};
+        assert(ARRAY_SIZE(finalModel.boxes) >= 3);
+        i32 facing = info.horizontal_facing;
+        i32 quarters = QuartersFromTo(DIRECTION_POS_X, facing);
+        if (info.half == BLOCK_HALF_BOTTOM) {
+            finalModel.boxes[finalModel.size++] = boxBottom;
+        } else {
+            finalModel.boxes[finalModel.size++] = boxTop;
+        }
+        if (info.stairs_shape == STAIRS_SHAPE_STRAIGHT) {
+            finalModel.boxes[finalModel.size++] = RotatePixelBoxQuarters(boxSidePosX, quarters);
+        } else if (info.stairs_shape == STAIRS_SHAPE_INNER_LEFT) {
+            finalModel.boxes[finalModel.size++] = RotatePixelBoxQuarters(boxSidePosX, quarters);
+            finalModel.boxes[finalModel.size++] = RotatePixelBoxQuarters(boxSidePosX, quarters + 1);
+        } else if (info.stairs_shape == STAIRS_SHAPE_INNER_RIGHT) {
+            finalModel.boxes[finalModel.size++] = RotatePixelBoxQuarters(boxSidePosX, quarters);
+            finalModel.boxes[finalModel.size++] = RotatePixelBoxQuarters(boxSidePosX, quarters - 1);
+        } else if (info.stairs_shape == STAIRS_SHAPE_OUTER_LEFT) {
+            finalModel.boxes[finalModel.size++] = RotatePixelBoxQuarters(boxLeftCornerPosX, quarters);
+        } else {
+            finalModel.boxes[finalModel.size++] = RotatePixelBoxQuarters(boxLeftCornerPosX, quarters - 1);
+        }
+        i32 modelId = RegisterBlockModel(finalModel);
+        config->collisionModelByState[stateIndex] = modelId;
+        config->supportModelByState[stateIndex] = modelId;
+        config->lightBlockingModelByState[stateIndex] = modelId;
+    }
     SetLightReductionWhenWaterlogged(config);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_STAIRS);
@@ -1405,6 +1430,34 @@ static void InitBulb(char * resourceLoc) {
     BlockConfig * config = BeginNextBlock(resourceLoc);
     AddProperty(config, BLOCK_PROPERTY_LIT, "false");
     AddProperty(config, BLOCK_PROPERTY_POWERED, "false");
+}
+
+static void InitPistonBase(char * resourceLoc) {
+    BlockConfig * config = BeginNextBlock(resourceLoc);
+    AddProperty(config, BLOCK_PROPERTY_EXTENDED, "false");
+    AddProperty(config, BLOCK_PROPERTY_FACING, "north");
+    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
+        block_state_info info = DescribeStateIndex(&config->props, stateIndex);
+        BlockModel modelPosX = {.size = 1, .boxes = {{0, 0, 0, 12, 16, 16}}};
+        BlockModel modelUp = {.size = 1, .boxes = {{0, 0, 0, 16, 12, 16}}};
+        BlockModel modelDown = {.size = 1, .boxes = {{0, 4, 0, 16, 16, 16}}};
+        BlockModel finalModel = {0};
+        if (info.extended) {
+            if (info.facing == DIRECTION_POS_Y) {
+                finalModel = modelUp;
+            } else if (info.facing == DIRECTION_NEG_Y) {
+                finalModel = modelDown;
+            } else {
+                finalModel = RotateBlockModelFromTo(modelPosX, DIRECTION_POS_X, info.facing);
+            }
+        } else {
+            finalModel = MakeFullModel();
+        }
+        i32 modelId = RegisterBlockModel(finalModel);
+        config->collisionModelByState[stateIndex] = modelId;
+        config->supportModelByState[stateIndex] = modelId;
+        config->lightBlockingModelByState[stateIndex] = modelId;
+    }
 }
 
 static char * FormatString(char * format, ...) {
@@ -1924,10 +1977,7 @@ init_block_data(MemoryArena * scratchArena) {
     SetLightReductionForAllStates(config, 0);
     AddBlockBehaviour(config, BLOCK_BEHAVIOUR_FLUID);
 
-    // TODO(traks): block models + light reduction
-    config = BeginNextBlock("minecraft:sticky_piston");
-    AddProperty(config, BLOCK_PROPERTY_EXTENDED, "false");
-    AddProperty(config, BLOCK_PROPERTY_FACING, "north");
+    InitPistonBase("minecraft:sticky_piston");
 
     // @TODO(traks) slow down entities in cobwebs
     init_simple_block("minecraft:cobweb", MakeEmptyModel(), 1, 0);
@@ -1945,16 +1995,40 @@ init_block_data(MemoryArena * scratchArena) {
 
     init_tall_plant("minecraft:tall_seagrass", 1);
 
-    // TODO(traks): block models + light reduction
-    config = BeginNextBlock("minecraft:piston");
-    AddProperty(config, BLOCK_PROPERTY_EXTENDED, "false");
-    AddProperty(config, BLOCK_PROPERTY_FACING, "north");
+    InitPistonBase("minecraft:piston");
 
     // TODO(traks): block models + light reduction
     config = BeginNextBlock("minecraft:piston_head");
     AddProperty(config, BLOCK_PROPERTY_FACING, "north");
     AddProperty(config, BLOCK_PROPERTY_SHORT_PISTON, "false");
     AddProperty(config, BLOCK_PROPERTY_PISTON_TYPE, "normal");
+    for (i32 stateIndex = 0; stateIndex < config->stateCount; stateIndex++) {
+        block_state_info info = DescribeStateIndex(&config->props, stateIndex);
+        BoundingBox boxEndPosX = {12, 0, 0, 16, 16, 16};
+        BoundingBox boxEndUp = {0, 12, 0, 16, 16, 16};
+        BoundingBox boxEndDown = {0, 0, 0, 16, 4, 16};
+        BoundingBox boxArmPosX = {-4, 6, 6, 16, 10, 10};
+        BoundingBox boxArmUp = {6, -4, 6, 10, 16, 10};
+        BoundingBox boxArmDown = {6, 0, 6, 10, 20, 10};
+        BoundingBox boxShortArmPosX = {0, 6, 6, 16, 10, 10};
+        BoundingBox boxShortArmUp = {6, 0, 6, 10, 16, 10};
+        BoundingBox boxShortArmDown = {6, 0, 6, 10, 16, 10};
+        BlockModel finalModel = {0};
+        if (info.facing == DIRECTION_POS_Y) {
+            finalModel.boxes[finalModel.size++] = boxEndUp;
+            finalModel.boxes[finalModel.size++] = info.short_piston ? boxShortArmUp : boxArmUp;
+        } else if (info.facing == DIRECTION_NEG_Y) {
+            finalModel.boxes[finalModel.size++] = boxEndDown;
+            finalModel.boxes[finalModel.size++] = info.short_piston ? boxShortArmDown : boxArmDown;
+        } else {
+            finalModel.boxes[finalModel.size++] = RotatePixelBoxFromTo(boxEndPosX, DIRECTION_POS_X, info.facing);
+            finalModel.boxes[finalModel.size++] = RotatePixelBoxFromTo(info.short_piston ? boxShortArmPosX : boxArmPosX, DIRECTION_POS_X, info.facing);
+        }
+        i32 modelId = RegisterBlockModel(finalModel);
+        config->collisionModelByState[stateIndex] = modelId;
+        config->supportModelByState[stateIndex] = modelId;
+        config->lightBlockingModelByState[stateIndex] = modelId;
+    }
 
     // TODO(traks): block models + light reduction
     config = BeginNextBlock("minecraft:moving_piston");
